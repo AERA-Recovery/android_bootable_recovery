@@ -3719,7 +3719,7 @@
 					</conditions>
 				    <actions>
 					<action function="changesplash"/>
-					<action function="page">fox_theme_splash_fox_finish</action>
+					<action function="page">main</action>
 					</actions>
 			</slider>
 
