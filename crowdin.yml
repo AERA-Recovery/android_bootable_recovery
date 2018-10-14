@@ -1,2 +1,6 @@
 files:
     translation: gui/theme/common/languages/%two_letters_code%.xml
+    languages_mapping:
+      language:
+        zh-CN: gui/theme/common/extra-languages/languages/zh_CN.xml
+        zh-TW: gui/theme/common/extra-languages/languages/zh_TW.xml
