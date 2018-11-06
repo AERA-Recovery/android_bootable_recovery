@@ -2472,13 +2472,13 @@
 				<text>{@advanced_btn=Advanced}</text>
 				<image resource="button-bes" />
 				<font resource="button-text" color="%text_button%"/>
-				<action function="page">btnadvanced</action>
+				<action function="overlay">btnadvanced</action>
 			</button>
 
 			<button style="mb_btn">
 				<condition var1="ico_btn_mode" var2="1"/>
 				<placement x="600" y="650" w="%content_a%" h="%mb_h%"/>
-				<action function="page">btnadvanced</action>
+				<action function="overlay">btnadvanced</action>
 			</button>
 
 
@@ -13428,7 +13428,7 @@
 				<listitem name="{@fox_save_load_aromafm_config_chk}">
 					<data variable="fox_reboot_saveload_aromafm_check"/>
 				</listitem>
-				<listitem name="Use Green led">
+				<listitem name="{@fox_use_green_led}">
 					<data variable="fox_led_color"/>
 				</listitem>
 			</listbox>
@@ -14492,6 +14492,7 @@
 					<action function="set">tw_complete_text1={@copy_log_complete=Logs copied}</action>
 					<action function="set">tw_slider_text={@swipe_to_confirm=Swipe to Confirm}</action>
 					<action function="page">confirm_action</action>
+					<action function="overlay"/>
 				</actions>
 			</button>
 			
@@ -14513,6 +14514,7 @@
 					<action function="set">tw_complete_text1={@copy_log_complete=Logs copied}</action>
 					<action function="set">tw_slider_text={@swipe_to_confirm=Swipe to Confirm}</action>
 					<action function="page">confirm_action</action>
+					<action function="overlay"/>
 				</actions>
 			</button>
 			
@@ -14529,6 +14531,7 @@
 				<placement x="375" y="%row4_1_y%"/>
 				<image resource="mb_fixpermissions"/>
 				<action function="page">fixcontexts</action>
+				<action function="overlay"/>
 			</button>
 
 			<fill color="%accent%">
@@ -14541,6 +14544,7 @@
 				<placement x="365" y="%row4_1_y%"/>
 				<image resource="btn_fixpermissions_color"/>
 				<action function="page">fixcontexts</action>
+				<action function="overlay"/>
 			</button>			
 			
 			<button style="mb_btn">
@@ -14555,6 +14559,7 @@
 				<placement x="565" y="%row4_1_y%"/>
 				<image resource="mb_terminalcommand"/>
 				<action function="page">terminal</action>
+				<action function="overlay"/>
 			</button>
 			
 			<fill color="%accent%">
@@ -14567,6 +14572,7 @@
 				<placement x="557" y="%row4_1_y%"/>
 				<image resource="btn_terminalcommand_color"/>
 				<action function="page">terminal</action>
+				<action function="overlay"/>
 			</button>
 			
 			<button style="mb_btn">
@@ -14582,6 +14588,7 @@
 				<placement x="755" y="%row4_1_y%"/>
 				<image resource="mb_adbsideload"/>
 				<action function="page">sideload</action>
+				<action function="overlay"/>
 			</button>
 			
 			<fill color="%accent%">
@@ -14596,6 +14603,7 @@
 				<placement x="747" y="%row4_1_y%"/>
 				<image resource="btn_adbsideload_color"/>
 				<action function="page">sideload</action>
+				<action function="overlay"/>
 			</button>
 
 			<button style="mb_btn">
@@ -14619,12 +14627,14 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main2</action>
+				<action function="overlay"/>
 			</action>
 
 
 			<action>
 				<touch key="back"/>
 				<action function="page">main2</action>
+				<action function="overlay"/>
 			</action>
 
 		</page>
