@@ -383,6 +383,8 @@ TWRP_REQUIRED_MODULES += \
     init.recovery.hlthchrg.rc \
     init.recovery.service.rc \
     init.recovery.ldconfig.rc \
+    hwservicemanager.rc \
+    servicemanager.rc \
     awk \
     toybox \
     toolbox \
