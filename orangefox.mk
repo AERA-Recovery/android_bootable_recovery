@@ -105,6 +105,10 @@ ifeq ($(OF_NO_MIUI_PATCH_WARNING),1)
     LOCAL_CFLAGS += -DOF_NO_MIUI_PATCH_WARNING='"1"'
 endif
 
+ifeq ($(AB_OTA_UPDATER),true)
+    OF_AB_DEVICE := 1
+endif
+
 ifeq ($(OF_AB_DEVICE),1)
     LOCAL_CFLAGS += -DOF_AB_DEVICE='"1"'
     ifneq ($(AB_OTA_UPDATER),true)
