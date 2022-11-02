@@ -2315,7 +2315,7 @@ error_handle:
 }
 
 int TWPartitionManager::usb_storage_disable(void) {
-	int index, ret;
+	int index, ret = 0;
 	char lun_file[255], ch[2] = {0, 0};
 	string str = ch;
 
