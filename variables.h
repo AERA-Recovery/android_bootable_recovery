@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
  *
- * Copyright (C) 2018-2021 OrangeFox Recovery Project
+ * Copyright (C) 2018-2022 OrangeFox Recovery Project
  * This file is part of the OrangeFox Recovery Project.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -304,6 +304,7 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define UPDATER_SCRIPT  "META-INF/com/google/android/updater-script"
 #define AROMA_CONFIG "META-INF/com/google/android/aroma-config"
 #define TW_IS_SUPER                 "tw_is_super"
+#define TW_VIRTUAL_AB_ENABLED       "tw_virtual_ab.enabled"
 #define TW_AUTO_REFLASHTWRP_VAR     "tw_auto_reflashtwrp"
 
 #endif  // _VARIABLES_HEADER_
