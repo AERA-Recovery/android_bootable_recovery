@@ -109,6 +109,12 @@ ifeq ($(AB_OTA_UPDATER),true)
     OF_AB_DEVICE := 1
 endif
 
+ifeq ($(OF_AB_DEVICE_WITH_RECOVERY_PARTITION),1)
+    OF_AB_DEVICE := 1
+    OF_NO_SPLASH_CHANGE := 1
+    LOCAL_CFLAGS += -DOF_AB_DEVICE_WITH_RECOVERY_PARTITION='"1"'
+endif
+
 ifeq ($(OF_AB_DEVICE),1)
     LOCAL_CFLAGS += -DOF_AB_DEVICE='"1"'
     ifneq ($(AB_OTA_UPDATER),true)

@@ -795,6 +795,12 @@ void DataManager::SetDefaultValues()
     mData.SetValue("of_no_miui_features", "0");
   #endif
 
+  #ifdef OF_AB_DEVICE_WITH_RECOVERY_PARTITION
+    mConst.SetValue("fox_disable_reflash_current", "1");
+  #else
+    mConst.SetValue("fox_disable_reflash_current", "0");
+  #endif
+
   #if defined(OF_AB_DEVICE) || defined(AB_OTA_UPDATER)
     mData.SetValue("of_ab_device", "1");
   #else
