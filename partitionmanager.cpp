@@ -3126,97 +3126,50 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 	return true;
 }
 
-
-void TWPartitionManager::Translate_Partition(const char *path,
-					     const char *resource_name,
-					     const char *default_value)
-{
-  TWPartition *part = PartitionManager.Find_Partition_By_Path(path);
-  if (part)
-    {
-      if (part->Is_Adopted_Storage)
-	{
-	  part->Display_Name =
-	    part->Display_Name + " - " + gui_lookup("data", "Data");
-	  part->Backup_Display_Name = part->Display_Name;
-	  part->Storage_Name =
-	    part->Storage_Name + " - " + gui_lookup("adopted_storage",
-						    "Adopted Storage");
+void TWPartitionManager::Translate_Partition(const char* path, const char* resource_name, const char* default_value) {
+	TWPartition* part = PartitionManager.Find_Partition_By_Path(path);
+	if (part) {
+		if (part->Is_Adopted_Storage) {
+			part->Display_Name = part->Display_Name + " - " + gui_lookup("data", "Data");
+			part->Backup_Display_Name = part->Display_Name;
+			part->Storage_Name = part->Storage_Name + " - " + gui_lookup("adopted_storage", "Adopted Storage");
+		} else {
+			part->Display_Name = gui_lookup(resource_name, default_value);
+			part->Backup_Display_Name = part->Display_Name;
+		}
 	}
-      else
-	{
-	  part->Display_Name = gui_lookup(resource_name, default_value);
-	  part->Backup_Display_Name = part->Display_Name;
-	}
-    }
 }
 
-void TWPartitionManager::Translate_Partition(const char *path,
-					     const char *resource_name,
-					     const char *default_value,
-					     const char
-					     *storage_resource_name,
-					     const char
-					     *storage_default_value)
-{
-  TWPartition *part = PartitionManager.Find_Partition_By_Path(path);
-  if (part)
-    {
-      if (part->Is_Adopted_Storage)
-	{
-	  part->Backup_Display_Name =
-	    part->Display_Name + " - " + gui_lookup("data_backup",
-						    "Data (excl. storage)");
-	  part->Display_Name =
-	    part->Display_Name + " - " + gui_lookup("data", "Data");
-	  part->Storage_Name =
-	    part->Storage_Name + " - " + gui_lookup("adopted_storage",
-						    "Adopted Storage");
+void TWPartitionManager::Translate_Partition(const char* path, const char* resource_name, const char* default_value, const char* storage_resource_name, const char* storage_default_value) {
+	TWPartition* part = PartitionManager.Find_Partition_By_Path(path);
+	if (part) {
+		if (part->Is_Adopted_Storage) {
+			part->Backup_Display_Name = part->Display_Name + " - " + gui_lookup("data_backup", "Data (excl. storage)");
+			part->Display_Name = part->Display_Name + " - " + gui_lookup("data", "Data");
+			part->Storage_Name = part->Storage_Name + " - " + gui_lookup("adopted_storage", "Adopted Storage");
+		} else {
+			part->Display_Name = gui_lookup(resource_name, default_value);
+			part->Backup_Display_Name = part->Display_Name;
+			if (part->Is_Storage)
+				part->Storage_Name = gui_lookup(storage_resource_name, storage_default_value);
+		}
 	}
-      else
-	{
-	  part->Display_Name = gui_lookup(resource_name, default_value);
-	  part->Backup_Display_Name = part->Display_Name;
-	  if (part->Is_Storage)
-	    part->Storage_Name =
-	      gui_lookup(storage_resource_name, storage_default_value);
-	}
-    }
 }
 
-void TWPartitionManager::Translate_Partition(const char *path,
-					     const char *resource_name,
-					     const char *default_value,
-					     const char
-					     *storage_resource_name,
-					     const char
-					     *storage_default_value,
-					     const char *backup_name,
-					     const char *backup_default)
-{
-  TWPartition *part = PartitionManager.Find_Partition_By_Path(path);
-  if (part)
-    {
-      if (part->Is_Adopted_Storage)
-	{
-	  part->Backup_Display_Name =
-	    part->Display_Name + " - " + gui_lookup(backup_name,
-						    backup_default);
-	  part->Display_Name =
-	    part->Display_Name + " - " + gui_lookup("data", "Data");
-	  part->Storage_Name =
-	    part->Storage_Name + " - " + gui_lookup("adopted_storage",
-						    "Adopted Storage");
+void TWPartitionManager::Translate_Partition(const char* path, const char* resource_name, const char* default_value, const char* storage_resource_name, const char* storage_default_value, const char* backup_name, const char* backup_default) {
+	TWPartition* part = PartitionManager.Find_Partition_By_Path(path);
+	if (part) {
+		if (part->Is_Adopted_Storage) {
+			part->Backup_Display_Name = part->Display_Name + " - " + gui_lookup(backup_name, backup_default);
+			part->Display_Name = part->Display_Name + " - " + gui_lookup("data", "Data");
+			part->Storage_Name = part->Storage_Name + " - " + gui_lookup("adopted_storage", "Adopted Storage");
+		} else {
+			part->Display_Name = gui_lookup(resource_name, default_value);
+			part->Backup_Display_Name = gui_lookup(backup_name, backup_default);
+			if (part->Is_Storage)
+				part->Storage_Name = gui_lookup(storage_resource_name, storage_default_value);
+		}
 	}
-      else
-	{
-	  part->Display_Name = gui_lookup(resource_name, default_value);
-	  part->Backup_Display_Name = gui_lookup(backup_name, backup_default);
-	  if (part->Is_Storage)
-	    part->Storage_Name =
-	      gui_lookup(storage_resource_name, storage_default_value);
-	}
-    }
 }
 
 void TWPartitionManager::Translate_Partition_Display_Names() {
@@ -3240,7 +3193,7 @@ void TWPartitionManager::Translate_Partition_Display_Names() {
 	Translate_Partition("/external_sd", "microsd", "Micro SDCard", "microsd", "Micro SDCard", "data_backup", "Data (excl. storage)");
 	Translate_Partition("/external_sdcard", "microsd", "Micro SDCard", "microsd", "Micro SDCard", "data_backup", "Data (excl. storage)");
 	Translate_Partition("/sdcard1", "microsd", "Micro SDCard", "microsd", "Micro SDCard", "data_backup", "Data (excl. storage)");
-	Translate_Partition("/usb-otg", "usbotg", "USB OTG", "usbotg", "USB OTG", "usb_otg", "USB Storage");
+	Translate_Partition("/usb-otg", "usbotg", "USB OTG", "usbotg", "USB OTG", "usb_otg", "USB-Storage");
 	Translate_Partition("/sd-ext", "sdext", "SD-EXT");
 
 	// Android secure is a special case
