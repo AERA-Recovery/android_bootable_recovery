@@ -721,6 +721,9 @@ void DataManager::SetDefaultValues()
   mConst.SetValue(BUILD_TYPE_STR, FOX_BUILD_TYPE);
   mConst.SetValue("fox_branch", FOX_BRANCH);
 
+  mConst.SetValue("fox_magisk_zip_installer", FOX_MAGISK_ZIP_INSTALLER);
+  mConst.SetValue("fox_magisk_uninstaller", FOX_MAGISK_UNINSTALLER);
+
   if (TWFunc::Has_Virtual_AB_Partitions())
   	mConst.SetValue("fox_vab_device", "1");
   else
