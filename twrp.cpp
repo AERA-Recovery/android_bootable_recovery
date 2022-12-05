@@ -144,6 +144,7 @@ static void process_fastbootd_mode() {
 
 		gui_msg(Msg("fastboot_console_msg=Entered Fastboot mode..."));
 		property_set("ro.orangefox.fastbootd", "1");
+		property_set("ro.boot.verifiedbootstate", "orange");
 		TWFunc::RunFoxScript("/system/bin/runatboot.sh");
 		TWFunc::RunFoxScript("/system/bin/postrecoveryboot.sh");
 		if (gui_startPage("fastboot", 1, 1) != 0) {
