@@ -2,7 +2,7 @@
 	Copyright 2012 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-  	Copyright (C) 2018-2022 OrangeFox Recovery Project
+  	Copyright (C) 2018-2023 OrangeFox Recovery Project
  	This file is part of the OrangeFox Recovery Project
  
 	TWRP is free software: you can redistribute it and/or modify
@@ -180,7 +180,7 @@ public:
 	static bool Has_System_Root(void); // is this a system-as-root device?
 	static int Rename_File(std::string oldname, std::string newname); // rename a file, using std strings
 	static bool MIUI_ROM_SetProperty(const int code); // Are we running a MIUI ROM (old or freshly installed) - set fox property
-	static bool RunFoxScript(std::string script); // execute a script and introduce a delay if the script was executed
+	static bool RunFoxScript(const std::string script, const std::string args); // execute a script (with optional arguments) and introduce a delay if the script was executed
 	static bool MIUI_Is_Running(void); // Are we running a MIUI ROM (old or freshly installed) ?
 	static void Dump_Current_Settings(void); // log some current settings before flashing a ROM
 	static void Setup_Verity_Forced_Encryption(void); //setup dm-verity/forced-encryption build vars

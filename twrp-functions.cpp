@@ -2,7 +2,7 @@
 	Copyright 2012 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2022 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -281,13 +281,16 @@ bool ret = false;
     return ret;
 }
 
-bool TWFunc::RunFoxScript(std::string script)
+bool TWFunc::RunFoxScript(const std::string script, const std::string args)
 {
     if (!Path_Exists(script))
        return false;
 
     chmod(script.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
-    TWFunc::Exec_Cmd(script);
+    if (!args.empty())
+    	TWFunc::Exec_Cmd(script + " " + args);
+    else
+    	TWFunc::Exec_Cmd(script);
     usleep(500000);
     return true;
 }
@@ -301,7 +304,7 @@ void TWFunc::Run_Before_Reboot(void)
 
     // Run any custom script before rebooting
     TWFunc::MIUI_ROM_SetProperty(0);
-    TWFunc::RunFoxScript("/system/bin/beforereboot.sh");
+    TWFunc::RunFoxScript("/system/bin/beforereboot.sh", "");
 
     // logs & stuff
     if (!Path_Exists(Fox_Logs_Dir))

@@ -2,7 +2,7 @@
 	Copyright 2012-2020 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2022 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -145,8 +145,8 @@ static void process_fastbootd_mode() {
 		gui_msg(Msg("fastboot_console_msg=Entered Fastboot mode..."));
 		property_set("ro.orangefox.fastbootd", "1");
 		property_set("ro.boot.verifiedbootstate", "orange");
-		TWFunc::RunFoxScript("/system/bin/runatboot.sh");
-		TWFunc::RunFoxScript("/system/bin/postrecoveryboot.sh");
+		TWFunc::RunFoxScript("/system/bin/runatboot.sh", "");
+		TWFunc::RunFoxScript("/system/bin/postrecoveryboot.sh", "");
 		if (gui_startPage("fastboot", 1, 1) != 0) {
 			LOGERR("Failed to start fastbootd page.\n");
 		}
@@ -232,7 +232,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
         // use the ROM's fingerprint?
         TWFunc::RunStartupScript();
         TWFunc::UseSystemFingerprint();
-	TWFunc::RunFoxScript("/system/bin/runatboot.sh");
+	TWFunc::RunFoxScript("/system/bin/runatboot.sh", "");
 
 #ifdef TW_INCLUDE_INJECTTWRP
 	// Back up TWRP Ramdisk if needed:
@@ -354,7 +354,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 	adb_bu_fifo->threadAdbBuFifo();
 
 	// run the postrecoveryboot script here
-	TWFunc::RunFoxScript("/system/bin/postrecoveryboot.sh");
+	TWFunc::RunFoxScript("/system/bin/postrecoveryboot.sh", "");
 #ifndef OF_DEVICE_WITHOUT_PERSIST
 	DataManager::RestorePasswordBackup();
 #endif

@@ -2,7 +2,7 @@
 	Copyright 2012 to 2017 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2022 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -412,7 +412,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 
 	  			if (run_rom_scripts) {
 	  				usleep(4096);
-	  				TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT);
+	  				TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT, path);
 	  			}
 
 				ret_val = Run_Update_Binary(path, wipe_cache, UPDATE_BINARY_ZIP_TYPE);
@@ -440,7 +440,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 
 			run_rom_scripts = true;
 			usleep(32);
-			TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT);
+			TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT, path);
 
 			ret_val = Run_Update_Binary(path, wipe_cache, AB_OTA_ZIP_TYPE);
 
@@ -542,7 +542,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 
    if (run_rom_scripts) {
    	usleep(32);
-   	TWFunc::RunFoxScript(FOX_POST_ROM_FLASH_SCRIPT);
+   	TWFunc::RunFoxScript(FOX_POST_ROM_FLASH_SCRIPT, path);
    }
 
   return ret_val;
