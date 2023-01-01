@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2020-2022 OrangeFox Recovery Project
+	Copyright (C) 2020-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 	
 	OrangeFox is free software: you can redistribute it and/or modify
@@ -952,7 +952,7 @@ void Fox_Post_Zip_Install(const int result)
 
     	 // Run any custom script after ROM flashing
     	 TWFunc::MIUI_ROM_SetProperty(Fox_Zip_Installer_Code);
-     	 TWFunc::RunFoxScript("/sbin/afterromflash.sh");
+     	 TWFunc::RunFoxScript("/sbin/afterromflash.sh", "");
          usleep(16384);
 
 	//---- Virtual A/B: compensate for ROM installers that still use legacy methods for flashing, instead of payload.bin/update_engine ----//
