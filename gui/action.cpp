@@ -2,7 +2,7 @@
 	Copyright 2013 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2022 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -961,12 +961,10 @@ int GUIAction::up_a_level(std::string arg)
 
 int GUIAction::fileextension(std::string arg)
 {
-  string ext = "";
-  if (TWFunc::lowercase(arg.substr(0, 6)) == "magisk") // [f/d] magisk apk crutch
+  string ext = TWFunc::lowercase(arg.substr(arg.find_last_of(".") + 1));
+
+  if (TWFunc::lowercase(arg.substr(0, 6)) == "magisk" && ext == "apk")
     ext = "zip";
-  else {
-    ext = TWFunc::lowercase(arg.substr(arg.find_last_of(".") + 1));
-  }
   
   DataManager::SetValue("tw_file_extension", ext);
   return 0;
