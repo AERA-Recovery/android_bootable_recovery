@@ -1,6 +1,6 @@
 #
 #	This file is part of the OrangeFox Recovery Project
-# 	Copyright (C) 2018-2022 The OrangeFox Recovery Project
+# 	Copyright (C) 2018-2023 The OrangeFox Recovery Project
 #	
 #	OrangeFox is free software: you can redistribute it and/or modify
 #	it under the terms of the GNU General Public License as published by
@@ -348,6 +348,12 @@ endif
 ifeq ($(FOX_USE_LZMA_COMPRESSION),1)
     ifeq ($(BOARD_RAMDISK_USE_LZMA),)
     	BOARD_RAMDISK_USE_LZMA := true
+    endif
+endif
+
+ifeq ($(FOX_USE_LZ4_COMPRESSION),1)
+    ifeq ($(BOARD_RAMDISK_USE_LZ4),)
+    	BOARD_RAMDISK_USE_LZ4 := true
     endif
 endif
 
