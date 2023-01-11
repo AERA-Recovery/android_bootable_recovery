@@ -127,6 +127,7 @@ endif
 # vendor_boot recovery
 ifeq ($(OF_VENDOR_BOOT_RECOVERY),1)
     LOCAL_CFLAGS += -DOF_VENDOR_BOOT_RECOVERY='"1"'
+    OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
     OF_NO_SPLASH_CHANGE := 1
 endif
 
@@ -554,6 +555,11 @@ endif
 # whether to force a ramdisk checksum on reflashing OrangeFox (virtual A/B only)
 ifeq ($(OF_FORCE_CHECK_RAMDISK_CHECKSUM),1)
     LOCAL_CFLAGS += -DOF_FORCE_CHECK_RAMDISK_CHECKSUM='"1"'
+endif
+
+# vAB - whether to disable the flash current OrangeFox menu
+ifeq ($(OF_NO_REFLASH_CURRENT_ORANGEFOX),1)
+    LOCAL_CFLAGS += -DOF_NO_REFLASH_CURRENT_ORANGEFOX='"1"'
 endif
 
 # print a message about flashing OF_bind_internal.zip after formatting?
