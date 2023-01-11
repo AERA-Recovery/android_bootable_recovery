@@ -798,7 +798,7 @@ void DataManager::SetDefaultValues()
     mData.SetValue("of_no_miui_features", "0");
   #endif
 
-  #ifdef OF_AB_DEVICE_WITH_RECOVERY_PARTITION
+  #if defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION) || defined(OF_VENDOR_BOOT_RECOVERY)
     mConst.SetValue("fox_disable_reflash_current", "1");
   #else
     mConst.SetValue("fox_disable_reflash_current", "0");
@@ -1007,6 +1007,7 @@ void DataManager::SetDefaultValues()
 
 #ifdef OF_VENDOR_BOOT_RECOVERY
   	TWFunc::Fox_Property_Set("orangefox.vendor_boot.recovery", "true");
+  	mConst.SetValue("vendor_boot_recovery", "1");
 #endif
 
 #ifdef TW_INCLUDE_CRYPTO

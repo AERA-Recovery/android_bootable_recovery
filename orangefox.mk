@@ -124,6 +124,12 @@ ifeq ($(OF_AB_DEVICE),1)
     endif
 endif
 
+# vendor_boot recovery
+ifeq ($(OF_VENDOR_BOOT_RECOVERY),1)
+    LOCAL_CFLAGS += -DOF_VENDOR_BOOT_RECOVERY='"1"'
+    OF_NO_SPLASH_CHANGE := 1
+endif
+
 ifeq ($(OF_DONT_PATCH_ENCRYPTED_DEVICE),1)
     LOCAL_CFLAGS += -DOF_DONT_PATCH_ENCRYPTED_DEVICE='"1"'
 endif
@@ -531,11 +537,6 @@ endif
 # avoid decryption problems on some devices and ROMs
 ifeq ($(OF_FIX_DECRYPTION_ON_DATA_MEDIA),1)
     LOCAL_CFLAGS += -DOF_FIX_DECRYPTION_ON_DATA_MEDIA='"1"'
-endif
-
-# vendor_boot recovery
-ifeq ($(OF_VENDOR_BOOT_RECOVERY),1)
-    LOCAL_CFLAGS += -DOF_VENDOR_BOOT_RECOVERY='"1"'
 endif
 
 # deal with new error ('NO KERNEL CONFIG') when using a prebuilt kernel
