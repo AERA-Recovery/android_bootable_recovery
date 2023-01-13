@@ -564,6 +564,10 @@ ifeq ($(OF_NO_REFLASH_CURRENT_ORANGEFOX),1)
     LOCAL_CFLAGS += -DOF_NO_REFLASH_CURRENT_ORANGEFOX='"1"'
 endif
 
+ifeq ($(TW_NO_FLASH_CURRENT_TWRP),true)
+    OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
+endif
+
 # print a message about flashing OF_bind_internal.zip after formatting?
 # ignore this setting now
 #ifeq ($(OF_PRINT_BIND_INTERNAL_MESSAGE),1)
