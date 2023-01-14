@@ -568,6 +568,16 @@ ifeq ($(TW_NO_FLASH_CURRENT_TWRP),true)
     OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
 endif
 
+# disable the MIUI OTA menu and its supports
+ifeq ($(OF_DISABLE_OTA_MENU),1)
+    LOCAL_CFLAGS += -DOF_DISABLE_OTA_MENU
+    OF_DISABLE_MIUI_SPECIFIC_FEATURES := 1
+    OF_DISABLE_MIUI_OTA_BY_DEFAULT := 1
+    OF_NO_MIUI_PATCH_WARNING := 1
+    OF_DONT_PATCH_ENCRYPTED_DEVICE := 1
+    OF_KEEP_DM_VERITY_FORCED_ENCRYPTION := 1
+endif
+
 # print a message about flashing OF_bind_internal.zip after formatting?
 # ignore this setting now
 #ifeq ($(OF_PRINT_BIND_INTERNAL_MESSAGE),1)

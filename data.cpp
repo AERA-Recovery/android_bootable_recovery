@@ -824,6 +824,14 @@ void DataManager::SetDefaultValues()
     mConst.SetValue("disable_extra_about", "1");
 #endif
 
+#ifdef OF_DISABLE_OTA_MENU
+    mConst.SetValue("of_no_ota_menu", "1");
+    mConst.SetValue(FOX_DISABLE_OTA_AUTO_REBOOT, "0");
+#else
+    mConst.SetValue("of_no_ota_menu", "0");
+    mPersist.SetValue(FOX_DISABLE_OTA_AUTO_REBOOT, "0");
+#endif
+
 #ifdef OF_NO_SPLASH_CHANGE
     mConst.SetValue("no_splash_change", "1");
 #endif
@@ -1054,7 +1062,6 @@ void DataManager::SetDefaultValues()
   mPersist.SetValue(FOX_SAVE_LOAD_AROMAFM, "0");
   mPersist.SetValue(FOX_DISABLE_DEBUGGING, "0");
   mPersist.SetValue(FOX_ENABLE_DEBUGGING, "1");
-  mPersist.SetValue(FOX_DISABLE_OTA_AUTO_REBOOT, "0");
   mData.SetValue(FOX_ENCRYPTED_DEVICE, "0"); //assume that the device is not encrypted
   mPersist.SetValue("of_themes_version", "0"); // uninitialised theme version
 
