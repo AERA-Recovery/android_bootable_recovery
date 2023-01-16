@@ -2,7 +2,7 @@
 	Copyright 2014 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2022 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -303,8 +303,8 @@ void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
 			else
 				(*iter)->Has_Android_Secure = false;
 
-			if ((*iter)->Is_Super)
-				Prepare_Super_Volume((*iter));
+			if ((*iter)->Is_Super && !Prepare_Super_Volume(*iter))
+				Partitions.erase(iter--);
 		}
 
 		Unlock_Block_Partitions();
@@ -4405,6 +4405,7 @@ bool TWPartitionManager::Prepare_All_Super_Volumes() {
 		if ((*iter)->Is_Super) {
 			if (!Prepare_Super_Volume(*iter)) {
 				status = false;
+				Partitions.erase(iter--);
 			}
 			PartitionManager.Output_Partition(*iter);
 		}
