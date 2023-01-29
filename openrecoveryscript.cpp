@@ -2,7 +2,7 @@
 	Copyright 2003 to 2017 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2022 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -755,12 +755,15 @@ void OpenRecoveryScript::Run_CLI_Command(const char* command) {
 		} else {
 			LOGINFO("Missing parameter: script file name\n");
 		}
-	} else if (cmd_str == "get") {
+	} else if (cmd_str == "get" || cmd_str == "getval") {
 		if (parts.size() > 1) {
 			string varname = parts[1];
 			string value;
 			DataManager::GetValue(varname, value);
-			gui_print("%s = %s\n", varname.c_str(), value.c_str());
+			if (cmd_str == "getval")
+				gui_print("%s\n",value.c_str());
+			else
+				gui_print("%s = %s\n", varname.c_str(), value.c_str());
 		} else {
 			LOGINFO("Missing parameter: var name\n");
 		}
