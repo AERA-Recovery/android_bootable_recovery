@@ -541,8 +541,11 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
    }
 
    if (run_rom_scripts) {
-   	usleep(32);
+   	usleep(2048);
    	TWFunc::RunFoxScript(FOX_POST_ROM_FLASH_SCRIPT, path);
+   	sleep(1);
+   	DataManager::SetValue("found_fox_overwriting_rom", "0");
+   	TWFunc::Fox_Property_Set("found_fox_overwriting_rom", "");
    }
 
   return ret_val;

@@ -526,6 +526,7 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
   DataManager::SetValue(FOX_ZIP_INSTALLER_CODE, 0); // assume standard zip installer
   DataManager::SetValue(FOX_ZIP_INSTALLER_TREBLE, "0");
   DataManager::SetValue("found_fox_overwriting_rom", "0");
+  TWFunc::Fox_Property_Set("found_fox_overwriting_rom", "");
 
   if (DataManager::GetIntValue(FOX_INSTALL_PREBUILT_ZIP) != 1)
     {
@@ -553,6 +554,7 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
 	              && (zip_EntryExists(Zip, "recovery.img") || zip_EntryExists(Zip, "twrp.img") || zip_EntryExists(Zip, "recovery/twrp.img") || zip_EntryExists(Zip, "recovery/recovery.img"))
 	                 )) {
 	                  DataManager::SetValue("found_fox_overwriting_rom", "1");
+	                  TWFunc::Fox_Property_Set("found_fox_overwriting_rom", "1");
 	                  usleep(32);
 	                  TWFunc::Check_OrangeFox_Overwrite_FromROM(true, path);
 	             }

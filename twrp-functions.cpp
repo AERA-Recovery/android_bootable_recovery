@@ -4553,10 +4553,11 @@ bool TWFunc::Check_OrangeFox_Overwrite_FromROM(bool WarnUser, const std::string 
     {
       int i;
       int j = 40;
+      int k = 5;
       gui_print_color("error", "\nALERT!\nThis ROM (%s) wants to overwrite your recovery partition!!!\n\n", name.c_str());
       gui_print_color("error", "I will pause for %i seconds.\n\nTo stop this installation, hard-reboot the device now!\n\n", j);
-      gui_print("The %i-second countdown will start in 20 seconds ...\n", j);
-      sleep(20);
+      gui_print("The %i-second countdown will start in %i seconds ...\n", j, k);
+      sleep(k);
       for (i = j; i > 0; i--)
          {
             gui_print("Reboot now! %i seconds left!\n", i);
