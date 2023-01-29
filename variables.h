@@ -93,6 +93,8 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define FOX_MAGISK_ZIP_INSTALLER "Magisk.zip"
 #define FOX_MAGISK_UNINSTALLER "Magisk_uninstall.zip"
 
+#define FOX_THEME_VERSION "1.1"
+
 #define FOX_PASS_IN_PERSIST "/persist/.fsec"
 
 #define FOX_PRE_ROM_FLASH_SCRIPT  "/system/bin/pre_rom_flash.sh"

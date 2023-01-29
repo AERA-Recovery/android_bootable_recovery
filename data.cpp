@@ -2,7 +2,7 @@
 	Copyright 2012 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2022 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -723,6 +723,10 @@ void DataManager::SetDefaultValues()
 
   mConst.SetValue("fox_magisk_zip_installer", FOX_MAGISK_ZIP_INSTALLER);
   mConst.SetValue("fox_magisk_uninstaller", FOX_MAGISK_UNINSTALLER);
+
+  // override any hard-coded value in ui.xml
+  mConst.SetValue("fox_theme_version", FOX_THEME_VERSION);
+  //
 
   if (TWFunc::Has_Virtual_AB_Partitions())
   	mConst.SetValue("fox_vab_device", "1");
