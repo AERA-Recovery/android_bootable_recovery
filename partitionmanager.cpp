@@ -4393,6 +4393,7 @@ bool TWPartitionManager::Prepare_Super_Volume(TWPartition* twrpPart) {
 	twrpPart->Set_Can_Be_Wiped(false);
 
 	TWFunc::Mapper_to_BootDevice(fstabEntry.blk_device, bare_partition_name);
+	property_set("twrp.super.symlinks_created", "true");
 
     return true;
 }
