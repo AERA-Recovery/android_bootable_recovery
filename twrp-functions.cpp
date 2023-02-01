@@ -2235,10 +2235,7 @@ void TWFunc::Welcome_Message(void)
       	gui_print_color("warning", "[Build type]: Unofficial. No official support for unofficial builds\n");
     else {
     	gui_print("[Build type]: %s\n", FOX_BUILD_TYPE);
-    	if (uppercase(FOX_BUILD_TYPE) == "BETA")
-    	    gui_print("[Support]   : https://t.me/OrangeFoxBeta\n");
-    	else
-    	if (uppercase(FOX_BUILD_TYPE) == "STABLE")
+    	if (uppercase(FOX_BUILD_TYPE) == "BETA" || uppercase(FOX_BUILD_TYPE) == "STABLE")
     	    gui_print("[Support]   : https://t.me/OrangeFoxChat\n");
     	else
     	    gui_print_color("warning", "[Support]   : No official support for unknown builds\n");
