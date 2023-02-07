@@ -2,7 +2,7 @@
 	Copyright 2013 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2022 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 	
 	TWRP is free software: you can redistribute it and/or modify
@@ -1271,10 +1271,10 @@ void TWPartition::Setup_Data_Media() {
 			Make_Dir("/sdcard", false);
 			Symlink_Mount_Point = "/sdcard";
 		}
-		Mount(false);
 		#ifdef OF_FIX_DECRYPTION_ON_DATA_MEDIA
 		if (Mount(false) && TWFunc::Path_Exists(Mount_Point + "/media/0")) {
 		#else
+		Mount(false);
 		if (TWFunc::Path_Exists(Mount_Point + "/media/0")) {
 		#endif
 			Storage_Path = Mount_Point + "/media/0";
