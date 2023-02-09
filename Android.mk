@@ -358,9 +358,6 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
         endif
         LOCAL_SHARED_LIBRARIES += libcryptfs_hw
     endif
-    ifeq ($(LEGACY_HW_DISK_ENCRYPTION), true)
-       LOCAL_CFLAGS += -DLEGACY_HW_DISK_ENCRYPTION
-    endif
 endif
 WITH_CRYPTO_UTILS := \
     $(if $(wildcard system/core/libcrypto_utils/android_pubkey.c),true)
