@@ -1,7 +1,7 @@
 # Copyright (C) 2007 The Android Open Source Project
 #
 # This file is part of the OrangeFox Recovery Project
-# Copyright (C) 2018-2022 The OrangeFox Recovery Project
+# Copyright (C) 2018-2023 The OrangeFox Recovery Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -324,6 +324,7 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
     LOCAL_SHARED_LIBRARIES += libgpt_twrp
     LOCAL_C_INCLUDES += external/boringssl/src/include bootable/recovery/crypto
     TW_INCLUDE_CRYPTO_FBE := true
+    TW_INCLUDE_LIBRESETPROP := true
     LOCAL_CFLAGS += -DTW_INCLUDE_FBE
     LOCAL_SHARED_LIBRARIES += android.frameworks.stats@1.0 android.hardware.authsecret@1.0 \
 	android.security.authorization-ndk_platform \
@@ -345,7 +346,6 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
     LOCAL_CFLAGS += -DTW_INCLUDE_FBE_METADATA_DECRYPT
     ifneq ($(TW_CRYPTO_USE_SYSTEM_VOLD),)
     ifneq ($(TW_CRYPTO_USE_SYSTEM_VOLD),false)
-		TW_INCLUDE_LIBRESETPROP := true
         LOCAL_CFLAGS += -DTW_CRYPTO_USE_SYSTEM_VOLD
         LOCAL_STATIC_LIBRARIES += libvolddecrypt
     endif
@@ -434,6 +434,7 @@ ifneq ($(TW_OVERRIDE_PROPS_ADDITIONAL_PARTITIONS),)
 endif
 ifneq ($(TW_INCLUDE_LIBRESETPROP),)
     LOCAL_SHARED_LIBRARIES += libresetprop
+    TWRP_REQUIRED_MODULES += libresetprop
     LOCAL_C_INCLUDES += external/magisk-prebuilt/include
     LOCAL_CFLAGS += -DTW_INCLUDE_LIBRESETPROP
 endif
