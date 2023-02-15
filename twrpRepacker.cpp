@@ -2,7 +2,7 @@
 	Copyright 2013 to 2020 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2020-2021 OrangeFox Recovery Project
+	Copyright (C) 2020-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -268,6 +268,10 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 }
 
 bool twrpRepacker::Flash_Current_Twrp() {
+#ifdef OF_VENDOR_BOOT_RECOVERY
+	LOGERR("Auto-reflashing is not supported in vendor_boot-as-recovery builds.\n\nYou need to flash OrangeFox manually.\n");
+	return false;
+#endif
 if (!TWFunc::Path_Exists("/ramdisk-files.txt")) {
 			LOGERR("can not find ramdisk-files.txt");
 			return false;

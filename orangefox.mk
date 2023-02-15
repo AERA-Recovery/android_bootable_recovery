@@ -127,6 +127,8 @@ endif
 
 # vendor_boot recovery
 ifeq ($(OF_VENDOR_BOOT_RECOVERY),1)
+    $(warning WARNING! 'OF_VENDOR_BOOT_RECOVERY' is highly experimental and potentially VERY problematic!)
+    $(warning It is NOT recommended to use this. You have been warned!)
     LOCAL_CFLAGS += -DOF_VENDOR_BOOT_RECOVERY='"1"'
     OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
     OF_NO_SPLASH_CHANGE := 1
