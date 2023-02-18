@@ -422,16 +422,30 @@ string tmp = "";
   	&& zip_EntryExists(Zip, "vendor/build.prop"))
      i++;
 
+  usleep(1024);
+  if (TWFunc::CheckWord(path, "assert(update_dynamic_partitions(package_extract_file") 
+    && TWFunc::CheckWord(path, "dynamic_partitions_op_list")
+    && zip_EntryExists(Zip, "dynamic_partitions_op_list"))
+  	i++;
+
+  usleep(1024);
+  if (zip_EntryExists(Zip, "system.transfer.list") && TWFunc::CheckWord(path, "system.transfer.list")
+  && zip_EntryExists(Zip, "vendor.transfer.list") && TWFunc::CheckWord(path, "vendor.transfer.list")
+  && zip_EntryExists(Zip, "product.transfer.list") && TWFunc::CheckWord(path, "product.transfer.list"))
+  	i++;
+
   // if all these are true, then no need to go further
   usleep(1024);
   if (i > 2)
     return true;
 
   // boot image flash? else return false
+  #if !defined(AB_OTA_UPDATER) && !defined(OF_AB_DEVICE)
   if (!boot_install)
      return false;
+  #endif
 
-  // continue 
+  // continue: now, we are in the legacy methods zone
   usleep(1024);
   tmp = "package_extract_dir(\"system\"";
   str = TWFunc::find_phrase(path, tmp);
@@ -459,7 +473,7 @@ string tmp = "";
   if (i > 3)
       return true;
 
-  // look for other signs of ROM installation
+  // look for other signs of legacy ROM installation methods
   usleep(1024);
   tmp = "/dev/block/bootdevice/by-name/cust";
   str = TWFunc::find_phrase(path, tmp);
@@ -500,11 +514,70 @@ string tmp = "";
   if (zip_EntryExists(Zip, "system/priv-app/Browser/Browser.apk") && zip_EntryExists(Zip, "system/priv-app/FindDevice/FindDevice.apk"))
     i++;
  
-  usleep(1024);
   if (i > 3)
       return true;
+
+  // deal with recent non-standards-compliant xiaomi.eu vAB zip installers
+  i = 0;
+  #if defined(AB_OTA_UPDATER) || defined(OF_AB_DEVICE)
+    str = TWFunc::find_phrase(path, "images/super.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/vendor_boot.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/boot.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/vbmeta_system.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/vbmeta.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/bluetooth.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/keymaster.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/dtbo.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/cmnlib64.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/xbl.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/abl.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/devcfg.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+  #endif
+
+  // - return
+  usleep(1024);
+  if (i > 7) {
+	// mark this as a non-standard vAB ROM installer
+	DataManager::SetValue("found_non_standard_vAB_install", "1");
+	return true;
+  }
   else
-      return false;
+	return false;
 }
 
 int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip) 
@@ -527,6 +600,7 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
   DataManager::SetValue(FOX_ZIP_INSTALLER_TREBLE, "0");
   DataManager::SetValue("found_fox_overwriting_rom", "0");
   TWFunc::Fox_Property_Set("found_fox_overwriting_rom", "");
+  DataManager::SetValue("found_non_standard_vAB_install", "0");
 
   if (DataManager::GetIntValue(FOX_INSTALL_PREBUILT_ZIP) != 1)
     {
@@ -574,7 +648,7 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
                 LOGINFO("OrangeFox: Detected miui_update file [%s]\n", FOX_MIUI_UPDATE_PATH);
               }
             else
-            if (zip_EntryExists(Zip, FOX_MIUI_UPDATE_PATH_EU)) // META-INF/com/xiaomieu/xiaomieu.sh - if found, then this is a xiaomi.eu zip installer
+            if (zip_EntryExists(Zip, FOX_MIUI_UPDATE_PATH_EU) || (DataManager::GetStrValue("found_non_standard_vAB_install") == "1")) // META-INF/com/xiaomieu/xiaomieu.sh - if found, then this is a xiaomi.eu zip installer
               {
                 zip_is_survival_trigger = true;
                 support_all_block_ota = true;
@@ -626,6 +700,8 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
 	       support_all_block_ota = Fox_Support_All_OTA();
          }   
    }
+
+   DataManager::SetValue("found_non_standard_vAB_install", "0");
 
    // treble ROM ?
    if (zip_is_rom_package == true) 
@@ -958,7 +1034,7 @@ void Fox_Post_Zip_Install(const int result)
          usleep(16384);
 
 	//---- Virtual A/B: compensate for ROM installers that still use legacy methods for flashing, instead of payload.bin/update_engine ----//
-	#if defined(OF_VIRTUAL_AB_DEVICE)
+	#if defined(OF_VIRTUAL_AB_DEVICE) && !defined(OF_VENDOR_BOOT_RECOVERY)
 	/*
 	* check for MIUI ROM installers, currently the only ones that do this
 	* Really, this fix should not be needed, but some custom MIUI ROM installers fail to use the standard flashing method for A/B devices
@@ -971,9 +1047,9 @@ void Fox_Post_Zip_Install(const int result)
 		int reflashtwrp = 0;
 		DataManager::GetValue(TW_AUTO_REFLASHTWRP_VAR, reflashtwrp);
 		if (reflashtwrp) {
-			gui_print_color("warning", "\n\nOrangeFox: this MIUI ROM installer is NOT using the update_engine! Attempting to compensate... \n");
+			gui_print_color("warning", "\n\nOrangeFox: this MIUI ROM installer is NOT using the standard update_engine and payload.bin! Attempting to compensate... \n");
 			gui_print_color("warning", "\nOrangeFox: reflashing OrangeFox ...\n");
-
+			sleep(2);
 			twrpRepacker repacker;
 			repacker.Flash_Current_Twrp();
 		}
