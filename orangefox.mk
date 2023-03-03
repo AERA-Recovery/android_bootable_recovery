@@ -539,6 +539,11 @@ ifeq ($(OF_UNBIND_SDCARD_F2FS),1)
     LOCAL_CFLAGS += -DOF_UNBIND_SDCARD_F2FS='"1"'
 endif
 
+# morph the twrp flag into ours, since we'd already had the code in place
+ifeq ($(TW_PREPARE_DATA_MEDIA_EARLY),true)
+   OF_FIX_DECRYPTION_ON_DATA_MEDIA := 1
+endif
+
 # avoid decryption problems on some devices and ROMs
 ifeq ($(OF_FIX_DECRYPTION_ON_DATA_MEDIA),1)
     LOCAL_CFLAGS += -DOF_FIX_DECRYPTION_ON_DATA_MEDIA='"1"'
