@@ -133,6 +133,9 @@ public:
 	static bool Try_Decrypting_Backup(string Restore_Path, string Password); // true for success, false for failed to decrypt
 	static string System_Property_Get(string Prop_Name);                // Returns value of Prop_Name from reading /system/build.prop
 	static string System_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name);     // Returns value of Prop_Name from reading provided prop file
+	static string Product_Property_Get(string Prop_Name);                // Returns value of Prop_Name from reading /product/etc/build.prop
+	static string Product_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name);     // Returns value of Prop_Name from reading provided Product prop file
+
   	static bool CheckWord(std::string filename, std::string search); // Check if the word exist in the txt file and then return true or false 
 	static string File_Property_Get(string File_Path, string Prop_Name);                // Returns specified property value from the file
 	static string Get_Current_Date(void);                               // Returns the current date in ccyy-m-dd--hh-nn-ss format
@@ -182,6 +185,7 @@ public:
 	static bool MIUI_ROM_SetProperty(const int code); // Are we running a MIUI ROM (old or freshly installed) - set fox property
 	static bool RunFoxScript(const std::string script, const std::string args); // execute a script (with optional arguments) and introduce a delay if the script was executed
 	static bool MIUI_Is_Running(void); // Are we running a MIUI ROM (old or freshly installed) ?
+	static bool ROM_Has_MIUI_Props(void); // Another MIUI check - query some MIUI ROM props 
 	static void Dump_Current_Settings(void); // log some current settings before flashing a ROM
 	static void Setup_Verity_Forced_Encryption(void); //setup dm-verity/forced-encryption build vars
 	static void Reset_Clock(void); // reset the date/time to the recovery's build date/time

@@ -196,6 +196,31 @@ std::string strReturnCurrentTime()
   return str;
 }
 
+/* Does the ROM have enough MIUI props? */
+bool TWFunc::ROM_Has_MIUI_Props() {
+int i = 0;
+std::string s;
+std::vector<std::string> props = TWFunc::Split_String (
+"ro.miui.build.region,ro.miui.region,ro.miui.cust_variant,ro.miui.google.csp,ro.miui.block_device_path,ro.miui.customized_clientid,ro.vendor.miui.cust_variant,ro.miui.ui.version.name,ro.miui.ui.version.code,ro.miui.product.home,persist.miui.density_v2",
+",", true);
+
+	for (auto && prop: props) {
+		s = TWFunc::System_Property_Get(prop);
+		if (s.empty())
+			s = TWFunc::Product_Property_Get(prop);
+
+		if (!s.empty()) {
+			i++;
+		}
+
+		if (i > 3) {
+			TWFunc::Fox_Property_Set("orangefox.miui.rom", "1");
+			return true;
+		}
+	}
+	return false;
+}
+
 int TWFunc::string_to_int(string String, int def_value)
 {
 int tmp;
@@ -1385,6 +1410,47 @@ string TWFunc::System_Property_Get(string Prop_Name, TWPartitionManager &Partiti
 	return propvalue;
 }
 
+string TWFunc::Product_Property_Get(string Prop_Name) {
+	return Product_Property_Get(Prop_Name, PartitionManager, "product", "build.prop");
+}
+
+string TWFunc::Product_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name) {
+	bool mount_state = PartitionManager.Is_Mounted_By_Path(Mount_Point);
+	std::vector<string> buildprop;
+	string propvalue;
+	if (!PartitionManager.Mount_By_Path(Mount_Point, true))
+		return propvalue;
+	string prop_file = Mount_Point + "/etc/" + prop_file_name;
+	if (!TWFunc::Path_Exists(prop_file)) {
+		LOGINFO("Unable to locate file: %s\n", prop_file.c_str());
+		return propvalue;
+	}
+	if (TWFunc::read_file(prop_file, buildprop) != 0) {
+		LOGINFO("Unable to open %s for getting '%s'.\n", prop_file_name.c_str(), Prop_Name.c_str());
+		DataManager::SetValue(TW_BACKUP_NAME, Get_Current_Date());
+		if (!mount_state)
+			PartitionManager.UnMount_By_Path(Mount_Point, false);
+		return propvalue;
+	}
+	int line_count = buildprop.size();
+	int index;
+	size_t start_pos = 0, end_pos;
+	string propname;
+	for (index = 0; index < line_count; index++) {
+		end_pos = buildprop.at(index).find("=", start_pos);
+		propname = buildprop.at(index).substr(start_pos, end_pos);
+		if (propname == Prop_Name) {
+			propvalue = buildprop.at(index).substr(end_pos + 1, buildprop.at(index).size());
+			if (!mount_state)
+				PartitionManager.UnMount_By_Path(Mount_Point, false);
+			return propvalue;
+		}
+	}
+	if (!mount_state)
+		PartitionManager.UnMount_By_Path(Mount_Point, false);
+	return propvalue;
+}
+
 string TWFunc::File_Property_Get(string File_Path, string Prop_Name)
 {
   std::vector < string > buildprop;
@@ -2122,11 +2188,6 @@ int TWFunc::Check_MIUI_Treble(void)
   int rom_sdk=Get_Android_SDK_Version();
   TWFunc::Fox_Property_Set("orangefox.rom.sdk", std::to_string(rom_sdk));
 
-  if (TWFunc::Fox_Property_Get("orangefox.miui.rom") == "1")
-  	Fox_Current_ROM_IsMIUI = 1;
-  else
-  	Fox_Current_ROM_IsMIUI = 0;
-  	
   finger_print = TWFunc::Fox_Property_Get("orangefox.system.fingerprint");
   
   if (TWFunc::Path_Exists(orangefox_cfg)) 
@@ -2155,6 +2216,13 @@ int TWFunc::Check_MIUI_Treble(void)
    
    if (treble)
       Fox_Current_ROM_IsTreble = 1;
+
+  // MIUI?
+  TWFunc::ROM_Has_MIUI_Props();
+  if (TWFunc::MIUI_Is_Running())
+  	Fox_Current_ROM_IsMIUI = 1;
+  else
+  	Fox_Current_ROM_IsMIUI = 0;
 
   // is the device encrypted?
   if (StorageIsEncrypted())
