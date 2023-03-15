@@ -584,10 +584,4 @@ ifeq ($(OF_DISABLE_OTA_MENU),1)
     OF_DONT_PATCH_ENCRYPTED_DEVICE := 1
     OF_KEEP_DM_VERITY_FORCED_ENCRYPTION := 1
 endif
-
-# print a message about flashing OF_bind_internal.zip after formatting?
-# ignore this setting now
-#ifeq ($(OF_PRINT_BIND_INTERNAL_MESSAGE),1)
-#    LOCAL_CFLAGS += -DOF_PRINT_BIND_INTERNAL_MESSAGE='"1"'
-#endif
 #
