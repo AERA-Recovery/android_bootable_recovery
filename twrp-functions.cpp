@@ -1418,7 +1418,7 @@ string TWFunc::Product_Property_Get(string Prop_Name, TWPartitionManager &Partit
 	bool mount_state = PartitionManager.Is_Mounted_By_Path(Mount_Point);
 	std::vector<string> buildprop;
 	string propvalue;
-	if (!PartitionManager.Mount_By_Path(Mount_Point, true))
+	if (!PartitionManager.Mount_By_Path(Mount_Point, false))
 		return propvalue;
 	string prop_file = Mount_Point + "/etc/" + prop_file_name;
 	if (!TWFunc::Path_Exists(prop_file)) {
