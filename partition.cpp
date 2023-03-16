@@ -1298,6 +1298,9 @@ void TWPartition::Setup_Data_Media() {
 		wipe_exclusions.add_absolute_dir(Mount_Point + "/misc/vold"); // adopted storage keys
 		ExcludeAll(Mount_Point + "/system/storage.xml");
 
+		// Fix problems with restoring data partition backups
+		backup_exclusions.add_absolute_dir("/data/system/users/0/package-restrictions.xml");
+
 		// board-customisable exclusions
 		#ifdef TW_BACKUP_EXCLUSIONS
 			std::vector<std::string> user_extra_exclusions = TWFunc::Split_String(TW_BACKUP_EXCLUSIONS, ",");
