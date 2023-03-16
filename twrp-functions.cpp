@@ -201,8 +201,7 @@ bool TWFunc::ROM_Has_MIUI_Props() {
 int i = 0;
 std::string s;
 std::vector<std::string> props = TWFunc::Split_String (
-"ro.miui.build.region,ro.miui.region,ro.miui.cust_variant,ro.miui.google.csp,ro.miui.block_device_path,ro.miui.customized_clientid,ro.vendor.miui.cust_variant,ro.miui.ui.version.name,ro.miui.ui.version.code,ro.miui.product.home,persist.miui.density_v2",
-",", true);
+"ro.miui.ui.version.code,ro.miui.ui.version.name,ro.miui.build.region,ro.miui.product.home,ro.miui.customized_clientid", ",", true);
 
 	for (auto && prop: props) {
 		s = TWFunc::System_Property_Get(prop);
@@ -213,7 +212,7 @@ std::vector<std::string> props = TWFunc::Split_String (
 			i++;
 		}
 
-		if (i > 3) {
+		if (i > 2) {
 			TWFunc::Fox_Property_Set("orangefox.miui.rom", "1");
 			return true;
 		}
