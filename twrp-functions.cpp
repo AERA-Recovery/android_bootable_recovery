@@ -203,10 +203,14 @@ std::string s;
 std::vector<std::string> props = TWFunc::Split_String (
 "ro.miui.ui.version.code,ro.miui.ui.version.name,ro.miui.build.region,ro.miui.product.home,ro.miui.customized_clientid", ",", true);
 
+	if (TWFunc::Fox_Property_Get("orangefox.miui.rom") == "1")
+		return true;
+
 	for (auto && prop: props) {
 		s = TWFunc::System_Property_Get(prop);
-		if (s.empty())
-			s = TWFunc::Product_Property_Get(prop);
+		if (s.empty() && TWFunc::Fox_Property_Get("orangefox.product.partition") == "1") {
+		       s = TWFunc::Product_Property_Get(prop);
+		}
 
 		if (!s.empty()) {
 			i++;
