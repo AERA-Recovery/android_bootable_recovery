@@ -2221,7 +2221,9 @@ int TWFunc::Check_MIUI_Treble(void)
       Fox_Current_ROM_IsTreble = 1;
 
   // MIUI?
+  #ifndef OF_NO_ADDITIONAL_MIUI_PROPS_CHECK
   TWFunc::ROM_Has_MIUI_Props();
+  #endif
   if (TWFunc::MIUI_Is_Running())
   	Fox_Current_ROM_IsMIUI = 1;
   else
