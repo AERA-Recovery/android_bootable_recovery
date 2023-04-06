@@ -595,4 +595,9 @@ ifneq ($(OF_DEFAULT_TIMEZONE),)
 else
     LOCAL_CFLAGS += -DOF_DEFAULT_TIMEZONE='"CET-1;CEST,M3.5.0,M10.5.0"'
 endif
+
+# support fs compression (requires kernel support and appropriate fstab flags)
+ifeq ($(OF_ENABLE_FS_COMPRESSION),1)
+    LOCAL_CFLAGS += -DOF_ENABLE_FS_COMPRESSION
+endif
 #
