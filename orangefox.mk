@@ -597,6 +597,10 @@ else
 endif
 
 # support fs compression (requires kernel support and appropriate fstab flags)
+ifeq ($(TW_ENABLE_FS_COMPRESSION),true)
+  OF_ENABLE_FS_COMPRESSION := 1
+endif
+
 ifeq ($(OF_ENABLE_FS_COMPRESSION),1)
     LOCAL_CFLAGS += -DOF_ENABLE_FS_COMPRESSION
 endif
