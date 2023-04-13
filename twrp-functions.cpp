@@ -2324,7 +2324,6 @@ void TWFunc::Welcome_Message(void)
     gui_print_color("green", "OrangeFox websites:\n");
     gui_print("[Downloads] : https://orangefox.download/\n");
     gui_print("[Guides/FAQ]: https://wiki.orangefox.tech/guides/\n");
-    gui_print("[App]       : https://app.orangefox.tech/\n");
 
     #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES) || defined(OF_TWRP_COMPATIBILITY_MODE)
     LOGINFO(" [MIUI-specific features not enabled]\n");
