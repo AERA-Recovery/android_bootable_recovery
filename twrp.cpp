@@ -391,42 +391,13 @@ static void reboot() {
 }
 
 // check whether we should reload the themes
-// TODO - is this check even needed?
 static bool Fox_CheckReload_Themes() {
-  bool found = false; 
-  
   if (DataManager::GetStrValue("data_decrypted") == "1" 
   || DataManager::GetIntValue(TW_IS_FBE) == 1 
   || TWFunc::Fox_Property_Get("orangefox.mount_to_decrypt") == "1") {
 	DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
-	found = true;
     }
-
-  // FBE
-  if (!found) {
-     if ((TWFunc::Fox_Property_Get("fbe.data.wrappedkey") == "true") ||
-	(TWFunc::Fox_Property_Get("fbe.metadata.wrappedkey") == "true") ||
-	(!TWFunc::Fox_Property_Get("fbe.filenames").empty()) ||
-	(!TWFunc::Fox_Property_Get("fbe.contents").empty())) 
-     found = true;
-  }
-
-  // FDE
-  if (!found) {
-     if ((TWFunc::Fox_Property_Get("dev.mnt.blk.data") == "dm-0") ||
-	(TWFunc::Fox_Property_Get("dev.mnt.blk.sdcard") == "dm-0") ||
-	(TWFunc::Fox_Property_Get("ro.crypto.fs_crypto_blkdev") == "/dev/block/dm-0") ||
-	(TWFunc::Fox_Property_Get("ro.crypto.state") == "encrypted" && TWFunc::Fox_Property_Get("ro.crypto.type") == "block"))
-     found = true;
-   }
-
-  if (!found)
-     return false;
-  
-  if (TWFunc::Path_Exists(Fox_Home + "/.theme") || TWFunc::Path_Exists(Fox_Home + "/.navbar"))
-     return true;
-  else
-     return false;
+  return (TWFunc::Path_Exists(Fox_Home + "/.theme") || TWFunc::Path_Exists(Fox_Home + "/.navbar"));
 }
 
 int main(int argc, char **argv) {
