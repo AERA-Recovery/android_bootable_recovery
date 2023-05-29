@@ -2,7 +2,7 @@
         Copyright 2012 bigbiff/Dees_Troy TeamWin
         This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2019-2020 OrangeFox Recovery Project
+	Copyright (C) 2019-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
         TWRP is free software: you can redistribute it and/or modify

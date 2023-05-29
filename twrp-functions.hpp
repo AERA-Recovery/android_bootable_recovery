@@ -92,15 +92,12 @@ public:
 	static bool Wait_For_Battery(std::chrono::nanoseconds timeout);             // Wait For /sys/class/power_supply/battery or TW_CUSTOM_BATTERY_PATH, True is success, False is timeout;
 
 #ifndef BUILD_TWRPTAR_MAIN
-	static void install_htc_dumlock(void);                                      // Installs HTC Dumlock
 	static void Write_MIUI_Install_Status(std::string install_status, bool verify);                                // Write last install status in to the /cache/recovery/last_status
 	static void Replace_Word_In_File(string file_path, string search, string word); // Replace string in file
 	static void Replace_Word_In_File(string file_path, string search); // Remove string from file	
 	static void Remove_Word_From_File(string file_path, string search); // Remove string from file	
 	static void Set_New_Ramdisk_Property(std::string file_path, std::string prop, bool enable); // Set new property for default.prop in unpacked ramdisk
 	static bool PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot);       // Unpacking/repacking process for boot/recovery images, using magiskboot
-	static void htc_dumlock_restore_original_boot(void);                        // Restores the backup of boot from HTC Dumlock
-	static void htc_dumlock_reflash_recovery_to_boot(void);                     // Reflashes the current recovery to boot
 
 	static void List_Mounts();
 	static void Clear_Bootloader_Message();

@@ -258,7 +258,6 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define TW_DONT_UNMOUNT_SYSTEM      "tw_dont_unmount_system"
 // #define TW_ALWAYS_RMRF              "tw_always_rmrf"
 
-#define TW_SHOW_DUMLOCK             "tw_show_dumlock"
 #define TW_HAS_INJECTTWRP           "tw_has_injecttwrp"
 #define TW_INJECT_AFTER_ZIP         "tw_inject_after_zip"
 #define TW_HAS_DATADATA             "tw_has_datadata"
