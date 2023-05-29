@@ -88,8 +88,7 @@ static int Install_Theme(const char* path, ZipArchiveHandle Zip) {
 	}
 	if (!PartitionManager.Mount_Settings_Storage(true))
 		return INSTALL_ERROR;
-	string theme_path = DataManager::GetSettingsStoragePath();
-	theme_path += Fox_Themes_Dir;
+	std::string theme_path = FOX_THEME_PATH;
 	if (!TWFunc::Path_Exists(theme_path)) {
 		if (!TWFunc::Recursive_Mkdir(theme_path)) {
 			return INSTALL_ERROR;
@@ -508,7 +507,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 	      		string ota_folder = DataManager::GetStrValue("ota_bak_folder");
 	      		usleep(2048);
 	      		if (ota_folder.empty())
-	      		   ota_folder = "/sdcard/Fox/OTA";
+	      		   ota_folder = FOX_OTA_PATH;
 			string ota_bootimg = ota_folder + "/boot.img";
 			if (TWFunc::Path_Exists(boot_bak_img)) {
 			   if (TWFunc::copy_file(boot_bak_img, ota_bootimg, 0644) == 0) {

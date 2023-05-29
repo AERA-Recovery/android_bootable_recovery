@@ -728,6 +728,10 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("fox_theme_version", FOX_THEME_VERSION);
   //
 
+  mConst.SetValue("fox_theme_path", FOX_THEME_PATH);
+  mConst.SetValue("fox_navbar_path", FOX_NAVBAR_PATH);
+  mConst.SetValue("fox_ota_path", FOX_OTA_PATH);
+
   if (TWFunc::Has_Virtual_AB_Partitions())
   	mConst.SetValue("fox_vab_device", "1");
   else

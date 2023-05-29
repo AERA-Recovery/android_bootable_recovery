@@ -2,7 +2,7 @@
 	Copyright 2013 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2020 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -38,6 +38,7 @@
 #include <dirent.h>
 #include "../twrp-functions.hpp"
 #include "../partitions.hpp"
+#include "../variables.h"
 
 #include <string>
 #include <algorithm>
@@ -936,7 +937,7 @@ int PageSet::LoadDetails(LoadingContext& ctx, xml_node<>* root)
 					//      I used file because DataManager not loaded user vars at this moment
 					//      Someone may mess up recovery using this file so just remove code when OF lab disabled
 #ifdef FOX_ENABLE_LAB
-					if (TWFunc::read_file("/sdcard/Fox/scaling", num) == 0) {
+					if (TWFunc::read_file(Fox_Home + "/scaling", num) == 0) {
 							LOGERR("Custom scaling: %s\n", num.c_str());
 							scale_w = ::atof(num.c_str());
 							scale_h = ::atof(num.c_str());
