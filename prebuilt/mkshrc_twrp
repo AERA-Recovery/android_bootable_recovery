@@ -6,7 +6,7 @@
 #
 # Support: https://launchpad.net/mksh
 #
-# Copyright (c) 2021, The OrangeFox Recovery Project
+# Copyright (c) 2021-2023, The OrangeFox Recovery Project
 #
 
 : ${HOSTNAME:=$(getprop ro.product.device)}
@@ -24,12 +24,24 @@ InitFox() {
 
   if [ -f /sdcard/Fox/fox.mkshrc ]; then
      source /sdcard/Fox/fox.mkshrc;
+  elif [ -f /FFiles/fox.mkshrc ]; then
+     source /FFiles/fox.mkshrc;
+  elif [ -f /data/recovery/fox.mkshrc ]; then
+     source /data/recovery/fox.mkshrc;
+  elif [ -f /sdcard1/Fox/fox.mkshrc ]; then
+     source /sdcard1/Fox/fox.mkshrc;
   fi
 
   if [ -f $HOME/.mkshrc ]; then
      source $HOME/.mkshrc;
   elif [ -f /sdcard/.mkshrc ]; then
      source /sdcard/.mkshrc;
+  elif [ -f /FFiles/.mkshrc ]; then
+     source /FFiles/.mkshrc;
+  elif [ -f /data/recovery/.mkshrc ]; then
+     source /data/recovery/.mkshrc;
+  elif [ -f /sdcard1/.mkshrc ]; then
+     source /sdcard1/.mkshrc;
   fi
 }
 
