@@ -349,7 +349,6 @@
 		<string name="language_hdr">Язык</string>
 		<string name="terminal_btn">Терминал</string>
 		<string name="reload_theme_btn">Перезагрузить тему</string>
-		<string name="dumlock_btn">HTC Dumlock</string>
 		<string name="inject_twrp_btn">Интегрировать OrangeFox</string>
 		<string name="inject_twrp_confirm">Интегрировать OrangeFox заново</string>
 		<string name="injecting_twrp">Интегрирование OrangeFox...</string>
@@ -369,19 +368,6 @@
 		<string name="partitioning_sd">Разметка SD-карты...</string>
 		<string name="partitioning_sd2">Это может занять несколько минут.</string>
 		<string name="part_sd_complete">Разметка завершена</string>
-		<string name="dumlock_hdr">HTC Dumlock</string>
-		<string name="dumlock_restore_btn">Восстановление оригинального Boot</string>
-		<string name="dumlock_restore_confirm">Восстановить Boot</string>
-		<string name="dumlock_restoring">Восстановление оригинального Boot...</string>
-		<string name="dumlock_restore_complete">Восстановление Boot завершено</string>
-		<string name="dumlock_reflash_btn">Перепрошивка OrangeFox</string>
-		<string name="dumlock_reflash_confirm">Перепрошить Recovery в Boot</string>
-		<string name="dumlock_reflashing">Прошивка Recovery в Boot...</string>
-		<string name="dumlock_reflash_complete">Прошивка Recovery в Boot завершена</string>
-		<string name="dumlock_install_btn">Установить HTC Dumlock</string>
-		<string name="dumlock_install_confirm">Установить HTC Dumlock</string>
-		<string name="dumlock_installing">Установка HTC Dumlock...</string>
-		<string name="dumlock_install_complete">Установка HTC Dumlock завершена</string>
 		<string name="swipe_to_unlock">Проведите для разблокировки</string>
 		<string name="swipe_unlock">   Разблокировать</string>
 		<string name="fm_hdr">Файлы</string>
@@ -601,9 +587,6 @@
 		<string name="md5_match">MD5 соответствует</string>
 		<string name="pid_signal">Процесс {1} завершился с кодом {2}</string>
 		<string name="pid_error">Процесс {1} завершился с ОШИБКОЙ: {2}</string>
-		<string name="install_dumlock">Установка HTC Dumlock в систему...</string>
-		<string name="dumlock_restore">Восстановление оригинального boot...</string>
-		<string name="dumlock_reflash">Перепрошивка recovery в boot...</string>
 		<string name="run_script">Запуск сценария {1}...</string>
 		<string name="split_backup">Разделение резервной копии на несколько архивов...</string>
 		<string name="backup_error">Ошибка создания резервной копии.</string>
@@ -708,8 +691,6 @@
 		<string name="btn_flat_less">-</string>
 		<string name="fordowns_sl">Запуск Sideload...</string>
 		<string name="fordowns_to">в</string>
-		<string name="dumlock_note1">Информация о HTC Dumlock доступна</string>
-		<string name="dumlock_note2">на сайте:</string>
 		<string name="decrypt">Расшифровка</string>
 		<string name="data_part">Раздел зашифрован</string>
 		<string name="encrypt_data_part">Ваши данные зашифрованы</string>
