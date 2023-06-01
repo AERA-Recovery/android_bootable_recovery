@@ -167,10 +167,6 @@ else
     LOCAL_CFLAGS += -DFOX_CURRENT_DEV_STR='"latest"'
 endif
 
-ifeq ($(FOX_OLD_DECRYPT_RELOAD),1)
-    LOCAL_CFLAGS += -DFOX_OLD_DECRYPT_RELOAD='"1"'
-endif
-
 ifneq ($(OF_SCREEN_H),)
     LOCAL_CFLAGS += -DOF_SCREEN_H='"$(OF_SCREEN_H)"'
 else
