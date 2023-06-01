@@ -779,7 +779,7 @@ void DataManager::SetDefaultValues()
 
   mConst.SetValue(OF_SPLASH_MAX_SIZE_STR, OF_SPLASH_MAX_SIZE);
 
-  #ifdef FOX_ENABLE_LAB
+  #ifdef OF_ENABLE_LAB
     mConst.SetValue("fox_lab", "1");
 		LOGERR("Warning: lab enabled\n");
 		LOGERR("Build isn't for release\n");
