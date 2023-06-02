@@ -742,7 +742,7 @@ void DataManager::SetDefaultValues()
   #endif
 
   // magiskboot 24+ whether to force-patch vbmebta
-  #if defined(OF_PATCH_VBMETA_FLAG)
+  #if defined(FOX_PATCH_VBMETA_FLAG)
   setenv("PATCHVBMETAFLAG", "true", 1);
   #else
   setenv("PATCHVBMETAFLAG", "false", 1);
@@ -806,13 +806,13 @@ void DataManager::SetDefaultValues()
     mData.SetValue("of_no_miui_features", "0");
   #endif
 
-  #if defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION) || defined(OF_VENDOR_BOOT_RECOVERY) || defined(OF_NO_REFLASH_CURRENT_ORANGEFOX)
+  #if defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION) || defined(FOX_VENDOR_BOOT_RECOVERY) || defined(OF_NO_REFLASH_CURRENT_ORANGEFOX)
     mConst.SetValue("fox_disable_reflash_current", "1");
   #else
     mConst.SetValue("fox_disable_reflash_current", "0");
   #endif
 
-  #if defined(OF_AB_DEVICE) || defined(AB_OTA_UPDATER)
+  #if defined(FOX_AB_DEVICE) || defined(AB_OTA_UPDATER)
     mData.SetValue("of_ab_device", "1");
   #else
     mData.SetValue("of_ab_device", "0");
@@ -1014,7 +1014,7 @@ void DataManager::SetDefaultValues()
   	TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
 #endif
 
-#ifdef OF_VENDOR_BOOT_RECOVERY
+#ifdef FOX_VENDOR_BOOT_RECOVERY
   	TWFunc::Fox_Property_Set("orangefox.vendor_boot.recovery", "true");
   	mConst.SetValue("vendor_boot_recovery", "1");
 #endif
@@ -1163,7 +1163,7 @@ void DataManager::SetDefaultValues()
   mPersist.SetValue(TW_TIME_ZONE_GUIOFFSET, "0");
   mPersist.SetValue(TW_TIME_ZONE_GUIDST, "1");
 
-  #ifdef OF_VENDOR_BOOT_RECOVERY
+  #ifdef FOX_VENDOR_BOOT_RECOVERY
   mConst.SetValue(TW_AUTO_REFLASHTWRP_VAR, "0");
   #else
   mPersist.SetValue(TW_AUTO_REFLASHTWRP_VAR, "0");

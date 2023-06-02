@@ -81,7 +81,7 @@ bool ors_is_active()
 string Fox_CheckForAsserts(ZipArchiveHandle Zip)
 {
 string ret = "";
-#ifdef OF_TARGET_DEVICES
+#ifdef FOX_TARGET_DEVICES
 string devices = TWFunc::get_assert_device_zip(FOX_TMP_PATH, Zip);
   if (devices.empty())
        return ret;
@@ -96,7 +96,7 @@ string devices = TWFunc::get_assert_device_zip(FOX_TMP_PATH, Zip);
 
   LOGINFO("AssertDevice=[%s] and CurrentDevice=[%s]\n", devices.c_str(), tmpstr.c_str());
   std::vector<std::string> assertResults = TWFunc::Split_String(devices, ",");
-  std::vector <std::string> devs = TWFunc::Split_String(OF_TARGET_DEVICES, ",");
+  std::vector <std::string> devs = TWFunc::Split_String(FOX_TARGET_DEVICES, ",");
 
   for (const std::string& deviceAssert : assertResults) {
         std::string assertName = TWFunc::trim(deviceAssert);
@@ -129,7 +129,7 @@ bool Fox_Support_All_OTA()
 
 void Fox_ProcessAsserts(string assert_device)
 {
-  #ifdef OF_TARGET_DEVICES
+  #ifdef FOX_TARGET_DEVICES
     if (!assert_device.empty())
        {
          if (TWFunc::Fox_Property_Set("ro.product.device", assert_device))
@@ -238,7 +238,7 @@ bool verify_incremental_package(string fingerprint, string metadatafp, string me
 int TWinstall_Run_OTA_BAK (bool reportback) 
 {
 int result = 0;
-#ifdef OF_VANILLA_BUILD
+#ifdef FOX_VANILLA_BUILD
    LOGINFO("- OrangeFox: DEBUG: skipping the OTA_BAK process...\n");
    return result;
 #endif
@@ -440,7 +440,7 @@ string tmp = "";
     return true;
 
   // boot image flash? else return false
-  #if !defined(AB_OTA_UPDATER) && !defined(OF_AB_DEVICE)
+  #if !defined(AB_OTA_UPDATER) && !defined(FOX_AB_DEVICE)
   if (!boot_install)
      return false;
   #endif
@@ -519,7 +519,7 @@ string tmp = "";
 
   // deal with recent non-standards-compliant xiaomi.eu vAB zip installers
   i = 0;
-  #if defined(AB_OTA_UPDATER) || defined(OF_AB_DEVICE)
+  #if defined(AB_OTA_UPDATER) || defined(FOX_AB_DEVICE)
     str = TWFunc::find_phrase(path, "images/super.img");
     if (!str.empty() && !is_comment_line(str))
 	i++;
@@ -1034,7 +1034,7 @@ void Fox_Post_Zip_Install(const int result)
          usleep(16384);
 
 	//---- Virtual A/B: compensate for ROM installers that still use legacy methods for flashing, instead of payload.bin/update_engine ----//
-	#if defined(OF_VIRTUAL_AB_DEVICE) && !defined(OF_VENDOR_BOOT_RECOVERY)
+	#if defined(FOX_VIRTUAL_AB_DEVICE) && !defined(FOX_VENDOR_BOOT_RECOVERY)
 	/*
 	* check for MIUI ROM installers, currently the only ones that do this
 	* Really, this fix should not be needed, but some custom MIUI ROM installers fail to use the standard flashing method for A/B devices

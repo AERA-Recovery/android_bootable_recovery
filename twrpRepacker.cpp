@@ -268,7 +268,7 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 }
 
 bool twrpRepacker::Flash_Current_Twrp() {
-#ifdef OF_VENDOR_BOOT_RECOVERY
+#ifdef FOX_VENDOR_BOOT_RECOVERY
 	LOGERR("Auto-reflashing is not supported in vendor_boot-as-recovery builds.\n\nYou need to flash OrangeFox manually.\n");
 	return false;
 #endif

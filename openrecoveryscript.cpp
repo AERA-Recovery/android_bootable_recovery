@@ -820,7 +820,7 @@ int OpenRecoveryScript::remountrw(void)
 
 void OpenRecoveryScript::Run_Fox_Process_After_ORS(int result)
 {
-#ifdef OF_VANILLA_BUILD
+#ifdef FOX_VANILLA_BUILD
    LOGINFO("- OrangeFox: DEBUG: skipping the Run_Fox_Process_After_ORS process...\n");
 #else
    if (TWFunc::JustInstalledMiui())
