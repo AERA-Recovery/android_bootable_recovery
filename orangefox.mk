@@ -49,7 +49,7 @@ ifeq ($(OF_FORCE_MAGISKBOOT_BOOT_PATCH_MIUI),1)
 endif
 
 # virtual AB
-ifeq ($(PRODUCT_VIRTUAL_AB_OTA),1)
+ifeq ($(PRODUCT_VIRTUAL_AB_OTA),true)
     FOX_VIRTUAL_AB_DEVICE := 1
 endif
 
