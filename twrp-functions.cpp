@@ -4570,9 +4570,9 @@ void TWFunc::Dump_Current_Settings(void)
    LOGINFO("- Aggressive stock recovery deactivation=%i\n", DataManager::GetIntValue(FOX_ADVANCED_STOCK_REPLACE));
 
    #ifdef OF_DONT_PATCH_ON_FRESH_INSTALLATION
-   LOGINFO("- Don't patch on fresh ROM installation=1\n");
+   LOGINFO("- Don't patch on fresh OrangeFox installation=1\n");
    #else
-   LOGINFO("- Don't patch on fresh ROM installation=0\n");
+   LOGINFO("- Don't patch on fresh OrangeFox installation=0\n");
    #endif
 
    #ifdef OF_DONT_PATCH_ENCRYPTED_DEVICE
