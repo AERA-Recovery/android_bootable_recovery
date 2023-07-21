@@ -2,7 +2,7 @@
 	Copyright 2014 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2021 OrangeFox Recovery Project
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -38,6 +38,8 @@
 
 #define REPACK_ORIG_DIR "/tmp/repackorig/"
 #define REPACK_NEW_DIR "/tmp/repacknew/"
+
+#define NOT_AVAILABLE -2
 
 using namespace std;
 

@@ -634,6 +634,11 @@ ifneq ($(OF_TARGET_DEVICES),)
    endif
 endif
 
+# some mtk will need this, consequent upon recent build system commits
+ifeq ($(OF_LEGACY_PROCESS_FSTAB),1)
+    TW_LEGACY_PROCESS_FSTAB := true
+endif
+
 # renamed build vars - throw up errors for these:
 ifeq ($(FOX_USE_LZMA_COMPRESSION),1)
    $(error FOX_USE_LZMA_COMPRESSION is obsolete. Use "export OF_USE_LZMA_COMPRESSION=1" instead)

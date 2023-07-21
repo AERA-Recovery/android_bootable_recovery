@@ -129,7 +129,8 @@ public:
 	static bool write_to_file(const string& fn, const std::vector<string> lines); // write vector of strings line by line with newlines
 	static bool Try_Decrypting_Backup(string Restore_Path, string Password); // true for success, false for failed to decrypt
 	static string System_Property_Get(string Prop_Name);                // Returns value of Prop_Name from reading /system/build.prop
-	static string System_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name);     // Returns value of Prop_Name from reading provided prop file
+	static string Partition_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name);     // Returns value of Prop_Name from reading provided prop file
+
 	static string Product_Property_Get(string Prop_Name);                // Returns value of Prop_Name from reading /product/etc/build.prop
 	static string Product_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name);     // Returns value of Prop_Name from reading provided Product prop file
 
@@ -189,6 +190,8 @@ public:
 	static std::string get_log_dir(); // return recovery log storage directory
 	static void check_selinux_support(); // print whether selinux support is enabled to console
 	static int Property_Override(string Prop_Name, string Prop_Value); // Override properties (including ro. properties)
+	static int Delete_Property(string Prop_Name); // Delete properties (non-persistent properties only)
+
 	static void Set_Sbin_Dir_Executable_Flags(void); // set the executable flags of all the files in the /sbin/ directory
 
 	static void CreateNewFile(string file_path); // create a new (text) file
@@ -198,6 +201,10 @@ public:
 	static string wstr_to_str(wstring str);
 	static bool IsBinaryXML(const std::string filename); // return whether the file is a binary XML file
 	static bool Check_Xml_Format(const std::string filename); // Return whether a xml is in plain xml [return true] or ABX format [return false]
+	static bool Find_Fstab(string &fstab);
+	static bool Get_Service_From(TWPartition *Partition, std::string Service, std::string &Ret);
+	static std::string Get_Version_From_Service(std::string name);
+
 	static bool abx_to_xml(const std::string path, std::string &result); // could we convert abx to xml (if so, return the full path to the converted file)
 	static std::string abx_to_xml_string(const std::string path); // convert abx to xml and return the full path to the converted or empty string on error
 
