@@ -614,7 +614,7 @@ endif
 
 ifeq ($(OF_AB_DEVICE),1)
    FOX_AB_DEVICE := 1
-   $(warning OF_OF_AB_DEVICE has been deprecated. Use "export FOX_OF_AB_DEVICE=1" instead)
+   $(warning OF_AB_DEVICE has been deprecated. Use "export FOX_AB_DEVICE=1" instead)
 endif
 
 ifeq ($(OF_PATCH_VBMETA_FLAG),1)
