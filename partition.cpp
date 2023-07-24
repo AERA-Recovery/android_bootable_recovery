@@ -2589,6 +2589,11 @@ bool TWPartition::Wipe_F2FS() {
 
 	needs_casefold = android::base::GetBoolProperty("external_storage.casefold.enabled", false);
     	needs_projid = android::base::GetBoolProperty("external_storage.projid.enabled", false);
+    	if (!Needs_Fs_Compress) {
+    		Needs_Fs_Compress = android::base::GetBoolProperty("vold.has_compress", false);
+    		if (Needs_Fs_Compress)
+			LOGINFO("Enabling 'fs compression' ('vold.has_compress=true')\n");
+    	}
 
 	unsigned long long dev_sz = TWFunc::IOCTL_Get_Block_Size(Actual_Block_Device.c_str());
 	if (!dev_sz)
