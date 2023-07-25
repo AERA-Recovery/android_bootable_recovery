@@ -655,4 +655,9 @@ endif
 ifeq ($(FOX_USE_LZ4_COMPRESSION),1)
    $(error FOX_USE_LZ4_COMPRESSION is obsolete. Use "export OF_USE_LZ4_COMPRESSION=1" instead)
 endif
+
+# Don't spam the console with noisy loop device mount errors; just write them to the log file
+ifeq ($(OF_LOOP_DEVICE_ERRORS_TO_LOG),1)
+    LOCAL_CFLAGS += -DOF_LOOP_DEVICE_ERRORS_TO_LOG
+endif
 #
