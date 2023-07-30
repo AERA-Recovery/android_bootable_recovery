@@ -659,6 +659,13 @@ LOCAL_POST_INSTALL_CMD += \
     	LOCAL_POST_INSTALL_CMD += \
         cp -fr $(FOX_TARGET_TWRES_PATH) $(TARGET_ROOT_OUT)/;
 endif
+
+# deal with "cannot delete non-empty directory: root/vendor" errors
+ifeq ($(OF_MANUAL_ROOT_VENDOR_ERROR_FIX),1)
+LOCAL_POST_INSTALL_CMD += \
+        rm -f $(TARGET_RECOVERY_ROOT_OUT)/../../root/vendor; \
+        mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/../../root/vendor/;
+endif
 #
 # Darth9
 
