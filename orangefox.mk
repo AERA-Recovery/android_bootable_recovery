@@ -606,58 +606,51 @@ ifeq ($(OF_ENABLE_FS_COMPRESSION),1)
     LOCAL_CFLAGS += -DOF_ENABLE_FS_COMPRESSION
 endif
 
-# renamed and deprecated build vars: cover both "FOX_ "and "OF_", but issue warnings about deprecation
-ifeq ($(OF_VIRTUAL_AB_DEVICE),1)
-   FOX_VIRTUAL_AB_DEVICE := 1
-   $(warning OF_VIRTUAL_AB_DEVICE has been deprecated. Use "export FOX_VIRTUAL_AB_DEVICE=1" instead)
-endif
-
-ifeq ($(OF_AB_DEVICE),1)
-   FOX_AB_DEVICE := 1
-   $(warning OF_AB_DEVICE has been deprecated. Use "export FOX_AB_DEVICE=1" instead)
-endif
-
-ifeq ($(OF_PATCH_VBMETA_FLAG),1)
-   FOX_PATCH_VBMETA_FLAG := 1
-   $(warning OF_PATCH_VBMETA_FLAG has been deprecated. Use "export FOX_PATCH_VBMETA_FLAG=1" instead)
-endif
-
-ifeq ($(OF_VANILLA_BUILD),1)
-   FOX_VANILLA_BUILD := 1
-   $(warning OF_VANILLA_BUILD has been deprecated. Use "export FOX_VANILLA_BUILD=1" instead)
-endif
-
-ifneq ($(OF_TARGET_DEVICES),)
-   $(warning OF_TARGET_DEVICES has been deprecated. Use "FOX_TARGET_DEVICES" instead)
-   ifeq ($(FOX_TARGET_DEVICES),)
-       FOX_TARGET_DEVICES := $(OF_TARGET_DEVICES)
-   endif
-endif
-
 # some mtk will need this, consequent upon recent build system commits
 ifeq ($(OF_LEGACY_PROCESS_FSTAB),1)
     TW_LEGACY_PROCESS_FSTAB := true
-endif
-
-# renamed build vars - throw up errors for these:
-ifeq ($(FOX_USE_LZMA_COMPRESSION),1)
-   $(error FOX_USE_LZMA_COMPRESSION is obsolete. Use "export OF_USE_LZMA_COMPRESSION=1" instead)
-endif
-
-ifeq ($(OF_VENDOR_BOOT_RECOVERY),1)
-   $(error OF_VENDOR_BOOT_RECOVERY is obsolete. Use "export FOX_VENDOR_BOOT_RECOVERY=1" instead)
-endif
-
-ifeq ($(FOX_ADVANCED_SECURITY),1)
-   $(error FOX_ADVANCED_SECURITY is obsolete. Use "export OF_ADVANCED_SECURITY=1" instead)
-endif
-
-ifeq ($(FOX_USE_LZ4_COMPRESSION),1)
-   $(error FOX_USE_LZ4_COMPRESSION is obsolete. Use "export OF_USE_LZ4_COMPRESSION=1" instead)
 endif
 
 # Don't spam the console with noisy loop device mount errors; just write them to the log file
 ifeq ($(OF_LOOP_DEVICE_ERRORS_TO_LOG),1)
     LOCAL_CFLAGS += -DOF_LOOP_DEVICE_ERRORS_TO_LOG
 endif
+
+# renamed build vars - throw up errors:
+ifeq ($(OF_VIRTUAL_AB_DEVICE),1)
+   $(error "OF_VIRTUAL_AB_DEVICE" is obsolete. Use "export FOX_VIRTUAL_AB_DEVICE=1" instead)
+endif
+
+ifeq ($(OF_AB_DEVICE),1)
+   $(error "OF_AB_DEVICE" is obsolete. Use "export FOX_AB_DEVICE=1" instead)
+endif
+
+ifeq ($(OF_PATCH_VBMETA_FLAG),1)
+   $(error "OF_PATCH_VBMETA_FLAG" is obsolete. Use "export FOX_PATCH_VBMETA_FLAG=1" instead)
+endif
+
+ifeq ($(OF_VANILLA_BUILD),1)
+   $(error "OF_VANILLA_BUILD" is obsolete. Use "export FOX_VANILLA_BUILD=1" instead)
+endif
+
+ifneq ($(OF_TARGET_DEVICES),)
+   $(error "OF_TARGET_DEVICES" is obsolete. Use "FOX_TARGET_DEVICES" instead)
+endif
+
+ifeq ($(FOX_USE_LZMA_COMPRESSION),1)
+   $(error "FOX_USE_LZMA_COMPRESSION" is obsolete. Use "export OF_USE_LZMA_COMPRESSION=1" instead)
+endif
+
+ifeq ($(OF_VENDOR_BOOT_RECOVERY),1)
+   $(error "OF_VENDOR_BOOT_RECOVERY" is obsolete. Use "export FOX_VENDOR_BOOT_RECOVERY=1" instead)
+endif
+
+ifeq ($(FOX_ADVANCED_SECURITY),1)
+   $(error "FOX_ADVANCED_SECURITY" is obsolete. Use "export OF_ADVANCED_SECURITY=1" instead)
+endif
+
+ifeq ($(FOX_USE_LZ4_COMPRESSION),1)
+   $(error "FOX_USE_LZ4_COMPRESSION" is obsolete. Use "export OF_USE_LZ4_COMPRESSION=1" instead)
+endif
+
 #
