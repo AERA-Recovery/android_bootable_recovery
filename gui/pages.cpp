@@ -806,7 +806,7 @@ int PageSet::Load(LoadingContext& ctx, const std::string& filename)
 				continue;
 			}
 
-			string filename = attr->value();
+			string filename = gui_parse_text(attr->value());
 			LOGINFO("Including file: %s...\n", filename.c_str());
 			int rc = Load(ctx, filename);
 			if (rc != 0) {
