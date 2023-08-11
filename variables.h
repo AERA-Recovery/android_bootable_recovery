@@ -50,6 +50,11 @@
 
 #define OF_SPLASH_MAX_SIZE_STR "of_splash_max_size"
 
+#define OF_STORAGE_PATH		    "/sdcard/Fox/"
+#define TW_STORAGE_PATH             "/data/recovery/"
+#define TW_SETTINGS_FILE	    ".foxs"
+#define PERSIST_SETTINGS_FILE       "/persist/.foxs"
+
 // *** OrangeFox - Variables ** //
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,7 +62,7 @@
 #include <unistd.h>
 static const std::string Fox_Bin_Dir = "/system/bin";
 static const std::string Fox_Tmp = "/tmp";
-static const std::string Fox_Home = "/sdcard/Fox";
+static const std::string Fox_Home = OF_STORAGE_PATH; // "/sdcard/Fox";
 static const std::string Fox_Home_Files = Fox_Home + "/FoxFiles";
 static const std::string Fox_Logs_Dir = Fox_Home + "/logs";
 static const std::string FOX_THEME_PATH = Fox_Home + "/.theme";
@@ -312,7 +317,4 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define TW_VIRTUAL_AB_ENABLED       "tw_virtual_ab.enabled"
 #define TW_AUTO_REFLASHTWRP_VAR     "tw_auto_reflashtwrp"
 
-#define TW_STORAGE_PATH             "/data/recovery/"
-#define TW_SETTINGS_FILE	    ".foxs"
-#define PERSIST_SETTINGS_FILE       "/persist/.foxs"
 #endif  // _VARIABLES_HEADER_
