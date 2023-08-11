@@ -394,7 +394,7 @@ static bool Fox_CheckReload_Themes() {
   || TWFunc::Fox_Property_Get("orangefox.mount_to_decrypt") == "1") {
 	DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
     }
-  return (TWFunc::Path_Exists(Fox_Home + "/.theme") || TWFunc::Path_Exists(Fox_Home + "/.navbar"));
+  return (TWFunc::Path_Exists(FOX_THEME_PATH) || TWFunc::Path_Exists(FOX_NAVBAR_PATH));
 }
 
 int main(int argc, char **argv) {

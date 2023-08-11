@@ -2,6 +2,9 @@
 	Copyright 2012 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	This file is part of the OrangeFox Recovery Project.
+
 	TWRP is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation, either version 3 of the License, or
@@ -22,8 +25,6 @@
 #include <string>
 #include <pthread.h>
 #include "infomanager.hpp"
-
-#define PERSIST_SETTINGS_FILE  "/persist/.foxs"
 
 using namespace std;
 

@@ -802,7 +802,7 @@ int GUIAction::check_and_reload(std::string arg __unused)
     }
   }
   
-  if (TWFunc::Path_Exists(Fox_Home + "/.theme") || TWFunc::Path_Exists(Fox_Home + "/.navbar")) {
+  if (TWFunc::Path_Exists(FOX_THEME_PATH) || TWFunc::Path_Exists(FOX_NAVBAR_PATH)) {
     PageManager::RequestReload();
     gui_changePage("reapply_settings");
   } else {

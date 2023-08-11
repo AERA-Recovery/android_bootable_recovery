@@ -2532,7 +2532,7 @@ void TWFunc::OrangeFox_Startup(void)
      LOGINFO("Themes version: %s\n", build_theme_ver.c_str());
   } 
   else {
-     bool has_themes_dir = TWFunc::Path_Exists(Fox_Home + "/.theme");
+     bool has_themes_dir = TWFunc::Path_Exists(FOX_THEME_PATH);
      if (has_themes_dir)
      	gui_print_color("warning","* Themes version mismatch (old='%s'; new='%s')\n", theme_ver.c_str(), build_theme_ver.c_str());
      else
@@ -2541,12 +2541,12 @@ void TWFunc::OrangeFox_Startup(void)
      DataManager::SetValue("of_themes_version", build_theme_ver);
      if (has_themes_dir) {
         gui_print_color("warning", "* Resetting the themes...\n");
-        TWFunc::removeDir(Fox_Home + "/.theme", false);
+        TWFunc::removeDir(FOX_THEME_PATH, false);
      }
      
-     if (TWFunc::Path_Exists(Fox_Home + "/.navbar")) {
+     if (TWFunc::Path_Exists(FOX_NAVBAR_PATH)) {
         gui_print_color("warning", "* Resetting the navbar...\n");
-        TWFunc::removeDir(Fox_Home + "/.navbar", false);
+        TWFunc::removeDir(FOX_NAVBAR_PATH, false);
      }
   }
 //====

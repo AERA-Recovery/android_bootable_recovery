@@ -312,4 +312,7 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define TW_VIRTUAL_AB_ENABLED       "tw_virtual_ab.enabled"
 #define TW_AUTO_REFLASHTWRP_VAR     "tw_auto_reflashtwrp"
 
+#define TW_STORAGE_PATH             "/data/recovery/"
+#define TW_SETTINGS_FILE	    ".foxs"
+#define PERSIST_SETTINGS_FILE       "/persist/.foxs"
 #endif  // _VARIABLES_HEADER_
