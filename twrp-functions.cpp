@@ -5035,6 +5035,11 @@ void TWFunc::Mapper_to_BootDevice(const std::string block_device, const std::str
 
 void TWFunc::PostWipeEncryption(void) {
 #ifdef OF_RUN_POST_FORMAT_PROCESS
+
+  // run the postformatdata script here
+  TWFunc::RunFoxScript("/sbin/postformatdata.sh", "");
+  //
+
   DataManager::SetValue("fox_dfe_formatted", "0");
   bool create_data_media = 
   #ifdef OF_FORCE_CREATE_DATA_MEDIA_ON_FORMAT
