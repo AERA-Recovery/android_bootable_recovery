@@ -404,6 +404,10 @@ int main(int argc, char **argv) {
 	TWFunc::Fox_Property_Set("ro.dynamic.full_size", OF_DYNAMIC_FULL_SIZE);
 	#endif
 
+	#ifdef OF_SKIP_FBE_DECRYPTION
+	TWFunc::Fox_Property_Set("of_skip_fbe_decryption", "true");
+	#endif
+
     	string fox_cfg = Fox_Cfg;
     	if (!TWFunc::Path_Exists(fox_cfg))
     	    fox_cfg = "/system" + Fox_Cfg;

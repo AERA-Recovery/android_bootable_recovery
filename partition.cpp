@@ -798,15 +798,17 @@ if (TWFunc::Path_Exists("/data/unencrypted/key/version")) {
 		PartitionManager.Set_Crypto_Type("file");
 		LOGINFO("File Based Encryption is present\n");
 #ifdef TW_INCLUDE_FBE
-	#ifdef OF_SKIP_FBE_DECRYPTION
-	    gui_print_color("warning", "Skip FBE decryption is triggered. I will not try to decrypt...\n");
-	    return false;
-	#endif
+	if (TWFunc::Fox_Property_Get("of_skip_fbe_decryption") == "true") {
+		gui_print_color("warning", "Skip FBE decryption is triggered. I will not try to decrypt...\n");
+		return false;
+	}
+
 	#ifdef OF_SKIP_FBE_DECRYPTION_SDKVERSION
 	    int current=TWFunc::Get_Android_SDK_Version();
 	    int avoid=atoi(OF_SKIP_FBE_DECRYPTION_SDKVERSION);
 	    if (current >= avoid) {
 	       gui_print_color("warning", "Skip FBE decryption for SDK %i (%s) or higher.\n\nThe device will NOT be decrypted...\n\n", avoid, TWFunc::sdknum_to_text(avoid).c_str());
+	       TWFunc::Fox_Property_Set("of_skip_fbe_decryption", "true");
 	       return false;
 	    }
 	#endif
