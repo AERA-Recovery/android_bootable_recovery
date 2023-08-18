@@ -1559,6 +1559,7 @@ void DataManager::ReadSettingsFile(void)
 #ifndef TW_OEM_BUILD
   // Load up the values for TWRP - Sleep to let the card be ready
   char mkdir_path[255], settings_file[255];
+#ifndef FOX_USE_DATA_RECOVERY_FOR_SETTINGS
   int is_enc, has_data_media;
 
   GetValue(TW_IS_ENCRYPTED, is_enc);
@@ -1576,6 +1577,7 @@ void DataManager::ReadSettingsFile(void)
       }
   }
 
+#endif // FOX_USE_DATA_RECOVERY_FOR_SETTINGS
   memset(mkdir_path, 0, sizeof(mkdir_path));
   memset(settings_file, 0, sizeof(settings_file));
   sprintf(mkdir_path, "%s", GetSettingsStoragePath().c_str());
