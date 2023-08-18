@@ -82,13 +82,13 @@
 
 			<button style="actionbar">
 				<placement x="%ab_btn1_x%" y="%ab_y%" placement="4"/>
-				<condition var1="fileexists" var2="/sdcard/Fox/FoxFiles/%fox_magisk_uninstaller%"/>
+				<condition var1="fileexists" var2="%fox_home_files%/%fox_magisk_uninstaller%"/>
 				<action function="set">install_back=magisk_mount</action>
 				<action function="page">mod_unmagisk</action>
 			</button>
 
 			<image>
-				<condition var1="fileexists" var2="/sdcard/Fox/FoxFiles/%fox_magisk_uninstaller%"/>
+				<condition var1="fileexists" var2="%fox_home_files%/%fox_magisk_uninstaller%"/>
 				<placement x="%ab_btn1_x%" y="%ab_y%" placement="4"/>
 				<image resource="actionbar_delete"/>
 			</image>
@@ -104,7 +104,7 @@
 			</text>
 
 			<button style="menu_btn">
-				<condition var1="fileexists" var2="/sdcard/Fox/FoxFiles/%fox_magisk_zip_installer%"/>
+				<condition var1="fileexists" var2="%fox_home_files%/%fox_magisk_zip_installer%"/>
 				<placement x="%col1_x_caption%" y="%row1_3a_y%" w="%input_w%" h="%mb_h_hide%"/>
 				<action function="set">install_back=magisk_mount</action>
 				<action function="page">mod_magisk</action>
