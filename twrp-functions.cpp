@@ -334,7 +334,7 @@ void TWFunc::Run_Before_Reboot(void)
 
     // Run any custom script before rebooting
     TWFunc::MIUI_ROM_SetProperty(0);
-    TWFunc::RunFoxScript("/system/bin/beforereboot.sh", "");
+    TWFunc::RunFoxScript(FOX_BEFORE_REBOOT_SCRIPT, "");
 
     // logs & stuff
     string Logs_Dir = Fox_Logs_Dir;
@@ -5053,7 +5053,7 @@ void TWFunc::PostWipeEncryption(void) {
 #ifdef OF_RUN_POST_FORMAT_PROCESS
 
   // run the postformatdata script here
-  TWFunc::RunFoxScript("/sbin/postformatdata.sh", "");
+  TWFunc::RunFoxScript(FOX_POST_DATA_FORMAT_SCRIPT, "");
   //
 
   DataManager::SetValue("fox_dfe_formatted", "0");
