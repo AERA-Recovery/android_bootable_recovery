@@ -62,15 +62,17 @@
 #include <unistd.h>
 static const std::string Fox_Bin_Dir = "/system/bin";
 static const std::string Fox_Tmp = "/tmp";
-static const std::string Fox_Home = OF_STORAGE_PATH; // "/sdcard/Fox";
-static const std::string Fox_Home_Files = Fox_Home + "/FoxFiles";
-static const std::string Fox_Logs_Dir = Fox_Home + "/logs";
+
+static const std::string Fox_Home = OF_STORAGE_PATH;
+
 static const std::string FOX_THEME_PATH = Fox_Home + "/.theme";
 static const std::string FOX_NAVBAR_PATH =  Fox_Home + "/.navbar";
+static const std::string Fox_Home_Files = Fox_Home + "/FoxFiles";
+static const std::string Fox_Logs_Dir = Fox_Home + "/logs";
 static const std::string FOX_OTA_PATH =  Fox_Home + "/OTA";
 static const std::string Fox_sdcard_aroma_cfg = Fox_Home + "/aromafm.cfg";
-static const std::string FFiles_dir = "/FFiles";
 static const std::string Fox_aroma_cfg = Fox_Home_Files + "/AromaFM/AromaFM.zip.cfg";
+static const std::string FFiles_dir = "/FFiles";
 static const std::string Fox_tmp_dir = Fox_Tmp + "/orangefox";
 static const std::string Fox_ramdisk_dir = Fox_tmp_dir + "/ramdisk"; 
 static const std::string Fox_ramdisk_sbin_dir = Fox_ramdisk_dir + "/sbin"; 
@@ -86,26 +88,25 @@ static int Fox_AutoDeactivate_OnReboot = 0;   // call the deactivation process a
 static int Fox_Force_Deactivate_Process = 0;  // for a call to Deactivate_Process()
 static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI ROM?
 
-#define FOX_SURVIVAL_FOLDER    Fox_Home.c_str()
-//#define FOX_UPDATE_BINARY  "META-INF/com/google/android/update-binary" // all zip installers must have this
-#define FOX_MIUI_UPDATE_PATH "META-INF/com/miui/miui_update" 	// standard MIUI ROMs have this
-#define FOX_MIUI_UPDATE_PATH_EU "META-INF/com/xiaomieu/xiaomieu.sh"  // Xiaomi.EU MIUI ROMs have this
-#define FOX_FORCE_DEACTIVATE_PROCESS "fox_force_deactivate_process"
-#define FOX_ZIP_INSTALLER_CODE "fox_zip_installer_code"
-#define FOX_ZIP_INSTALLER_TREBLE "fox_zip_installer_treble"
-#define FOX_DISABLE_OTA_AUTO_REBOOT "fox_disable_ota_auto_reboot_check"
-#define FOX_STARTUP_SCRIPT "/sbin/foxstart.sh"
-#define FOX_PS_BIN "/FFiles/ps"
-#define FOX_NEW_MAGISKBOOT "/FFiles/magiskboot_new"
-#define FOX_MAGISK_ZIP_INSTALLER "Magisk.zip"
-#define FOX_MAGISK_UNINSTALLER "Magisk_uninstall.zip"
+#define FOX_SURVIVAL_FOLDER		Fox_Home.c_str()
+//#define FOX_UPDATE_BINARY		"META-INF/com/google/android/update-binary" // all zip installers must have this
+#define FOX_MIUI_UPDATE_PATH 		"META-INF/com/miui/miui_update" 	// standard MIUI ROMs have this
+#define FOX_MIUI_UPDATE_PATH_EU 	"META-INF/com/xiaomieu/xiaomieu.sh"  // Xiaomi.EU MIUI ROMs have this
+#define FOX_FORCE_DEACTIVATE_PROCESS 	"fox_force_deactivate_process"
+#define FOX_ZIP_INSTALLER_CODE 		"fox_zip_installer_code"
+#define FOX_ZIP_INSTALLER_TREBLE 	"fox_zip_installer_treble"
+#define FOX_DISABLE_OTA_AUTO_REBOOT 	"fox_disable_ota_auto_reboot_check"
+#define FOX_STARTUP_SCRIPT 		"/sbin/foxstart.sh"
+#define FOX_PS_BIN 			"/FFiles/ps"
+#define FOX_NEW_MAGISKBOOT 		"/FFiles/magiskboot_new"
+#define FOX_MAGISK_ZIP_INSTALLER 	"Magisk.zip"
+#define FOX_MAGISK_UNINSTALLER 		"Magisk_uninstall.zip"
 
-#define FOX_THEME_VERSION "1.1"
-
-#define FOX_PASS_IN_PERSIST "/persist/.fsec"
-
-#define FOX_PRE_ROM_FLASH_SCRIPT  "/system/bin/pre_rom_flash.sh"
-#define FOX_POST_ROM_FLASH_SCRIPT "/system/bin/post_rom_flash.sh"
+#define FOX_THEME_VERSION 		"1.1"
+#define FOX_PASS_IN_PERSIST 		"/persist/.fsec"
+#define FOX_PRE_ROM_FLASH_SCRIPT  	"/system/bin/pre_rom_flash.sh"
+#define FOX_POST_ROM_FLASH_SCRIPT 	"/system/bin/post_rom_flash.sh"
+#define FOX_POST_DATA_FORMAT_SCRIPT 	"/sbin/postformatdata.sh"
 
 // **** //
 
@@ -306,15 +307,15 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 //#define MAX_ARCHIVE_SIZE 52428800LLU // 50MB split for testing
 
 #ifndef CUSTOM_LUN_FILE
-#define CUSTOM_LUN_FILE "/config/usb_gadget/g1/functions/mass_storage.0/lun.%d/file"
+#define CUSTOM_LUN_FILE 	"/config/usb_gadget/g1/functions/mass_storage.0/lun.%d/file"
 #endif
 
-#define SCRIPT_FILE_TMP "/tmp/openrecoveryscript"
-#define TMP_LOG_FILE "/tmp/recovery.log"
-#define UPDATER_SCRIPT  "META-INF/com/google/android/updater-script"
-#define AROMA_CONFIG "META-INF/com/google/android/aroma-config"
-#define TW_IS_SUPER                 "tw_is_super"
-#define TW_VIRTUAL_AB_ENABLED       "tw_virtual_ab.enabled"
-#define TW_AUTO_REFLASHTWRP_VAR     "tw_auto_reflashtwrp"
+#define SCRIPT_FILE_TMP 	"/tmp/openrecoveryscript"
+#define TMP_LOG_FILE 		"/tmp/recovery.log"
+#define UPDATER_SCRIPT  	"META-INF/com/google/android/updater-script"
+#define AROMA_CONFIG 		"META-INF/com/google/android/aroma-config"
+#define TW_IS_SUPER             "tw_is_super"
+#define TW_VIRTUAL_AB_ENABLED   "tw_virtual_ab.enabled"
+#define TW_AUTO_REFLASHTWRP_VAR "tw_auto_reflashtwrp"
 
 #endif  // _VARIABLES_HEADER_
