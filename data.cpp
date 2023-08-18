@@ -1563,13 +1563,19 @@ void DataManager::ReadSettingsFile(void)
 
   GetValue(TW_IS_ENCRYPTED, is_enc);
   GetValue(TW_HAS_DATA_MEDIA, has_data_media);
-/*
-  if (is_enc == 1 && has_data_media == 1)
-    {
-      LOGINFO("Cannot load settings -- encrypted.\n");
-      return;
-    }
-*/
+
+  // if decryption fails, try to load/save some settings to /data/recovery/Fox/
+  if (is_enc == 1 && has_data_media == 1) {
+      static int dcrpfail_count=0;
+      TWFunc::Fox_Property_Set("of_decryption_failed", "true");
+      std::string tempdir = TW_STORAGE_PATH"Fox";
+      SetValue("tw_settings_path", tempdir);
+      if (dcrpfail_count == 0) {
+      	gui_print_color("warning", "I cannot load settings from encrypted device. I will try to save some settings to %s\n", tempdir.c_str());
+      	dcrpfail_count++; // don't spam the console with this warning
+      }
+  }
+
   memset(mkdir_path, 0, sizeof(mkdir_path));
   memset(settings_file, 0, sizeof(settings_file));
   sprintf(mkdir_path, "%s", GetSettingsStoragePath().c_str());
