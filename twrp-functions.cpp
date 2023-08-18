@@ -337,13 +337,24 @@ void TWFunc::Run_Before_Reboot(void)
     TWFunc::RunFoxScript("/system/bin/beforereboot.sh", "");
 
     // logs & stuff
-    if (!Path_Exists(Fox_Logs_Dir))
-       {
-	  TWFunc::Recursive_Mkdir(Fox_Logs_Dir, false);
-       }
+    string Logs_Dir = Fox_Logs_Dir;
+    bool use_data_recovery = (TWFunc::Fox_Property_Get("of_decryption_failed") == "true");
+    #ifdef FOX_USE_DATA_RECOVERY_FOR_SETTINGS
+	use_data_recovery = true;
+    #endif
+
+    // check whether decryption failed, and, if so, store the lastrecovery log under /data/recovery/
+    if (use_data_recovery) {
+    	Logs_Dir = TW_STORAGE_PATH;
+    	Logs_Dir += "Fox/logs";
+    }
+
+    if (!Path_Exists(Logs_Dir)) {
+	  TWFunc::Recursive_Mkdir(Logs_Dir, false);
+    }
 
     //[f/d] release info json for app
-    TWFunc::write_to_file(Fox_Logs_Dir + "/releaseinfo.json",
+    TWFunc::write_to_file(Logs_Dir + "/releaseinfo.json",
 "{\"json_ver\":\"2\",\"codename\":\"" + DataManager::GetStrValue(FOX_COMPATIBILITY_DEVICE) +
                      "\",\"type\":\"" + FOX_BUILD_TYPE                                     +
                   "\",\"version\":\"" + FOX_BUILD                                          +
@@ -352,13 +363,18 @@ void TWFunc::Run_Before_Reboot(void)
                    "\",\"branch\":\"" + FOX_BRANCH                                         +
                   "\",\"variant\":\"" + FOX_VARIANT                                        +
                "\",\"release_id\":\"" + TWFunc::System_Property_Get("ro.build.id")         + "\"}");
-    
-    copy_file("/tmp/recovery.log", Fox_Logs_Dir + "/lastrecoverylog.log", 0644);
 
-#ifdef OF_DONT_KEEP_LOG_HISTORY
+    copy_file("/tmp/recovery.log", Logs_Dir + "/lastrecoverylog.log", 0644);
+
+#if defined(OF_DONT_KEEP_LOG_HISTORY) || defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) // don't backup historic logs if we're not saving to /sdcard/Fox
     return;
 #endif
 
+    // if decryption failed, don't backup historic logs
+    if (use_data_recovery)
+    	return;
+
+    // proceed
     struct timeval tv;
     std::string log_file = "/recovery";
     if (gettimeofday(&tv, NULL) == 0)
@@ -371,7 +387,7 @@ void TWFunc::Run_Before_Reboot(void)
          log_file = log_file + "_undated.log";
      }
 
-   log_file = Fox_Logs_Dir + log_file;
+   log_file = Logs_Dir + log_file;
    copy_file("/tmp/recovery.log", log_file, 0644);
    if (Path_Exists(Fox_Bin_Dir + "/pigz"))
      {
