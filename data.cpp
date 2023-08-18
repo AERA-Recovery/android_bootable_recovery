@@ -1565,7 +1565,7 @@ void DataManager::ReadSettingsFile(void)
   GetValue(TW_HAS_DATA_MEDIA, has_data_media);
 
   // if decryption fails, try to load/save some settings to /data/recovery/Fox/
-  if (is_enc == 1 && has_data_media == 1) {
+  if (is_enc == 1 && has_data_media == 1 && (TWFunc::Path_Exists("/data/unencrypted/key/version") || GetIntValue(TW_IS_FBE) == 1) && GetStrValue("fox_dfe_formatted") != "1") {
       static int dcrpfail_count=0;
       TWFunc::Fox_Property_Set("of_decryption_failed", "true");
       std::string tempdir = TW_STORAGE_PATH"Fox";
