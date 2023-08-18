@@ -2135,7 +2135,8 @@ void TWPartitionManager::Post_Decrypt(const string& Block_Device) {
 
 		dat->Symlink_Path = dat->Storage_Path;
 		DataManager::SetValue("tw_storage_path", dat->Symlink_Path);
-		DataManager::SetValue("tw_settings_path", dat->Symlink_Path);
+		//DataManager::SetValue("tw_settings_path", dat->Symlink_Path);
+		DataManager::SetValue("tw_settings_path", Fox_Home);
 		LOGINFO("New storage path after decryption: %s\n", dat->Storage_Path.c_str());
 
 		Update_System_Details();
@@ -3441,6 +3442,7 @@ bool TWPartitionManager::Decrypt_Adopted()
       		LOGINFO("Android 12+: '%s' is not in binary format. Proceeding...\n", path.c_str());
   }
 
+  DataManager::SetValue("tw_settings_path", Fox_Home);
   LOGINFO("Decrypt adopted storage starting\n");
   char *xmlFile =
     PageManager::LoadFileToBuffer(path, NULL);
