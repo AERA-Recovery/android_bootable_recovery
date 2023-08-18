@@ -728,9 +728,15 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("fox_theme_version", FOX_THEME_VERSION);
   //
 
+  // variables used in the XML gui
+  mConst.SetValue("fox_home_path", Fox_Home);
+  mConst.SetValue("fox_home_files", Fox_Home_Files);
   mConst.SetValue("fox_theme_path", FOX_THEME_PATH);
   mConst.SetValue("fox_navbar_path", FOX_NAVBAR_PATH);
   mConst.SetValue("fox_ota_path", FOX_OTA_PATH);
+  mConst.SetValue("aroma_fm_zip", Fox_Home_Files + "/AromaFM/AromaFM.zip");
+  mConst.SetValue("of_initd_zip", Fox_Home_Files + "/OF_initd.zip");
+  //
 
   if (TWFunc::Has_Virtual_AB_Partitions())
   	mConst.SetValue("fox_vab_device", "1");
@@ -1566,7 +1572,7 @@ void DataManager::ReadSettingsFile(void)
 */
   memset(mkdir_path, 0, sizeof(mkdir_path));
   memset(settings_file, 0, sizeof(settings_file));
-  sprintf(mkdir_path, "%s/Fox", GetSettingsStoragePath().c_str());
+  sprintf(mkdir_path, "%s", GetSettingsStoragePath().c_str());
   sprintf(settings_file, "%s/%s", mkdir_path, TW_SETTINGS_FILE);
 
   if (!PartitionManager.Mount_Settings_Storage(false))
