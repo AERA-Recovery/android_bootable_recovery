@@ -653,4 +653,8 @@ ifeq ($(FOX_USE_LZ4_COMPRESSION),1)
    $(error "FOX_USE_LZ4_COMPRESSION" is obsolete. Use "export OF_USE_LZ4_COMPRESSION=1" instead)
 endif
 
+# whether to use /data/recovery/Fox/ for storage, instead of /sdcard/Fox/
+ifeq ($(FOX_USE_DATA_RECOVERY_FOR_SETTINGS),1)
+    LOCAL_CFLAGS += -DFOX_USE_DATA_RECOVERY_FOR_SETTINGS
+endif
 #

@@ -63,7 +63,12 @@
 static const std::string Fox_Bin_Dir = "/system/bin";
 static const std::string Fox_Tmp = "/tmp";
 
-static const std::string Fox_Home = OF_STORAGE_PATH;
+static const std::string Fox_Home =
+#ifdef FOX_USE_DATA_RECOVERY_FOR_SETTINGS
+TW_STORAGE_PATH"Fox";
+#else
+OF_STORAGE_PATH;
+#endif
 
 static const std::string FOX_THEME_PATH = Fox_Home + "/.theme";
 static const std::string FOX_NAVBAR_PATH =  Fox_Home + "/.navbar";
