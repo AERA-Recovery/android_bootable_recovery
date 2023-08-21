@@ -83,7 +83,7 @@ static const std::string Fox_ramdisk_dir = Fox_tmp_dir + "/ramdisk";
 static const std::string Fox_ramdisk_sbin_dir = Fox_ramdisk_dir + "/sbin"; 
 static const std::string epoch_drift_file = "/persist/.fox_epoch_drift.cfg"; // to cater for any saved epoch_drifts
 static const std::string Fox_OTA_info = "/orangefox.info";
-static std::string Fox_Current_Device = "mido";
+static std::string Fox_Current_Device = "default";
 static const std::string orangefox_cfg = "/etc/orangefox.cfg";
 static const std::string Fox_Cfg = "/etc/fox.cfg";
 
