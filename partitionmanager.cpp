@@ -484,6 +484,12 @@ clear:
 			Reset_Prop_From_Partition("external_storage.projid.enabled", "", ven, odm);
 			Reset_Prop_From_Partition("external_storage.casefold.enabled", "", ven, odm);
 			Reset_Prop_From_Partition("external_storage.sdcardfs.enabled", "", ven, odm);
+			Reset_Prop_From_Partition("vold.has_compress", "", ven, odm);
+			/* TODO add these ?
+			Reset_Prop_From_Partition("ro.virtual_ab.compression.enabled", "", ven, odm);
+			Reset_Prop_From_Partition("ro.virtual_ab.compression.xor.enabled", "", ven, odm);
+			*/
+
 			goto parse;
 		} else {
 			LOGINFO("Unable to parse vendor fstab\n");
