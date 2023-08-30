@@ -654,6 +654,7 @@
 
 		<string name="update_btn">Обновить</string>
 		<string name="include_kernel_log">Сохранить лог ядра</string>
+		<string name="include_logcat">Сохранить Logcat</string>
 
 		<string name="fm_books">Избранное</string>
 		<string name="fm_books_desc">Удерживайте для редактирования</string>
@@ -809,6 +810,7 @@
 		<string name="fox_internal_q1">OrangeFox - Внутренняя память - будьте осторожны!</string>
 
 		<string name="copy_kernel_log">Лог ядра скопирован в {1}</string>
+		<string name="copy_logcat">Logcat скопирован в {1}</string>
 
 		<string name="of_run_process">Запуск процесса '{1}'</string>
 		<string name="of_run_process_fail">Не удалось завершить процесс '{1}'</string>

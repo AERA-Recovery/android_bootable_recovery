@@ -2897,6 +2897,18 @@ void TWFunc::copy_kernel_log(string curr_storage)
   tw_set_default_metadata(dmesgDst.c_str());
 }
 
+void TWFunc::copy_logcat(string curr_storage)
+{
+  std::string logcatDst = curr_storage + "/logcat.log";
+  std::string logcatCmd = "/system/bin/logcat -d";
+
+  std::string result;
+  Exec_Cmd(logcatCmd, result);
+  write_to_file(logcatDst, result);
+  gui_msg(Msg("copy_logcat=Copied logcat to {1}") (logcatDst));
+  tw_set_default_metadata(logcatDst.c_str());
+}
+
 void TWFunc::create_fingerprint_file(string file_path, string fingerprint)
 {
   if (TWFunc::Path_Exists(file_path))
