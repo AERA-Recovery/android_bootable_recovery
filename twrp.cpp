@@ -436,10 +436,6 @@ int main(int argc, char **argv) {
 	// Load default values to set DataManager constants and handle ifdefs
 	DataManager::SetDefaultValues();
 
-	// start the UI
-	printf("Starting the UI...\n");
-	gui_init();
-
 	startupArgs startup;
 	startup.parse(&argc, &argv);
 	printf("=> Linking mtab\n");
@@ -468,6 +464,10 @@ int main(int argc, char **argv) {
 	}
 	KernelModuleLoader::Load_Vendor_Modules();
 #endif
+
+	// start the UI
+	printf("Starting the UI...\n");
+	gui_init();
 
 	// Load up all the resources
 	gui_loadResources();
