@@ -2248,6 +2248,11 @@ bool TWPartition::Wipe_Encryption() {
 			Fstab_File_System.c_str(), filesys.c_str(), filesys.c_str());
 	}
 
+#ifdef OF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO
+	gui_print_color("warning", "\nOrangeFox DEBUG - format data:\n  Fstab FileSystem=%s \nCurrent FileSystem=%s\n Target FileSystem=%s\n\n",
+		Fstab_File_System.c_str(), Current_File_System.c_str(), filesys.c_str());
+#endif
+
 	if (Wipe(filesys)) {
 		Has_Data_Media = Save_Data_Media;
 		DataManager::SetValue(TW_IS_ENCRYPTED, 0);

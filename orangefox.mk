@@ -657,4 +657,9 @@ endif
 ifeq ($(FOX_USE_DATA_RECOVERY_FOR_SETTINGS),1)
     LOCAL_CFLAGS += -DFOX_USE_DATA_RECOVERY_FOR_SETTINGS
 endif
+
+# whether to display debug information about the target partition when formatting data
+ifeq ($(OF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO),1)
+    LOCAL_CFLAGS += -DOF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO
+endif
 #
