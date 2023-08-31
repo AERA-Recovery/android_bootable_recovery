@@ -2214,6 +2214,7 @@ return false;
 bool TWPartition::Wipe_Encryption() {
 	bool Save_Data_Media = Has_Data_Media;
 	bool ret = false;
+	std::string filesys;
 	BasePartition* base_partition = make_partition();
 
 	if (!base_partition->PreWipeEncryption())
@@ -2239,7 +2240,15 @@ bool TWPartition::Wipe_Encryption() {
 	Decrypted_Block_Device = "";
 	Is_Decrypted = false;
 	Is_Encrypted = false;
-	if (Wipe(Fstab_File_System)) {
+
+	filesys = Fstab_File_System;
+	if (filesys != Current_File_System) {
+		filesys = Current_File_System;
+		LOGINFO("The 'fstab' filesystem (%s) differs from the current filesystem (%s). Formatting to %s ...\n",
+			Fstab_File_System.c_str(), filesys.c_str(), filesys.c_str());
+	}
+
+	if (Wipe(filesys)) {
 		Has_Data_Media = Save_Data_Media;
 		DataManager::SetValue(TW_IS_ENCRYPTED, 0);
 #ifndef TW_OEM_BUILD
