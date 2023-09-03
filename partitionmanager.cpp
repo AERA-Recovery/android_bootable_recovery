@@ -466,8 +466,8 @@ clear:
 	TWPartition* odm = PartitionManager.Find_Partition_By_Path("/odm");
 	if (!parse_userdata) {
 
-		if (ven) ven->Mount(true);
-		if (odm) odm->Mount(true);
+		if (ven) ven->Mount(Display_Error);
+		if (odm) odm->Mount(Display_Error);
 		if (TWFunc::Find_Fstab(Fstab_Filename)) {
 			string service;
 			LOGINFO("Fstab: %s\n", Fstab_Filename.c_str());
@@ -495,13 +495,10 @@ clear:
 			LOGINFO("Unable to parse vendor fstab\n");
 		}
 	}
-	if (ven) ven->UnMount(true);
-	if (odm) odm->UnMount(true);
+	if (ven) ven->UnMount(Display_Error);
+	if (odm) odm->UnMount(Display_Error);
 	LOGINFO("Done processing fstab files\n");
 
-	if (recovery_mode) {
-		Setup_Fstab_Partitions(Display_Error);
-	}
 	return true;
 }
 #endif // TW_LEGACY_PROCESS_FSTAB
@@ -538,9 +535,9 @@ void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
 		TWPartition* ven = PartitionManager.Find_Partition_By_Path("/vendor");
 		if (sys) {
 			if (sys->Get_Super_Status()) {
-				sys->Mount(true);
+				sys->Mount(Display_Error);
 				if (ven) {
-					ven->Mount(true);
+					ven->Mount(Display_Error);
 				}
 	#ifdef TW_EXCLUDE_APEX
 				LOGINFO("Apex is disabled in this build\n");
@@ -558,9 +555,9 @@ void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
 		}
 	#ifndef USE_VENDOR_LIBS
 		if (ven)
-			ven->UnMount(true);
+			ven->UnMount(Display_Error);
 		if (sys)
-			sys->UnMount(true);
+			sys->UnMount(Display_Error);
 	#endif
 
 		if (!datamedia && !settings_partition && Find_Partition_By_Path("/sdcard") == NULL && Find_Partition_By_Path("/internal_sd") == NULL && Find_Partition_By_Path("/internal_sdcard") == NULL && Find_Partition_By_Path("/emmc") == NULL) {
