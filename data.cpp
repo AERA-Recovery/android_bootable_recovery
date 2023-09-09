@@ -738,6 +738,8 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("of_initd_zip", Fox_Home_Files + "/OF_initd.zip");
   //
 
+  mData.SetValue("fox_startup_executed", "0");
+
   if (TWFunc::Has_Virtual_AB_Partitions())
   	mConst.SetValue("fox_vab_device", "1");
   else
