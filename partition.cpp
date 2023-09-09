@@ -3076,12 +3076,15 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
 	string Full_FileName;
 	bool ret = false;
 	string Restore_File_System = Get_Restore_File_System(part_settings);
+	bool keep_internal_storage_data =
+		(DataManager::GetStrValue("of_keep_storage_data") == "1") && (Mount_Point == "/storage" || Backup_Path == "/storage") &&
+		(Backup_Display_Name == "Internal Storage" || Storage_Name == "Internal Storage" || Primary_Block_Device == "/data/media/0");
 
 	if (Has_Android_Secure) {
 		if (!Wipe_AndSec())
 			return false;
 	} else {
-		if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1) {
+		if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1 && !keep_internal_storage_data) {
 		   gui_msg(Msg("wiping=Wiping {1}")(Backup_Display_Name));
 		}
 		if (Has_Data_Media && Mount_Point == "/data" && Restore_File_System != Current_File_System) {
@@ -3089,8 +3092,13 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
 			if (!Wipe_Data_Without_Wiping_Media())
 				return false;
 		} else {
-			if (!Wipe(Restore_File_System))
-				return false;
+			// don't wipe internal storage before restoring a backup
+			if (keep_internal_storage_data) {
+				gui_print("Not wiping /storage before restore ...\n");
+			} else {
+				if (!Wipe(Restore_File_System))
+					return false;
+			}
 		}
 	}
 	if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1) {

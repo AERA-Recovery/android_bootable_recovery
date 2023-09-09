@@ -759,6 +759,9 @@ void DataManager::SetDefaultValues()
   mPersist.SetValue("of_average_ext_img", "15");
   mPersist.SetValue("of_average_ext_file", "10");
 
+  // whether to keep existing files when restoring backup of internal storage
+  mPersist.SetValue("of_keep_storage_data", "1");
+
   //[f/d] UI Vars
   #ifdef FOX_USE_NANO_EDITOR
   	mConst.SetValue("fox_use_nano_editor", "1");
