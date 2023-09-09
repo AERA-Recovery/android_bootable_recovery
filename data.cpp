@@ -1570,14 +1570,17 @@ void DataManager::ReadSettingsFile(void)
 
   // if decryption fails, try to load/save some settings to /data/recovery/Fox/
   if (is_enc == 1 && has_data_media == 1 && (TWFunc::Path_Exists("/data/unencrypted/key/version") || GetIntValue(TW_IS_FBE) == 1) && GetStrValue("fox_dfe_formatted") != "1") {
-      static int dcrpfail_count=0;
-      TWFunc::Fox_Property_Set("of_decryption_failed", "true");
-      std::string tempdir = TW_STORAGE_PATH"Fox";
-      SetValue("tw_settings_path", tempdir);
-      if (dcrpfail_count == 0) {
-      	gui_print_color("warning", "I cannot load settings from encrypted device. I will try to save some settings to %s\n", tempdir.c_str());
-      	dcrpfail_count++; // don't spam the console with this warning
-      }
+	// only do this after TWFunc::OrangeFox_Startup() - don't do it before OpenrecoveryScript execution (eg, for OTAs)
+	if (GetStrValue("fox_startup_executed") == "1") {
+		static int dcrpfail_count=0;
+		TWFunc::Fox_Property_Set("of_decryption_failed", "true");
+		std::string tempdir = TW_STORAGE_PATH"Fox";
+		SetValue("tw_settings_path", tempdir);
+		if (dcrpfail_count == 0) {
+			gui_print_color("warning", "I cannot load settings from encrypted device. I will try to save some settings to %s\n", tempdir.c_str());
+			dcrpfail_count++; // don't spam the console with this warning
+		}
+	}
   }
 
 #endif // FOX_USE_DATA_RECOVERY_FOR_SETTINGS

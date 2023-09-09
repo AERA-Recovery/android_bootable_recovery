@@ -2407,10 +2407,13 @@ void TWFunc::OrangeFox_Startup(void)
 
   //gui_print("DEBUG: - OrangeFox_Startup_Executed=%i\n", OrangeFox_Startup_Executed);
   
+  // mark that this function has been called
+  DataManager::SetValue("fox_startup_executed", "1");
+
   // don't repeat this
   if (OrangeFox_Startup_Executed > 0)
      return;
-  
+
   OrangeFox_Startup_Executed++;
 
   if (TWFunc::Path_Exists(FOX_PS_BIN)) 
