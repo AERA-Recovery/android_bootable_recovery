@@ -608,7 +608,7 @@ endif
 
 # some mtk will need this, consequent upon recent build system commits
 ifeq ($(OF_LEGACY_PROCESS_FSTAB),1)
-    TW_LEGACY_PROCESS_FSTAB := true
+    TW_FORCE_USE_RECOVERY_FSTAB := true
 endif
 
 # Don't spam the console with noisy loop device mount errors; just write them to the log file

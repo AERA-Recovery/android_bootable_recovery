@@ -312,8 +312,9 @@ ifneq ($(TW_LOAD_VENDOR_MODULES),)
         LOCAL_CFLAGS += -DTW_LOAD_VENDOR_MODULES_EXCLUDE_GKI
     endif
 endif
-ifeq ($(TW_LEGACY_PROCESS_FSTAB),true)
-    LOCAL_CFLAGS += -DTW_LEGACY_PROCESS_FSTAB
+ifeq ($(TW_FORCE_USE_RECOVERY_FSTAB),true)
+    LOCAL_CFLAGS += -DTW_FORCE_USE_RECOVERY_FSTAB
+    LOCAL_CFLAGS += -Wno-unused-label
 endif
 ifeq ($(TW_INCLUDE_PYTHON),true)
     ifeq ($(wildcard external/python3/Android.mk),)
