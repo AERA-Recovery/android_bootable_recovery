@@ -328,7 +328,6 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
     LOCAL_SHARED_LIBRARIES += libgpt_twrp
     LOCAL_C_INCLUDES += external/boringssl/src/include bootable/recovery/crypto
     TW_INCLUDE_CRYPTO_FBE := true
-    TW_INCLUDE_LIBRESETPROP := true
     LOCAL_CFLAGS += -DTW_INCLUDE_FBE
     LOCAL_SHARED_LIBRARIES += android.frameworks.stats@1.0 android.hardware.authsecret@1.0 \
 	android.security.authorization-ndk_platform \
@@ -434,7 +433,6 @@ ifneq ($(TW_OVERRIDE_PROPS_ADDITIONAL_PARTITIONS),)
 endif
 ifneq ($(TW_INCLUDE_LIBRESETPROP),)
     LOCAL_SHARED_LIBRARIES += libresetprop
-    TWRP_REQUIRED_MODULES += libresetprop
     LOCAL_C_INCLUDES += external/magisk-prebuilt/include
     LOCAL_CFLAGS += -DTW_INCLUDE_LIBRESETPROP
 endif
