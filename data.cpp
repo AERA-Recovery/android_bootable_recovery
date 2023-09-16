@@ -853,6 +853,8 @@ void DataManager::SetDefaultValues()
 
 #ifdef OF_NO_SPLASH_CHANGE
     mConst.SetValue("no_splash_change", "1");
+#else
+    mConst.SetValue("no_splash_change", "0");
 #endif
 
 #ifdef FOX_DELETE_MAGISK_ADDON
