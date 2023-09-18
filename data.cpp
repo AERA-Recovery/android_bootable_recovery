@@ -1382,135 +1382,121 @@ void DataManager::SetDefaultValues()
 }
 
 // Magic Values
-int DataManager::GetMagicValue(const string & varName, string & value)
+int DataManager::GetMagicValue(const string& varName, string& value)
 {
-  // Handle special dynamic cases
-  if (varName == "tw_time")
-    {
-      char tmp[32];
-
-      struct tm *current;
-      time_t now;
-      int tw_military_time;
-      now = time(0);
-      current = localtime(&now);
-      GetValue(TW_MILITARY_TIME, tw_military_time);
-      if (current->tm_hour >= 12)
+	// Handle special dynamic cases
+	if (varName == "tw_time")
 	{
-	  if (tw_military_time == 1)
-	    sprintf(tmp, "%d:%02d", current->tm_hour, current->tm_min);
-	  else
-	    sprintf(tmp, "%d:%02d PM",
-		    current->tm_hour == 12 ? 12 : current->tm_hour - 12,
-		    current->tm_min);
+		char tmp[32];
+
+		struct tm *current;
+		time_t now;
+		int tw_military_time;
+		now = time(0);
+		current = localtime(&now);
+		GetValue(TW_MILITARY_TIME, tw_military_time);
+		if (current->tm_hour >= 12)
+		{
+			if (tw_military_time == 1)
+				sprintf(tmp, "%d:%02d", current->tm_hour, current->tm_min);
+			else
+				sprintf(tmp, "%d:%02d PM", current->tm_hour == 12 ? 12 : current->tm_hour - 12, current->tm_min);
+		}
+		else
+		{
+			if (tw_military_time == 1)
+				sprintf(tmp, "%d:%02d", current->tm_hour, current->tm_min);
+			else
+				sprintf(tmp, "%d:%02d AM", current->tm_hour == 0 ? 12 : current->tm_hour, current->tm_min);
+		}
+		value = tmp;
+		return 0;
 	}
-      else
+	else if (varName == "tw_cpu_temp")
 	{
-	  if (tw_military_time == 1)
-	    sprintf(tmp, "%d:%02d", current->tm_hour, current->tm_min);
-	  else
-	    sprintf(tmp, "%d:%02d AM",
-		    current->tm_hour == 0 ? 12 : current->tm_hour,
-		    current->tm_min);
-	}
-      value = tmp;
-      return 0;
-    }
-  else if (varName == "tw_cpu_temp")
-    {
-      int tw_no_cpu_temp;
-      GetValue("tw_no_cpu_temp", tw_no_cpu_temp);
-      if (tw_no_cpu_temp == 1)
-	return -1;
+		int tw_no_cpu_temp;
+		GetValue("tw_no_cpu_temp", tw_no_cpu_temp);
+		if (tw_no_cpu_temp == 1) return -1;
 
-      string cpu_temp_file;
-      static unsigned long convert_temp = 0;
-      static time_t cpuSecCheck = 0;
-      struct timeval curTime;
-      string results;
+		string cpu_temp_file;
+		static unsigned long convert_temp = 0;
+		static time_t cpuSecCheck = 0;
+		struct timeval curTime;
+		string results;
 
-      gettimeofday(&curTime, NULL);
-      if (curTime.tv_sec > cpuSecCheck)
-	{
+		gettimeofday(&curTime, NULL);
+		if (curTime.tv_sec > cpuSecCheck)
+		{
 #ifdef TW_CUSTOM_CPU_TEMP_PATH
-	  cpu_temp_file = EXPAND(TW_CUSTOM_CPU_TEMP_PATH);
-	  if (TWFunc::read_file(cpu_temp_file, results) != 0)
-	    return -1;
+			cpu_temp_file = EXPAND(TW_CUSTOM_CPU_TEMP_PATH);
+			if (TWFunc::read_file(cpu_temp_file, results) != 0)
+				return -1;
 #else
-	  cpu_temp_file = "/sys/class/thermal/thermal_zone0/temp";
-	  if (TWFunc::read_file(cpu_temp_file, results) != 0)
-	    return -1;
+			cpu_temp_file = "/sys/class/thermal/thermal_zone0/temp";
+			if (TWFunc::read_file(cpu_temp_file, results) != 0)
+				return -1;
 #endif
-	  convert_temp = strtoul(results.c_str(), NULL, 0) / 1000;
-	  if (convert_temp <= 0)
-	    convert_temp = strtoul(results.c_str(), NULL, 0);
-	  if (convert_temp >= 150)
-	    convert_temp = strtoul(results.c_str(), NULL, 0) / 10;
-	  cpuSecCheck = curTime.tv_sec + 5;
+			convert_temp = strtoul(results.c_str(), NULL, 0) / 1000;
+			if (convert_temp <= 0)
+				convert_temp = strtoul(results.c_str(), NULL, 0);
+			if (convert_temp >= 150)
+				convert_temp = strtoul(results.c_str(), NULL, 0) / 10;
+			cpuSecCheck = curTime.tv_sec + 5;
+		}
+		value = TWFunc::to_string(convert_temp);
+		return 0;
 	}
-      value = TWFunc::to_string(convert_temp);
-      return 0;
-    }
-  else if (varName == "tw_battery" || varName == "tw_battery_charge")
-    {
-      char tmp[16];
-      static char charging = ' ';
-      static int lastVal = -1;
-      static time_t nextSecCheck = 0;
-      struct timeval curTime;
-      gettimeofday(&curTime, NULL);
-      if (curTime.tv_sec > nextSecCheck)
+	else if (varName == "tw_battery" || varName == "tw_battery_charge")
 	{
-	  char cap_s[4];
+		char tmp[16];
+		static char charging = ' ';
+		static int lastVal = -1;
+		static time_t nextSecCheck = 0;
+		struct timeval curTime;
+		gettimeofday(&curTime, NULL);
+		if (curTime.tv_sec > nextSecCheck)
+		{
+			char cap_s[4];
 #ifdef TW_CUSTOM_BATTERY_PATH
-	  string capacity_file = EXPAND(TW_CUSTOM_BATTERY_PATH);
-	  capacity_file += "/capacity";
-	  FILE *cap = fopen(capacity_file.c_str(), "rt");
+			string capacity_file = EXPAND(TW_CUSTOM_BATTERY_PATH);
+			capacity_file += "/capacity";
+			FILE * cap = fopen(capacity_file.c_str(),"rt");
 #else
-	  FILE *cap = fopen("/sys/class/power_supply/battery/capacity", "rt");
+			FILE * cap = fopen("/sys/class/power_supply/battery/capacity","rt");
 #endif
-	  if (cap)
-	    {
-	      fgets(cap_s, 4, cap);
-	      fclose(cap);
-	      lastVal = atoi(cap_s);
-	      if (lastVal > 100)
-		lastVal = 101;
-	      if (lastVal < 0)
-		lastVal = 0;
-	    }
+			if (cap) {
+				fgets(cap_s, 4, cap);
+				fclose(cap);
+				lastVal = atoi(cap_s);
+				if (lastVal > 100)	lastVal = 101;
+				if (lastVal < 0)	lastVal = 0;
+			}
 #ifdef TW_CUSTOM_BATTERY_PATH
-	  string status_file = EXPAND(TW_CUSTOM_BATTERY_PATH);
-	  status_file += "/status";
-	  cap = fopen(status_file.c_str(), "rt");
+			string status_file = EXPAND(TW_CUSTOM_BATTERY_PATH);
+			status_file += "/status";
+			cap = fopen(status_file.c_str(),"rt");
 #else
-	  cap = fopen("/sys/class/power_supply/battery/status", "rt");
+			cap = fopen("/sys/class/power_supply/battery/status","rt");
 #endif
-	  if (cap)
-	    {
-	      fgets(cap_s, 2, cap);
-	      fclose(cap);
-	      if (cap_s[0] == 'C')
-        {
-          charging = '+';
-          DataManager::SetValue("charging_now", "1");
-        }
-	      else
-        {
-          charging = ' ';
-          DataManager::SetValue("charging_now", "0");
-        }
-	    }
-	  nextSecCheck = curTime.tv_sec + 1;
+			if (cap) {
+				fgets(cap_s, 2, cap);
+				fclose(cap);
+				if (cap_s[0] == 'C')
+					charging = '+';
+				else
+					charging = ' ';
+			}
+			nextSecCheck = curTime.tv_sec + 60;
+		}
+
+		if (varName == "tw_battery_charge")
+			sprintf(tmp, "%i%%%c", lastVal, charging);
+		else
+			sprintf(tmp, "%i", lastVal);
+		value = tmp;
+		return 0;
 	}
-      if (varName == "tw_battery_charge")
-        sprintf(tmp, "%i%%%c", lastVal, charging);
-      else
-        sprintf(tmp, "%i", lastVal);
-      value = tmp;
-      return 0;
-    }
-  return -1;
+	return -1;
 }
 
 void DataManager::Output_Version(void)
