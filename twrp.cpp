@@ -158,6 +158,9 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 #if defined(TW_INCLUDE_LIBRESETPROP)
 	std::vector<std::string> build_date_props = {"ro.build.date.utc", "ro.bootimage.build.date.utc", "ro.vendor.build.date.utc", "ro.system.build.date.utc", "ro.system_ext.build.date.utc", "ro.product.build.date.utc", "ro.odm.build.date.utc"};
 	std::string val = "0";
+	#ifdef FOX_BUGGED_AOSP_ARB_WORKAROUND
+	val = FOX_BUGGED_AOSP_ARB_WORKAROUND;
+	#endif
 	for (auto prop : build_date_props) {
 		TWFunc::Property_Override(prop, val);
 		LOGINFO("Overriding %s with value: \"%s\"\n", prop.c_str(), val.c_str());
