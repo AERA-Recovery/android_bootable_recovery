@@ -241,9 +241,14 @@ bool InputHandler::processInput(int timeout_ms)
 		break;
 	}
 
+#ifndef TW_NO_SCREEN_BLANK
+	if (!blankTimer.isScreenOff()) {
+#endif
 	if (ev.code != KEY_POWER && ev.code > KEY_RESERVED)
 		blankTimer.resetTimerAndUnblank();
-
+#ifndef TW_NO_SCREEN_BLANK
+	}
+#endif
 	return true;  // we got an event, so there might be more in the queue
 }
 
