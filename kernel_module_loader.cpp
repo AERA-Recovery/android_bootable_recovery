@@ -77,11 +77,6 @@ exit:
 		ven_dlkm->UnMount(false);
 
 	android::base::SetProperty("twrp.modules.loaded", "true");
-
-#ifdef TW_BATTERY_SYSFS_WAIT_SECONDS
-	TWFunc::Wait_For_Battery(std::chrono::seconds(TW_BATTERY_SYSFS_WAIT_SECONDS));
-#endif
-
 	return true;
 }
 
