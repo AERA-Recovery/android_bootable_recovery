@@ -4279,6 +4279,42 @@ bool TWFunc::Find_Fstab(string &fstab) {
 	return true;
 }
 
+bool TWFunc::Get_Service_From_FileName(std::string Path, std::string Service, std::string &Res) {
+	std::string Name;
+	std::vector<std::string> Data;
+	bool Found = false, ret = false;
+	DIR* dir;
+	struct dirent* der;
+	dir = opendir(Path.c_str());
+	while ((der = readdir(dir)) != NULL) {
+		Name = der->d_name;
+		if (Name.find(Service) != string::npos) {
+			Found = true;
+			Data.push_back(Name);
+			break;
+		}
+	}
+	closedir(dir);
+
+	if (!Found) {
+		LOGINFO("Unable to locate service file\n");
+		goto finish;
+	}
+
+	// return the first match
+	for (int index = 0; index < Data.size(); index++) {
+		Name = Data.at(index);
+		if (Name.find("service") != string::npos) {
+			Res = Name.substr(Name.find_last_of('/')+1);
+			ret = true;
+			goto finish;
+		}
+	}
+
+finish:
+	return ret;
+}
+
 bool TWFunc::Get_Service_From(TWPartition *Partition, std::string Service, std::string &Res) {
 	Partition->Mount(true);
 	std::string Path = Partition->Get_Mount_Point() + "/etc/init/";

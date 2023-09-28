@@ -202,6 +202,7 @@ public:
 	static bool Check_Xml_Format(const std::string filename); // Return whether a xml is in plain xml [return true] or ABX format [return false]
 	static bool Find_Fstab(string &fstab);
 	static bool Get_Service_From(TWPartition *Partition, std::string Service, std::string &Ret);
+	static bool Get_Service_From_FileName(std::string Path, std::string Service, std::string &Ret);
 	static std::string Get_Version_From_Service(std::string name);
 
 	static bool abx_to_xml(const std::string path, std::string &result); // could we convert abx to xml (if so, return the full path to the converted file)

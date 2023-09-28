@@ -450,6 +450,10 @@ int main(int argc, char **argv) {
 	TWFunc::Fox_Property_Set("of_skip_fbe_decryption", "true");
 	#endif
 
+	#ifdef OF_FORCE_USE_RECOVERY_FSTAB
+	TWFunc::Fox_Property_Set(TW_READ_ADDITIONAL_FSTAB_PROP, "false");
+	#endif
+
     	string fox_cfg = Fox_Cfg;
     	if (!TWFunc::Path_Exists(fox_cfg))
     	    fox_cfg = "/system" + Fox_Cfg;

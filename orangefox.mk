@@ -606,9 +606,12 @@ ifeq ($(OF_ENABLE_FS_COMPRESSION),1)
     LOCAL_CFLAGS += -DOF_ENABLE_FS_COMPRESSION
 endif
 
-# some mtk will need this, consequent upon recent build system commits
+# some mtk devices will need this, consequent upon recent build system commits
+ifeq ($(OF_FORCE_USE_RECOVERY_FSTAB),1)
+    LOCAL_CFLAGS += -DOF_FORCE_USE_RECOVERY_FSTAB
+endif
 ifeq ($(OF_LEGACY_PROCESS_FSTAB),1)
-    TW_FORCE_USE_RECOVERY_FSTAB := true
+   $(error "OF_LEGACY_PROCESS_FSTAB" is obsolete. Use "OF_FORCE_USE_RECOVERY_FSTAB=1" instead)
 endif
 
 # Don't spam the console with noisy loop device mount errors; just write them to the log file
