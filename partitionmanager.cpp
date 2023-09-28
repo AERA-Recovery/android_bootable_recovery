@@ -351,18 +351,40 @@ clear:
 	TWPartition* odm = PartitionManager.Find_Partition_By_Path("/odm");
 	if (ven) ven->Mount(Display_Error);
 	if (odm) odm->Mount(Display_Error);
-        if (ven || odm) {
+	if (ven || odm) {
+		// additional fstab
+		if  (process_additional_fstab) {
+			if (!parse_userdata) {
+				if (TWFunc::Find_Fstab(Fstab_Filename)) {
+					LOGINFO("Fstab: %s\n", Fstab_Filename.c_str());
+					TWFunc::copy_file(Fstab_Filename, additional_fstab, 0600, false);
+					Fstab_Filename = additional_fstab;
+					property_set("fstab.additional", "1");
+					parse_userdata = true;
+					goto parse;
+				} else {
+					LOGINFO("Unable to parse vendor fstab\n");
+				}
+			}
+		} else {
+			LOGINFO("Skipping Additional Fstab Processing\n");
+			property_set("fstab.additional", "0");
+		}
+		LOGINFO("Done processing fstab files\n");
+
+		// keymaster processing
 		string service;
-		TWFunc::Get_Service_From(ven, "keymaster", service);
+		string service_path = ven->Get_Mount_Point() + "/etc/init/";
+		TWFunc::Get_Service_From_FileName(service_path, "keymaster", service);
 		if (!service.empty()) {
-			//LOGINFO("Service name: '%s'\n", service.c_str());
+			LOGINFO("Service name: '%s'\n", service.c_str());
 			LOGINFO("Keymaster version: '%s'\n", TWFunc::Get_Version_From_Service(service).c_str());
 			property_set("keymaster_ver", TWFunc::Get_Version_From_Service(service).c_str());
 		} else {
 			TWFunc::Get_Service_From_FileName("/system/bin/", "keymaster", service);
 			if (!service.empty()) {
-				//LOGINFO("Service name: '%s'\n", service.c_str());
 				char def_ver[PROPERTY_VALUE_MAX];
+				LOGINFO("Service name: '%s'\n", service.c_str());
 				property_get("keymaster_ver", def_ver, TWFunc::Get_Version_From_Service(service).c_str());
 				LOGINFO("Keymaster version (default): '%s'\n", def_ver);
 				property_set("keymaster_ver", def_ver);
@@ -380,28 +402,7 @@ clear:
 
 		if (ven) ven->UnMount(Display_Error);
 		if (odm) odm->UnMount(Display_Error);
-        }
-
-	// additional fstab
-	if  (process_additional_fstab) {
-		if (!parse_userdata) {
-			if (TWFunc::Find_Fstab(Fstab_Filename)) {
-				LOGINFO("Fstab: %s\n", Fstab_Filename.c_str());
-				TWFunc::copy_file(Fstab_Filename, additional_fstab, 0600, false);
-				Fstab_Filename = additional_fstab;
-				property_set("fstab.additional", "1");
-				parse_userdata = true;
-				goto parse;
-			} else {
-				LOGINFO("Unable to parse vendor fstab\n");
-			}
-		}
-	} else {
-		LOGINFO("Skipping Additional Fstab Processing\n");
-		property_set("fstab.additional", "0");
 	}
-
-	LOGINFO("Done processing fstab files\n");
 
 	return true;
 }
