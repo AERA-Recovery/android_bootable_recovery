@@ -27,9 +27,13 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
+
+#ifdef TW_USE_HEALTH_SERVICES_FOR_BATTERY
 #include <thread>
 #include <chrono>
 #include "recovery_utils/battery_utils.h"
+#endif
+
 #include "gui/twmsg.h"
 
 #include "cutils/properties.h"
@@ -520,6 +524,7 @@ int main(int argc, char **argv) {
 	// Load up all the resources
 	gui_loadResources();
 
+#ifdef TW_USE_HEALTH_SERVICES_FOR_BATTERY
 	std::string value;
 	static char charging = ' ';
 	static int lastVal = -1;
@@ -545,6 +550,7 @@ int main(int argc, char **argv) {
 
 	// Create a thread for battery monitoring
 	static std::thread battery_monitor(monitorBatteryInBackground);
+#endif
 
 	twrpAdbBuFifo *adb_bu_fifo = new twrpAdbBuFifo();
 	TWFunc::Clear_Bootloader_Message();
