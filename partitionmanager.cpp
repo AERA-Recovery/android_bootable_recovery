@@ -381,15 +381,20 @@ clear:
 			LOGINFO("Keymaster version: '%s'\n", TWFunc::Get_Version_From_Service(service).c_str());
 			property_set("keymaster_ver", TWFunc::Get_Version_From_Service(service).c_str());
 		} else {
+			std::string def_ver;
 			TWFunc::Get_Service_From_FileName("/system/bin/", "keymaster", service);
 			if (!service.empty()) {
-				char def_ver[PROPERTY_VALUE_MAX];
 				LOGINFO("Service name: '%s'\n", service.c_str());
-				property_get("keymaster_ver", def_ver, TWFunc::Get_Version_From_Service(service).c_str());
-				LOGINFO("Keymaster version (default): '%s'\n", def_ver);
-				property_set("keymaster_ver", def_ver);
+				def_ver = android::base::GetProperty("keymaster_ver", TWFunc::Get_Version_From_Service(service).c_str());
+				LOGINFO("Keymaster version (default): '%s'\n", def_ver.c_str());
+				property_set("keymaster_ver", def_ver.c_str());
 			} else {
-				LOGINFO("No keymaster service found.\n");
+				def_ver = android::base::GetProperty("keymaster_ver", "");
+				if (!def_ver.empty()) {
+					LOGINFO("Keymaster version (property override): '%s'\n", def_ver.c_str());
+					property_set("keymaster_ver", def_ver.c_str());
+				} else
+					LOGINFO("No keymaster value found.\n");
 			}
 		}
 		Reset_Prop_From_Partition("ro.crypto.dm_default_key.options_format.version", "", ven, odm);
