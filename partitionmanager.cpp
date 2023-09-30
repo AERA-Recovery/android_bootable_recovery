@@ -379,20 +379,20 @@ clear:
 		if (!service.empty()) {
 			LOGINFO("Service name: '%s'\n", service.c_str());
 			LOGINFO("Keymaster version: '%s'\n", TWFunc::Get_Version_From_Service(service).c_str());
-			property_set("keymaster_ver", TWFunc::Get_Version_From_Service(service).c_str());
+			property_set(TW_KEYMASTER_VERSION_PROP, TWFunc::Get_Version_From_Service(service).c_str());
 		} else {
 			std::string def_ver;
 			TWFunc::Get_Service_From_FileName("/system/bin/", "keymaster", service);
 			if (!service.empty()) {
 				LOGINFO("Service name: '%s'\n", service.c_str());
-				def_ver = android::base::GetProperty("keymaster_ver", TWFunc::Get_Version_From_Service(service).c_str());
+				def_ver = android::base::GetProperty(TW_KEYMASTER_VERSION_PROP, TWFunc::Get_Version_From_Service(service).c_str());
 				LOGINFO("Keymaster version (default): '%s'\n", def_ver.c_str());
-				property_set("keymaster_ver", def_ver.c_str());
+				property_set(TW_KEYMASTER_VERSION_PROP, def_ver.c_str());
 			} else {
-				def_ver = android::base::GetProperty("keymaster_ver", "");
+				def_ver = android::base::GetProperty(TW_KEYMASTER_VERSION_PROP, "");
 				if (!def_ver.empty()) {
 					LOGINFO("Keymaster version (property override): '%s'\n", def_ver.c_str());
-					property_set("keymaster_ver", def_ver.c_str());
+					property_set(TW_KEYMASTER_VERSION_PROP, def_ver.c_str());
 				} else
 					LOGINFO("No keymaster value found.\n");
 			}
