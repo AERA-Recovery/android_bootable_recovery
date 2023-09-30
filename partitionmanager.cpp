@@ -372,6 +372,15 @@ clear:
 		}
 		LOGINFO("Done processing fstab files\n");
 
+		// props from ROM vendor/odm
+		Reset_Prop_From_Partition("ro.crypto.dm_default_key.options_format.version", "", ven, odm);
+		Reset_Prop_From_Partition("ro.crypto.volume.metadata.method", "", ven, odm);
+		Reset_Prop_From_Partition("ro.crypto.volume.options", "", ven, odm);
+		Reset_Prop_From_Partition("external_storage.projid.enabled", "", ven, odm);
+		Reset_Prop_From_Partition("external_storage.casefold.enabled", "", ven, odm);
+		Reset_Prop_From_Partition("external_storage.sdcardfs.enabled", "", ven, odm);
+		Reset_Prop_From_Partition("vold.has_compress", "", ven, odm);
+
 		// keymaster processing
 		string service;
 		string service_path = ven->Get_Mount_Point() + "/etc/init/";
@@ -380,6 +389,19 @@ clear:
 			LOGINFO("Service name: '%s'\n", service.c_str());
 			LOGINFO("Keymaster version: '%s'\n", TWFunc::Get_Version_From_Service(service).c_str());
 			property_set(TW_KEYMASTER_VERSION_PROP, TWFunc::Get_Version_From_Service(service).c_str());
+
+			// unmount now
+			if (ven) {
+				ven->UnMount(Display_Error);
+				ven = NULL;
+			}
+			if (odm) {
+				odm->UnMount(Display_Error);
+				odm = NULL;
+			}
+			// leave now
+			return true;
+
 		} else {
 			std::string def_ver;
 			TWFunc::Get_Service_From_FileName("/system/bin/", "keymaster", service);
@@ -398,16 +420,7 @@ clear:
 			}
 		}
 
-		// props from ROM vendor/odm
-		Reset_Prop_From_Partition("ro.crypto.dm_default_key.options_format.version", "", ven, odm);
-		Reset_Prop_From_Partition("ro.crypto.volume.metadata.method", "", ven, odm);
-		Reset_Prop_From_Partition("ro.crypto.volume.options", "", ven, odm);
-		Reset_Prop_From_Partition("external_storage.projid.enabled", "", ven, odm);
-		Reset_Prop_From_Partition("external_storage.casefold.enabled", "", ven, odm);
-		Reset_Prop_From_Partition("external_storage.sdcardfs.enabled", "", ven, odm);
-		Reset_Prop_From_Partition("vold.has_compress", "", ven, odm);
-
-		// unmount
+		// unmount, if still mounted
 		if (ven) ven->UnMount(Display_Error);
 		if (odm) odm->UnMount(Display_Error);
 	}
