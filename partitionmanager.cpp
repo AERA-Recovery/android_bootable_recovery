@@ -397,6 +397,8 @@ clear:
 					LOGINFO("No keymaster value found.\n");
 			}
 		}
+
+		// props from ROM vendor/odm
 		Reset_Prop_From_Partition("ro.crypto.dm_default_key.options_format.version", "", ven, odm);
 		Reset_Prop_From_Partition("ro.crypto.volume.metadata.method", "", ven, odm);
 		Reset_Prop_From_Partition("ro.crypto.volume.options", "", ven, odm);
@@ -405,6 +407,7 @@ clear:
 		Reset_Prop_From_Partition("external_storage.sdcardfs.enabled", "", ven, odm);
 		Reset_Prop_From_Partition("vold.has_compress", "", ven, odm);
 
+		// unmount
 		if (ven) ven->UnMount(Display_Error);
 		if (odm) odm->UnMount(Display_Error);
 	}
