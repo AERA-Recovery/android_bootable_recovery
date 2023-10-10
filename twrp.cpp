@@ -454,8 +454,8 @@ int main(int argc, char **argv) {
 	TWFunc::Fox_Property_Set("of_skip_fbe_decryption", "true");
 	#endif
 
-	#ifdef OF_FORCE_USE_RECOVERY_FSTAB
-	TWFunc::Fox_Property_Set(TW_READ_ADDITIONAL_FSTAB_PROP, "false");
+	#ifdef OF_DEFAULT_KEYMASTER_VERSION
+	android::base::SetProperty(TW_KEYMASTER_VERSION_PROP, OF_DEFAULT_KEYMASTER_VERSION);
 	#endif
 
     	string fox_cfg = Fox_Cfg;

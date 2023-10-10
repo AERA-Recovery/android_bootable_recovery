@@ -606,14 +606,6 @@ ifeq ($(OF_ENABLE_FS_COMPRESSION),1)
     LOCAL_CFLAGS += -DOF_ENABLE_FS_COMPRESSION
 endif
 
-# some mtk devices will need this, consequent upon recent build system commits
-ifeq ($(OF_FORCE_USE_RECOVERY_FSTAB),1)
-    LOCAL_CFLAGS += -DOF_FORCE_USE_RECOVERY_FSTAB
-endif
-ifeq ($(OF_LEGACY_PROCESS_FSTAB),1)
-   $(error "OF_LEGACY_PROCESS_FSTAB" is obsolete. Use "OF_FORCE_USE_RECOVERY_FSTAB=1" instead)
-endif
-
 # Don't spam the console with noisy loop device mount errors; just write them to the log file
 ifeq ($(OF_LOOP_DEVICE_ERRORS_TO_LOG),1)
     LOCAL_CFLAGS += -DOF_LOOP_DEVICE_ERRORS_TO_LOG
@@ -668,5 +660,23 @@ endif
 
 ifneq ($(FOX_BUGGED_AOSP_ARB_WORKAROUND),)
     LOCAL_CFLAGS += -DFOX_BUGGED_AOSP_ARB_WORKAROUND='"$(FOX_BUGGED_AOSP_ARB_WORKAROUND)"'
+endif
+
+# some mtk devices will need this, consequent upon recent build system commits
+ifeq ($(OF_FORCE_USE_RECOVERY_FSTAB),1)
+   $(warning "OF_FORCE_USE_RECOVERY_FSTAB" is deprecated. Use "TW_SKIP_ADDITIONAL_FSTAB := true" instead)
+   TW_SKIP_ADDITIONAL_FSTAB := true
+endif
+
+# default keymaster version
+ifneq ($(OF_DEFAULT_KEYMASTER_VERSION),)
+    LOCAL_CFLAGS += -DOF_DEFAULT_KEYMASTER_VERSION='"$(OF_DEFAULT_KEYMASTER_VERSION)"'
+endif
+
+# enforce the keymaster version from the device tree
+ifeq ($(TW_FORCE_KEYMASTER_VER),true)
+    ifeq ($(OF_DEFAULT_KEYMASTER_VERSION),)
+      $(error Using "TW_FORCE_KEYMASTER_VER" also requires "OF_DEFAULT_KEYMASTER_VERSION")
+    endif
 endif
 #
