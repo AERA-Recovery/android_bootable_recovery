@@ -679,4 +679,12 @@ ifeq ($(TW_FORCE_KEYMASTER_VER),true)
       $(error Using "TW_FORCE_KEYMASTER_VER" also requires "OF_DEFAULT_KEYMASTER_VERSION")
     endif
 endif
+
+# allow disabling support for 'keymaster_ver=4.x'
+ifeq ($(OF_NO_KEYMASTER_VER_4X),1)
+    ifeq ($(OF_DEFAULT_KEYMASTER_VERSION),)
+      $(error Using "OF_NO_KEYMASTER_VER_4X" also requires "OF_DEFAULT_KEYMASTER_VERSION")
+    endif
+    LOCAL_CFLAGS += -DOF_NO_KEYMASTER_VER_4X
+endif
 #

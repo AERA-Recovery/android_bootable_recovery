@@ -218,9 +218,13 @@ void inline Process_ResetProps(TWPartition *ven, TWPartition *odm) {
 
 static inline std::string KM_Ver_From_Manifest(std::string ver) {
 	TWFunc::Get_Service_From_Manifest("/vendor", "android.hardware.keymaster", ver);
+	#ifdef OF_NO_KEYMASTER_VER_4X
+	LOGINFO("Keymaster_Ver::OF_NO_KEYMASTER_VER_4X is enabled; keymaster_ver will be set to '%s'\n", ver.c_str());
+	#else
 	if (strstr(ver.c_str(), "4")) {
 		ver = "4.x";
 	}
+	#endif
 	return ver;
 }
 
