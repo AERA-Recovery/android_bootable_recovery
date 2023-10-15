@@ -113,7 +113,6 @@ static void Decrypt_Page(bool SkipDecryption, bool datamedia) {
 		}
 	} else if (datamedia) {
 		PartitionManager.Update_System_Details();
-		TWFunc::check_selinux_support();
 		if (tw_get_default_metadata(DataManager::GetSettingsStoragePath().c_str()) != 0) {
 			LOGINFO("Failed to get default contexts and file mode for storage files.\n");
 		} else {
