@@ -135,7 +135,7 @@ static void process_fastbootd_mode() {
 		property_set("ro.orangefox.fastbootd", "1");
 		property_set("ro.boot.verifiedbootstate", "orange");
 		TWFunc::RunFoxScript("/system/bin/runatboot.sh", "");
-		TWFunc::RunFoxScript("/system/bin/postrecoveryboot.sh", "");
+		TWFunc::RunFoxScript("/system/bin/postfastboot.sh", "");
 		if (gui_startPage("fastboot", 1, 1) != 0) {
 			LOGERR("Failed to start fastbootd page.\n");
 		}
