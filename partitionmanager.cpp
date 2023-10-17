@@ -1856,6 +1856,7 @@ int TWPartitionManager::Format_Data(void) {
 		gui_msg(Msg(msg::kError, "unable_to_locate=Unable to locate {1}.")("/data"));
 		return false;
 	}
+	TWFunc::check_and_run_script(TW_FORMAT_DATA_SCRIPT, "Format Data Script");
 	return false;
 }
 

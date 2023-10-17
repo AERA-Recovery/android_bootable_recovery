@@ -118,6 +118,7 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define FOX_BEFORE_REBOOT_SCRIPT 	"/system/bin/beforereboot.sh"
 #define FOX_AFTER_ROM_FLASH_SCRIPT	"/sbin/afterromflash.sh"
 #define FOX_POST_DATA_FORMAT_SCRIPT 	"/sbin/postformatdata.sh"
+#define TW_FORMAT_DATA_SCRIPT 		"/system/bin/formatdata.sh"
 
 // **** //
 
