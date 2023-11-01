@@ -108,7 +108,6 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define FOX_MAGISK_UNINSTALLER 		"Magisk_uninstall.zip"
 
 // BUILD PROPS
-#define TW_READ_ADDITIONAL_FSTAB_PROP "ro.tw.addition_fstab"
 #define TW_KEYMASTER_VERSION_PROP     	"keymaster_ver"
 
 #define FOX_THEME_VERSION 		"1.1"
