@@ -330,4 +330,8 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define TW_VIRTUAL_AB_ENABLED   "tw_virtual_ab.enabled"
 #define TW_AUTO_REFLASHTWRP_VAR "tw_auto_reflashtwrp"
 
+// BUILD PROPS
+#define TW_FASTBOOT_MODE_PROP         "ro.twrp.fastbootd"
+#define TW_MODULES_MOUNTED_PROP       "twrp.modules.loaded"     // property for successfully mounted modules
+
 #endif  // _VARIABLES_HEADER_
