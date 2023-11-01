@@ -2403,7 +2403,14 @@ bool TWPartition::Wipe_EXTFS(string File_System) {
 	gui_msg(Msg("formatting_using=Formatting {1} using {2}...")(Display_Name)("mke2fs"));
 
 	// Execute mke2fs to create empty ext4 filesystem
-	Command = "mke2fs -t " + File_System + " -b 4096 " + Actual_Block_Device + " " + size_str;
+	Command = "mke2fs -t " + File_System + " -b 4096 ";
+
+	// projid for /data ? (Project IDs require wider inodes)
+	if (android::base::GetBoolProperty("external_storage.projid.enabled", false) && Mount_Point == "/data")
+		Command += "-I 512 ";
+
+	Command += Actual_Block_Device + " " + size_str;
+
 	LOGINFO("mke2fs command: %s\n", Command.c_str());
 	ret = TWFunc::Exec_Cmd(Command);
 	if (ret) {
