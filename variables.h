@@ -50,7 +50,11 @@
 
 #define OF_SPLASH_MAX_SIZE_STR "of_splash_max_size"
 
+#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+#define OF_STORAGE_PATH		    FOX_SETTINGS_ROOT_DIRECTORY"Fox"
+#else
 #define OF_STORAGE_PATH		    "/sdcard/Fox/"
+#endif
 
 #define TW_STORAGE_PATH             "/data/recovery/"
 #define TW_SETTINGS_FILE	    ".foxs"

@@ -692,4 +692,16 @@ endif
 ifeq ($(OF_SUPPORT_VBMETA_AVB2_PATCHING),1)
     LOCAL_CFLAGS += -DOF_SUPPORT_VBMETA_AVB2_PATCHING='"1"'
 endif
+
+# custom settings directory
+ifneq ($(FOX_SETTINGS_ROOT_DIRECTORY),)
+ ifeq ($(FOX_BUILD_TYPE),Stable)
+    $(error You cannot use 'FOX_SETTINGS_ROOT_DIRECTORY' in stable builds)
+ endif
+ ifeq ($(FOX_USE_DATA_RECOVERY_FOR_SETTINGS),1)
+    $(error You cannot use "FOX_SETTINGS_ROOT_DIRECTORY" with "FOX_USE_DATA_RECOVERY_FOR_SETTINGS")
+ endif
+ $(warning "FOX_SETTINGS_ROOT_DIRECTORY" is used. This is EXPERIMENTAL. Ensure that "$(FOX_SETTINGS_ROOT_DIRECTORY)" will ALWAYS be accessible on the device)
+ LOCAL_CFLAGS += -DFOX_SETTINGS_ROOT_DIRECTORY='"$(FOX_SETTINGS_ROOT_DIRECTORY)"'
+endif
 #
