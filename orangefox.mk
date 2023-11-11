@@ -687,4 +687,9 @@ ifeq ($(OF_NO_KEYMASTER_VER_4X),1)
     endif
     LOCAL_CFLAGS += -DOF_NO_KEYMASTER_VER_4X
 endif
+
+# support disabling avb2.0 by patching vbmeta/vbmeta_system
+ifeq ($(OF_SUPPORT_VBMETA_AVB2_PATCHING),1)
+    LOCAL_CFLAGS += -DOF_SUPPORT_VBMETA_AVB2_PATCHING='"1"'
+endif
 #
