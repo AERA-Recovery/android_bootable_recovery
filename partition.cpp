@@ -1332,6 +1332,7 @@ void TWPartition::Setup_Data_Media() {
 
 		// Fix problems with restoring data partition backups
 		backup_exclusions.add_absolute_dir("/data/system/users/0/package-restrictions.xml");
+		backup_exclusions.add_absolute_dir("/data/system/users/0/package-restrictions.xml.reservecopy");
 
 		// board-customisable exclusions
 		#ifdef TW_BACKUP_EXCLUSIONS
