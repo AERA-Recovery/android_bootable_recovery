@@ -1911,6 +1911,7 @@ int TWPartitionManager::Wipe_Android_Secure(void) {
 int TWPartitionManager::Format_Data(void) {
 	TWPartition* dat = Find_Partition_By_Path("/data");
 	TWPartition* metadata = Find_Partition_By_Path("/metadata");
+	bool ret = false;
 	if (metadata != NULL)
 		metadata->UnMount(false);
 
@@ -1925,13 +1926,13 @@ int TWPartitionManager::Format_Data(void) {
 			if (!Check_Pending_Merges())
 				return false;
 		}
-		return dat->Wipe_Encryption();
+		ret = dat->Wipe_Encryption();
 	} else {
 		gui_msg(Msg(msg::kError, "unable_to_locate=Unable to locate {1}.")("/data"));
 		return false;
 	}
 	TWFunc::check_and_run_script(TW_FORMAT_DATA_SCRIPT, "Format Data Script");
-	return false;
+	return ret;
 }
 
 int TWPartitionManager::Wipe_Media_From_Data(void) {
