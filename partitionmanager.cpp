@@ -1933,6 +1933,11 @@ int TWPartitionManager::Format_Data(void) {
 	}
 
 	if (ret) {
+		#ifdef OF_WIPE_METADATA_AFTER_DATAFORMAT
+		usleep(2048);
+		Wipe_By_Path("/metadata");
+		usleep(2048);
+		#endif
 		TWFunc::check_and_run_script(TW_FORMAT_DATA_SCRIPT, "Format Data Script");
 	}
 	return ret;

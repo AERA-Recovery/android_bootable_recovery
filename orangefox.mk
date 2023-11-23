@@ -704,4 +704,13 @@ ifneq ($(FOX_SETTINGS_ROOT_DIRECTORY),)
  $(warning "FOX_SETTINGS_ROOT_DIRECTORY" is used. This is EXPERIMENTAL. Ensure that "$(FOX_SETTINGS_ROOT_DIRECTORY)" will ALWAYS be accessible on the device)
  LOCAL_CFLAGS += -DFOX_SETTINGS_ROOT_DIRECTORY='"$(FOX_SETTINGS_ROOT_DIRECTORY)"'
 endif
+
+# whether to wipe /metadata after formatting data
+ifeq ($(OF_WIPE_METADATA_AFTER_DATAFORMAT),1)
+   ifeq ($(TW_INCLUDE_FBE_METADATA_DECRYPT),true)
+	ifeq ($(BOARD_USES_METADATA_PARTITION),true)
+		LOCAL_CFLAGS += -DOF_WIPE_METADATA_AFTER_DATAFORMAT
+	endif
+   endif
+endif
 #
