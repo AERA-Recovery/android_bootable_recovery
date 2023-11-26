@@ -2222,7 +2222,6 @@ return false;
 bool TWPartition::Wipe_Encryption() {
 	bool Save_Data_Media = Has_Data_Media;
 	bool ret = false;
-	std::string filesys;
 	BasePartition* base_partition = make_partition();
 
 	if (!base_partition->PreWipeEncryption())
@@ -2249,19 +2248,12 @@ bool TWPartition::Wipe_Encryption() {
 	Is_Decrypted = false;
 	Is_Encrypted = false;
 
-	filesys = Fstab_File_System;
-	if (filesys != Current_File_System) {
-		filesys = Current_File_System;
-		LOGINFO("The 'fstab' filesystem (%s) differs from the current filesystem (%s). Formatting to %s ...\n",
-			Fstab_File_System.c_str(), filesys.c_str(), filesys.c_str());
-	}
-
 #ifdef OF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO
 	gui_print_color("warning", "\nOrangeFox DEBUG - format data:\n  Fstab FileSystem=%s \nCurrent FileSystem=%s\n Target FileSystem=%s\n\n",
 		Fstab_File_System.c_str(), Current_File_System.c_str(), filesys.c_str());
 #endif
 
-	if (Wipe(filesys)) {
+	if (Wipe(Fstab_File_System)) {
 		Has_Data_Media = Save_Data_Media;
 		DataManager::SetValue(TW_IS_ENCRYPTED, 0);
 #ifndef TW_OEM_BUILD
