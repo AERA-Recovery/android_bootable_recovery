@@ -1485,8 +1485,10 @@ int DataManager::GetMagicValue(const string& varName, string& value)
 				fgets(cap_s, 4, cap);
 				fclose(cap);
 				lastVal = atoi(cap_s);
-				if (lastVal > 100)	lastVal = 101;
-				if (lastVal < 0)	lastVal = 0;
+				if (lastVal > 100)
+					lastVal = 101;
+				if (lastVal < 0)
+					lastVal = 0;
 			}
 		#ifdef TW_CUSTOM_BATTERY_PATH
 			string status_file = EXPAND(TW_CUSTOM_BATTERY_PATH);
@@ -1498,12 +1500,16 @@ int DataManager::GetMagicValue(const string& varName, string& value)
 			if (cap) {
 				fgets(cap_s, 2, cap);
 				fclose(cap);
-				if (cap_s[0] == 'C')
-					charging = '+';
-				else
-					charging = ' ';
+	      			if (cap_s[0] == 'C') {
+          				charging = '+';
+          				DataManager::SetValue("charging_now", "1");
+        			}
+	      			else {
+          				charging = ' ';
+          				DataManager::SetValue("charging_now", "0");
+        			}
 			}
-			nextSecCheck = curTime.tv_sec + 60;
+			nextSecCheck = curTime.tv_sec + 1;
 		}
 
 		if (varName == "tw_battery_charge")
