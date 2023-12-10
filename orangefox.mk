@@ -713,4 +713,9 @@ ifeq ($(OF_WIPE_METADATA_AFTER_DATAFORMAT),1)
 	endif
    endif
 endif
+
+# bale out now if TW_MAX_BRIGHTNESS is not set
+ifeq ($(TW_MAX_BRIGHTNESS),)
+  $(error 'TW_MAX_BRIGHTNESS' is not set! You must provide a value for 'TW_MAX_BRIGHTNESS' in your device tree)
+endif
 #
