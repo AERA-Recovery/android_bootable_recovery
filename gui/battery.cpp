@@ -1,7 +1,9 @@
 /*
-		Copyright (C) 2018-2020 OrangeFox Recovery Project
         Copyright 2012 to 2016 bigbiff/Dees_Troy TeamWin
         This file is part of TWRP/TeamWin Recovery Project.
+
+	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	This file is part of the OrangeFox Recovery Project.
 
         TWRP is free software: you can redistribute it and/or modify
         it under the terms of the GNU General Public License as published by
@@ -17,7 +19,7 @@
         along with TWRP.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-// battert.cpp - GUIBattery object by fordownloads@orangefox team
+// battery.cpp - GUIBattery object by fordownloads@orangefox team
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -173,6 +175,25 @@ int GUIBattery::Render(void)
 
 	gr_textEx_scaleW(mRenderX - textW, mRenderY + ((mRenderH - mFontHeight) / 2) - 2,
 			  mBatteryPercentStr.c_str(), fontResource, 0, TOP_LEFT, false);
+
+	return 0;
+}
+
+int GUIBattery::Update(void)
+{
+	if (!isConditionTrue())
+		return 0;
+
+	const uint_fast8_t threshold = 16;
+	static uint_fast8_t updateCounter = threshold;
+
+	// update the battery info on the status bar
+	if (updateCounter)
+		updateCounter--;
+	else {
+		updateCounter = threshold;
+		return 2;
+	}
 
 	return 0;
 }

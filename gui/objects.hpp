@@ -274,6 +274,7 @@ public:
 
 public:
 	virtual int Render(void);
+	virtual int Update(void);
 
 protected:
 	COLOR mColor;
