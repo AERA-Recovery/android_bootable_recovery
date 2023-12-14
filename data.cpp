@@ -1464,62 +1464,6 @@ int DataManager::GetMagicValue(const string& varName, string& value)
 		value = TWFunc::to_string(convert_temp);
 		return 0;
 	}
-#ifndef TW_USE_HEALTH_SERVICES_FOR_BATTERY
-	else if (varName == "tw_battery" || varName == "tw_battery_charge") {
-		char tmp[16];
-		static char charging = ' ';
-		static int lastVal = -1;
-		static time_t nextSecCheck = 0;
-		struct timeval curTime;
-		gettimeofday(&curTime, NULL);
-		if (curTime.tv_sec > nextSecCheck) {
-			char cap_s[4];
-		#ifdef TW_CUSTOM_BATTERY_PATH
-			string capacity_file = EXPAND(TW_CUSTOM_BATTERY_PATH);
-			capacity_file += "/capacity";
-			FILE * cap = fopen(capacity_file.c_str(),"rt");
-		#else
-			FILE * cap = fopen("/sys/class/power_supply/battery/capacity","rt");
-		#endif
-			if (cap) {
-				fgets(cap_s, 4, cap);
-				fclose(cap);
-				lastVal = atoi(cap_s);
-				if (lastVal > 100)
-					lastVal = 101;
-				if (lastVal < 0)
-					lastVal = 0;
-			}
-		#ifdef TW_CUSTOM_BATTERY_PATH
-			string status_file = EXPAND(TW_CUSTOM_BATTERY_PATH);
-			status_file += "/status";
-			cap = fopen(status_file.c_str(),"rt");
-		#else
-			cap = fopen("/sys/class/power_supply/battery/status","rt");
-		#endif
-			if (cap) {
-				fgets(cap_s, 2, cap);
-				fclose(cap);
-	      			if (cap_s[0] == 'C') {
-          				charging = '+';
-          				DataManager::SetValue("charging_now", "1");
-        			}
-	      			else {
-          				charging = ' ';
-          				DataManager::SetValue("charging_now", "0");
-        			}
-			}
-			nextSecCheck = curTime.tv_sec + 1;
-		}
-
-		if (varName == "tw_battery_charge")
-			sprintf(tmp, "%i%%%c", lastVal, charging);
-		else
-			sprintf(tmp, "%i", lastVal);
-		value = tmp;
-		return 0;
-	}
-#endif // TW_USE_HEALTH_SERVICES_FOR_BATTERY
 	return -1;
 }
 

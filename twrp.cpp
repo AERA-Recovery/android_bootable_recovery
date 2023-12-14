@@ -27,15 +27,10 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
-
-#ifdef TW_USE_HEALTH_SERVICES_FOR_BATTERY
 #include <thread>
 #include <chrono>
 #include "recovery_utils/battery_utils.h"
-#endif
-
 #include "gui/twmsg.h"
-
 #include "cutils/properties.h"
 
 #ifdef ANDROID_RB_RESTART
@@ -518,7 +513,6 @@ int main(int argc, char **argv) {
 	// Load up all the resources
 	gui_loadResources();
 
-#ifdef TW_USE_HEALTH_SERVICES_FOR_BATTERY
 	std::string value;
 	static char charging = ' ';
 	static int lastVal = -1;
@@ -557,7 +551,7 @@ int main(int argc, char **argv) {
 				else
 					charging = ' ';
 			}
-#else
+#else // TW_USE_LEGACY_BATTERY_SERVICES
 			auto battery_info = GetBatteryInfo();
 			if (battery_info.charging) {
 				charging = '+';
@@ -565,12 +559,13 @@ int main(int argc, char **argv) {
 				charging = ' ';
 			}
 			lastVal = battery_info.capacity;
-#endif
+#endif // TW_USE_LEGACY_BATTERY_SERVICES
 			// Format the value based on the background updates
 			value = std::to_string(lastVal);
+
 			DataManager::SetValue("tw_battery_charge", value + "%" + charging);
 			DataManager::SetValue("tw_battery", value);
-			DataManager::SetValue("charging_now", battery_info.charging ? "1" : "0");
+			DataManager::SetValue("charging_now", (charging == '+') ? "1" : "0");
 
 			// Sleep for a specified interval (e.g., 1 second) before checking again
 			std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -579,7 +574,6 @@ int main(int argc, char **argv) {
 
 	// Create a thread for battery monitoring
 	static std::thread battery_monitor(monitorBatteryInBackground);
-#endif
 
 	twrpAdbBuFifo *adb_bu_fifo = new twrpAdbBuFifo();
 	TWFunc::Clear_Bootloader_Message();

@@ -718,4 +718,9 @@ endif
 ifeq ($(TW_MAX_BRIGHTNESS),)
   $(error 'TW_MAX_BRIGHTNESS' is not set! You must provide a value for 'TW_MAX_BRIGHTNESS' in your device tree)
 endif
+
+# whether to use legacy services for battery, or health services (default - but broken on Mtk)
+ifeq ($(OF_USE_LEGACY_BATTERY_SERVICES),1)
+ TW_USE_LEGACY_BATTERY_SERVICES := true
+endif
 #
