@@ -433,9 +433,11 @@ int main(int argc, char **argv) {
   	property_set("ro.orangefox.variant", FOX_VARIANT);
   	property_set("ro.orangefox.build", "orangefox");
   	property_set("ro.orangefox.boot.header.version", BOARD_BOOT_HEADER_VERSION);
+
   	#ifdef FOX_TARGET_DEVICES
 	property_set("ro.twrp.target.devices", FOX_TARGET_DEVICES);
   	#endif
+
 	#ifdef OF_DYNAMIC_FULL_SIZE
 	TWFunc::Fox_Property_Set("ro.dynamic.full_size", OF_DYNAMIC_FULL_SIZE);
 	#endif
@@ -446,6 +448,10 @@ int main(int argc, char **argv) {
 
 	#ifdef OF_DEFAULT_KEYMASTER_VERSION
 	android::base::SetProperty(TW_KEYMASTER_VERSION_PROP, OF_DEFAULT_KEYMASTER_VERSION);
+	#endif
+
+	#ifdef FOX_VIRTUAL_AB_DEVICE
+	property_set("ro.orangefox.virtual_ab", "1");
 	#endif
 
     	string fox_cfg = Fox_Cfg;
