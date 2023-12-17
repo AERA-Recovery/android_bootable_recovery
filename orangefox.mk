@@ -723,4 +723,9 @@ endif
 ifeq ($(OF_USE_LEGACY_BATTERY_SERVICES),1)
  TW_USE_LEGACY_BATTERY_SERVICES := true
 endif
+
+# refuse obsolete code
+ifeq ($(TW_INCLUDE_INJECTTWRP),true)
+    $(error 'TW_INCLUDE_INJECTTWRP' is obsolete. Remove it from your device tree)
+endif
 #
