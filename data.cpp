@@ -790,6 +790,15 @@ void DataManager::SetDefaultValues()
 
   mConst.SetValue(OF_SPLASH_MAX_SIZE_STR, OF_SPLASH_MAX_SIZE);
 
+  // number of options in some listboxes before a scrollbar is needed
+  int lnum = 360;
+  #ifdef OF_OPTIONS_LIST_NUM
+  	int cv = atoi(OF_OPTIONS_LIST_NUM);
+  	if (cv > 4 && cv < 9) // restrict the permissible range to something sensible
+  		lnum = (cv * 90);
+  #endif
+  mConst.SetValue("options_list_num", lnum);
+
   #ifdef OF_ENABLE_LAB
     mConst.SetValue("fox_lab", "1");
 		LOGERR("Warning: lab enabled\n");

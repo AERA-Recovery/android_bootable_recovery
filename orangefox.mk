@@ -728,4 +728,9 @@ endif
 ifeq ($(TW_INCLUDE_INJECTTWRP),true)
     $(error 'TW_INCLUDE_INJECTTWRP' is obsolete. Remove it from your device tree)
 endif
+
+# support setting the number of items on the 'options' listmenu before creating scrollbar
+ifneq ($(OF_OPTIONS_LIST_NUM),)
+    LOCAL_CFLAGS += -DOF_OPTIONS_LIST_NUM='"$(OF_OPTIONS_LIST_NUM)"'
+endif
 #
