@@ -374,8 +374,9 @@ void TWFunc::Run_Before_Reboot(void)
 #endif
 
     // if decryption failed, don't backup historic logs
-    if (use_data_recovery)
+    if (use_data_recovery) {
     	return;
+    }
 
     // proceed
     struct timeval tv;
@@ -5085,55 +5086,8 @@ void TWFunc::Mapper_to_BootDevice(const std::string block_device, const std::str
 
 void TWFunc::PostWipeEncryption(void) {
 #ifdef OF_RUN_POST_FORMAT_PROCESS
-
-  // run the postformatdata script here
-  TWFunc::RunFoxScript(FOX_POST_DATA_FORMAT_SCRIPT, "");
-  //
-
-  DataManager::SetValue("fox_dfe_formatted", "0");
-  bool create_data_media = 
-  #ifdef OF_FORCE_CREATE_DATA_MEDIA_ON_FORMAT
-  true;
-  #else
-  (DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION) == 1);
-  #endif
-
-  // only run this if we are disabling forced encryption, or if we are forcing it (it can mess up Android 11+ encryption of the internal storage)
-  if (create_data_media) {
-
-      // don't run this if we just installed MIUI
-      if (DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION) == 1 && TWFunc::Fox_Property_Get("orangefox.fresh.miui.install") == "1") {
-         gui_print_color("warning", "\n- Fresh MIUI ROM installation! Not creating /data/media/\n\n");
-         return;
-      }
-
-      if (DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION) == 1)
-      	DataManager::SetValue("fox_dfe_formatted", "1");
-
-      gui_print("I: Recreating /data/media/0...\n");
-      sleep(1);
-      TWFunc::Recursive_Mkdir("/data/media/0", false);
-      TWFunc::Recursive_Mkdir("/data/media/0/Fox/logs", false);
-
-      gui_print("I: Copying recovery.log...\n");
-      TWFunc::copy_file("/tmp/recovery.log", "/data/media/0/Fox/logs/lastrecoverylog.log", 0644);
-      sleep(1);
-
-      gui_print("I: Binding the internal storage...\n");
-      string cmd = "/system/bin/mount";
-      if (!TWFunc::Path_Exists(cmd))
-         cmd = "/sbin/mount";
-      cmd = cmd + " -o bind /data/media/0 /sdcard";
-      TWFunc::Exec_Cmd(cmd);
-
-      sleep(1);
-      sync();
-      gui_msg("done=Done.");
-
-      if (TWFunc::MIUI_Is_Running()) {
-         gui_print_color("warning", "\n- Note: if you go on to flash a MIUI ROM now, then you *must* format data afterwards.\n\n");
-      }
-  }
+	// run the OrangeFox postformatdata script here
+	TWFunc::RunFoxScript(FOX_POST_DATA_FORMAT_SCRIPT, "");
 #endif
 }
 

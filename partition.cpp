@@ -2208,17 +2208,6 @@ bool TWPartition::Decrypt(string Password) {
 	return 1;
 }
 
-bool fox_print_storage_binder_message() {
-#if !defined(OF_FORCE_CREATE_DATA_MEDIA_ON_FORMAT) && defined(OF_PRINT_BIND_INTERNAL_MESSAGE)
-string src = "/FFiles/OF_bind_internal/OF_bind_internal.zip";
-  if (TWFunc::Path_Exists(src)) {
-  	gui_print_color("warning", "\nTo try and keep the internal storage decrypted, flash '%s' now. WARNING! Most ROMs will NOT like this!\n\n", src.c_str());
-  	return true;
-  }
-#endif
-return false;
-}
-
 bool TWPartition::Wipe_Encryption() {
 	bool Save_Data_Media = Has_Data_Media;
 	bool ret = false;
@@ -2255,13 +2244,7 @@ bool TWPartition::Wipe_Encryption() {
 #endif
 		if (Is_FBE) {
 		    if (DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION) != 1) {
-		    	#ifndef OF_FORCE_CREATE_DATA_MEDIA_ON_FORMAT
 			gui_msg(Msg(msg::kWarning, "data_media_fbe_msg=OrangeFox will not recreate /data/media on an FBE device. Please reboot into your rom to create /data/media."));
-			/*
-			if (!printed_message)
-				printed_message = fox_print_storage_binder_message();
-			*/
-			#endif
 		    }
 		} else {
 			if (Has_Data_Media && !Symlink_Mount_Point.empty()) {
