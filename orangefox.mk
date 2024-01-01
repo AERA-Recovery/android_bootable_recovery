@@ -1,6 +1,6 @@
 #
 #	This file is part of the OrangeFox Recovery Project
-# 	Copyright (C) 2018-2023 The OrangeFox Recovery Project
+# 	Copyright (C) 2018-2024 The OrangeFox Recovery Project
 #	
 #	OrangeFox is free software: you can redistribute it and/or modify
 #	it under the terms of the GNU General Public License as published by
@@ -519,11 +519,6 @@ ifeq ($(OF_SKIP_DECRYPTED_ADOPTED_STORAGE),1)
     LOCAL_CFLAGS += -DOF_SKIP_DECRYPTED_ADOPTED_STORAGE='"1"'
 endif
 
-# post-format
-ifeq ($(OF_RUN_POST_FORMAT_PROCESS),1)
-    LOCAL_CFLAGS += -DOF_RUN_POST_FORMAT_PROCESS='"1"'
-endif
-
 ifneq ($(OF_DYNAMIC_FULL_SIZE),)
     LOCAL_CFLAGS += -DOF_DYNAMIC_FULL_SIZE='"$(OF_DYNAMIC_FULL_SIZE)"'
 endif
@@ -725,5 +720,10 @@ endif
 # support setting the number of items on the 'options' listmenu before creating scrollbar
 ifneq ($(OF_OPTIONS_LIST_NUM),)
     LOCAL_CFLAGS += -DOF_OPTIONS_LIST_NUM='"$(OF_OPTIONS_LIST_NUM)"'
+endif
+
+# whether to bind-mount /sdcard after formatting data to deal with MTP issues: can be problematic for encryption
+ifeq ($(OF_BIND_MOUNT_SDCARD_ON_FORMAT),1)
+    LOCAL_CFLAGS += -DOF_BIND_MOUNT_SDCARD_ON_FORMAT
 endif
 #
