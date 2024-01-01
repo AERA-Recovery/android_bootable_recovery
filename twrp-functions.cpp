@@ -2,7 +2,7 @@
 	Copyright 2012 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	Copyright (C) 2018-2024 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -370,7 +370,7 @@ void TWFunc::Run_Before_Reboot(void)
     copy_file("/tmp/recovery.log", Logs_Dir + "/lastrecoverylog.log", 0644);
 
 #if defined(OF_DONT_KEEP_LOG_HISTORY) || defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) // don't backup historic logs if we're not saving to /sdcard/Fox
-    return;
+	return;
 #endif
 
     // if decryption failed, don't backup historic logs
@@ -1083,10 +1083,24 @@ int TWFunc::tw_reboot(RebootCommand command)
   	TWFunc::Run_Before_Reboot();
   	// ----
 
+	if (PartitionManager.Is_Mounted_By_Path("/sdcard1")) {
+		LOGINFO("Unmounting /sdcard1\n");
+		PartitionManager.UnMount_By_Path("/sdcard1", false);
+		usleep(262144);
+	}
+
+	if (PartitionManager.Is_Mounted_By_Path("/sdcard")) {
+		LOGINFO("Unmounting /sdcard\n");
+		string mycmd = "/system/bin/umount /sdcard";
+		Exec_Cmd(mycmd);
+		usleep(262144);
+	}
+
 	TWPartition *dataPart = PartitionManager.Find_Partition_By_Path("/data");
 	if (dataPart) {
 		if (dataPart->Is_Mounted()) {
 			dataPart->UnMount(false);
+			usleep(262144);
 		}
 	}
 
