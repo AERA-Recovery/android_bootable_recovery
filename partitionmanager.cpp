@@ -2,7 +2,7 @@
 	Copyright 2014 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	Copyright (C) 2018-2024 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -741,14 +741,22 @@ void TWPartitionManager::Setup_Android_Secure_Location(TWPartition* Part) {
 
 void TWPartitionManager::Fox_Set_Dynamic_Partition_Props() {
   	if (Get_Super_Status()) {
-  		TWFunc::Fox_Property_Set("orangefox.super.partition", "true");
-  		DataManager::SetValue(TW_IS_SUPER, "1");
-  		DataManager::SetValue("fox_dynamic_device", "1");
-  	}
-  	else {
-  		TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
-  		DataManager::SetValue("fox_dynamic_device", "0");
-  	}
+		if (TWFunc::Fox_Property_Get("fox_dynamic_device") == "0") {
+			DataManager::SetValue("fox_dynamic_device", "0");
+			TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
+			DataManager::SetValue(TW_IS_SUPER, "0");
+		}
+		else {
+			TWFunc::Fox_Property_Set("orangefox.super.partition", "true");
+			DataManager::SetValue("fox_dynamic_device", "1");
+			DataManager::SetValue(TW_IS_SUPER, "1");
+		}
+	}
+	else {
+		TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
+		DataManager::SetValue("fox_dynamic_device", "0");
+		DataManager::SetValue(TW_IS_SUPER, "0");
+	}
 
   	TWPartition* Part;
   	std::vector < TWPartition * >::iterator iter;

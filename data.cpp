@@ -2,7 +2,7 @@
 	Copyright 2012 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	Copyright (C) 2018-2024 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -1022,18 +1022,28 @@ void DataManager::SetDefaultValues()
 
 #ifdef TW_INCLUDE_FASTBOOTD
 	printf("TW_INCLUDE_FASTBOOTD := true\n");
-	mConst.SetValue(TW_FASTBOOT_MODE, "1");
+	mData.SetValue(TW_FASTBOOT_MODE, "1");
 #endif
 #ifdef PRODUCT_USE_DYNAMIC_PARTITIONS
 	printf("PRODUCT_USE_DYNAMIC_PARTITIONS := true\n");
-	mConst.SetValue(TW_FASTBOOT_MODE, "1");
-	mData.SetValue(TW_IS_SUPER, "1");
-	mConst.SetValue("fox_dynamic_device", "1");
-	TWFunc::Fox_Property_Set("orangefox.super.partition", "true");
+	if (TWFunc::Fox_Property_Get("fox_dynamic_device") == "0") {
+		mData.SetValue(TW_IS_SUPER, "0");
+		mData.SetValue(TW_FASTBOOT_MODE, "0");
+		mData.SetValue("fox_dynamic_device", "0");
+		TWFunc::Fox_Property_Set("ro.fastbootd.available", "0");
+		TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
+	}
+	else {
+		mData.SetValue(TW_IS_SUPER, "1");
+		mData.SetValue(TW_FASTBOOT_MODE, "1");
+		mData.SetValue("fox_dynamic_device", "1");
+		TWFunc::Fox_Property_Set("ro.fastbootd.available", "1");
+		TWFunc::Fox_Property_Set("orangefox.super.partition", "true");
+	}
 #else
-  	mData.SetValue(TW_IS_SUPER, "0");
-  	mConst.SetValue("fox_dynamic_device", "0");
-  	TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
+	mData.SetValue(TW_IS_SUPER, "0");
+	mData.SetValue("fox_dynamic_device", "0");
+	TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
 #endif
 
 #ifdef FOX_VENDOR_BOOT_RECOVERY
