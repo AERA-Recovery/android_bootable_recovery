@@ -2465,7 +2465,7 @@ int TWPartitionManager::Open_Lun_File(string Partition_Path, string Lun_File) {
 	TWPartition* Part = Find_Partition_By_Path(Partition_Path);
 
 	if (Part == NULL) {
-		LOGINFO("Unable to locate '%s' for USB storage mode.", Partition_Path.c_str());
+		LOGINFO("Unable to locate '%s' for USB storage mode.\n", Partition_Path.c_str());
 		gui_msg(Msg(msg::kError, "unable_find_part_path=Unable to find partition for path '{1}'")(Partition_Path));
 		return false;
 	}

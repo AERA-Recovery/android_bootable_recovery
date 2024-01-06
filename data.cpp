@@ -1639,7 +1639,7 @@ void DataManager::Leds(bool enable)
 
   if (!TWFunc::Path_Exists("/sys/class/leds/white/brightness"))
   {
-    LOGINFO("DEBUG - found white led on /sys/class/leds/white/ path");
+    LOGINFO("DEBUG - found white led on /sys/class/leds/white/ path\n");
     TWFunc::read_file("/sys/class/leds/white/max_brightness", max_brt);
     TWFunc::write_to_file("/sys/class/leds/white/brightness", max_brt);
   }
@@ -1661,7 +1661,7 @@ void DataManager::Leds(bool enable)
         TWFunc::write_to_file(time, "1 1 1 1");
 
         if (ledcolor == 0) {
-          LOGINFO("Enable Yellow led");
+          LOGINFO("Enable Yellow led\n");
           TWFunc::write_to_file("/sys/class/leds/red/brightness", bsmax);
           TWFunc::write_to_file("/sys/class/leds/red/blink", "1");
           TWFunc::write_to_file("/sys/class/leds/red/led_time", "1 1 1 1");
@@ -1698,7 +1698,7 @@ void DataManager::Leds(bool enable)
       TWFunc::write_to_file(bs1, "0");
       if (TWFunc::Path_Exists("/sys/class/leds/white/brightness"))
       {
-        LOGINFO("DEBUG - found white led on /sys/class/leds/white/ path");
+        LOGINFO("DEBUG - found white led on /sys/class/leds/white/ path\n");
         TWFunc::write_to_file("/sys/class/leds/white/brightness", "0");
       }
     }
@@ -1714,14 +1714,14 @@ void DataManager::Leds(bool enable)
               TWFunc::write_to_file(time, "1 1 1 1");
 
               if (ledcolor == 0) {
-                LOGINFO("Enable Yellow led");
+                LOGINFO("Enable Yellow led\n");
                 TWFunc::write_to_file("/sys/class/leds/red/brightness", bsm);
                 TWFunc::write_to_file("/sys/class/leds/red/blink", "1");
                 TWFunc::write_to_file("/sys/class/leds/red/led_time", "1 1 1 1");
               }
               if (TWFunc::Path_Exists("/sys/class/leds/white/brightness"))
               {
-                LOGINFO("DEBUG - found white led on /sys/class/leds/white/ path");
+                LOGINFO("DEBUG - found white led on /sys/class/leds/white/ path\n");
                 TWFunc::read_file("/sys/class/leds/white/max_brightness", max_brt);
                 TWFunc::write_to_file("/sys/class/leds/white/brightness", max_brt);
               }
