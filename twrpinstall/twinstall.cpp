@@ -2,7 +2,7 @@
 	Copyright 2012 to 2017 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	Copyright (C) 2018-2024 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -432,8 +432,8 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 			// We need this so backuptool can do its magic
 			bool system_mount_state = PartitionManager.Is_Mounted_By_Path(PartitionManager.Get_Android_Root_Path());
 			bool vendor_mount_state = PartitionManager.Is_Mounted_By_Path("/vendor");
-			PartitionManager.Mount_By_Path(PartitionManager.Get_Android_Root_Path(), true);
-			PartitionManager.Mount_By_Path("/vendor", true);
+			PartitionManager.Mount_By_Path(PartitionManager.Get_Android_Root_Path(), false);
+			PartitionManager.Mount_By_Path("/vendor", false);
 			TWFunc::copy_file("/system/bin/sh", "/tmp/sh", 0755);
 			mount("/tmp/sh", "/system/bin/sh", "auto", MS_BIND, NULL);
 
@@ -448,9 +448,9 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 			umount("/system/bin/sh");
 			unlink("/tmp/sh");
 			if (!vendor_mount_state)
-				PartitionManager.UnMount_By_Path("/vendor", true);
+				PartitionManager.UnMount_By_Path("/vendor", false);
 			if (!system_mount_state)
-				PartitionManager.UnMount_By_Path(PartitionManager.Get_Android_Root_Path(), true);
+				PartitionManager.UnMount_By_Path(PartitionManager.Get_Android_Root_Path(), false);
 			if (android::base::GetBoolProperty("ro.virtual_ab.enabled", false)) {
 				PartitionManager.Unlock_Block_Partitions();
 				PartitionManager.Prepare_All_Super_Volumes();
