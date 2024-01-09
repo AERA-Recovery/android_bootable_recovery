@@ -1503,6 +1503,47 @@ string TWFunc::Product_Property_Get(string Prop_Name, TWPartitionManager &Partit
 	return propvalue;
 }
 
+string TWFunc::Vendor_Property_Get(string Prop_Name) {
+	return Vendor_Property_Get(Prop_Name, PartitionManager, "vendor", "build.prop");
+}
+
+string TWFunc::Vendor_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name) {
+	bool mount_state = PartitionManager.Is_Mounted_By_Path(Mount_Point);
+	std::vector<string> buildprop;
+	string propvalue;
+	if (!PartitionManager.Mount_By_Path(Mount_Point, false))
+		return propvalue;
+	string prop_file = Mount_Point + "/" + prop_file_name;
+	if (!TWFunc::Path_Exists(prop_file)) {
+		LOGINFO("Unable to locate file: %s\n", prop_file.c_str());
+		return propvalue;
+	}
+	if (TWFunc::read_file(prop_file, buildprop) != 0) {
+		LOGINFO("Unable to open %s for getting '%s'.\n", prop_file_name.c_str(), Prop_Name.c_str());
+		DataManager::SetValue(TW_BACKUP_NAME, Get_Current_Date());
+		if (!mount_state)
+			PartitionManager.UnMount_By_Path(Mount_Point, false);
+		return propvalue;
+	}
+	int line_count = buildprop.size();
+	int index;
+	size_t start_pos = 0, end_pos;
+	string propname;
+	for (index = 0; index < line_count; index++) {
+		end_pos = buildprop.at(index).find("=", start_pos);
+		propname = buildprop.at(index).substr(start_pos, end_pos);
+		if (propname == Prop_Name) {
+			propvalue = buildprop.at(index).substr(end_pos + 1, buildprop.at(index).size());
+			if (!mount_state)
+				PartitionManager.UnMount_By_Path(Mount_Point, false);
+			return propvalue;
+		}
+	}
+	if (!mount_state)
+		PartitionManager.UnMount_By_Path(Mount_Point, false);
+	return propvalue;
+}
+
 string TWFunc::File_Property_Get(string File_Path, string Prop_Name)
 {
   std::vector < string > buildprop;

@@ -2,7 +2,7 @@
 	Copyright 2012 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-  	Copyright (C) 2018-2023 OrangeFox Recovery Project
+  	Copyright (C) 2018-2024 OrangeFox Recovery Project
  	This file is part of the OrangeFox Recovery Project
  
 	TWRP is free software: you can redistribute it and/or modify
@@ -133,6 +133,9 @@ public:
 
 	static string Product_Property_Get(string Prop_Name);                // Returns value of Prop_Name from reading /product/etc/build.prop
 	static string Product_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name);     // Returns value of Prop_Name from reading provided Product prop file
+
+	static string Vendor_Property_Get(string Prop_Name);                // Returns value of Prop_Name from reading /vendor/build.prop
+	static string Vendor_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name);  // Returns value of Prop_Name from reading provided vendor prop file
 
   	static bool CheckWord(std::string filename, std::string search); // Check if the word exist in the txt file and then return true or false 
 	static string File_Property_Get(string File_Path, string Prop_Name);                // Returns specified property value from the file
