@@ -2601,6 +2601,13 @@ int TWFunc::Check_MIUI_Treble(void)
 	gui_print("* Virtual_AB: no\n");
    }
 
+  // kernel version for A/B
+#ifdef AB_OTA_UPDATER
+    string kernel_version = TWFunc::Fox_Property_Get("ro.orangefox.kernel");
+    if (!kernel_version.empty())
+       gui_print("* Kernel:     %s\n", kernel_version.c_str());
+#endif
+
   // installed ROM
   rom_desc = GetInstalledRom();
   if (!rom_desc.empty()) 
