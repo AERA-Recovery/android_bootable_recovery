@@ -1916,6 +1916,22 @@ int TWPartitionManager::Wipe_Android_Secure(void) {
 	return false;
 }
 
+// check and update any necessary props before formatting /data
+static void Update_Encryption_Props_Before_Format() {
+	bool Display_Error = false;
+	TWPartition* ven = PartitionManager.Find_Partition_By_Path("/vendor");
+	TWPartition* odm = PartitionManager.Find_Partition_By_Path("/odm");
+	if (ven || odm) {
+		if (ven) ven->Mount(Display_Error);
+		if (odm) odm->Mount(Display_Error);
+
+		Process_ResetProps(ven, odm);
+
+		if (odm) odm->UnMount(Display_Error);
+		if (ven) ven->UnMount(Display_Error);
+	}
+}
+
 int TWPartitionManager::Format_Data(void) {
 	TWPartition* dat = Find_Partition_By_Path("/data");
 	TWPartition* metadata = Find_Partition_By_Path("/metadata");
@@ -1924,6 +1940,9 @@ int TWPartitionManager::Format_Data(void) {
 		metadata->UnMount(false);
 
 	if (dat != NULL) {
+		#ifdef OF_REFRESH_ENCRYPTION_PROPS_BEFORE_FORMAT
+		Update_Encryption_Props_Before_Format(); // call here, because it must run before Unmap_Super_Devices is executed
+		#endif
 		if (android::base::GetBoolProperty("ro.virtual_ab.enabled", false)) {
 #ifndef TW_EXCLUDE_APEX
 			twrpApex apex;

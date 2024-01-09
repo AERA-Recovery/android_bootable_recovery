@@ -726,4 +726,9 @@ endif
 ifeq ($(OF_BIND_MOUNT_SDCARD_ON_FORMAT),1)
     LOCAL_CFLAGS += -DOF_BIND_MOUNT_SDCARD_ON_FORMAT
 endif
+
+# whether to refresh the encryption props before formatting /data
+ifeq ($(OF_REFRESH_ENCRYPTION_PROPS_BEFORE_FORMAT),1)
+    LOCAL_CFLAGS += -DOF_REFRESH_ENCRYPTION_PROPS_BEFORE_FORMAT
+endif
 #
