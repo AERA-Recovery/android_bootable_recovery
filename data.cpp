@@ -1168,15 +1168,18 @@ void DataManager::SetDefaultValues()
   mConst.SetValue(FOX_SURVIVAL_BACKUP_NAME, FOX_SURVIVAL_BACKUP);
   mConst.SetValue(FOX_ACTUAL_BUILD_VAR, FOX_BUILD);
   mConst.SetValue(FOX_TMP_SCRIPT_DIR, Fox_tmp_dir);
-  mData.SetValue(FOX_COMPATIBILITY_DEVICE, FOX_DEVICE);
   mData.SetValue("found_fox_overwriting_rom", 0);
   mData.SetValue("fox_dfe_formatted", "0"); // whether data has been formatted with disable forced encryption enabled
 
-  // the canonical current device
-  mConst.SetValue("fox_product_device", TWFunc::Fox_Property_Get("ro.product.device"));
-
   // whether we are processing any asserts
   mData.SetValue("fox_processing_asserts", "0");
+
+  // the canonical current device
+  str = TWFunc::Fox_Property_Get("ro.product.device");
+  mConst.SetValue("fox_product_device", str);
+
+  // let the device name in the "About" menu show the canonical value, rather than the one determined at build time
+  mData.SetValue(FOX_COMPATIBILITY_DEVICE, str.c_str());
 
   // End of the OrangeFox variables
 
