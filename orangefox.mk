@@ -369,10 +369,15 @@ ifeq ($(OF_USE_LZMA_COMPRESSION),1)
     endif
 endif
 
+ifeq ($(BOARD_RAMDISK_USE_LZ4),true)
+    OF_USE_LZ4_COMPRESSION := 1
+endif
+
 ifeq ($(OF_USE_LZ4_COMPRESSION),1)
     ifeq ($(BOARD_RAMDISK_USE_LZ4),)
     	BOARD_RAMDISK_USE_LZ4 := true
     endif
+    LOCAL_CFLAGS += -DOF_USE_LZ4_COMPRESSION
 endif
 
 ifeq ($(OF_NO_TREBLE_COMPATIBILITY_CHECK),1)
