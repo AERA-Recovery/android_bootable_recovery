@@ -1083,6 +1083,7 @@ int TWFunc::tw_reboot(RebootCommand command)
   	TWFunc::Run_Before_Reboot();
   	// ----
 
+#ifdef OF_UNMOUNT_SDCARDS_BEFORE_REBOOT
 	if (PartitionManager.Is_Mounted_By_Path("/sdcard1")) {
 		LOGINFO("Unmounting /sdcard1\n");
 		PartitionManager.UnMount_By_Path("/sdcard1", false);
@@ -1095,6 +1096,7 @@ int TWFunc::tw_reboot(RebootCommand command)
 		Exec_Cmd(mycmd);
 		usleep(262144);
 	}
+#endif
 
 	TWPartition *dataPart = PartitionManager.Find_Partition_By_Path("/data");
 	if (dataPart) {
