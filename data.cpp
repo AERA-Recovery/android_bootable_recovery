@@ -828,7 +828,7 @@ void DataManager::SetDefaultValues()
     mData.SetValue("of_no_miui_features", "0");
   #endif
 
-  #if defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION) || defined(FOX_VENDOR_BOOT_RECOVERY) || defined(OF_NO_REFLASH_CURRENT_ORANGEFOX)
+  #if defined(OF_NO_REFLASH_CURRENT_ORANGEFOX)
     mConst.SetValue("fox_disable_reflash_current", "1");
   #else
     mConst.SetValue("fox_disable_reflash_current", "0");
