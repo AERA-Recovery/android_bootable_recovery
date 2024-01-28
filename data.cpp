@@ -853,6 +853,7 @@ void DataManager::SetDefaultValues()
 #endif
 #ifdef BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT
 	mConst.SetValue("tw_is_vendor_boot", "1");
+	property_set("tw_is_vendor_boot", "1");
 #else
 	mConst.SetValue("tw_is_vendor_boot", "0");
 #endif
@@ -1270,6 +1271,7 @@ void DataManager::SetDefaultValues()
 
 #ifdef BOARD_BOOT_HEADER_VERSION
 	mConst.SetValue("tw_boot_header_version", BOARD_BOOT_HEADER_VERSION);
+	property_set("tw_boot_header_version", GetStrValue("tw_boot_header_version").c_str());
 #endif
 
   if (GetIntValue("tw_is_vendor_boot") == 1 && GetIntValue("tw_boot_header_version") < 4)
