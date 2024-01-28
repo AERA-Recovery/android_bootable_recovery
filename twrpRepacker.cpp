@@ -130,19 +130,25 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 	bool is_vendor_boot = false;
 	bool is_vendor_boot_v4 = false;
 	std::string dest_partition = "/boot";
+	std::string ramdisk_cpio = + "ramdisk.cpio";
+
 	#ifdef BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT
 		dest_partition = "/vendor_boot";
 		is_vendor_boot = true;
-		#ifdef BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT_V4
-		is_vendor_boot_v4 = true;
-		LOGINFO("Vendor_boot with v4 header\n");
-		#endif
+		if (DataManager::GetIntValue("tw_boot_header_version") > 3) {
+			is_vendor_boot_v4 = true;
+			ramdisk_cpio = "vendor_ramdisk_recovery.cpio";
+			LOGINFO("Vendor_boot with v4+ header\n");
+		} else {
+			LOGINFO("Vendor_boot with lower than v4 header\n");
+		}
 	#else
 		// we shouldn't reach here, because of the code in twrpRepacker::Flash_Current_Twrp(); but if we do, then handle it
 		if (PartitionManager.Find_Partition_By_Path("/recovery") && is_AB_for_repacker()) {
 			dest_partition = "/recovery";
 		}
 	#endif
+
 	if (is_vendor_boot || is_vendor_boot_v4) {
 		// placeholder for any specific vendor_boot stuff;
 		// in the meantime, stop the compiler's complaints about unused variables
@@ -175,23 +181,23 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 	std::string path = REPACK_NEW_DIR;
 	if (Repack_Options.Type == REPLACE_KERNEL) {
 		// When we replace the kernel, what we really do is copy the boot partition ramdisk into the new image's folder
-		if (TWFunc::copy_file(REPACK_ORIG_DIR "ramdisk.cpio", REPACK_NEW_DIR "ramdisk.cpio", 0644)) {
+		if (TWFunc::copy_file(REPACK_ORIG_DIR + ramdisk_cpio, REPACK_NEW_DIR + ramdisk_cpio, 0644)) {
 			LOGERR("Failed to copy ramdisk\n");
 			return false;
 		}
 	} else if (Repack_Options.Type == REPLACE_RAMDISK_UNPACKED) {
-			if (TWFunc::copy_file(Target_Image, REPACK_ORIG_DIR "ramdisk.cpio", 0644)) {
+			if (TWFunc::copy_file(Target_Image, REPACK_ORIG_DIR + ramdisk_cpio, 0644)) {
 				LOGERR("Failed to copy ramdisk\n");
 				return false;
 			}
-			if (TWFunc::copy_file(Target_Image, REPACK_NEW_DIR "ramdisk.cpio", 0644)) {
+			if (TWFunc::copy_file(Target_Image, REPACK_NEW_DIR + ramdisk_cpio, 0644)) {
 				LOGERR("Failed to copy ramdisk\n");
 				return false;
 			}
 		path = REPACK_ORIG_DIR;
 	} else if (Repack_Options.Type == REPLACE_RAMDISK) {
 		// Repack the ramdisk
-		if (TWFunc::copy_file(REPACK_NEW_DIR "ramdisk.cpio", REPACK_ORIG_DIR "ramdisk.cpio", 0644)) {
+		if (TWFunc::copy_file(REPACK_NEW_DIR + ramdisk_cpio, REPACK_ORIG_DIR + ramdisk_cpio, 0644)) {
 			LOGERR("Failed to copy ramdisk\n");
 			return false;
 		}
@@ -212,7 +218,7 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 	command += path + "boot.img";
 
 	std::string orig_compressed_image(REPACK_ORIG_DIR);
-	orig_compressed_image += "ramdisk.cpio";
+	orig_compressed_image += ramdisk_cpio;
 	std::string copy_compressed_image(REPACK_ORIG_DIR);
 	copy_compressed_image += "ramdisk-1.cpio";
 
@@ -250,7 +256,7 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 		PartitionManager.Update_System_Details();
 		if (!Backup_Image_For_Repack(part, REPACK_ORIG_DIR, Repack_Options.Backup_First, gui_lookup("repack", "Repack")))
 			return false;
-		if (TWFunc::copy_file(REPACK_NEW_DIR "ramdisk.cpio", REPACK_ORIG_DIR "ramdisk.cpio", 0644)) {
+		if (TWFunc::copy_file(REPACK_NEW_DIR + ramdisk_cpio, REPACK_ORIG_DIR + ramdisk_cpio, 0644)) {
 			LOGERR("Failed to copy ramdisk\n");
 			return false;
 		}
@@ -297,18 +303,21 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 }
 
 bool twrpRepacker::Flash_Current_Twrp() {
-	#if defined(FOX_VENDOR_BOOT_RECOVERY) || defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT_V4)
-	LOGERR("Auto-reflashing is not supported in vendor_boot-as-recovery builds.\n\nYou need to flash OrangeFox manually.\n");
-	return false;
-	#endif
-
 	// A/B with dedicated recovery partition
 	std::string slot = android::base::GetProperty("ro.boot.slot_suffix", "");
 	if (slot.empty())
 		slot = android::base::GetProperty("ro.boot.slot", "");
-	if (!slot.empty() && PartitionManager.Find_Partition_By_Path("/recovery")) {
+
+	std::string dest_partition = "/recovery";
+	#ifdef BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT
+	if (DataManager::GetIntValue("tw_boot_header_version") < 4) {
+		LOGERR("Vendor_boot with header version below 4. Quitting.\n");
+		return false;
+	}
+	#endif
+
+	if (!slot.empty() && PartitionManager.Find_Partition_By_Path(dest_partition)) {
 		std::string root, src, dest;
-		std::string dest_partition = "/recovery";
 		root = "/dev/block/bootdevice/by-name" + dest_partition;
 		if (slot == "_a" || slot == "a") {
 			src = root + "_a";
@@ -351,10 +360,15 @@ bool twrpRepacker::Flash_Current_Twrp() {
 	#ifdef OF_FORCE_CHECK_RAMDISK_CHECKSUM
 	std::string verifyfiles = "cd / && sha256sum --status -c ramdisk-files.sha256sum";
 	if (TWFunc::Exec_Cmd(verifyfiles) != 0) {
-	gui_msg(Msg(msg::kError, "modified_ramdisk_error=ramdisk files have been modified, unable to create ramdisk to flash, fastboot boot OrangeFox and try this option again or use the Install Recovery Ramdisk option."));
+		#ifdef BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT
+		gui_msg(Msg(msg::kError, "modified_ramdisk_error=ramdisk files have been modified: unable to create ramdisk to flash."));
+		#else
+		gui_msg(Msg(msg::kError, "modified_ramdisk_error=ramdisk files have been modified: unable to create ramdisk to flash; fastboot boot OrangeFox and try this option again."));
+		#endif
 		return false;
 	}
 	#endif
+
 	std::string command = "cd / && /system/bin/cpio -H newc -o < ramdisk-files.txt > /tmp/currentramdisk.cpio && /system/bin/gzip -f /tmp/currentramdisk.cpio";
 	if (TWFunc::Exec_Cmd(command) != 0) {
 		gui_msg(Msg(msg::kError, "create_ramdisk_error=failed to create ramdisk to flash."));

@@ -140,9 +140,12 @@ ifeq ($(FOX_VENDOR_BOOT_RECOVERY),1)
     $(warning WARNING! 'FOX_VENDOR_BOOT_RECOVERY' is highly experimental and potentially VERY problematic!)
     $(warning It is NOT recommended to use this. You have been warned!)
     LOCAL_CFLAGS += -DFOX_VENDOR_BOOT_RECOVERY='"1"'
-    OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
     OF_NO_SPLASH_CHANGE := 1
     FOX_VANILLA_BUILD := 1
+    ifeq ($(BOARD_BOOT_HEADER_VERSION),3)
+        OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
+ 	$(warning For a proper vendor_boot recovery build, use 'BOARD_BOOT_HEADER_VERSION := 4' and 'BOARD_INCLUDE_RECOVERY_RAMDISK_IN_VENDOR_BOOT := true')
+    endif
 endif
 
 ifeq ($(OF_DONT_PATCH_ENCRYPTED_DEVICE),1)
@@ -484,27 +487,6 @@ endif
 # ensure that the twres directory is copied to the recovery if it is otherwise not being done
 ifeq ($(OF_MANUAL_COPY_TWRES),1)
     LOCAL_CFLAGS += -DOF_MANUAL_COPY_TWRES='"1"'
-endif
-
-# boot headers
-ifneq ($(BOARD_BOOT_HEADER_VERSION),)
-    LOCAL_CFLAGS += -DBOARD_BOOT_HEADER_VERSION='"$(BOARD_BOOT_HEADER_VERSION)"'
-else
-    LOCAL_CFLAGS += -DBOARD_BOOT_HEADER_VERSION='"0"'
-endif
-
-# new boot headers (v3, v4, 5, etc)
-ifeq ($(BOARD_BOOT_HEADER_VERSION),3)
-    OF_NEW_BOOT_HEADER := 1
-else ifeq ($(BOARD_BOOT_HEADER_VERSION),4)
-    OF_NEW_BOOT_HEADER := 1
-else ifeq ($(BOARD_BOOT_HEADER_VERSION),5)
-    OF_NEW_BOOT_HEADER := 1
-endif
-
-ifeq ($(OF_NEW_BOOT_HEADER),1)
-    LOCAL_CFLAGS += -DOF_NEW_BOOT_HEADER='"1"'
-#    FOX_PATCH_VBMETA_FLAG := 1
 endif
 
 # lptools; disable by default; enable with OF_ENABLE_LPTOOLS=1
