@@ -2,7 +2,7 @@
 	Copyright 2014 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	Copyright (C) 2018-2024 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -143,7 +143,7 @@ public:
 	bool Is_Mounted();                                                        // Checks mount to see if the partition is currently mounted
 	bool Is_File_System_Writable();                                           // Checks if the root directory of the file system can be written to
 	bool Mount(bool Display_Error);                                           // Mounts the partition if it is not mounted
-	bool UnMount(bool Display_Error);                                         // Unmounts the partition if it is mounted
+	bool UnMount(bool Display_Error, int flags = 0);                          // Unmounts the partition if it is mounted
 	bool ReMount(bool Display_Error);                                         // Remounts the partition
 	bool ReMount_RW(bool Display_Error);                                      // Remounts the partition with read/write access
 	bool Bind_Mount(bool Display_Error);                                      // Bind mount partition if symlink mountpoint is populated
@@ -350,7 +350,7 @@ public:
 	void Output_Partition_Logging();                                          // Outputs partition information to the log
 	void Output_Partition(TWPartition* Part);                                 // Outputs partition details to the log
 	int Mount_By_Path(string Path, bool Display_Error);                       // Mounts partition based on path (e.g. /system)
-	int UnMount_By_Path(string Path, bool Display_Error);                     // Unmounts partition based on path
+	int UnMount_By_Path(string Path, bool Display_Error, int flags = 0);      // Unmounts partition based on path
 	int Is_Mounted_By_Path(string Path);                                      // Checks if partition is mounted based on path
 	int Mount_Current_Storage(bool Display_Error);                            // Mounts the current storage location
 	int Mount_Settings_Storage(bool Display_Error);                           // Mounts the settings file storage location (usually internal)
