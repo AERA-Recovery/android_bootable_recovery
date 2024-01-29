@@ -348,6 +348,11 @@ bool twrpRepacker::Flash_Current_Twrp() {
 		return false;
 	}
 
+	if (PartitionManager.Is_Mounted_By_Path("/vendor") && !PartitionManager.UnMount_By_Path("/vendor", false)) {
+		// Try to force umount /vendor
+		PartitionManager.UnMount_By_Path("/vendor", false, MNT_FORCE | MNT_DETACH);
+	}
+
 	PartitionManager.Unlock_Block_Partitions();
 	Repack_Options_struct Repack_Options;
 	Repack_Options.Disable_Verity = false;
