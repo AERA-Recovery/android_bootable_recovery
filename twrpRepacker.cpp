@@ -309,11 +309,8 @@ bool twrpRepacker::Flash_Current_Twrp() {
 		slot = android::base::GetProperty("ro.boot.slot", "");
 
 	std::string dest_partition = "/recovery";
-	#ifdef BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT
-	if (DataManager::GetIntValue("tw_boot_header_version") < 4) {
-		LOGERR("Vendor_boot with header version below 4. Quitting.\n");
-		return false;
-	}
+	#if defined(FOX_VENDOR_BOOT_RECOVERY) && defined(FOX_VENDOR_BOOT_RECOVERY_FULL_REFLASH)
+		dest_partition = "/vendor_boot";
 	#endif
 
 	if (!slot.empty() && PartitionManager.Find_Partition_By_Path(dest_partition)) {
@@ -335,11 +332,11 @@ bool twrpRepacker::Flash_Current_Twrp() {
 		LOGINFO("Command=%s\n", command.c_str());
 
 		if (TWFunc::Exec_Cmd(command) != 0) {
-			LOGERR("Failed to flash the %s image\n", dest_partition.c_str());
+			LOGERR("Failed to flash the %s image\n\n", dest_partition.c_str());
 			return false;
 		}
 		else {
-			gui_print("Finished flashing the %s image\n", dest_partition.c_str());
+			gui_print("Finished flashing the %s image\n\n", dest_partition.c_str());
 			return true;
 		}
 		// if we reach here, something is awry - bale out
