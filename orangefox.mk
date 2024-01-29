@@ -146,7 +146,16 @@ ifeq ($(FOX_VENDOR_BOOT_RECOVERY),1)
         OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
  	$(warning For a proper vendor_boot recovery build, use 'BOARD_BOOT_HEADER_VERSION := 4' and 'BOARD_INCLUDE_RECOVERY_RAMDISK_IN_VENDOR_BOOT := true')
     endif
+    ifeq ($(FOX_VENDOR_BOOT_RECOVERY_FULL_REFLASH),1)
+	LOCAL_CFLAGS += -DFOX_VENDOR_BOOT_RECOVERY_FULL_REFLASH
+	OF_NO_REFLASH_CURRENT_ORANGEFOX :=
+    endif
 endif
+
+ifeq ($(OF_VENDOR_BOOT_RECOVERY),1)
+   $(error "OF_VENDOR_BOOT_RECOVERY" is obsolete. Use "export FOX_VENDOR_BOOT_RECOVERY=1" instead)
+endif
+#
 
 ifeq ($(OF_DONT_PATCH_ENCRYPTED_DEVICE),1)
     LOCAL_CFLAGS += -DOF_DONT_PATCH_ENCRYPTED_DEVICE='"1"'
@@ -608,10 +617,6 @@ endif
 
 ifeq ($(FOX_USE_LZMA_COMPRESSION),1)
    $(error "FOX_USE_LZMA_COMPRESSION" is obsolete. Use "export OF_USE_LZMA_COMPRESSION=1" instead)
-endif
-
-ifeq ($(OF_VENDOR_BOOT_RECOVERY),1)
-   $(error "OF_VENDOR_BOOT_RECOVERY" is obsolete. Use "export FOX_VENDOR_BOOT_RECOVERY=1" instead)
 endif
 
 ifeq ($(FOX_ADVANCED_SECURITY),1)
