@@ -511,7 +511,8 @@ clear:
 
 	usleep(65536);
 	if (odm) odm->UnMount(Display_Error);
-	Process_Keymaster_Version(ven, false);
+	if (recovery_mode)
+		Process_Keymaster_Version(ven, false);
 	if (ven) ven->UnMount(Display_Error);
 	return true;
 }
