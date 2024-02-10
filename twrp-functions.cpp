@@ -4870,7 +4870,17 @@ string temp = find_phrase(filename, "ro.product.device");
 
    if (temp.empty())
       return str;
-   
+
+#ifdef FOX_AB_DEVICE // we shouldn't even reach here, as we should be using update_engine/payload.bin
+   // deal with inept attempts to bypass update_engine/payload.bin
+   if ((temp.find("assert") != std::string::npos && temp.find("getprop") != std::string::npos) || (temp.find("abort") != std::string::npos && temp.find("getprop") != std::string::npos)) {
+	gui_print("This ROM installer bypasses update_engine/payload.bin! Proceeding with the target device check...\n");
+   }
+   else
+	return str;
+
+#else // use the original code
+
    // either assert or getprop should be on the ro.product.device line
    if (temp.find("assert") == std::string::npos && temp.find("getprop") == std::string::npos)
       return str;
@@ -4891,6 +4901,8 @@ string temp = find_phrase(filename, "ro.product.device");
            return str;
         //gui_print("- Finally found E3004 and abort!\n");
       }
+
+#endif
 
    // parse the string to extract the device name
    str = DeleteBefore(temp, "==", true);// remove everything before "=="
