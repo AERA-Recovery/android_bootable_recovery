@@ -822,7 +822,7 @@ void DataManager::SetDefaultValues()
   // dispense with the "Create Digest" button (it is only for the 9.0 branch)
   mConst.SetValue("fox_show_digest_btn", "0");
 
-  #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES) || defined(OF_TWRP_COMPATIBILITY_MODE)
+  #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES)
     mData.SetValue("of_no_miui_features", "1");
   #else
     mData.SetValue("of_no_miui_features", "0");
@@ -1096,7 +1096,6 @@ void DataManager::SetDefaultValues()
   mData.SetValue(FOX_FLASHLIGHT_VAR, "0");
 
   mPersist.SetValue(FOX_DISABLE_BOOT_CHK, "0");
-  mPersist.SetValue(FOX_ADVANCED_STOCK_REPLACE, "1");
   mPersist.SetValue(FOX_DISABLE_SECURE_BOOT, "0");
   mPersist.SetValue(FOX_DISABLE_MOCK_LOCATION, "0");
   mPersist.SetValue(FOX_ENABLE_MOCK_LOCATION, "0");
@@ -1114,7 +1113,7 @@ void DataManager::SetDefaultValues()
 
   // { MIUI
   string incremental_ota = "1";    // enable by default, unless turned off below
-  #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES) || defined(OF_TWRP_COMPATIBILITY_MODE) || defined(OF_DISABLE_MIUI_OTA_BY_DEFAULT)
+  #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES) || defined(OF_DISABLE_MIUI_OTA_BY_DEFAULT)
   incremental_ota = "0";
   #endif  
 
@@ -1126,30 +1125,12 @@ void DataManager::SetDefaultValues()
   // issues in new Xiaomi devices or new ROMs; DJ9 //
   string dm_verity_switch = "0"; 
   string fEncrypt_switch = "0";
-
-  #if defined(OF_DISABLE_DM_VERITY_FORCED_ENCRYPTION) || defined(OF_FORCE_DISABLE_DM_VERITY_FORCED_ENCRYPTION)
-  dm_verity_switch = "1"; 
-  fEncrypt_switch = "1";
-  #endif
-  
-  #if defined(OF_DISABLE_DM_VERITY) || defined(OF_FORCE_DISABLE_DM_VERITY)
-  dm_verity_switch = "1"; 
-  #endif
-  
-  #if defined(OF_DISABLE_FORCED_ENCRYPTION) || defined(OF_FORCE_DISABLE_FORCED_ENCRYPTION)
-  fEncrypt_switch = "1";
-  #endif
-  
-  #if defined(OF_KEEP_DM_VERITY) || defined(OF_KEEP_DM_VERITY_FORCED_ENCRYPTION)
-  mPersist.SetValue(FOX_DISABLE_DM_VERITY, "0");
-  #else
-  mPersist.SetValue(FOX_DISABLE_DM_VERITY, dm_verity_switch);
-  #endif
-  
-  #if defined(OF_KEEP_FORCED_ENCRYPTION) || defined(OF_KEEP_DM_VERITY_FORCED_ENCRYPTION)
-  mPersist.SetValue(FOX_DISABLE_FORCED_ENCRYPTION, "0");
-  #else
   mPersist.SetValue(FOX_DISABLE_FORCED_ENCRYPTION, fEncrypt_switch);
+  mPersist.SetValue(FOX_DISABLE_DM_VERITY, dm_verity_switch);
+  #ifdef FOX_VANILLA_BUILD
+  mPersist.SetValue(FOX_ADVANCED_STOCK_REPLACE, "0");
+  #else
+  mPersist.SetValue(FOX_ADVANCED_STOCK_REPLACE, "1");
   #endif
   //  MIUI }
 

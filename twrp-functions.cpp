@@ -2434,7 +2434,7 @@ void TWFunc::Welcome_Message(void)
     gui_print("[Downloads] : https://orangefox.download/\n");
     gui_print("[Guides/FAQ]: https://wiki.orangefox.tech/guides/\n");
 
-    #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES) || defined(OF_TWRP_COMPATIBILITY_MODE)
+    #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES)
     LOGINFO(" [MIUI-specific features not enabled]\n");
     #endif
     
@@ -4640,11 +4640,8 @@ int res=0, wipe_cache=0;
         gui_print("ERROR - cannot find %s\n", zipname.c_str());
   	return 1;
      }
-     /*
-    if (DataManager::GetIntValue(FOX_DISABLE_DM_VERITY) == 1)
-	keepdmverity = "false";
-    else */
-	keepdmverity = "true";
+
+     keepdmverity = "true";
 
     if (DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION) == 1)
 	{
@@ -4729,86 +4726,18 @@ string s = Fox_Bin_Dir + "/magiskboot";
 }
 
 // hopefully, this function will be obsolete one day ... //
-void TWFunc::Setup_Verity_Forced_Encryption(void)
-{
-  DataManager::SetValue(FOX_ADVANCED_STOCK_REPLACE, "1");
-
-/* untick the dm-verity and/or forced-encryption boxes on every bootup 
-(regardless of user settings) on devices that have problems with disabling them */
-#ifdef OF_KEEP_DM_VERITY_FORCED_ENCRYPTION
+void TWFunc::Setup_Verity_Forced_Encryption(void) {
   DataManager::SetValue(FOX_DISABLE_DM_VERITY, "0");
   DataManager::SetValue(FOX_DISABLE_FORCED_ENCRYPTION, "0");
-#endif
-
-#ifdef OF_KEEP_FORCED_ENCRYPTION
-  DataManager::SetValue(FOX_DISABLE_FORCED_ENCRYPTION, "0");
-#endif
-
-#ifdef OF_KEEP_DM_VERITY
-  DataManager::SetValue(FOX_DISABLE_DM_VERITY, "0");
-#endif
-
-/* tick the disable dm-verity and/or forced-encryption boxes on every bootup 
-(regardless of user settings) on devices that require them */
-#ifdef OF_FORCE_DISABLE_DM_VERITY_FORCED_ENCRYPTION
-  DataManager::SetValue(FOX_DISABLE_DM_VERITY, "1");
-  DataManager::SetValue(FOX_DISABLE_FORCED_ENCRYPTION, "1");
-#endif
-
-#ifdef OF_FORCE_DISABLE_FORCED_ENCRYPTION
-  DataManager::SetValue(FOX_DISABLE_FORCED_ENCRYPTION, "1");
-#endif
-
-#ifdef OF_FORCE_DISABLE_DM_VERITY
-  DataManager::SetValue(FOX_DISABLE_DM_VERITY, "1");
-#endif
-
-#ifdef FOX_VANILLA_BUILD
-  DataManager::SetValue(FOX_DISABLE_DM_VERITY, "0");
-  DataManager::SetValue(FOX_DISABLE_FORCED_ENCRYPTION, "0");
+  #ifdef FOX_VANILLA_BUILD
   DataManager::SetValue(FOX_ADVANCED_STOCK_REPLACE, "0");
-#endif
+  #endif
 }
 
 void TWFunc::Dump_Current_Settings(void)
 {
-   LOGINFO("**********************************************************\n");
-   LOGINFO("DEBUG - OrangeFox: settings being used:\n");   
-   LOGINFO("- Disable DM-Verity=%i\n", DataManager::GetIntValue(FOX_DISABLE_DM_VERITY));
-   LOGINFO("- Disable Forced Encryption=%i\n", DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION));
-   LOGINFO("- Aggressive stock recovery deactivation=%i\n", DataManager::GetIntValue(FOX_ADVANCED_STOCK_REPLACE));
-
-   #ifdef OF_DONT_PATCH_ON_FRESH_INSTALLATION
-   LOGINFO("- Don't patch on fresh OrangeFox installation=1\n");
-   #else
-   LOGINFO("- Don't patch on fresh OrangeFox installation=0\n");
-   #endif
-
-   #ifdef OF_DONT_PATCH_ENCRYPTED_DEVICE
-   LOGINFO("- Don't patch encrypted devices=1\n");
-   #else
-   LOGINFO("- Don't patch encrypted devices=0\n");
-   #endif
-
-   #ifdef OF_USE_MAGISKBOOT
-   LOGINFO("- Use magiskboot=1\n");
-   #else
-   LOGINFO("- Use magiskboot=0\n");
-   #endif
-
-   #ifdef OF_USE_MAGISKBOOT_FOR_ALL_PATCHES
-   LOGINFO("- Use magiskboot for all patches=1\n");
-   #else
-   LOGINFO("- Use magiskboot for all patches=0\n");
-   #endif
-
-   #ifdef OF_FORCE_MAGISKBOOT_BOOT_PATCH_MIUI
-   LOGINFO("- Force magiskboot patch on MIUI ROM installation=1\n");
-   #else
-   LOGINFO("- Force magiskboot patch on MIUI ROM installation=0\n");
-   #endif
-
-   LOGINFO("**********************************************************\n");
+  // now just a placeholder
+  return;
 }
 
 void TWFunc::Reset_Clock(void)

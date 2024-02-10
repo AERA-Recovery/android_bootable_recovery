@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2020-2023 OrangeFox Recovery Project
+	Copyright (C) 2020-2024 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 	
 	OrangeFox is free software: you can redistribute it and/or modify
@@ -186,7 +186,7 @@ bool is_comment_line(const string Src)
 
 bool Fox_Skip_OTA() 
 {
-   #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES) || defined(OF_TWRP_COMPATIBILITY_MODE)
+   #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES)
    return true;
    #else
    return false;
