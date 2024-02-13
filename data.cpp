@@ -846,7 +846,7 @@ void DataManager::SetDefaultValues()
     mConst.SetValue("tw_uses_initramfs", "0");
   #endif
 
-#if defined BOARD_USES_RECOVERY_AS_BOOT || defined BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT
+#if defined(BOARD_USES_RECOVERY_AS_BOOT) || defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT) || defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION)
 	mConst.SetValue("tw_include_install_recovery_ramdisk", "1");
 #else
 	mConst.SetValue("tw_include_install_recovery_ramdisk", "0");
