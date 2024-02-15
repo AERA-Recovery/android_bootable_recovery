@@ -1048,7 +1048,7 @@ void Fox_Post_Zip_Install(const int result)
 	* (ie, with payload.bin/update_engine) meaning that we have to intervene here to fix problems created by their non-standard methods
 	*/
 	if (Fox_Zip_Installer_Code == 2 || Fox_Zip_Installer_Code == 3 || Fox_Zip_Installer_Code == 22 || Fox_Zip_Installer_Code == 23) {
-		gui_warn("mount_vab_partitions=Devices on super may not mount until rebooting recovery.");
+		gui_warn("mount_vab_partitions=Devices on super may not mount until after rebooting recovery.");
 		gui_warn("flash_ab_reboot=To flash additional zips, please reboot recovery to switch to the updated slot.");
 
 		int reflashtwrp = 0;

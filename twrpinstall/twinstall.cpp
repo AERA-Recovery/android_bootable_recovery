@@ -454,7 +454,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 			if (android::base::GetBoolProperty("ro.virtual_ab.enabled", false)) {
 				PartitionManager.Unlock_Block_Partitions();
 				PartitionManager.Prepare_All_Super_Volumes();
-				gui_warn("mount_vab_partitions=Devices on super may not mount until rebooting recovery.");
+				gui_warn("mount_vab_partitions=Devices on super may not mount until after rebooting recovery.");
 			}
 			gui_warn("flash_ab_reboot=To flash additional zips, please reboot recovery to switch to the updated slot.");
 			DataManager::GetValue(TW_AUTO_REFLASHTWRP_VAR, reflashtwrp);
