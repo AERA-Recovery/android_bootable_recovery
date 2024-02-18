@@ -308,6 +308,7 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 }
 
 bool twrpRepacker::Flash_Current_Twrp() {
+#ifndef OF_RECOVERY_AB_FULL_REFLASH_RAMDISK
 	// A/B with dedicated recovery partition
 	std::string slot = android::base::GetProperty("ro.boot.slot_suffix", "");
 	if (slot.empty())
@@ -347,6 +348,7 @@ bool twrpRepacker::Flash_Current_Twrp() {
 		// if we reach here, something is awry - bale out
 		return false;
 	}
+#endif
 
 	if (!TWFunc::Path_Exists("/ramdisk-files.txt")) {
 		LOGERR("can not find ramdisk-files.txt");
