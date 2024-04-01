@@ -138,7 +138,7 @@ public:
 	static string Vendor_Property_Get(string Prop_Name, TWPartitionManager &PartitionManager, string Mount_Point, string prop_file_name);  // Returns value of Prop_Name from reading provided vendor prop file
 
   	static bool CheckWord(std::string filename, std::string search); // Check if the word exist in the txt file and then return true or false 
-	static string File_Property_Get(string File_Path, string Prop_Name);                // Returns specified property value from the file
+	static std::string File_Property_Get(const std::string File_Path, const std::string Prop_Name); // Returns specified property value from the file
 	static string Get_Current_Date(void);                               // Returns the current date in ccyy-m-dd--hh-nn-ss format
 	static void Auto_Generate_Backup_Name();                            // Populates TW_BACKUP_NAME with a backup name based on current date and ro.build.display.id from /system/build.prop
 	static void Fixup_Time_On_Boot(const string& time_paths = ""); // Fixes time on devices which need it (time_paths is a space separated list of paths to check for ats_* files)
