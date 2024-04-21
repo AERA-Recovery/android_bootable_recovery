@@ -3181,7 +3181,6 @@ std::string GetFileHeaderMagic (string fname)
   return DataToHexString(head, len);
 }
 
-#ifdef OF_USE_MAGISKBOOT_FOR_ALL_PATCHES
 bool TWFunc::Repack_Image(string mount_point)
 {
   bool is_boot = (mount_point == "/boot");
@@ -3193,337 +3192,6 @@ bool TWFunc::Unpack_Image(string mount_point)
   bool is_boot = (mount_point == "/boot");
   return (PackRepackImage_MagiskBoot(true, is_boot));
 }
-#else // OF_USE_MAGISKBOOT_FOR_ALL_PATCHES
-bool TWFunc::Unpack_Image(string mount_point)
-{
-  string null;
-
-  if (TWFunc::Path_Exists(tmp))
-    	TWFunc::removeDir(tmp, false);
-
-  if (!TWFunc::Recursive_Mkdir(ramdisk))
-     {
-        if (!TWFunc::Path_Exists(ramdisk)) 
-          {
-        	LOGERR("TWFunc::Unpack_Image: Unable to create directory - \n", ramdisk.c_str());
-    		return false;
-    	  }
-     }
-
-  mkdir(split_img.c_str(), 0644);
-
-  TWPartition *Partition = PartitionManager.Find_Partition_By_Path(mount_point);
-
-  if (Partition == NULL || Partition->Current_File_System != "emmc")
-    {
-      LOGERR("TWFunc::Unpack_Image: Partition does not exist or is not emmc");
-      return false;
-    }
-    
-  Read_Write_Specific_Partition(tmp_boot.c_str(), mount_point, true);
-  string Command = "unpackbootimg -i " + tmp + "/boot.img" + " -o " + split_img;
-  if (TWFunc::Exec_Cmd(Command, null) != 0)
-    {
-      TWFunc::removeDir(tmp, false);
-      LOGERR("TWFunc::Unpack_Image: Unpacking image failed.");
-      return false;
-    }
-  
-  string local, result, hexdump;
-  DIR *dir;
-  struct dirent *der;
-  dir = opendir(split_img.c_str());
-  if (dir == NULL)
-    {
-      LOGERR("TWFunc::Unpack_Image: Unable to open '%s'\n", split_img.c_str());
-      return false;
-    }
-
-  while ((der = readdir(dir)) != NULL)
-    {
-      Command = der->d_name;
-      if (Command.find("-ramdisk.") != string::npos)
-	break;
-    }
-
-  closedir(dir);
-  if (Command.empty())
-  {
-    LOGERR("TWFunc::Unpack_Image: Unpacking image failed #2.");
-    return false;
-  }
-
-#ifdef OF_USE_HEXDUMP
-  hexdump = "hexdump -vn2 -e '2/1 \"%x\"' " + split_img + "/" + Command;
-  if (TWFunc::Exec_Cmd(hexdump, result) != 0)
-    {
-      TWFunc::removeDir(tmp, false);
-      LOGERR("TWFunc::Unpack_Image: Command failed '%s'\n", hexdump.c_str());
-      return false;
-    }
-#else
-  result = GetFileHeaderMagic (split_img + "/" + Command);
-  hexdump = "GetFileHeaderMagic(" + split_img + "/" + Command + ")";
-  if (result == "00")
-    {
-      TWFunc::removeDir(tmp, false);
-      LOGERR("TWFunc::Unpack_Image: Command failed '%s'\n", hexdump.c_str());
-      return false;
-    }
-#endif
-    
-  //LOGINFO("TWFunc::Unpack_Image: Running Command: '%s' and result='%s'\n", hexdump.c_str(), result.c_str()); // !!
-  if (result == "425a")
-    local = "bzip2 -dc";
-  else if (result == "1f8b" || result == "1f9e")
-    local = "gzip -dc";
-  else if (result == "0221")
-    local = "lz4 -d";
-  else if (result == "5d00" || result == "5d0")
-    local = "lzma -dc";
-  else if (result == "894c")
-    local = "lzop -dc";
-  else if (result == "fd37")
-    local = "xz -dc";
-  else
-   {
-    LOGERR("TWFunc::Unpack_Image: the command %s yields an unknown compression type.\n", hexdump.c_str());
-    return false;
-   }
-       
-  result = "cd " + ramdisk + "; " + local + " < " + split_img + "/" + Command + " | cpio -i";
-  null = Exec_With_Output (result);
-  if (null.empty())
-     return true;
-  
-  if (null == exec_error_str)
-     {
-        LOGERR("TWFunc::Unpack_Image: Command failed '%s'\n", result.c_str());
-        TWFunc::removeDir(tmp, false);
-        return false;    
-     }
-  else
-     {
-        LOGINFO("TWFunc::Unpack_Image: output of command:'%s' was:\n'%s'\n", result.c_str(), null.c_str());
-        /*
-        TWFunc::removeDir(tmp, false);
-        return false;
-        */
-      }
-  return true;
-}
-
-bool TWFunc::Repack_Image(string mount_point)
-{
-  string null, local, result, hexdump, Command;
-  DIR *dir;
-  struct dirent *der;
-  
-  dir = opendir(split_img.c_str());
-  if (dir == NULL)
-    {
-      LOGINFO("Unable to open '%s'\n", split_img.c_str());
-      return false;
-    }
-  
-  while ((der = readdir(dir)) != NULL)
-    {
-      local = der->d_name;
-      if (local.find("-ramdisk.") != string::npos)
-	break;
-    }
-  
-  closedir(dir);
-  if (local.empty())
-  {
-    LOGERR("TWFunc::Repack_Image: -ramdisk. not found in \n", split_img.c_str());
-    return false;
-   }
-    
-#ifdef OF_USE_HEXDUMP
-  hexdump = "hexdump -vn2 -e '2/1 \"%x\"' " + split_img + "/" + local;
-  TWFunc::Exec_Cmd(hexdump, result);
-#else
-  result = GetFileHeaderMagic (split_img + "/" + local);
-  hexdump = "GetFileHeaderMagic(" + split_img + "/" + local + ")";
-#endif
-  //LOGINFO("TWFunc::Repack_Image: Running Command: '%s' and result='%s'\n", hexdump.c_str(), result.c_str()); // !!
-  if (result == "425a")
-    local = "bzip2 -9c";
-  else if (result == "1f8b" || result == "1f9e")
-    local = "gzip -9c";
-  else if (result == "0221")
-    local = "lz4 -9";
-  else if (result == "5d00" || result == "5d0")
-    local = "lzma -6c";
-  else if (result == "894c")
-    local = "lzop -9c";
-  else if (result == "fd37")
-    local = "xz --check=crc32 --lzma2=dict=2MiB";
-  else 
-  {
-    LOGERR("TWFunc::Repack_Image: the command %s yields an unknown compression type.\n", hexdump.c_str());
-    return false;
-  }
-  
-  string repack = "cd " + ramdisk + "; find | cpio -o -H newc | " + local + " > " + tmp + "/ramdisk-new";
-  //LOGINFO("TWFunc::Repack_Image: Running Command: '%s'\n", repack.c_str());  // !!
-  TWFunc::Exec_Cmd(repack, null);
-  if (null == exec_error_str)
-     {
-        LOGERR("TWFunc::Repack_Image: Command failed '%s'\n", repack.c_str());
-     }
-  else
-  if (!null.empty())
-     {
-        LOGINFO("TWFunc::Repack_Image: output of command:'%s' was:\n'%s'\n", repack.c_str(), null.c_str());
-     }
-
-  dir = opendir(split_img.c_str());
-  if (dir == NULL)
-    {
-      LOGINFO("Unable to open '%s'\n", split_img.c_str());
-      return false;
-    }
-  Command = "mkbootimg";
-  while ((der = readdir(dir)) != NULL)
-    {
-      local = der->d_name;
-      if (local.find("-zImage") != string::npos)
-	{
-	  Command += " --kernel " + split_img + "/" + local;
-	  continue;
-	}
-      if (local.find("-ramdisk.") != string::npos)
-	{
-	  Command += " --ramdisk " + tmp + "/ramdisk-new";
-	  continue;
-	}
-      if (local.find("-dtboff") != string::npos)
-	{
-	  Command += " --dtb_offset 0x" + TWFunc::Load_File(local);
-	  continue;
-	}
-      if (local.find("-dtb") != string::npos)
-	{
-	  Command += " --dtb " + split_img + "/" + local;
-	  continue;
-	}
-      if (local == "boot.img-second")
-	{
-	  Command += " --second " + split_img + "/" + local;
-	  continue;
-	}
-      if (local.find("-cmdline") != string::npos)
-	{
-	  Command += " --cmdline \"" + TWFunc::Load_File(local) + "\"";
-	  continue;
-	}
-      if (local.find("-board") != string::npos)
-	{
-	  Command += " --board \"" + TWFunc::Load_File(local) + "\"";
-	  continue;
-	}
-      if (local.find("-pagesize") != string::npos)
-	{
-	  Command += " --pagesize " + TWFunc::Load_File(local);
-	  continue;
-	}
-      if (local.find("-headerversion") != string::npos)
-	{
-	  Command += " --header_version " + TWFunc::Load_File(local);
-	  continue;
-	}
-      if (local.find("-base") != string::npos)
-	{
-	  Command += " --base 0x" + TWFunc::Load_File(local);
-	  continue;
-	}
-      if (local.find("-secondoff") != string::npos)
-	{
-	  Command += " --second_offset 0x" + TWFunc::Load_File(local);
-	  continue;
-	}
-      if (local.find("-kerneloff") != string::npos)
-	{
-	  Command += " --kernel_offset 0x" + TWFunc::Load_File(local);
-	  continue;
-	}
-      if (local.find("-ramdiskoff") != string::npos)
-	{
-	  Command += " --ramdisk_offset 0x" + TWFunc::Load_File(local);
-	  continue;
-	}
-      if (local.find("-tagsoff") != string::npos)
-	{
-	  Command += " --tags_offset 0x" + TWFunc::Load_File(local);
-	  continue;
-	}
-      if (local.find("-hash") != string::npos)
-	{
-	  if (Load_File(local) == "unknown")
-	    Command += " --hash sha1";
-	  else
-	    Command += " --hash " + Load_File(local);
-	  continue;
-	}
-      if (local.find("-recoverydtbo") != string::npos)
-	{
-	  Command += " --recovery_dtbo " + split_img + "/" + local;
-	  continue;
-	}
-
-      if (local.find("-recoveryacpio") != string::npos)
-	{
-	  Command += " --recovery_acpio " + split_img + "/" + local;
-	  continue;
-	}
-
-      if (local.find("-osversion") != string::npos)
-	{
-	  Command += " --os_version \"" + Load_File(local) + "\"";
-	  continue;
-	}
-      if (local.find("-oslevel") != string::npos)
-	{
-	  Command += " --os_patch_level \"" + Load_File(local) + "\"";
-	  continue;
-	}
-    }
-  closedir(dir);
-  Command += " --output " + tmp_boot;
-  string bk1 = tmp_boot + ".bak";
-  rename(tmp_boot.c_str(), bk1.c_str());  
-  if (TWFunc::Exec_Cmd(Command, null) != 0)
-    {
-      TWFunc::removeDir(tmp, false);
-      LOGERR("TWFunc::Repack_Image: the command %s was unsuccessful.\n", Command.c_str());
-      return false;
-    }
-  //if (!null.empty()) LOGINFO("TWFunc::Repack_Image: output of final command:'%s' was:\n'%s'\n", Command.c_str(), null.c_str()); //!!
-  char brand[PROPERTY_VALUE_MAX];
-  property_get("ro.product.manufacturer", brand, "");
-  hexdump = brand;
-  if (!hexdump.empty())
-    {
-      for (size_t i = 0; i < hexdump.size(); i++)
-	hexdump[i] = tolower(hexdump[i]);
-      if (hexdump == "samsung")
-	{
-	  ofstream File(tmp_boot.c_str(), ios::binary);
-	  if (File.is_open())
-	    {
-	      File << "SEANDROIDENFORCE" << endl;
-	      File.close();
-	    }
-	}
-     //LOGINFO("TWFunc::Repack_Image: Manufacturer='%s'\n", hexdump.c_str());  // !! 
-    }
-  Read_Write_Specific_Partition(tmp_boot.c_str(), mount_point, false);
-  TWFunc::removeDir(tmp, false);
-  return true;
-}
-#endif // OF_USE_MAGISKBOOT_FOR_ALL_PATCHES
 
 bool TWFunc::JustInstalledMiui(void)
 {
@@ -3687,19 +3355,6 @@ bool TWFunc::Patch_DM_Verity(void)
       unlink(firmware_key.c_str());
     }
 
-  #ifndef OF_USE_MAGISKBOOT
-  if ((status == true) && (found_verity == false))
-    {
-       LOGINFO("OrangeFox: Partial success - DM-Verity settings not found in fstab, but key file was successfully removed.\n");
-    }
-    
-  if (found_verity == false && status == false && JustInstalledMiui() == true)
-     {
-         LOGINFO("OrangeFox: Dm-verity not patched. This MIUI ROM might not boot without flashing magisk.\n");
-         gui_print_color("warning", "\nI could not patch dm-verity.\nTry flashing magisk from the OrangeFox menu now!\n");
-     } 
-  #endif
-       
   LOGINFO("OrangeFox: leaving Patch_DM_Verity()\n");
   return status;
 }
@@ -3829,9 +3484,6 @@ bool Patch_DM_Verity_In_System_Fstab(void)
  
       if (d1 == NULL)
         {
-	    #ifndef OF_USE_MAGISKBOOT
-	    gui_print ("OrangeFox: DM-Verity not patched in system fstab - cannot mount either /system or /vendor. Reboot OrangeFox and try again.\n");
-	    #endif 
 	    if (stat == 2)
 		LOGINFO("Unable to open '%s'\n", fstab2.c_str());
 	    else 
@@ -4235,7 +3887,7 @@ bool TWFunc::DontPatchBootImage(void)
         if ((DataManager::GetIntValue(FOX_DISABLE_DM_VERITY) != 1) 
         && (DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION) != 1))
            {  // if we get here, the user has turned off these settings manually
-            #if defined(OF_FORCE_MAGISKBOOT_BOOT_PATCH_MIUI) && defined(OF_USE_MAGISKBOOT)
+            #if defined(OF_FORCE_MAGISKBOOT_BOOT_PATCH_MIUI)
   	    if (MIUI_Is_Running())
   	       {
      	  	  LOGINFO("OrangeFox: Fresh OrangeFox installation on MIUI. Processing will continue...\n");
@@ -4256,7 +3908,7 @@ bool TWFunc::DontPatchBootImage(void)
       return false;
    else
      {
-        #if defined(OF_FORCE_MAGISKBOOT_BOOT_PATCH_MIUI) && defined(OF_USE_MAGISKBOOT)
+        #if defined(OF_FORCE_MAGISKBOOT_BOOT_PATCH_MIUI)
   	if (TWFunc::JustInstalledMiui())
   	   {
      	      LOGINFO("OrangeFox: New MIUI installation. Processing will continue...\n");
@@ -4457,20 +4109,6 @@ void TWFunc::Deactivation_Process(void)
   Disable_Stock_Recovery_Replace();
 
 // patch ROM's fstab
-#ifndef OF_USE_MAGISKBOOT
-  bool patched_verity = false;
-  bool patched_crypt = false;
-  if ((DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION) == 1) || (Fox_Force_Deactivate_Process == 1))
-     {
-         patched_crypt = Patch_Forced_Encryption_In_System_Fstab();
-     }
-  
-  if ((DataManager::GetIntValue(FOX_DISABLE_DM_VERITY) == 1) || (Fox_Force_Deactivate_Process == 1))
-     {
-	patched_verity = Patch_DM_Verity_In_System_Fstab();
-     }
-#endif
-// patch ROM's fstab
   
 // Should we skip the boot image patches?
   if (DontPatchBootImage() == true)
@@ -4506,7 +4144,6 @@ void TWFunc::Deactivation_Process(void)
       ("OrangeFox"));
 
 // --- new method, using magiskboot plus a modded script
-#ifdef OF_USE_MAGISKBOOT
   int res = TWFunc::Patch_DMVerity_ForcedEncryption_Magisk();
   if (res != 0)
      {
@@ -4516,53 +4153,6 @@ void TWFunc::Deactivation_Process(void)
      {
     	gui_msg(Msg(msg::kProcess, "of_run_process_done=Finished '{1}' process") ("OrangeFox"));
      }
-#else // OF_USE_MAGISKBOOT
-  if (!Unpack_Image("/boot"))
-     {
-	LOGERR("Deactivation_Process: Unable to unpack boot image\n");
-	return;
-     }
-
-  // dm-verity #2
-  if ((DataManager::GetIntValue(FOX_DISABLE_DM_VERITY) == 1) || (Fox_Force_Deactivate_Process == 1))
-     {
-	  patched_verity = Patch_DM_Verity();
-	  if (patched_verity)
-	  {
-	      gui_msg("of_dm_verity=Successfully patched DM-Verity");
-	  }
-	  else
-	  {
-	     gui_msg("of_dm_verity_off=DM-Verity is not enabled");
-	  }
-     }
-
-  // forced encryption #2
-  if ((DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION) == 1) || (Fox_Force_Deactivate_Process == 1))
-     {
-	  patched_crypt = Patch_Forced_Encryption();
-	  if (patched_crypt)
-	     {
-	        gui_msg("of_encryption=Successfully patched forced encryption");
-	     }
-	  else
-	     {
-	        gui_msg("of_encryption_off=Forced Encryption is not enabled");
-	     }
-     }
-
-  if (!Repack_Image("/boot"))
-     {
-	gui_msg(Msg
-	  (msg::kProcess, "of_run_process_fail=Unable to finish '{1}' process")
-	  ("OrangeFox"));
-     }
-  else
-     {
-       gui_msg(Msg(msg::kProcess, "of_run_process_done=Finished '{1}' process")
-	  ("OrangeFox"));
-     }
-#endif // OF_USE_MAGISKBOOT
   Fox_Force_Deactivate_Process = 0;
   DataManager::SetValue(FOX_FORCE_DEACTIVATE_PROCESS, 0);
 }
