@@ -88,7 +88,7 @@ static int Install_Theme(const char* path, ZipArchiveHandle Zip) {
 	}
 	if (!PartitionManager.Mount_Settings_Storage(true))
 		return INSTALL_ERROR;
-	std::string theme_path = FOX_THEME_PATH;
+	std::string theme_path = DataManager::GetCurrentStoragePath() + "/theme";
 	if (!TWFunc::Path_Exists(theme_path)) {
 		if (!TWFunc::Recursive_Mkdir(theme_path)) {
 			return INSTALL_ERROR;

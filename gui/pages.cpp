@@ -1563,7 +1563,7 @@ int PageManager::RunReload() {
 		ret_val = 1;
 	}
 
-	theme_path += "/OrangeFox/theme/ui.zip";
+	theme_path += "/theme/ui.zip";
 	if (ret_val != 0 || ReloadPackage("OrangeFox", theme_path) != 0)
 	{
 		// Loading the custom theme failed - try loading the stock theme
