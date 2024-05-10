@@ -600,7 +600,9 @@ TWRP_REQUIRED_MODULES += \
 endif
 
 ifneq ($(wildcard external/zip/Android.mk),)
+ifneq ($(TW_EXCLUDE_ZIP), true)
     TWRP_REQUIRED_MODULES += zip
+endif
 endif
 ifneq ($(wildcard external/unzip/Android.mk),)
     TWRP_REQUIRED_MODULES += unzip
