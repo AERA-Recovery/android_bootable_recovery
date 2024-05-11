@@ -686,4 +686,10 @@ endif
 ifeq ($(OF_UNMOUNT_SDCARDS_BEFORE_REBOOT),1)
     LOCAL_CFLAGS += -DOF_UNMOUNT_SDCARDS_BEFORE_REBOOT
 endif
+
+# whether to use the updated magiskboot
+ifeq ($(FOX_USE_UPDATED_MAGISKBOOT),1)
+    LOCAL_CFLAGS += -DFOX_USE_UPDATED_MAGISKBOOT
+endif
+
 #
