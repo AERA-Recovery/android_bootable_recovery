@@ -2905,6 +2905,7 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
   int res = 0;
   std::string cmd_script =  "/tmp/do_magisk-unpack.sh";
   std::string cmd_script2 = "/tmp/do_magisk-repack.sh";
+  std::string shebang = "#!/system/bin/sh";
 
   std::string magiskboot_sbin = Get_MagiskBoot();
   if (!TWFunc::Path_Exists(magiskboot_sbin))
@@ -2944,7 +2945,7 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 	    {
 	        CreateNewFile (cmd_script);
 	        chmod (cmd_script.c_str(), 0755);
-	        AppendLineToFile (cmd_script, "#!/system/bin/sh");
+	        AppendLineToFile (cmd_script, shebang);
 	        AppendLineToFile (cmd_script, "LOGINFO() { echo \"$1\"; echo \"$1\" >> /tmp/recovery.log;}");
 	        // if we need to backup the script, for debugging
 	        if (New_Fox_Installation == 1) 
@@ -3031,7 +3032,7 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 	{
 	  	CreateNewFile (cmd_script2);
 	  	chmod (cmd_script2.c_str(), 0755);
-	        AppendLineToFile (cmd_script2, "#!/system/bin/sh");
+	        AppendLineToFile (cmd_script2, shebang);
 	        AppendLineToFile (cmd_script2, "LOGINFO() { echo \"$1\"; echo \"$1\" >> /tmp/recovery.log;}");
 	        // if we need to backup the script, for debugging	        
 	        if (New_Fox_Installation == 1) 
