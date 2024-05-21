@@ -692,4 +692,9 @@ ifeq ($(FOX_USE_UPDATED_MAGISKBOOT),1)
     LOCAL_CFLAGS += -DFOX_USE_UPDATED_MAGISKBOOT
 endif
 
+# whether to skip building Infozip zip from source
+ifeq ($(FOX_EXCLUDE_ZIP),1)
+    LOCAL_CFLAGS += -DFOX_EXCLUDE_ZIP
+    TW_EXCLUDE_ZIP := true
+endif
 #
