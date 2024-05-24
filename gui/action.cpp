@@ -2,7 +2,7 @@
 	Copyright 2013 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	Copyright (C) 2018-2024 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -532,28 +532,7 @@ int GUIAction::flash_zip(std::string filename, int *wipe_cache)
         }
       else // this is a ROM install
         {
-          if (Fox_Zip_Installer_Code == 1) LOGINFO("OrangeFox: installed CUSTOM ROM: %s\n",filename.c_str());
-          else
-          if (Fox_Zip_Installer_Code == 2) LOGINFO("OrangeFox: installed MIUI ROM: %s\n",filename.c_str());
-          else
-          if (Fox_Zip_Installer_Code == 3) LOGINFO("OrangeFox: installed MIUI ROM and OTA_BAK: %s\n",filename.c_str());
-          else
-          if (Fox_Zip_Installer_Code == 11) LOGINFO("OrangeFox: installed Treble (Custom) ROM: %s\n",filename.c_str());
-          else
-          if (Fox_Zip_Installer_Code == 12) LOGINFO("OrangeFox: installed Treble (Custom) ROM and OTA_BAK: %s\n",filename.c_str());
-          else
-          if (Fox_Zip_Installer_Code == 22) LOGINFO("OrangeFox: installed Treble (MIUI) ROM: %s\n",filename.c_str());
-          else
-          if (Fox_Zip_Installer_Code == 23) LOGINFO("OrangeFox: installed Treble (MIUI) ROM and OTA_BAK: %s\n",filename.c_str());
-          else
-             LOGINFO("OrangeFox: installed Custom ROM: %s\n",filename.c_str());
-
-          if (Fox_Zip_Installer_Code == 2 || Fox_Zip_Installer_Code == 3 || Fox_Zip_Installer_Code == 22 || Fox_Zip_Installer_Code == 23)
-          	TWFunc::Fox_Property_Set("orangefox.fresh.miui.install", "1");
-          else
-          	TWFunc::Fox_Property_Set("orangefox.fresh.miui.install", "0");
-          
-          TWFunc::Dump_Current_Settings();
+		LOGINFO("OrangeFox: installed ROM: %s\n",filename.c_str());
         }
        LOGINFO ("flash_zip: installer code = %i\n", DataManager::GetIntValue(FOX_ZIP_INSTALLER_CODE));
       //* DJ9
