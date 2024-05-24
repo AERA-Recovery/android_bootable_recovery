@@ -517,7 +517,7 @@ string tmp = "";
   if (i > 3)
       return true;
 
-  // deal with recent non-standards-compliant xiaomi.eu vAB zip installers
+  // deal with recent non-standards-compliant xiaomi.eu and other vAB zip installers
   i = 0;
   #if defined(AB_OTA_UPDATER) || defined(FOX_AB_DEVICE)
     str = TWFunc::find_phrase(path, "images/super.img");
@@ -572,7 +572,7 @@ string tmp = "";
   // - return
   usleep(1024);
   if (i > 7) {
-	// mark this as a non-standard vAB ROM installer
+	// mark this as a non-standard vAB ROM installer using legacy methods - possibly a MIUI/HyperOS port or some other ROM installer
 	DataManager::SetValue("found_non_standard_vAB_install", "1");
 	return true;
   }
@@ -648,11 +648,16 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
                 LOGINFO("OrangeFox: Detected miui_update file [%s]\n", FOX_MIUI_UPDATE_PATH);
               }
             else
-            if (zip_EntryExists(Zip, FOX_MIUI_UPDATE_PATH_EU) || (DataManager::GetStrValue("found_non_standard_vAB_install") == "1")) // META-INF/com/xiaomieu/xiaomieu.sh - if found, then this is a xiaomi.eu zip installer
+            if (zip_EntryExists(Zip, FOX_MIUI_UPDATE_PATH_EU) // META-INF/com/xiaomieu/xiaomieu.sh - if found, then this is a xiaomi.eu zip installer
+            || (DataManager::GetStrValue("found_non_standard_vAB_install") == "1")) // some other non-standard ROM installer
               {
-                zip_is_survival_trigger = true;
-                support_all_block_ota = true;
-                LOGINFO("OrangeFox: Detected xiaomi.eu file [%s]\n", FOX_MIUI_UPDATE_PATH_EU);
+                if (zip_EntryExists(Zip, FOX_MIUI_UPDATE_PATH_EU)) {
+			zip_is_survival_trigger = true;
+			support_all_block_ota = true;
+			LOGINFO("OrangeFox: Detected xiaomi.eu file [%s]\n", FOX_MIUI_UPDATE_PATH_EU);
+		} else {
+			// this is some other non-standard ROM installer - do nothing
+		}
               }
             else // do another check for miui
              {
@@ -678,9 +683,9 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
                 {
                    LOGINFO("OrangeFox: The output of [%s] came out empty\n", check_command.c_str());
                 }  
-           }
+             }
        }
-   // 
+   //
 
    if (zip_is_rom_package == true) 
    {
@@ -1043,8 +1048,8 @@ void Fox_Post_Zip_Install(const int result)
 	//---- Virtual A/B: compensate for ROM installers that still use legacy methods for flashing, instead of payload.bin/update_engine ----//
 	#if defined(FOX_VIRTUAL_AB_DEVICE) && !defined(FOX_VENDOR_BOOT_RECOVERY)
 	/*
-	* check for MIUI ROM installers, currently the only ones that do this
-	* Really, this fix should not be needed, but some custom MIUI ROM installers fail to use the standard flashing method for A/B devices
+	* check for MIUI ROM installers, and other non-standard vAB installers
+	* Really, this fix should not be needed, but some custom ROM installers fail to use the standard flashing method for A/B devices
 	* (ie, with payload.bin/update_engine) meaning that we have to intervene here to fix problems created by their non-standard methods
 	*/
 	if (Fox_Zip_Installer_Code == 2 || Fox_Zip_Installer_Code == 3 || Fox_Zip_Installer_Code == 22 || Fox_Zip_Installer_Code == 23) {
@@ -1054,7 +1059,7 @@ void Fox_Post_Zip_Install(const int result)
 		int reflashtwrp = 0;
 		DataManager::GetValue(TW_AUTO_REFLASHTWRP_VAR, reflashtwrp);
 		if (reflashtwrp) {
-			gui_print_color("warning", "\n\nOrangeFox: this MIUI ROM installer is NOT using the standard update_engine and payload.bin! Attempting to compensate... \n");
+			gui_print_color("warning", "\n\nOrangeFox: this ROM installer is NOT using the standard update_engine and payload.bin! Attempting to compensate... \n");
 			gui_print_color("warning", "\nOrangeFox: reflashing OrangeFox ...\n");
 			sleep(2);
 			twrpRepacker repacker;
