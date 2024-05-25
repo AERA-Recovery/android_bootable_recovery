@@ -137,6 +137,7 @@ ifeq ($(FOX_AB_DEVICE),1)
     	LOCAL_SHARED_LIBRARIES += libhardware android.hardware.boot@1.0
     	TWRP_REQUIRED_MODULES += libhardware android.hardware.boot@1.0-service android.hardware.boot@1.0-service.rc
     endif
+    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/bootctl
 endif
 
 # vendor_boot recovery
