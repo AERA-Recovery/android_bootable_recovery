@@ -567,6 +567,30 @@ string tmp = "";
     str = TWFunc::find_phrase(path, "images/devcfg.img");
     if (!str.empty() && !is_comment_line(str))
 	i++;
+
+    str = TWFunc::find_phrase(path, "images/cust.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "images/init_boot.img");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "package_extract_file");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "package_unsparse_file");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "/system/bin/bootctl");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
+
+    str = TWFunc::find_phrase(path, "rm -f /data/cache/command");
+    if (!str.empty() && !is_comment_line(str))
+	i++;
   #endif
 
   // - return
@@ -651,8 +675,8 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
             if (zip_EntryExists(Zip, FOX_MIUI_UPDATE_PATH_EU) // META-INF/com/xiaomieu/xiaomieu.sh - if found, then this is a xiaomi.eu zip installer
             || (DataManager::GetStrValue("found_non_standard_vAB_install") == "1")) // some other non-standard ROM installer
               {
+		zip_is_survival_trigger = true;
                 if (zip_EntryExists(Zip, FOX_MIUI_UPDATE_PATH_EU)) {
-			zip_is_survival_trigger = true;
 			support_all_block_ota = true;
 			LOGINFO("OrangeFox: Detected xiaomi.eu file [%s]\n", FOX_MIUI_UPDATE_PATH_EU);
 		} else {
@@ -689,13 +713,18 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
 
    if (zip_is_rom_package == true) 
    {
-      if (zip_is_survival_trigger == true) // MIUI installer
+      if (zip_is_survival_trigger == true) // MIUI installer?
          {
-	  	gui_msg ("fox_install_miui_detected=- Detected MIUI Update Package");
-	      	DataManager::SetValue(FOX_MIUI_ZIP_TMP, 1);
-	      	DataManager::SetValue(FOX_CALL_DEACTIVATION, 1);
-	      	DataManager::SetValue(FOX_ZIP_INSTALLER_CODE, 2); // MIUI ROM
-	  	support_all_block_ota = true;
+		DataManager::SetValue(FOX_CALL_DEACTIVATION, 1);
+		DataManager::SetValue(FOX_ZIP_INSTALLER_CODE, 2); // MIUI ROM?
+		if (DataManager::GetStrValue("found_non_standard_vAB_install") == "1") { // some non-standard ROM installer (but don't change the FOX_ZIP_INSTALLER_CODE from MIUI)
+			gui_msg ("fox_install_standard_detected=- Detected a non-standard A/B ROM installer");
+			support_all_block_ota = Fox_Support_All_OTA();
+		} else {
+			gui_msg ("fox_install_miui_detected=- Detected MIUI Update Package");
+			DataManager::SetValue(FOX_MIUI_ZIP_TMP, 1);
+			support_all_block_ota = true;
+		}
          }
       else
          {
