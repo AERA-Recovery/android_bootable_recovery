@@ -2,7 +2,7 @@
 	Copyright 2003 to 2017 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	Copyright (C) 2018-2024 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -360,7 +360,7 @@ int OpenRecoveryScript::run_script_file(void) {
 					strcpy(mount, PartitionManager.Get_Android_Root_Path().c_str());
 				if (PartitionManager.UnMount_By_Path(mount, true))
 					gui_msg(Msg("unmounted=Unounted '{1}'")(mount));
-			} else if (strcmp(command, "set") == 0) {
+			} else if (strcmp(command, "set") == 0 || strcmp(command, "setval") == 0) {
 				// Set value
 				size_t len = strlen(value);
 				tok = strtok(value, " ");
