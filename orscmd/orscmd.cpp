@@ -1,5 +1,5 @@
 /*
-		Copyright (C) 2018-2021 OrangeFox Recovery Project
+		Copyright (C) 2018-2024 OrangeFox Recovery Project
 		This file is part of the OrangeFox Recovery Project.
 
 		TWRP is free software: you can redistribute it and/or modify
@@ -48,6 +48,7 @@ void print_usage(void) {
 	printf("  wipe <partition name>\n");
 	printf("  format data\n");	
 	printf("  sideload\n");
+	printf("  get <variable>\n");
 	printf("  set <variable> [value]\n");
 	printf("  decrypt <password> [USER ID]\n");
 	printf("  remountrw\n");
