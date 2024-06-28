@@ -799,7 +799,13 @@ void DataManager::SetDefaultValues()
 	int cv = atoi(OF_OPTIONS_LIST_NUM);
 	// restrict the permissible range to something sensible
 	const int min_h = 4;
-	const int max_h = 12; // TODO - very high resolution screens could possibly take higher values
+	const int max_h =
+	#ifdef FOX_AB_DEVICE
+	9;
+	#else
+	12;
+	#endif
+
 	if (cv < min_h)
 		cv = min_h;
 	else if (cv > max_h)
