@@ -698,4 +698,9 @@ ifeq ($(FOX_EXCLUDE_ZIP),1)
     LOCAL_CFLAGS += -DFOX_EXCLUDE_ZIP
     TW_EXCLUDE_ZIP := true
 endif
+
+# if using the prebuilt LZ4 binary, ensure that liblz4.so is included
+ifeq ($(FOX_USE_LZ4_BINARY),1)
+    RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/liblz4.so
+endif
 #
