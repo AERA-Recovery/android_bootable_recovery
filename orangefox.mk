@@ -248,10 +248,6 @@ else
     LOCAL_CFLAGS += -DOF_FL_PATH2='""'
 endif
 
-ifeq ($(OF_USE_HEXDUMP),1)
-    LOCAL_CFLAGS += -DOF_USE_HEXDUMP='"1"'
-endif
-
 ifeq ($(OF_SKIP_FBE_DECRYPTION),1)
     LOCAL_CFLAGS += -DOF_SKIP_FBE_DECRYPTION='"1"'
 endif
