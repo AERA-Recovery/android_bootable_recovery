@@ -4779,7 +4779,11 @@ void TWPartitionManager::Unlock_Block_Partitions() {
 					continue;
 				}
 				if (ioctl(fd, BLKROSET, &OFF) == -1) {
-					LOGERR("Unable to unlock %s: %s\n", block_device.c_str());
+					#ifdef OF_LOOP_DEVICE_ERRORS_TO_LOG
+					LOGINFO("Unable to unlock %s: %s\n", block_device.c_str(), strerror(errno));
+					#else
+					LOGERR("Unable to unlock %s: %s\n", block_device.c_str(), strerror(errno));
+					#endif
 					continue;
 				}
 				close(fd);
