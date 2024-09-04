@@ -38,6 +38,15 @@ ifeq ($(FOX_DEVICE_MODEL),)
     LOCAL_CFLAGS += -DFOX_DEVICE_MODEL='"$(DEVICE)"'
 endif
 
+# include resetprop automatically
+ifneq ($(TW_INCLUDE_RESETPROP),true)
+   TW_INCLUDE_RESETPROP := true
+endif
+
+ifneq ($(TW_INCLUDE_LIBRESETPROP),true)
+   TW_INCLUDE_LIBRESETPROP := true
+endif
+
 # turn on magiskboot automatically
 OF_USE_MAGISKBOOT := 1
 OF_USE_MAGISKBOOT_FOR_ALL_PATCHES := 1
