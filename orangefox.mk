@@ -142,6 +142,7 @@ endif
 ifeq ($(FOX_AB_DEVICE),1)
     LOCAL_CFLAGS += -DFOX_AB_DEVICE='"1"'
     ifneq ($(AB_OTA_UPDATER),true)
+	AB_OTA_UPDATER := true
     	LOCAL_CFLAGS += -DAB_OTA_UPDATER=1
     	LOCAL_SHARED_LIBRARIES += libhardware android.hardware.boot@1.0
     	TWRP_REQUIRED_MODULES += libhardware android.hardware.boot@1.0-service android.hardware.boot@1.0-service.rc
