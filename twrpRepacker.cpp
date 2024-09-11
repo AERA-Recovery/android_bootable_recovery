@@ -135,7 +135,7 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 	bool is_vendor_boot = false;
 	bool is_vendor_boot_v4 = false;
 	std::string dest_partition = "/boot";
-	std::string ramdisk_cpio = + "ramdisk.cpio";
+	std::string ramdisk_cpio = "ramdisk.cpio";
 
 	#ifdef BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT
 		dest_partition = "/vendor_boot";
