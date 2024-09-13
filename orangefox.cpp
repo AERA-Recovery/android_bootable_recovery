@@ -842,9 +842,9 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
            				fingerprint.c_str(), metadata_fingerprint.c_str());
        				string atmp = "\"";
        				usleep(4096);
-       				TWFunc::Exec_Cmd("/sbin/resetprop ro.build.fingerprint " + atmp + metadata_fingerprint + atmp);
+				TWFunc::Exec_Cmd(Fox_ResetProp_Bin + " ro.build.fingerprint " + atmp + metadata_fingerprint + atmp);
        				usleep(250000);
-       				TWFunc::Exec_Cmd("/sbin/resetprop orangefox.system.fingerprint " + atmp + metadata_fingerprint + atmp);
+				TWFunc::Exec_Cmd(Fox_ResetProp_Bin + " orangefox.system.fingerprint " + atmp + metadata_fingerprint + atmp);
        				usleep(100000);
    			     }
 		        }

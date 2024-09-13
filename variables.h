@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
  *
- * Copyright (C) 2018-2023 OrangeFox Recovery Project
+ * Copyright (C) 2018-2024 OrangeFox Recovery Project
  * This file is part of the OrangeFox Recovery Project.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -75,6 +75,7 @@ TW_STORAGE_PATH"Fox";
 OF_STORAGE_PATH;
 #endif
 
+static const std::string Fox_ResetProp_Bin = "/system/bin/resetprop";
 static const std::string FOX_THEME_PATH = Fox_Home + "/.theme";
 static const std::string FOX_NAVBAR_PATH =  Fox_Home + "/.navbar";
 static const std::string Fox_Home_Files = Fox_Home + "/FoxFiles";

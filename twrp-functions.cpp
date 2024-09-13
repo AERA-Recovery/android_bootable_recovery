@@ -4642,7 +4642,7 @@ bool TWFunc::Fox_Property_Set(const std::string Prop_Name, const std::string Val
   if (!res && Fox_Property_Get(Prop_Name) != Value) {
     	usleep(1028);
 	string tmp = "\"";
-	string cmd = "/sbin/resetprop";
+	string cmd = Fox_ResetProp_Bin;
 
   	if (!Path_Exists(cmd))
     		cmd = Fox_Bin_Dir + "/resetprop";
