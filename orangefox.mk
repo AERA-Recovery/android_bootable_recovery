@@ -709,4 +709,9 @@ endif
 ifeq ($(FOX_USE_LZ4_BINARY),1)
     RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/liblz4.so
 endif
+
+# whether to force f2fs when formatting data
+ifeq ($(OF_FORCE_DATA_FORMAT_F2FS),1)
+    LOCAL_CFLAGS += -DOF_FORCE_DATA_FORMAT_F2FS
+endif
 #

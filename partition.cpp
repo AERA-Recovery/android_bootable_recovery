@@ -2211,6 +2211,12 @@ bool TWPartition::Decrypt(string Password) {
 bool TWPartition::Wipe_Encryption() {
 	bool Save_Data_Media = Has_Data_Media;
 	bool ret = false;
+	std::string the_wipe_fs;
+#ifdef OF_FORCE_DATA_FORMAT_F2FS
+	the_wipe_fs = "f2fs";
+#else
+	the_wipe_fs = Fstab_File_System;
+#endif
 	BasePartition* base_partition = make_partition();
 
 	if (!base_partition->PreWipeEncryption())
@@ -2236,11 +2242,14 @@ bool TWPartition::Wipe_Encryption() {
 	Decrypted_Block_Device = "";
 	Is_Decrypted = false;
 	Is_Encrypted = false;
+
 #ifdef OF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO
 	gui_print("DEBUG: Fstab_File_System=%s\n", Fstab_File_System.c_str());
 	gui_print("DEBUG: Current_File_System=%s\n", Current_File_System.c_str());
+	gui_print("DEBUG: Format_Target_File_System=%s\n", the_wipe_fs.c_str());
 #endif
-	if (Wipe(Fstab_File_System)) {
+
+	if (Wipe(the_wipe_fs)) {
 		Has_Data_Media = Save_Data_Media;
 		DataManager::SetValue(TW_IS_ENCRYPTED, 0);
 #ifndef TW_OEM_BUILD
