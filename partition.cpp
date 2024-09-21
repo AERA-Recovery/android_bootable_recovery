@@ -2236,6 +2236,10 @@ bool TWPartition::Wipe_Encryption() {
 	Decrypted_Block_Device = "";
 	Is_Decrypted = false;
 	Is_Encrypted = false;
+#ifdef OF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO
+	gui_print("DEBUG: Fstab_File_System=%s\n", Fstab_File_System.c_str());
+	gui_print("DEBUG: Current_File_System=%s\n", Current_File_System.c_str());
+#endif
 	if (Wipe(Fstab_File_System)) {
 		Has_Data_Media = Save_Data_Media;
 		DataManager::SetValue(TW_IS_ENCRYPTED, 0);
