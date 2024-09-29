@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2021-2023 OrangeFox Recovery Project
+	Copyright (C) 2021-2024 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 	
 	OrangeFox is free software: you can redistribute it and/or modify
@@ -35,6 +35,10 @@ func fox_globalFlags(ctx android.BaseContext) []string {
 
 	if ctx.AConfig().Getenv("OF_SUPPORT_OZIP_DECRYPTION") == "1" {
 		foxflags = append(foxflags, "-DOF_SUPPORT_OZIP_DECRYPTION=1")
+	}
+
+	if ctx.AConfig().Getenv("FOX_USE_DATA_RECOVERY_FOR_SETTINGS") == "1" {
+		foxflags = append(foxflags, "-DFOX_USE_DATA_RECOVERY_FOR_SETTINGS=1")
 	}
 
 	return foxflags
