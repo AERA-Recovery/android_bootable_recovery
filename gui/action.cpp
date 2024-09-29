@@ -1358,15 +1358,14 @@ int GUIAction::screenshot(std::string arg __unused)
 	uid_t uid = AID_MEDIA_RW;
 	gid_t gid = AID_MEDIA_RW;
 
-	//const std::string storage = DataManager::GetCurrentStoragePath();
-	//if (PartitionManager.Is_Mounted_By_Path(storage)) {
-	//	snprintf(path, sizeof(path), "%s/Fox/screenshots/", storage.c_str());
-	//} else
 	strcpy(path, Fox_Home.c_str());
 	strcat(path, "/screenshots/");
 
-	if (!TWFunc::Create_Dir_Recursive(path, 0775, uid, gid))
-		return 0;
+	if (!TWFunc::Create_Dir_Recursive(path, 0775, uid, gid)) {
+		strcpy(path, "/tmp/");
+		if (!TWFunc::Create_Dir_Recursive(path, 0775, uid, gid))
+			return 0;
+	}
 
 	tm = time(NULL);
 	path_len = strlen(path);
