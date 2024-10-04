@@ -41,6 +41,10 @@ func fox_globalFlags(ctx android.BaseContext) []string {
 		foxflags = append(foxflags, "-DFOX_USE_DATA_RECOVERY_FOR_SETTINGS=1")
 	}
 
+	if getMakeVars(ctx, "FOX_SETTINGS_ROOT_DIRECTORY") != "" {
+		foxflags = append(foxflags, "-DFOX_SETTINGS_ROOT_DIRECTORY="+getMakeVars(ctx, "FOX_SETTINGS_ROOT_DIRECTORY"))
+	}
+
 	return foxflags
 }
 
