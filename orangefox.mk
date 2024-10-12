@@ -462,11 +462,6 @@ ifeq ($(OF_USE_GREEN_LED),0)
     LOCAL_CFLAGS += -DOF_NO_GREEN_LED='"1"'
 endif
 
-# ensure that the twres directory is copied to the recovery if it is otherwise not being done
-ifeq ($(OF_MANUAL_COPY_TWRES),1)
-    LOCAL_CFLAGS += -DOF_MANUAL_COPY_TWRES='"1"'
-endif
-
 # lptools; disable by default; enable with OF_ENABLE_LPTOOLS=1
 ifeq ($(OF_ENABLE_LPTOOLS),1)
     ifeq ($(wildcard external/lptools/Android.bp),)
