@@ -1,7 +1,7 @@
 # Copyright (C) 2007 The Android Open Source Project
 #
 # This file is part of the OrangeFox Recovery Project
-# Copyright (C) 2018-2023 The OrangeFox Recovery Project
+# Copyright (C) 2018-2024 The OrangeFox Recovery Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -665,7 +665,7 @@ LOCAL_POST_INSTALL_CMD := \
 # Darth9
 #
 # make sure that the terminfo directory is copied for nano
-ifneq ($(TW_EXCLUDE_NANO),true)
+ifeq ($(FOX_USE_NANO_EDITOR),1)
 	LOCAL_POST_INSTALL_CMD += \
 	cp -rf $(TARGET_OUT_ETC)/nano $(TARGET_RECOVERY_ROOT_OUT)/system/etc/; \
 	cp -rf external/libncurses/lib/terminfo $(TARGET_RECOVERY_ROOT_OUT)/system/etc/;
