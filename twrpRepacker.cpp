@@ -143,6 +143,8 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 		if (DataManager::GetIntValue("tw_boot_header_version") > 3) {
 			is_vendor_boot_v4 = true;
 			ramdisk_cpio = "vendor_ramdisk_recovery.cpio";
+			if (!TWFunc::Path_Exists(ramdisk_cpio) && TWFunc::Path_Exists("vendor_ramdisk/recovery.cpio"))
+				ramdisk_cpio = "vendor_ramdisk/recovery.cpio";
 			LOGINFO("Vendor_boot with v4+ header\n");
 		} else {
 			LOGINFO("Vendor_boot with lower than v4 header\n");
