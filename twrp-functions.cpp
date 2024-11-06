@@ -3011,11 +3011,16 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 	        AppendLineToFile (cmd_script, "mv " + tmp_cpio + " " + ramdisk_cpio);
 	        AppendLineToFile (cmd_script, cd_dir + Fox_ramdisk_dir);
 	        AppendLineToFile (cmd_script, "LOGINFO \"- Extracting ramdisk files ...\"");
+	        /*
 	        #ifdef FOX_USE_UPDATED_MAGISKBOOT
 	        AppendLineToFile (cmd_script, "/system/bin/cpio -idu < " + ramdisk_cpio);
 	        #else
 	        AppendLineToFile (cmd_script, magiskboot_sbin + " cpio " + ramdisk_cpio + " extract > /dev/null 2>&1");
 	        #endif
+	        */
+		// prefer system cpio over magiskboot cpio (avoiding cpio bug in some magiskboot versions)
+		AppendLineToFile (cmd_script, "/system/bin/cpio -idu < " + ramdisk_cpio);
+
 	        AppendLineToFile (cmd_script, "[ $? == 0 ] && LOGINFO \"- Succeeded.\" || abort \"- Ramdisk file extraction failed.\"");
 	        AppendLineToFile (cmd_script, "rm -f " + ramdisk_cpio);
 	        
