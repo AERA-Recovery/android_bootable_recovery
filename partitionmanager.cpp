@@ -3453,7 +3453,7 @@ void TWPartitionManager::Translate_Partition_Display_Names() {
 	Translate_Partition("/external_sd", "microsd", "Micro SDCard", "microsd", "Micro SDCard", "data_backup", "Data (excl. storage)");
 	Translate_Partition("/external_sdcard", "microsd", "Micro SDCard", "microsd", "Micro SDCard", "data_backup", "Data (excl. storage)");
 	Translate_Partition("/sdcard1", "microsd", "Micro SDCard", "microsd", "Micro SDCard", "data_backup", "Data (excl. storage)");
-	Translate_Partition("/usb-otg", "usbotg", "USB OTG", "usbotg", "USB OTG", "usb_otg", "USB-Storage");
+	Translate_Partition("/usb_otg", "usb_storage", "USB-Storage", "usb_storage", "USB-Storage");
 	Translate_Partition("/sd-ext", "sdext", "SD-EXT");
 
 	// Android secure is a special case
@@ -4876,5 +4876,46 @@ bool TWPartitionManager::Check_Pending_Merges() {
 		return false;
 	}
 	return true;
+}
+
+void TWPartitionManager::Check_UsbOtg_Status() {
+	static bool mtp_was_enabled;
+	static bool usbotg_mounted = false;
+	static string usbotg_prim = "";
+	static string usbotg_alt = "";
+	static TWPartition* usbotg = Find_Partition_By_Path("usb_otg");
+
+	if (usbotg && !usbotg->Primary_Block_Device.empty()) {
+		usbotg_prim = usbotg->Primary_Block_Device;
+		usbotg_alt = usbotg->Alternate_Block_Device;
+	} else return;
+
+	if (TWFunc::Path_Exists(usbotg_prim) || (!usbotg_alt.empty() && TWFunc::Path_Exists(usbotg_alt))) {
+		// Auto-mount only once when usb_otg was connected
+		if (!usbotg_mounted) goto mount;
+	} else if (usbotg_mounted) {
+		// Is seems usb_otg was disconnected, so unmount it
+		goto unmount;
+	}
+	return;
+
+mount:
+	mtp_was_enabled = TWFunc::Toggle_MTP(false);
+	usbotg->Mount(true);
+	usbotg_mounted = true;
+	if (PageManager::GetCurrentPage() == "filemanagerlist" && DataManager::GetStrValue("tw_file_location1") == "/usb_otg")
+		gui_changePage("filemanagerlist");
+	return;
+
+unmount:
+	usbotg->UnMount(false);
+	usbotg->Is_Present = false;
+	usbotg->Size = 0;
+	usbotg->Used = 0;
+	usbotg->Free = 0;
+	usbotg_mounted = false;
+	if (PageManager::GetCurrentPage() == "filemanagerlist" && DataManager::GetStrValue("tw_file_location1") == "/usb_otg")
+		gui_changePage("filemanagerlist");
+	TWFunc::Toggle_MTP(mtp_was_enabled);
 }
 //*

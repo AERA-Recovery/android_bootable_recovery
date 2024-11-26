@@ -49,7 +49,6 @@
 		<string name="sdcard">SD 卡</string>
 		<string name="internal">內部儲存空間</string>
 		<string name="microsd">Micro SD 卡</string>
-		<string name="usbotg">USB OTG</string>
 		<string name="android_secure">Android 安全分區</string>
 		<string name="dalvik">Dalvik / ART Cache 分區</string>
 		<!-- This is a rarely used partition on a Micro SD card for a very old app2sd system -->

@@ -17,7 +17,6 @@
 		<string name="sdcard">SD-Karte</string>
 		<string name="internal">Interner Speicher</string>
 		<string name="microsd">microSD Karte</string>
-		<string name="usbotg">USB-OTG</string>
 		<string name="android_secure">Android Secure</string>
 		<string name="dalvik">Dalvik / ART Cache</string>
 		<!-- This is a rarely used partition on a Micro SD card for a very old app2sd system -->

@@ -565,6 +565,9 @@ int main(int argc, char **argv) {
 			DataManager::SetValue("tw_battery", value);
 			DataManager::SetValue("charging_now", (charging == '+') ? "1" : "0");
 
+			// Check usb_otg status
+			PartitionManager.Check_UsbOtg_Status();
+
 			// Sleep for a specified interval (e.g., 1 second) before checking again
 			std::this_thread::sleep_for(std::chrono::seconds(1));
 		}

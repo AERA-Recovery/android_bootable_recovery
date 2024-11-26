@@ -17,7 +17,6 @@
 		<string name="sdcard">SD Kart</string>
 		<string name="internal">Dahili Depolama</string>
 		<string name="microsd">Mikro SD Kart</string>
-		<string name="usbotg">USB OTG</string>
 		<string name="android_secure">Android Güven Alanı</string>
 		<string name="dalvik">Dalvik / ART Önbelleği</string>
 		<!-- This is a rarely used partition on a Micro SD card for a very old app2sd system -->

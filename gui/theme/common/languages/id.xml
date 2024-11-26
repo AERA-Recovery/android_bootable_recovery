@@ -17,7 +17,6 @@
 		<string name="sdcard">Kartu SD</string>
 		<string name="internal">Penyimpanan Internal</string>
 		<string name="microsd">Kartu SD</string>
-		<string name="usbotg">USB OTG</string>
 		<string name="android_secure">Keamanan Android</string>
 		<string name="dalvik">Dalvik / ART Cache</string>
 		<!-- This is a rarely used partition on a Micro SD card for a very old app2sd system -->
