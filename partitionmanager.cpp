@@ -2,7 +2,7 @@
 	Copyright 2014 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2024 OrangeFox Recovery Project
+	Copyright (C) 2018-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -3099,8 +3099,8 @@ bool TWPartitionManager::Enable_MTP(void) {
 		property_get("usb.product.mtpadb", product, "4EE2");
 		string vendorstr = vendor;
 		string productstr = product;
-		TWFunc::write_to_file("/sys/class/android_usb/android0/idVendor", vendorstr);
-		TWFunc::write_to_file("/sys/class/android_usb/android0/idProduct", productstr);
+		TWFunc::write_to_file("/config/usb_gadget/g1/idVendor", vendorstr);
+		TWFunc::write_to_file("/config/usb_gadget/g1/idProduct", productstr);
 		property_set("sys.usb.config", "mtp,adb");
 	}
 	/* To enable MTP debug, use the twrp command line feature:
@@ -3155,8 +3155,8 @@ bool TWPartitionManager::Disable_MTP(void) {
 		property_get("usb.product.adb", product, "D001");
 		string vendorstr = vendor;
 		string productstr = product;
-		TWFunc::write_to_file("/sys/class/android_usb/android0/idVendor", vendorstr);
-		TWFunc::write_to_file("/sys/class/android_usb/android0/idProduct", productstr);
+		TWFunc::write_to_file("/config/usb_gadget/g1/idVendor", vendorstr);
+		TWFunc::write_to_file("/config/usb_gadget/g1/idProduct", productstr);
 		usleep(2000);
 	}
 #ifdef TW_HAS_MTP
