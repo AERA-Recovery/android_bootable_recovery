@@ -280,9 +280,7 @@ endif
 
 ifneq ($(TARGET_OTA_ASSERT_DEVICE),)
 ifeq ($(FOX_TARGET_DEVICES),)
-    LOCAL_CFLAGS += -DFOX_TARGET_DEVICES='"$(TARGET_OTA_ASSERT_DEVICE)"'
-else
-    $(error You cannot use both "TARGET_OTA_ASSERT_DEVICE" and "FOX_TARGET_DEVICES" at the same time. Quitting)
+    FOX_TARGET_DEVICES := $(TARGET_OTA_ASSERT_DEVICE)
 endif
 endif
 
