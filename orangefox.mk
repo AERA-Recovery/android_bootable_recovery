@@ -1,6 +1,6 @@
 #
 #	This file is part of the OrangeFox Recovery Project
-# 	Copyright (C) 2018-2024 The OrangeFox Recovery Project
+# 	Copyright (C) 2018-2025 The OrangeFox Recovery Project
 #	
 #	OrangeFox is free software: you can redistribute it and/or modify
 #	it under the terms of the GNU General Public License as published by
@@ -132,7 +132,6 @@ endif
 
 ifeq ($(OF_AB_DEVICE_WITH_RECOVERY_PARTITION),1)
     FOX_AB_DEVICE := 1
-    OF_NO_SPLASH_CHANGE := 1
     LOCAL_CFLAGS += -DOF_AB_DEVICE_WITH_RECOVERY_PARTITION='"1"'
     ifeq ($(OF_RECOVERY_AB_FULL_REFLASH_RAMDISK),1)
        LOCAL_CFLAGS += -DOF_RECOVERY_AB_FULL_REFLASH_RAMDISK
