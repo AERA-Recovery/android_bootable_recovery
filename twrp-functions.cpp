@@ -2,7 +2,7 @@
 	Copyright 2012 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2024 OrangeFox Recovery Project
+	Copyright (C) 2018-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -2923,7 +2923,7 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
  */
   TWPartition *Boot = PartitionManager.Find_Partition_By_Path("/boot");
 
-#if defined(AB_OTA_UPDATER) || defined(FOX_AB_DEVICE)
+#if (defined(AB_OTA_UPDATER) || defined(FOX_AB_DEVICE)) && !defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION)
   if (Boot != NULL)
     {
        tmpstr = Boot->Actual_Block_Device;
