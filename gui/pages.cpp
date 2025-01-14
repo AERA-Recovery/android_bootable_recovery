@@ -2,7 +2,7 @@
 	Copyright 2013 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	Copyright (C) 2018-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -1575,7 +1575,7 @@ int PageManager::RunReload() {
 		}
 	}
 	if (ret_val == 0) {
-		if (DataManager::GetStrValue("tw_language") != "en.xml") {
+		if (DataManager::GetStrValue("tw_language") != "en") {
 			LOGINFO("Loading language '%s'\n", DataManager::GetStrValue("tw_language").c_str());
 			LoadLanguage(DataManager::GetStrValue("tw_language"));
 		}
