@@ -2,7 +2,7 @@
 	Copyright 2012 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2024 OrangeFox Recovery Project
+	Copyright (C) 2018-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -1209,7 +1209,7 @@ void DataManager::SetDefaultValues()
   mPersist.SetValue(TW_TIME_ZONE_GUISEL, OF_DEFAULT_TIMEZONE);
   mPersist.SetValue(TW_TIME_ZONE_GUIOFFSET, "0");
   mPersist.SetValue(TW_TIME_ZONE_GUIDST, "1");
-  mPersist.SetValue(TW_AUTO_REFLASHTWRP_VAR, "0");
+  mPersist.SetValue(TW_AUTO_REFLASHTWRP_VAR, "1");
 
   // avb2.0 disable
   // by patching boot image
