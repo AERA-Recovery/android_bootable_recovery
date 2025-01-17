@@ -2,7 +2,7 @@
 	Copyright 2013 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2024 OrangeFox Recovery Project
+	Copyright (C) 2018-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -1172,6 +1172,7 @@ int GUIAction::queueclear(std::string arg __unused)
 {
   zip_queue_index = 0;
   DataManager::SetValue(TW_ZIP_QUEUE_COUNT, zip_queue_index);
+  DataManager::SetValue(FOX_INSTALL_PREBUILT_ZIP, "0");
   return 0;
 }
 
