@@ -126,6 +126,11 @@ ifeq ($(OF_NO_MIUI_PATCH_WARNING),1)
     LOCAL_CFLAGS += -DOF_NO_MIUI_PATCH_WARNING='"1"'
 endif
 
+# stable builds - enable advanced security
+ifeq ($(FOX_BUILD_TYPE),Stable)
+    OF_ADVANCED_SECURITY := 1
+endif
+
 ifeq ($(AB_OTA_UPDATER),true)
     FOX_AB_DEVICE := 1
 endif
@@ -194,7 +199,7 @@ else
 endif
 
 ifeq ($(OF_ADVANCED_SECURITY),1)
-    LOCAL_CFLAGS += -DOF_ADVANCED_SECURITY='"$(OF_ADVANCED_SECURITY)"'
+    LOCAL_CFLAGS += -DOF_ADVANCED_SECURITY='"1"'
 endif
 
 ifneq ($(FOX_CURRENT_DEV_STR),)
