@@ -394,6 +394,9 @@ size_t GUIListBox::GetItemCount()
 
 void GUIListBox::RenderItem(size_t itemindex, int yPos, bool selected)
 {
+	if (itemindex >= mVisibleItems.size())
+		return;
+
 	// note: the "selected" parameter above is for the currently touched item
 	// don't confuse it with the more persistent "selected" flag per list item used below
 	ListItem& item = mListItems[mVisibleItems[itemindex]];
