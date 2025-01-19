@@ -2,7 +2,7 @@
 	Copyright 2012-2020 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2023 OrangeFox Recovery Project
+	Copyright (C) 2018-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -118,6 +118,10 @@ static void process_fastbootd_mode() {
 		if (android::base::GetBoolProperty("ro.boot.dynamic_partitions", false)) {
 			PartitionManager.Unmap_Super_Devices();
 		}
+
+#ifdef AB_OTA_UPDATER
+		DataManager::SetValue("tw_active_slot", PartitionManager.Get_Active_Slot_Display());
+#endif
 
 		gui_msg(Msg("fastboot_console_msg=Entered Fastboot mode..."));
 		property_set("ro.orangefox.fastbootd", "1");
