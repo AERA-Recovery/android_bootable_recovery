@@ -339,6 +339,12 @@ void TWFunc::Run_Before_Reboot(void)
     TWFunc::MIUI_ROM_SetProperty(0);
     TWFunc::RunFoxScript(FOX_BEFORE_REBOOT_SCRIPT, "");
 
+    // remove openrecovery command file
+    string COMMAND_FILE = "/data/cache/command";
+    if (TWFunc::Path_Exists(COMMAND_FILE)) {
+	unlink(COMMAND_FILE.c_str());
+    }
+
     // logs & stuff
     string Logs_Dir = Fox_Logs_Dir;
     bool use_data_recovery = (TWFunc::Fox_Property_Get("of_decryption_failed") == "true");
@@ -1067,9 +1073,6 @@ int TWFunc::tw_reboot(RebootCommand command)
 	DataManager::Flush();
 	Update_Log_File();
 
-	// Always force a sync before we reboot
-	sync();
-
   	// if we haven't called Deactivation_Process before, check whether to call it now 
   	// This code is currently disabled - Fox_AutoDeactivate_OnReboot is never set to 1
   	int DoDeactivate = 0;
@@ -1079,13 +1082,13 @@ int TWFunc::tw_reboot(RebootCommand command)
            	DoDeactivate = 1;
            }
     	}
-    	
-  	TWFunc::Run_Before_Reboot();
-  	// ----
 
-#ifdef OF_UNMOUNT_SDCARDS_BEFORE_REBOOT
+	// Run some OrangeFox pre-reboot stuff
+  	TWFunc::Run_Before_Reboot();
+
+	#ifdef OF_UNMOUNT_SDCARDS_BEFORE_REBOOT
+	// unmount /sdcard1 and /sdcard
 	if (PartitionManager.Is_Mounted_By_Path("/sdcard1")) {
-		LOGINFO("Unmounting /sdcard1\n");
 		if (!PartitionManager.UnMount_By_Path("/sdcard1", false)) {
 			usleep(16384);
 			PartitionManager.UnMount_By_Path("/sdcard1", false, MNT_FORCE | MNT_DETACH);
@@ -1094,13 +1097,13 @@ int TWFunc::tw_reboot(RebootCommand command)
 	}
 
 	if (PartitionManager.Is_Mounted_By_Path("/sdcard")) {
-		LOGINFO("Unmounting /sdcard\n");
 		string mycmd = "/system/bin/umount /sdcard";
 		Exec_Cmd(mycmd);
 		usleep(262144);
 	}
-#endif
+	#endif
 
+	// unmount /data
 	TWPartition *dataPart = PartitionManager.Find_Partition_By_Path("/data");
 	if (dataPart) {
 		if (dataPart->Is_Mounted()) {
@@ -1112,6 +1115,10 @@ int TWFunc::tw_reboot(RebootCommand command)
 		}
 	}
 
+	// Always force a sync before we reboot
+	sync();
+
+	// process the reboot command
 	switch (command) {
 		case rb_current:
 		case rb_system:
