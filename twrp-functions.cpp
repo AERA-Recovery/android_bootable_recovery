@@ -184,7 +184,7 @@ static bool Treble_Is_Running(void)
 /* Return whether the device's storage is encrypted */
 static bool StorageIsEncrypted(void)
 {
-  return (PartitionManager.Storage_Is_Encrypted() && DataManager::GetStrValue("fox_dfe_formatted") != "1");
+  return (PartitionManager.Storage_Is_Encrypted());
 }
 
 std::string strReturnCurrentTime()

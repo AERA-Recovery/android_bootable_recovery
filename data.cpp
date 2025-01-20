@@ -1179,7 +1179,6 @@ void DataManager::SetDefaultValues()
   mConst.SetValue(FOX_ACTUAL_BUILD_VAR, FOX_BUILD);
   mConst.SetValue(FOX_TMP_SCRIPT_DIR, Fox_tmp_dir);
   mData.SetValue("found_fox_overwriting_rom", 0);
-  mData.SetValue("fox_dfe_formatted", "0"); // whether data has been formatted with disable forced encryption enabled
 
   // whether we are processing any asserts
   mData.SetValue("fox_processing_asserts", "0");
@@ -1567,7 +1566,7 @@ void DataManager::ReadSettingsFile(void)
   GetValue(TW_HAS_DATA_MEDIA, has_data_media);
 
   // if decryption fails, try to load/save some settings to /data/recovery/Fox/
-  if (is_enc == 1 && has_data_media == 1 && (TWFunc::Path_Exists("/data/unencrypted/key/version") || GetIntValue(TW_IS_FBE) == 1) && GetStrValue("fox_dfe_formatted") != "1") {
+  if (is_enc == 1 && has_data_media == 1 && (TWFunc::Path_Exists("/data/unencrypted/key/version") || GetIntValue(TW_IS_FBE) == 1)) {
 	// only do this after TWFunc::OrangeFox_Startup() - don't do it before OpenrecoveryScript execution (eg, for OTAs)
 	if (GetStrValue("fox_startup_executed") == "1") {
 		static int dcrpfail_count=0;

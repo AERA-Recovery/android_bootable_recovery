@@ -2,7 +2,7 @@
 	Copyright 2013 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2024 OrangeFox Recovery Project
+	Copyright (C) 2018-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 	
 	TWRP is free software: you can redistribute it and/or modify
@@ -754,7 +754,7 @@ void TWPartition::Setup_Data_Partition(bool Display_Error) {
 		if (!Decrypt_FBE_DE() && strcmp(crypto_state, "error") != 0) {
 			if (is_device_fbe == 1) {
 			     // check whether the device is encrypted, and, if so, report decryption failure
-			     if (PartitionManager.Storage_Is_Encrypted() && DataManager::GetStrValue("fox_dfe_formatted") != "1")
+			     if (PartitionManager.Storage_Is_Encrypted())
 				LOGERR("Unable to decrypt FBE device\n");
 			}
 		} else {
