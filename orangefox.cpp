@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2020-2024 OrangeFox Recovery Project
+	Copyright (C) 2020-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 	
 	OrangeFox is free software: you can redistribute it and/or modify
@@ -370,6 +370,15 @@ bool zip_ExtractEntry(ZipArchiveHandle Zip, const string& source_file, const str
 	return true;
 }
 
+bool find_in_zip_installer(const string path, const string fname)
+{
+string str = TWFunc::find_phrase(path, fname);
+	if (!str.empty() && !is_comment_line(str))
+		return true;
+	else
+		return false;
+}
+
 bool Installing_ROM_Query(const string path, ZipArchiveHandle Zip)
 {
 bool boot_install = false;
@@ -383,9 +392,11 @@ string tmp = "";
   	return true;
 
   // check for certain ROM files
-  if ((zip_EntryExists(Zip, "system.new.dat") || zip_EntryExists(Zip, "system.new.dat.br") || zip_EntryExists(Zip, "system_ext.new.dat.br")) && zip_EntryExists(Zip, "system.transfer.list"))
+  if ((zip_EntryExists(Zip, "system.new.dat") || zip_EntryExists(Zip, "system.new.dat.br") || zip_EntryExists(Zip, "system.patch.dat") || zip_EntryExists(Zip, "system_ext.new.dat.br"))
+  && zip_EntryExists(Zip, "system.transfer.list"))
      {
-  	if ((zip_EntryExists(Zip, "vendor.new.dat") || zip_EntryExists(Zip, "vendor.new.dat.br")) && zip_EntryExists(Zip, "vendor.transfer.list"))
+	if ((zip_EntryExists(Zip, "vendor.new.dat") || zip_EntryExists(Zip, "vendor.patch.dat") || zip_EntryExists(Zip, "vendor.new.dat.br"))
+	&& zip_EntryExists(Zip, "vendor.transfer.list"))
   		return true;
      }
 
@@ -517,91 +528,100 @@ string tmp = "";
   if (i > 3)
       return true;
 
-  // deal with recent non-standards-compliant xiaomi.eu and other vAB zip installers
-  i = 0;
-  #if defined(AB_OTA_UPDATER) || defined(FOX_AB_DEVICE)
-    str = TWFunc::find_phrase(path, "images/super.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/vendor_boot.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/boot.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/vbmeta_system.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/vbmeta.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/bluetooth.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/keymaster.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/dtbo.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/cmnlib64.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/xbl.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/abl.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/devcfg.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/cust.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "images/init_boot.img");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "package_extract_file");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "package_unsparse_file");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "/system/bin/bootctl");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
-
-    str = TWFunc::find_phrase(path, "rm -f /data/cache/command");
-    if (!str.empty() && !is_comment_line(str))
-	i++;
+  // if this is not an A/B device, then stop here
+  #if !defined(AB_OTA_UPDATER) && !defined(FOX_AB_DEVICE)
+	return false;
   #endif
 
-  // - return
-  usleep(1024);
-  if (i > 7) {
-	// mark this as a non-standard vAB ROM installer using legacy methods - possibly a MIUI/HyperOS port or some other ROM installer
-	DataManager::SetValue("found_non_standard_vAB_install", "1");
-	return true;
-  }
-  else
-	return false;
+  // deal with recent non-standards-compliant xiaomi.eu/hyperOS/other vAB zip installers
+  i = 0;
+  int j = 0;
+  int k = 0;
+  const int threshold_std = 7; // standard threshold
+  const int threshold_higher = 9; // set a higher threshold for plain file searches (in "images/" and "firmware-update/")
+
+	// file names found in typical non-standard ROM installers
+	std::vector<string> img_names = {
+		"super.img", "super.img.0", "vendor_boot.img", "boot.img", "init_boot.img",
+		"vbmeta_system.img", "vbmeta_vendor.img", "vbmeta.img", "bluetooth.img", "cust.img",
+		"keymaster.img", "dtbo.img", "cmnlib64.img", "xbl.img", "abl.img", "devcfg.img",
+		 "custom.img", "userdata.img", "logo.img", "super_dummy.img", "recovery.img", "twrp.img"};
+
+	std::vector<string> img_names_alt = {"abl.elf", "xbl.elf", "xbl_config.elf", "devcfg.mbn", "cmnlib64.mbn"};
+
+	std::vector<string> cmd_names = {"package_extract_file", "package_unsparse_file", "/system/bin/bootctl", "rm -f /data/cache/command"};
+
+	// iterate through names
+	for (auto fname : img_names) {
+
+		// search for file existence in root, plus installation entry in updater-script
+		if (zip_EntryExists(Zip, fname) && find_in_zip_installer(path, fname)) {
+			i++;
+		}
+		else
+		// search for file existence in images/ plus installation entry in updater-script
+		if (zip_EntryExists(Zip, "images/" + fname) && find_in_zip_installer(path, "images/" + fname)) {
+			i++;
+		}
+		else
+		// search for file existence in firmware-update/
+		if (zip_EntryExists(Zip, "firmware-update/" + fname)) {
+			j++;
+		}
+
+		// if we pass a threshold, break
+		if (i > threshold_std || j > threshold_higher) {
+			break;
+		}
+	}
+
+	// if we didn't reach either threshold, carry out more searches
+	if (i < threshold_std && j < threshold_higher) {
+		// search for some commands
+		for (auto cmd : cmd_names) {
+			if (find_in_zip_installer(path, cmd)) {
+				i++;
+			}
+			if (i > threshold_std)
+				break;
+		}
+
+		// search for some alternative names
+		for (auto fname : img_names_alt) {
+			if (zip_EntryExists(Zip, "firmware-update/" + fname)) {
+				j++;
+			}
+			if (j > threshold_higher)
+				break;
+		}
+
+		// search for file existence only in images/
+		for (auto fname : img_names) {
+			if (zip_EntryExists(Zip, "images/" + fname)) {
+				k++;
+			}
+			if (k > threshold_higher)
+				break;
+		}
+	}
+
+	usleep(1024);
+
+	// debug
+	//#define DEBUGGING_CHECK 1
+	#ifdef DEBUGGING_CHECK
+		gui_print_color("warning", "DEBUG:images/=%i\nfirmware-update/=%i\nlast_resort=%i\n\n", i, j, k);
+	#endif
+
+	// if we crossed a relevant threshold, return true
+	if (i > threshold_std || j > threshold_higher || k > threshold_higher) {
+		// mark this as a non-standard vAB ROM installer using legacy methods - possibly a MIUI/HyperOS port or some other ROM installer
+		DataManager::SetValue("found_non_standard_vAB_install", "1");
+		gui_print("Non-standard vAB installer\n");
+		return true;
+	}
+	else
+		return false;
 }
 
 int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip) 
