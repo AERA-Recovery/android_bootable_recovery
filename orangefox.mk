@@ -464,6 +464,14 @@ ifeq ($(OF_USE_GREEN_LED),0)
     LOCAL_CFLAGS += -DOF_NO_GREEN_LED='"1"'
 endif
 
+# all partition tools - filter, and support TW_ENABLE_ALL_PARTITION_TOOLS
+ifeq ($(OF_ENABLE_ALL_PARTITION_TOOLS),1)
+   ifneq ($(PRODUCT_USE_DYNAMIC_PARTITIONS),true)
+        $(error "OF_ENABLE_ALL_PARTITION_TOOLS" requires dynamic partitions; quitting)
+   endif
+   TW_ENABLE_ALL_PARTITION_TOOLS := true
+endif
+
 # lptools; disable by default; enable with OF_ENABLE_LPTOOLS=1
 ifeq ($(OF_ENABLE_LPTOOLS),1)
     ifeq ($(wildcard external/lptools/Android.bp),)
