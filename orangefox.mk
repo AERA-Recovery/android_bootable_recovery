@@ -719,4 +719,9 @@ endif
 ifeq ($(OF_FORCE_DATA_FORMAT_F2FS),1)
     LOCAL_CFLAGS += -DOF_FORCE_DATA_FORMAT_F2FS
 endif
+
+# whether to use legacy time_fixup code (if the clock is persistently wrong)
+ifeq ($(OF_USE_LEGACY_TIME_FIXUP),1)
+    LOCAL_CFLAGS += -DOF_USE_LEGACY_TIME_FIXUP
+endif
 #
