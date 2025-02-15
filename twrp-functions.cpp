@@ -321,9 +321,9 @@ bool TWFunc::RunFoxScript(const std::string script, const std::string args)
 
     chmod(script.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
     if (!args.empty())
-    	TWFunc::Exec_Cmd(script + " " + args);
+	TWFunc::Exec_Cmd(script + " '" + args + "'");
     else
-    	TWFunc::Exec_Cmd(script);
+	TWFunc::Exec_Cmd(script);
     usleep(500000);
     return true;
 }
