@@ -2,7 +2,7 @@
 	Copyright 2012 to 2017 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2024 OrangeFox Recovery Project
+	Copyright (C) 2018-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -409,9 +409,8 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 				run_rom_scripts = ((DataManager::GetIntValue(FOX_ZIP_INSTALLER_CODE) != 0) // only run after flashing a ROM
 	  			&& (DataManager::GetIntValue(FOX_INSTALL_PREBUILT_ZIP) != 1)); // don't run for built-in zips
 
-	  			if (run_rom_scripts) {
-	  				usleep(4096);
-	  				TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT, path);
+				if (run_rom_scripts && TWFunc::Path_Exists(FOX_PRE_ROM_FLASH_SCRIPT)) {
+					TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT, path);
 	  			}
 
 				ret_val = Run_Update_Binary(path, wipe_cache, UPDATE_BINARY_ZIP_TYPE);
@@ -439,7 +438,10 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 
 			run_rom_scripts = true;
 			usleep(32);
-			TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT, path);
+
+			if (run_rom_scripts && TWFunc::Path_Exists(FOX_PRE_ROM_FLASH_SCRIPT)) {
+				TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT, path);
+			}
 
 			ret_val = Run_Update_Binary(path, wipe_cache, AB_OTA_ZIP_TYPE);
 
@@ -539,7 +541,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
       TWFunc::Check_OrangeFox_Overwrite_FromROM(false, path);
    }
 
-   if (run_rom_scripts) {
+   if (run_rom_scripts && TWFunc::Path_Exists(FOX_POST_ROM_FLASH_SCRIPT)) {
    	usleep(2048);
    	TWFunc::RunFoxScript(FOX_POST_ROM_FLASH_SCRIPT, path);
    	sleep(1);
