@@ -430,10 +430,10 @@ int main(int argc, char **argv) {
 	// Fox stuff
 	TWFunc::Set_Sbin_Dir_Executable_Flags();
   	property_set("ro.orangefox.boot", "1");
-  	property_set("ro.orangefox.version", FOX_VERSION);
   	property_set("ro.orangefox.type", FOX_BUILD_TYPE);
   	property_set("ro.orangefox.variant", FOX_VARIANT);
   	property_set("ro.orangefox.build", "orangefox");
+	property_set("ro.orangefox.release.version", FOX_VERSION);
   	property_set("ro.orangefox.boot.header.version", BOARD_BOOT_HEADER_VERSION);
 
   	#ifdef FOX_TARGET_DEVICES
