@@ -439,11 +439,6 @@ ifneq ($(OF_ENABLE_USB_STORAGE),1)
     TW_NO_USB_STORAGE := true
 endif
 
-# turn some errors in mounting logical partitions into log entries only
-ifeq ($(OF_IGNORE_LOGICAL_MOUNT_ERRORS),1)
-    LOCAL_CFLAGS += -DOF_IGNORE_LOGICAL_MOUNT_ERRORS='"1"'
-endif
-
 ifeq ($(OF_DISABLE_EXTRA_ABOUT_PAGE),1)
     LOCAL_CFLAGS += -DOF_DISABLE_EXTRA_ABOUT_PAGE='"1"'
 endif
