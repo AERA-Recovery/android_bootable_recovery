@@ -731,6 +731,11 @@ void DataManager::SetDefaultValues()
   mConst.SetValue(BUILD_TYPE_STR, FOX_BUILD_TYPE);
   mConst.SetValue("fox_branch", FOX_BRANCH);
 
+#ifdef FOX_MOVE_MAGISK_INSTALLER_TO_RAMDISK
+  mConst.SetValue("fox_magisk_path", FFiles_dir + "/OF_Magisk");
+#else
+  mConst.SetValue("fox_magisk_path", Fox_Home_Files);
+#endif
   mConst.SetValue("fox_magisk_zip_installer", FOX_MAGISK_ZIP_INSTALLER);
   mConst.SetValue("fox_magisk_uninstaller", FOX_MAGISK_UNINSTALLER);
 

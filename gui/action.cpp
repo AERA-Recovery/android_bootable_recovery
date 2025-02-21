@@ -1140,7 +1140,7 @@ int GUIAction::queuezip(std::string arg __unused)
 void GUIAction::find_magisk(){ //[f/d]
   int found = 0;
   for (int i = 0; i < zip_queue_index; i++)
-    if (zip_queue[i] == Fox_Home_Files + "/" + FOX_MAGISK_ZIP_INSTALLER)
+    if (zip_queue[i] == DataManager::GetStrValue("fox_magisk_path") + "/" + FOX_MAGISK_ZIP_INSTALLER)
       found = 1;
   DataManager::SetValue("of_magisk_in_queue", found);
 }
