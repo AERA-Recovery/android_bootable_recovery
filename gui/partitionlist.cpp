@@ -327,11 +327,11 @@ void GUIPartitionList::NotifySelect(size_t item_selected)
 				}
 				if (mList.at(item_selected).selected)
 					mList.at(item_selected).selected = 0;
-				else
+				else {
 					mList.at(item_selected).selected = 1;
-
-				TWPartition* t_part = PartitionManager.Find_Partition_By_Path(mList.at(item_selected).Mount_Point);
-				DataManager::SetValue("tw_is_slot_part", t_part != NULL ? (int) t_part->SlotSelect : 0);
+					TWPartition* t_part = PartitionManager.Find_Partition_By_Path(mList.at(item_selected).Mount_Point);
+					DataManager::SetValue("tw_is_slot_part", t_part != NULL ? (int) t_part->SlotSelect : 0);
+				}
 
 				if (countTotal) { // [f/d] count size of backup after selecting partition
 					unsigned long long totalSize = 0, imgSize = 0, fileSize = 0;
