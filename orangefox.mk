@@ -399,23 +399,23 @@ ifeq ($(FOX_USE_NANO_EDITOR),1)
 endif
 
 ifneq ($(TW_EXCLUDE_NANO), true)
-    ifeq ($(wildcard external/nano/Android.mk),)
+    ifeq ($(wildcard external/nano/Android.bp),)
         $(warning Nano sources not found! You need to clone the sources.)
-        $(warning Please run: "git clone --depth=1 https://github.com/LineageOS/android_external_nano -b lineage-19.1 external/nano")
+        $(warning Please run: "git clone --depth=1 https://github.com/LineageOS/android_external_nano -b lineage-21.0 external/nano")
         $(error Nano sources not present; exiting)
     endif
-    ifeq ($(wildcard external/libncurses/Android.mk),)
+    ifeq ($(wildcard external/libncurses/Android.bp),)
         $(warning Libncurses not found! You need to clone the sources.)
-        $(warning Please run: "git clone --depth=1 https://github.com/LineageOS/android_external_libncurses -b lineage-19.1 external/libncurses")
+        $(warning Please run: "git clone --depth=1 https://github.com/LineageOS/android_external_libncurses -b lineage-21.0 external/libncurses")
         $(error Libncurses sources not present; exiting)
     endif
 endif
 
 # bash
 ifeq ($(FOX_BUILD_BASH),1)
-  ifeq ($(wildcard external/bash/Android.mk),)
+  ifeq ($(wildcard external/bash/Android.bp),)
         $(warning Bash sources not found! You need to clone the sources.)
-        $(warning Please run: "git clone --depth=1 https://github.com/LineageOS/android_external_bash -b lineage-19.1 external/bash")
+        $(warning Please run: "git clone --depth=1 https://github.com/LineageOS/android_external_bash -b lineage-21.0 external/bash")
         $(error Bash sources not present; exiting)
   endif
   RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_OPTIONAL_EXECUTABLES)/bash
@@ -718,5 +718,10 @@ endif
 # whether to use legacy time_fixup code (if the clock is persistently wrong)
 ifeq ($(OF_USE_LEGACY_TIME_FIXUP),1)
     LOCAL_CFLAGS += -DOF_USE_LEGACY_TIME_FIXUP
+endif
+
+# boot header version
+ifeq ($(BOARD_BOOT_HEADER_VERSION),)
+    LOCAL_CFLAGS += -DBOARD_BOOT_HEADER_VERSION='"0"'
 endif
 #
