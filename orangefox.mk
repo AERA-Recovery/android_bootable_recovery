@@ -720,8 +720,9 @@ ifeq ($(OF_USE_LEGACY_TIME_FIXUP),1)
     LOCAL_CFLAGS += -DOF_USE_LEGACY_TIME_FIXUP
 endif
 
-# boot header version
+# boot header version (default to v1 if not set)
 ifeq ($(BOARD_BOOT_HEADER_VERSION),)
-    LOCAL_CFLAGS += -DBOARD_BOOT_HEADER_VERSION='"0"'
+    $(warning 'BOARD_BOOT_HEADER_VERSION' is not set. Defaulting to v1)
+    LOCAL_CFLAGS += -DBOARD_BOOT_HEADER_VERSION=1
 endif
 #
