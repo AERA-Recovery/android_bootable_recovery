@@ -1,7 +1,7 @@
 # Copyright (C) 2007 The Android Open Source Project
 #
 # This file is part of the OrangeFox Recovery Project
-# Copyright (C) 2018-2024 The OrangeFox Recovery Project
+# Copyright (C) 2018-2025 The OrangeFox Recovery Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,27 +17,6 @@
 
 LOCAL_PATH := $(call my-dir)
 commands_TWRP_local_path := $(LOCAL_PATH)
-
-ifneq ($(project-path-for),)
-    ifeq ($(LOCAL_PATH),$(call project-path-for,recovery))
-        PROJECT_PATH_AGREES := true
-        BOARD_SEPOLICY_DIRS += $(call project-path-for,recovery)/sepolicy
-    endif
-else
-    ifeq ($(LOCAL_PATH),bootable/recovery)
-        PROJECT_PATH_AGREES := true
-        BOARD_SEPOLICY_DIRS += bootable/recovery/sepolicy
-    else
-        ifeq ($(LOCAL_PATH),bootable/recovery-twrp)
-            ifeq ($(RECOVERY_VARIANT),twrp)
-                PROJECT_PATH_AGREES := true
-                BOARD_SEPOLICY_DIRS += bootable/recovery-twrp/sepolicy
-            endif
-        endif
-    endif
-endif
-
-ifeq ($(PROJECT_PATH_AGREES),true)
 
 ifeq ($(CM_PLATFORM_SDK_VERSION),)
     CM_PLATFORM_SDK_VERSION := 0
@@ -83,8 +62,37 @@ else
     LOCAL_CFLAGS += -DTW_EXCLUDE_APEX
 endif
 
-LOCAL_STATIC_LIBRARIES += libavb libtwrpinstall libminadbd_services libinit libsnapshot_nobinder update_metadata-protos librecovery_utils libhealthhalutils
-LOCAL_SHARED_LIBRARIES += libfs_mgr libhardware android.hardware.boot@1.0 android.hardware.boot@1.1 android.hardware.boot@1.2 libprotobuf-cpp-lite liblp libutils libhidlbase android.hardware.health@2.0
+LOCAL_STATIC_LIBRARIES += libavb \
+                          libhealthhalutils \
+                          libhealthshim \
+                          libinit \
+                          libminadbd_services \
+                          librecovery_utils \
+                          libsnapshot \
+                          libsnapshot_cow \
+                          libsnapshot_nobinder \
+                          libtwrpinstall \
+                          libzstd \
+                          update_metadata-protos
+
+LOCAL_SHARED_LIBRARIES += android.hardware.boot@1.0 \
+                          android.hardware.boot@1.1 \
+                          android.hardware.boot@1.2 \
+                          android.hardware.health@2.0 \
+                          android.hardware.health@2.1 \
+                          android.hardware.health-V3-ndk \
+                          android.hardware.health-translate-ndk \
+                          libbinder \
+                          libbinder_ndk \
+                          libboot_control_client \
+                          libfs_mgr \
+                          libhardware \
+                          libhidlbase \
+                          liblog \
+                          liblp \
+                          liblz4 \
+                          libprotobuf-cpp-lite \
+                          libutils
 LOCAL_C_INCLUDES += \
     system/core/fs_mgr/libfs_avb/include/ \
     system/core/fs_mgr/include_fstab/ \
@@ -107,7 +115,7 @@ LOCAL_MODULE := recovery
 RECOVERY_API_VERSION := 3
 RECOVERY_FSTAB_VERSION := 2
 LOCAL_CFLAGS += -DRECOVERY_API_VERSION=$(RECOVERY_API_VERSION)
-LOCAL_CFLAGS += -Wno-unused-parameter -Wno-unused-function
+LOCAL_CFLAGS += -Wno-unused-parameter -Wno-unused-function -Wno-unused-but-set-variable -Wno-misleading-indentation
 LOCAL_CLANG := true
 
 LOCAL_C_INCLUDES += \
@@ -136,7 +144,7 @@ LOCAL_C_INCLUDES += \
     $(LOCAL_PATH)/twinstall/include
 
 LOCAL_STATIC_LIBRARIES += libguitwrp libvold
-LOCAL_SHARED_LIBRARIES += libz libc libcutils libstdc++ libtar libblkid libminuitwrp libmtdutils libtwadbbu 
+LOCAL_SHARED_LIBRARIES += libz libc libcutils libstdc++ libtar libblkid libminuitwrp libmtdutils libtwadbbu
 LOCAL_SHARED_LIBRARIES += libbootloader_message libcrecovery libtwrpdigest libc++ libaosprecovery libcrypto libbase 
 LOCAL_SHARED_LIBRARIES += libziparchive libselinux libdl_android.bootstrap
 
@@ -160,8 +168,8 @@ endif
 ifeq ($(AB_OTA_UPDATER),true)
     LOCAL_CFLAGS += -DAB_OTA_UPDATER=1
     TWRP_REQUIRED_MODULES += libhardware android.hardware.boot@1.0-service android.hardware.boot@1.0-service.rc \
-    android.hardware.boot@1.1-service android.hardware.boot@1.1-service.rc android.hardware.boot@1.1.xml \
-    android.hardware.boot@1.2-service android.hardware.boot@1.2-service.rc android.hardware.boot@1.2.xml
+    android.hardware.boot@1.1-service android.hardware.boot@1.1-service.rc \
+    android.hardware.boot@1.2-service android.hardware.boot@1.2-service.rc
 endif
 
 ifeq ($(PRODUCT_USE_DYNAMIC_PARTITIONS),true)
@@ -169,15 +177,17 @@ ifeq ($(PRODUCT_USE_DYNAMIC_PARTITIONS),true)
     ifeq ($(TW_EXCLUDE_LPDUMP),)
         TWRP_REQUIRED_MODULES += lpdump lpdumpd.rc
     endif
-    ifneq ($(TW_SYSTEM_BUILD_PROP_ADDITIONAL_PATHS),)
-    	LOCAL_CFLAGS += -DTW_SYSTEM_BUILD_PROP_ADDITIONAL_PATHS='"$(TW_SYSTEM_BUILD_PROP_ADDITIONAL_PATHS)"'
+    ifeq ($(TW_EXCLUDE_LPTOOLS),)
+        TWRP_REQUIRED_MODULES += lptools
     endif
 endif
 
+ifneq ($(TW_SYSTEM_BUILD_PROP_ADDITIONAL_PATHS),)
+    LOCAL_CFLAGS += -DTW_SYSTEM_BUILD_PROP_ADDITIONAL_PATHS='"$(TW_SYSTEM_BUILD_PROP_ADDITIONAL_PATHS)"'
+endif
+
 ifneq ($(BOARD_BOOT_HEADER_VERSION),)
-    LOCAL_CFLAGS += -DBOARD_BOOT_HEADER_VERSION='"$(BOARD_BOOT_HEADER_VERSION)"'
-else
-    LOCAL_CFLAGS += -DBOARD_BOOT_HEADER_VERSION='"0"'
+    LOCAL_CFLAGS += -DBOARD_BOOT_HEADER_VERSION=$(BOARD_BOOT_HEADER_VERSION)
 endif
 
 ifeq ($(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT),true)
@@ -191,6 +201,18 @@ endif
 
 ifeq ($(TW_NO_BIND_SYSTEM),true)
     LOCAL_CFLAGS += -DTW_NO_BIND_SYSTEM
+endif
+
+ifeq ($(TW_NO_FLASH_CURRENT_TWRP),true)
+    LOCAL_CFLAGS += -DTW_NO_FLASH_CURRENT_TWRP
+endif
+
+ifeq ($(TW_PREPARE_DATA_MEDIA_EARLY),true)
+    LOCAL_CFLAGS += -DTW_PREPARE_DATA_MEDIA_EARLY
+endif
+
+ifeq ($(TW_ENABLE_FS_COMPRESSION),true)
+    LOCAL_CFLAGS += -DTW_ENABLE_FS_COMPRESSION
 endif
 
 LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/system/bin
@@ -220,9 +242,6 @@ endif
 ifeq ($(BOARD_USES_RECOVERY_AS_BOOT), true)
     TW_INCLUDE_REPACKTOOLS := true
     LOCAL_CFLAGS += -DBOARD_USES_RECOVERY_AS_BOOT
-endif
-ifeq ($(BOARD_BUILD_SYSTEM_ROOT_IMAGE), true)
-    LOCAL_CFLAGS += -DBOARD_BUILD_SYSTEM_ROOT_IMAGE
 endif
 
 #TWRP Build Flags
@@ -325,14 +344,6 @@ ifneq ($(TW_LOAD_VENDOR_MODULES),)
         LOCAL_CFLAGS += -DTW_LOAD_VENDOR_BOOT_MODULES
     endif
 endif
-ifeq ($(TW_INCLUDE_PYTHON),true)
-    ifeq ($(wildcard external/python3/Android.mk),)
-        $(warning Python3 repo not found! You need to clone the repo.)
-        $(warning Please clone https://github.com/TeamWin/android_external_python3.git into external/python3)
-        $(error Python3 repo not present; exiting)
-    endif
-    TWRP_REQUIRED_MODULES += python3_twrp
-endif
 ifeq ($(TW_INCLUDE_CRYPTO), true)
     LOCAL_CFLAGS += -DTW_INCLUDE_CRYPTO -DUSE_FSCRYPT -Wno-macro-redefined
     LOCAL_SHARED_LIBRARIES += libgpt_twrp
@@ -340,17 +351,20 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
     TW_INCLUDE_CRYPTO_FBE := true
     LOCAL_CFLAGS += -DTW_INCLUDE_FBE
     LOCAL_SHARED_LIBRARIES += android.frameworks.stats@1.0 android.hardware.authsecret@1.0 \
-	android.security.authorization-ndk_platform \
-        android.hardware.oemlock@1.0 libf2fs_sparseblock libbinder libbinder_ndk \
+	android.security.authorization-ndk \
+        android.hardware.oemlock@1.0 libf2fs_sparseblock \
         libandroidicu.recovery \
+        lib_android_keymaster_keymint_utils \
+        android.hardware.gatekeeper-V1-ndk \
         android.hardware.gatekeeper@1.0 \
         android.hardware.weaver@1.0 \
         android.frameworks.stats@1.0 \
-        android.security.maintenance-ndk_platform \
-        android.system.keystore2-V1-ndk_platform \
+        android.security.maintenance-ndk \
+        android.system.keystore2-V4-ndk \
         libkeyutils \
         liblog \
         libsqlite.recovery \
+        libsysutils \
         libkeystoreinfo.recovery \
         libgatekeeper_aidl
 
@@ -394,9 +408,6 @@ endif
 ifneq ($(TW_CUSTOM_BATTERY_PATH),)
     TW_USE_LEGACY_BATTERY_SERVICES := true
     LOCAL_CFLAGS += -DTW_CUSTOM_BATTERY_PATH=$(TW_CUSTOM_BATTERY_PATH)
-endif
-ifneq ($(TW_CUSTOM_BATTERY_PATH),)
-	LOCAL_CFLAGS += -DTW_CUSTOM_BATTERY_PATH=$(TW_CUSTOM_BATTERY_PATH)
 endif
 ifneq ($(TW_CUSTOM_CPU_TEMP_PATH),)
 	LOCAL_CFLAGS += -DTW_CUSTOM_CPU_TEMP_PATH=$(TW_CUSTOM_CPU_TEMP_PATH)
@@ -455,7 +466,7 @@ ifneq ($(TARGET_OTA_ASSERT_DEVICE),)
     LOCAL_CFLAGS += -DTARGET_OTA_ASSERT_DEVICE='"$(TARGET_OTA_ASSERT_DEVICE)"'
 endif
 ifneq ($(TW_BACKUP_EXCLUSIONS),)
-    LOCAL_CFLAGS += -DTW_BACKUP_EXCLUSIONS='"$(TW_BACKUP_EXCLUSIONS)"'
+	LOCAL_CFLAGS += -DTW_BACKUP_EXCLUSIONS='"$(TW_BACKUP_EXCLUSIONS)"'
 endif
 ifeq ($(TW_INCLUDE_FASTBOOTD), true)
     LOCAL_CFLAGS += -DTW_INCLUDE_FASTBOOTD
@@ -503,7 +514,6 @@ TWRP_REQUIRED_MODULES += \
     minadbd \
     twrpbu \
     adbd_system_api_recovery \
-    adbd_system_api_recovery \
     libsync.recovery \
     libandroidicu.recovery \
     android.hardware.health@2.1-service \
@@ -512,7 +522,9 @@ TWRP_REQUIRED_MODULES += \
     android.hardware.health@2.1.xml \
     android.hardware.health@2.0-service \
     android.hardware.health@2.0-impl.recovery \
-    android.hardware.health@2.0-service.rc
+    android.hardware.health@2.0-service.rc \
+    libadbd.recovery \
+    libadbd_services.recovery
 
 ifneq ($(TW_EXCLUDE_TZDATA), true)
 TWRP_REQUIRED_MODULES += \
@@ -551,7 +563,10 @@ TWRP_REQUIRED_MODULES += \
     hwservicemanager \
     hwservicemanager.rc \
     vndservicemanager \
-    vndservicemanager.rc
+    vndservicemanager.rc \
+    plat_service_contexts \
+    servicemanager \
+    servicemanager.rc
 
 ifneq ($(TW_INCLUDE_CRYPTO),)
 TWRP_REQUIRED_MODULES += \
@@ -563,19 +578,10 @@ TWRP_REQUIRED_MODULES += \
     android.system.keystore2-service.xml \
     keystore2.rc \
     plat_keystore2_key_contexts
-
-    ifneq ($(TW_INCLUDE_CRYPTO_FBE),)
-    TWRP_REQUIRED_MODULES += \
-        plat_service_contexts \
-        servicemanager \
-        servicemanager.rc
-    endif
 endif
 
 ifneq ($(wildcard external/zip/Android.mk),)
-ifneq ($(TW_EXCLUDE_ZIP), true)
     TWRP_REQUIRED_MODULES += zip
-endif
 endif
 ifneq ($(wildcard external/unzip/Android.mk),)
     TWRP_REQUIRED_MODULES += unzip
@@ -590,7 +596,7 @@ endif
 ifeq ($(BOARD_HAS_NO_REAL_SDCARD),)
     TWRP_REQUIRED_MODULES += sgdisk
 endif
-ifneq ($(TW_EXCLUDE_ENCRYPTED_BACKUPS), true)
+ifneq ($(TW_EXCLUDE_ENCRYPTED_BACKUPS),)
     TWRP_REQUIRED_MODULES += openaes openaes_license
 endif
 ifeq ($(TW_INCLUDE_FB2PNG), true)
@@ -631,9 +637,11 @@ ifeq ($(TARGET_USERIMAGES_USE_F2FS), true)
         liblz4 \
         libinit
 endif
-
 ifneq ($(TW_LOAD_VENDOR_MODULES),)
     TWRP_REQUIRED_MODULES += libmodprobe
+endif
+ifeq ($(TW_INCLUDE_PYTHON),true)
+    TWRP_REQUIRED_MODULES += python3_twrp
 endif
 
 TWRP_REQUIRED_MODULES += file_contexts_text
@@ -644,11 +652,6 @@ endif
 
 LOCAL_REQUIRED_MODULES += $(TWRP_REQUIRED_MODULES)
 
-#TW_THEME_VERSION := $(shell grep TW_THEME_VERSION bootable/recovery/variables.h | cut -d ' ' -f 3)
-
-LOCAL_POST_INSTALL_CMD += \
-    sed -i "s/{themeversion}/$(TW_THEME_VERSION)/" $(TARGET_RECOVERY_ROOT_OUT)/twres/splash.xml; \
-    sed -i "s/{themeversion}/$(TW_THEME_VERSION)/" $(TARGET_RECOVERY_ROOT_OUT)/twres/ui.xml;
 
 include $(BUILD_EXECUTABLE)
 
@@ -660,7 +663,7 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_REQUIRED_MODULES := file_contexts.bin
 
 LOCAL_POST_INSTALL_CMD := \
-    $(hide) cp -f $(PRODUCT_OUT)/obj/ETC/file_contexts.bin_intermediates/file_contexts.concat.tmp $(TARGET_RECOVERY_ROOT_OUT)/file_contexts;
+    $(hide) cp -f $(PRODUCT_OUT)/obj/ETC/file_contexts.bin_intermediates/file_contexts.concat.tmp $(TARGET_RECOVERY_ROOT_OUT)/file_contexts
 
 # Darth9
 #
@@ -803,8 +806,6 @@ endif
 # FB2PNG
 ifeq ($(TW_INCLUDE_FB2PNG), true)
     include $(commands_TWRP_local_path)/fb2png/Android.mk
-endif
-
 endif
 
 commands_TWRP_local_path :=
