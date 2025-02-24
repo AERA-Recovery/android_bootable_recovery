@@ -90,13 +90,11 @@ cc_library_shared {
     ],
     srcs: [
         "install/adb_install.cpp",
-        "install/asn1_decoder.cpp",
         "install/get_args.cpp", 
         "install/install.cpp",
-        "install/package.cpp",
         "install/spl_check.cpp",
-        "install/verifier.cpp",
         "install/wipe_data.cpp",
+        "install/wipe_device.cpp",
         "install/set_metadata.cpp",
         "install/ZipUtil.cpp"
     ],
