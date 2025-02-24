@@ -716,7 +716,7 @@ void TWPartition::Setup_Data_Partition(bool Display_Error) {
 		DataManager::SetValue(TW_IS_ENCRYPTED, 0);
 		DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
 	} else if (!Mount(false)) {
-		if (Is_Present) {
+		/*if (Is_Present) {
 			DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
 			if (Key_Directory.empty()) {
 				set_partition_data(Use_Original_Path ? Original_Path.c_str() : Actual_Block_Device.c_str(), Crypto_Key_Location.c_str());
@@ -736,12 +736,13 @@ void TWPartition::Setup_Data_Partition(bool Display_Error) {
 					gui_err("mount_data_footer=Could not mount /data and unable to find crypto footer.");
 				}
 			} else {
+			*/
 				Is_Encrypted = true;
 				Is_Decrypted = false;
 				if (datamedia)
 					Setup_Data_Media();
-			}
-		} else if (Key_Directory.empty()) {
+//			}
+		 if (Key_Directory.empty()) {
 			LOGERR("Primary block device '%s' for mount point '%s' is not present!\n",
 			Primary_Block_Device.c_str(), Mount_Point.c_str());
 		}
@@ -2233,9 +2234,9 @@ bool TWPartition::Wipe_Encryption() {
 	if (!UnMount(true))
 		return false;
 	if (Is_Decrypted && !Decrypted_Block_Device.empty()) {
-		if (delete_crypto_blk_dev((char*)("userdata")) != 0) {
-			LOGERR("Error deleting crypto block device, continuing anyway.\n");
-		}
+//		if (delete_crypto_blk_dev((char*)("userdata")) != 0) {
+//			LOGERR("Error deleting crypto block device, continuing anyway.\n");
+//		}
 	}
 #endif
 	Has_Data_Media = false;
