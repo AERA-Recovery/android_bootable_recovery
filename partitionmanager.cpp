@@ -314,9 +314,9 @@ bool TWPartitionManager::Disable_AVB2(bool Display_Info) {
 	char disable_flags = AVB_VBMETA_IMAGE_FLAGS_VERIFICATION_DISABLED;
 #ifdef AB_OTA_UPDATER
 	return Do_Disable_AVB2("vbmeta_a", disable_flags, Display_Info)
-			& Do_Disable_AVB2("vbmeta_system_a", disable_flags, Display_Info)
-			& Do_Disable_AVB2("vbmeta_b", disable_flags, Display_Info)
-			& Do_Disable_AVB2("vbmeta_system_b", disable_flags, Display_Info);
+			&& Do_Disable_AVB2("vbmeta_system_a", disable_flags, Display_Info)
+			&& Do_Disable_AVB2("vbmeta_b", disable_flags, Display_Info)
+			&& Do_Disable_AVB2("vbmeta_system_b", disable_flags, Display_Info);
 #else
 	bool vb = false;
 	bool vb_sys = false;
@@ -670,7 +670,7 @@ void TWPartitionManager::Decrypt_Data() {
 			Set_Crypto_Type("file");
 #ifdef TW_INCLUDE_FBE_METADATA_DECRYPT
 #ifdef USE_FSCRYPT
-			if (android::vold::fscrypt_mount_metadata_encrypted(Decrypt_Data->Actual_Block_Device, Decrypt_Data->Mount_Point, false, false, Decrypt_Data->Current_File_System, TWFunc::Path_Exists(additional_fstab) ? additional_fstab : "")) {
+			if (android::vold::fscrypt_mount_metadata_encrypted(Decrypt_Data->Actual_Block_Device, Decrypt_Data->Mount_Point, false, false, Decrypt_Data->Current_File_System, "", TWFunc::Path_Exists(additional_fstab) ? additional_fstab : "")) {
 				std::string crypto_blkdev = android::base::GetProperty("ro.crypto.fs_crypto_blkdev", "error");
 				Decrypt_Data->Decrypted_Block_Device = crypto_blkdev;
 				LOGINFO("Successfully decrypted metadata encrypted data partition with new block device: '%s'\n", crypto_blkdev.c_str());
@@ -705,6 +705,7 @@ void TWPartitionManager::Decrypt_Data() {
 			}
 		} else {
 			LOGINFO("FBE setup failed. Trying FDE...\n");
+			/*
 			Set_Crypto_State();
 			Set_Crypto_Type("block");
 			int password_type = cryptfs_get_password_type();
@@ -720,6 +721,7 @@ void TWPartitionManager::Decrypt_Data() {
 				DataManager::SetValue("TW_CRYPTO_TYPE", password_type);
 				DataManager::SetValue("tw_crypto_pwtype_0", password_type);
 			}
+			*/
 		}
 	}
 	if (Decrypt_Data && (!Decrypt_Data->Is_Encrypted || Decrypt_Data->Is_Decrypted)) {
@@ -2397,8 +2399,8 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 		// Child process
 		char cPassword[255];
 		strcpy(cPassword, Password.c_str());
-		int ret = cryptfs_check_passwd(cPassword);
-		exit(ret);
+		//int ret = cryptfs_check_passwd(cPassword);
+		//exit(ret);
 	} else {
 		// Parent
 		int status;
@@ -3099,8 +3101,8 @@ bool TWPartitionManager::Enable_MTP(void) {
 		property_get("usb.product.mtpadb", product, "4EE2");
 		string vendorstr = vendor;
 		string productstr = product;
-		TWFunc::write_to_file("/config/usb_gadget/g1/idVendor", vendorstr);
-		TWFunc::write_to_file("/config/usb_gadget/g1/idProduct", productstr);
+		TWFunc::write_to_file("/sys/class/android_usb/android0/idVendor", vendorstr);
+		TWFunc::write_to_file("/sys/class/android_usb/android0/idProduct", productstr);
 		property_set("sys.usb.config", "mtp,adb");
 	}
 	/* To enable MTP debug, use the twrp command line feature:
@@ -3155,8 +3157,8 @@ bool TWPartitionManager::Disable_MTP(void) {
 		property_get("usb.product.adb", product, "D001");
 		string vendorstr = vendor;
 		string productstr = product;
-		TWFunc::write_to_file("/config/usb_gadget/g1/idVendor", vendorstr);
-		TWFunc::write_to_file("/config/usb_gadget/g1/idProduct", productstr);
+		TWFunc::write_to_file("/sys/class/android_usb/android0/idVendor", vendorstr);
+		TWFunc::write_to_file("/sys/class/android_usb/android0/idProduct", productstr);
 		usleep(2000);
 	}
 #ifdef TW_HAS_MTP
@@ -4806,7 +4808,7 @@ bool TWPartitionManager::Unmap_Super_Devices() {
 			TWPartition *part = *iter;
 			std::string bare_partition_name = Get_Bare_Partition_Name((*iter)->Get_Mount_Point());
 			std::string blk_device_partition = bare_partition_name;
-			if (DataManager::GetIntValue("of_ab_device") == 1)
+			if (DataManager::GetIntValue("of_ab_device") == 1 || DataManager::GetStrValue("tw_has_boot_slots") == "1")
 				blk_device_partition.append(PartitionManager.Get_Active_Slot_Suffix());
 			(*iter)->UnMount(false);
 			LOGINFO("removing dynamic partition: %s\n", blk_device_partition.c_str());
@@ -4826,6 +4828,26 @@ bool TWPartitionManager::Unmap_Super_Devices() {
 		} else {
 			++iter;
 		}
+	}
+
+	const std::string block_path = "/dev/block/mapper/";
+	DIR* d = opendir(block_path.c_str());
+	if (d != NULL) {
+		struct dirent* de;
+		while ((de = readdir(d)) != NULL) {
+			if (de->d_type == DT_LNK) {
+				std::string partition = de->d_name;
+				if (strcmp(partition.c_str(),"userdata") != 0){
+					LOGINFO("removing dynamic partition: %s\n", partition.c_str());
+					destroyed = DestroyLogicalPartition(partition);
+					if (!destroyed) {
+						closedir(d);
+						return false;
+					}
+				}
+			}
+		}
+	closedir(d);
 	}
 	return true;
 }
