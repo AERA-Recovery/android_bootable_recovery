@@ -21,6 +21,12 @@
 
 class MinuiBackend {
  public:
+  enum DrmConnector {
+    DRM_MAIN = 0,
+    DRM_SEC,
+    DRM_MAX,
+  };
+
   // Initializes the backend and returns a GRSurface* to draw into.
   virtual GRSurface* Init() = 0;
 
@@ -28,11 +34,17 @@ class MinuiBackend {
   // be displayed, and returns a new drawing surface.
   virtual GRSurface* Flip() = 0;
 
-  // Blank (or unblank) the screen.
+  // Blank (or unblank) the default screen.
   virtual void Blank(bool) = 0;
 
+  // Blank (or unblank) the specific screen.
+  virtual void Blank(bool blank, DrmConnector index) = 0;
+
+  // Return true if the device supports multiple connectors.
+  virtual bool HasMultipleConnectors() = 0;
+
   // Device cleanup when drawing is done.
-  virtual ~MinuiBackend() {};
+  virtual ~MinuiBackend() = default;
 };
 
 #endif  // _GRAPHICS_H_

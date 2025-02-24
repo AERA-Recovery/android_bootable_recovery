@@ -106,12 +106,22 @@ enum class PixelFormat : int {
   RGBX = 2,
   BGRA = 3,
   ARGB = 4,
+  RGBA = 5, // LSB Alpha
 };
 
-// Initializes the graphics backend and loads font file. Returns 0 on success, or -1 on error. Note
-// that the font initialization failure would be non-fatal, as caller may not need to draw any text
-// at all. Caller can check the font initialization result via gr_sys_font() as needed.
+enum class GraphicsBackend : int {
+  UNKNOWN = 0,
+  DRM = 1,
+  FBDEV = 2,
+};
+
+// Initializes the default graphics backend and loads font file. Returns 0 on success, or -1 on
+// error. Note that the font initialization failure would be non-fatal, as caller may not need to
+// draw any text at all. Caller can check the font initialization result via gr_sys_font() as
+// needed.
 int gr_init();
+// Supports backend selection for minui client.
+int gr_init(std::initializer_list<GraphicsBackend> backends);
 
 // Frees the allocated resources. The function is idempotent, and safe to be called if gr_init()
 // didn't finish successfully.
@@ -122,6 +132,8 @@ int gr_fb_height();
 
 void gr_flip();
 void gr_fb_blank(bool blank);
+void gr_fb_blank(bool blank, int index);
+bool gr_has_multiple_connectors();
 
 // Clears entire surface to current color.
 void gr_clear();
@@ -171,6 +183,7 @@ int ev_sync_key_state(ev_set_key_callback set_key_cb, void* data);
 #else
 using ev_callback = std::function<int(int fd, uint32_t epevents)>;
 using ev_set_key_callback = std::function<int(int code, int value)>;
+using ev_set_sw_callback = std::function<int(int code, int value)>;
 
 #ifdef TW_USE_MINUI_WITH_OPTIONAL_TOUCH_EVENTS
 int ev_init(ev_callback input_cb, bool allow_touch_inputs = false);
@@ -194,6 +207,7 @@ void ev_iterate_available_keys(const std::function<void(int)>& f);
 int ev_wait(int timeout);
 
 int ev_get_input(int fd, uint32_t epevents, input_event* ev);
+int ev_sync_sw_state(const ev_set_sw_callback& set_sw_cb);
 void ev_dispatch();
 int ev_get_epollfd();
 

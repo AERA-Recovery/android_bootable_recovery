@@ -53,12 +53,14 @@ static unsigned char gr_current_g5 = 63;
 static unsigned char gr_current_b5 = 31;
 
 static uint32_t gr_current = ~0;
-static constexpr uint32_t alpha_mask = 0xff000000;
 
 // gr_draw is owned by backends.
 static GRSurface* gr_draw = nullptr;
 static GRRotation rotation = GRRotation::NONE;
 static PixelFormat pixel_format = PixelFormat::UNKNOWN;
+// The graphics backend list that provides fallback options for the default backend selection.
+// For example, it will fist try DRM, then try FBDEV if DRM is unavailable.
+constexpr auto default_backends = { GraphicsBackend::DRM, GraphicsBackend::FBDEV };
 
 static bool outside(int x, int y) {
   auto swapped = (rotation == GRRotation::LEFT || rotation == GRRotation::RIGHT);
@@ -174,7 +176,7 @@ static void text_blend_old(unsigned char* src_p, int src_row_bytes,
 #endif // TW_NO_MINUI_CUSTOM_FONTS
 
 // Blends gr_current onto pix value, assumes alpha as most significant byte.
-static inline uint32_t pixel_blend(uint8_t alpha, uint32_t pix) {
+static inline uint32_t pixel_blend_argb(uint8_t alpha, uint32_t pix) {
   if (alpha == 255) return gr_current;
   if (alpha == 0) return pix;
   uint32_t pix_r = pix & 0xff;
@@ -189,6 +191,48 @@ static inline uint32_t pixel_blend(uint8_t alpha, uint32_t pix) {
   uint32_t out_b = (pix_b * (255 - alpha) + cur_b * alpha) / 255;
 
   return (out_r & 0xff) | (out_g & 0xff00) | (out_b & 0xff0000) | (gr_current & 0xff000000);
+}
+
+static inline uint32_t pixel_blend_rgba(uint8_t alpha, uint32_t pix) {
+  if (alpha == 255) return gr_current;
+  if (alpha == 0) return pix;
+  uint32_t pix_r = pix & 0xff00;
+  uint32_t pix_g = pix & 0xff0000;
+  uint32_t pix_b = pix & 0xff000000;
+  uint32_t cur_r = gr_current & 0xff00;
+  uint32_t cur_g = gr_current & 0xff0000;
+  uint32_t cur_b = gr_current & 0xff000000;
+
+  uint32_t out_r = (pix_r * (255 - alpha) + cur_r * alpha) / 255;
+  uint32_t out_g = (pix_g * (255 - alpha) + cur_g * alpha) / 255;
+  uint32_t out_b = (pix_b * (255 - alpha) + cur_b * alpha) / 255;
+
+  return (gr_current & 0xff) | (out_r & 0xff00) | (out_g & 0xff0000) | (out_b & 0xff000000);
+}
+
+static inline uint32_t pixel_blend(uint8_t alpha, uint32_t pix) {
+  if (pixel_format == PixelFormat::RGBA) {
+    return pixel_blend_rgba(alpha, pix);
+  }
+  return pixel_blend_argb(alpha, pix);
+}
+
+static inline uint32_t get_alphamask() {
+  if (pixel_format == PixelFormat::RGBA) {
+    return 0x000000ff;
+  }
+  return 0xff000000;
+}
+
+static inline uint8_t get_alpha_shift() {
+  if (pixel_format == PixelFormat::RGBA) {
+    return 0;
+  }
+  return 24;
+}
+
+static inline uint8_t get_alpha(uint32_t pix) {
+  return static_cast<uint8_t>((pix & (gr_current & get_alphamask())) >> get_alpha_shift());
 }
 
 // Increments pixel pointer right, with current rotation.
@@ -238,7 +282,7 @@ static uint32_t* PixelAt(GRSurface* surface, int x, int y, int row_pixels) {
 
 static void TextBlend(const uint8_t* src_p, int src_row_bytes, uint32_t* dst_p, int dst_row_pixels,
                       int width, int height) {
-  uint8_t alpha_current = static_cast<uint8_t>((alpha_mask & gr_current) >> 24);
+  uint8_t alpha_current = get_alpha(gr_current);
   for (int j = 0; j < height; ++j) {
     const uint8_t* sx = src_p;
     uint32_t* px = dst_p;
@@ -286,7 +330,7 @@ void gr_text(int x, int y, const char *s, bool bold)
 }
 #else //TW_NO_MINUI_CUSTOM_FONTS
 void gr_text(const GRFont* font, int x, int y, const char* s, bool bold) {
-  if (!font || !font->texture || (gr_current & alpha_mask) == 0) return;
+  if (!font || !font->texture || (gr_current & get_alphamask()) == 0) return;
 
   if (font->texture->pixel_bytes != 1) {
     printf("gr_text: font has wrong format\n");
@@ -370,6 +414,8 @@ void gr_color(unsigned char r, unsigned char g, unsigned char b, unsigned char a
   uint32_t r32 = r, g32 = g, b32 = b, a32 = a;
   if (pixel_format == PixelFormat::ARGB || pixel_format == PixelFormat::BGRA) {
     gr_current = (a32 << 24) | (r32 << 16) | (g32 << 8) | b32;
+  } else if (pixel_format == PixelFormat::RGBA) {
+    gr_current = (b32 << 24) | (g32 << 16) | (r32 << 8) | a32;
   } else {
     gr_current = (a32 << 24) | (b32 << 16) | (g32 << 8) | r32;
   }
@@ -410,7 +456,7 @@ void gr_fill(int x1, int y1, int x2, int y2) {
 
   int row_pixels = gr_draw->row_bytes / gr_draw->pixel_bytes;
   uint32_t* p = PixelAt(gr_draw, x1, y1, row_pixels);
-  uint8_t alpha = static_cast<uint8_t>(((gr_current & alpha_mask) >> 24));
+  uint8_t alpha = get_alpha(gr_current);
   if (alpha > 0) {
     for (int y = y1; y < y2; ++y) {
       uint32_t* px = p;
@@ -594,7 +640,22 @@ void gr_flip() {
   gr_draw = gr_backend->Flip();
 }
 
+std::unique_ptr<MinuiBackend> create_backend(GraphicsBackend backend) {
+  switch (backend) {
+    case GraphicsBackend::DRM:
+      return std::make_unique<MinuiBackendDrm>();
+    case GraphicsBackend::FBDEV:
+      return std::make_unique<MinuiBackendFbdev>();
+    default:
+      return nullptr;
+  }
+}
+
 int gr_init() {
+  return gr_init(default_backends);
+}
+
+int gr_init(__attribute__((unused)) std::initializer_list<GraphicsBackend> backends) {
   // pixel_format needs to be set before loading any resources or initializing backends.
   std::string format = android::base::GetProperty("ro.minui.pixel_format", "");
   if (format == "ABGR_8888") {
@@ -605,6 +666,8 @@ int gr_init() {
     pixel_format = PixelFormat::ARGB;
   } else if (format == "BGRA_8888") {
     pixel_format = PixelFormat::BGRA;
+  } else if (format == "RGBA_8888") {
+    pixel_format = PixelFormat::RGBA;
   } else {
     pixel_format = PixelFormat::UNKNOWN;
   }
@@ -698,6 +761,14 @@ void gr_fb_blank(bool blank) {
   gr_backend->Blank(blank);
 }
 
+void gr_fb_blank(bool blank, int index) {
+  gr_backend->Blank(blank, static_cast<MinuiBackend::DrmConnector>(index));
+}
+
 void gr_rotate(GRRotation rot) {
   rotation = rot;
+}
+
+bool gr_has_multiple_connectors() {
+  return gr_backend->HasMultipleConnectors();
 }

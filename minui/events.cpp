@@ -29,7 +29,9 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 
+#include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 
 #include "minui/minui.h"
@@ -122,12 +124,12 @@ static int inotify_cb(int fd, __unused uint32_t epevents) {
     }
     offset += sizeof(inotify_event) + pevent->len;
 
-    pevent->name[pevent->len] = '\0';
-    if (strncmp(pevent->name, "event", 5)) {
+    std::string event_name(pevent->name, pevent->len);
+    if (!android::base::StartsWith(event_name, "event")) {
       continue;
     }
 
-    android::base::unique_fd dfd(openat(dirfd(dir.get()), pevent->name, O_RDONLY));
+    android::base::unique_fd dfd(openat(dirfd(dir.get()), event_name.c_str(), O_RDONLY));
     if (dfd == -1) {
       break;
     }
@@ -279,6 +281,35 @@ int ev_get_input(int fd, uint32_t epevents, input_event* ev) {
     epoll_ctl(g_epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
   }
   return -1;
+}
+
+int ev_sync_sw_state(const ev_set_sw_callback& set_sw_cb) {
+  // Use unsigned long to match ioctl's parameter type.
+  unsigned long ev_bits[BITS_TO_LONGS(EV_MAX)];  // NOLINT
+  unsigned long sw_bits[BITS_TO_LONGS(SW_MAX)];  // NOLINT
+
+  for (size_t i = 0; i < g_ev_dev_count; ++i) {
+    memset(ev_bits, 0, sizeof(ev_bits));
+    memset(sw_bits, 0, sizeof(sw_bits));
+
+    if (ioctl(ev_fdinfo[i].fd, EVIOCGBIT(0, sizeof(ev_bits)), ev_bits) == -1) {
+      continue;
+    }
+    if (!test_bit(EV_SW, ev_bits)) {
+      continue;
+    }
+    if (ioctl(ev_fdinfo[i].fd, EVIOCGSW(sizeof(sw_bits)), sw_bits) == -1) {
+      continue;
+    }
+
+    for (int code = 0; code <= SW_MAX; code++) {
+      if (test_bit(code, sw_bits)) {
+        set_sw_cb(code, 1);
+      }
+    }
+  }
+
+  return 0;
 }
 
 #ifdef TW_USE_MINUI_WITH_DATA

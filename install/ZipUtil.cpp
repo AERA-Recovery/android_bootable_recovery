@@ -64,7 +64,7 @@ bool ExtractPackageRecursive(ZipArchiveHandle zip, const std::string& zip_path,
     }
 
     std::unique_ptr<void, decltype(&EndIteration)> guard(cookie, EndIteration);
-    ZipEntry64 entry;
+    ZipEntry entry;
     std::string name;
     int extractCount = 0;
     while (Next(cookie, &entry, &name) == 0) {

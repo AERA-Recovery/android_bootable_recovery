@@ -24,7 +24,8 @@
 
 #include <ziparchive/zip_archive.h>
 
-#include "package.h"
+#include "otautil/package.h"
+#include "recovery_ui/device.h"
 #include "recovery_ui/ui.h"
 
 enum InstallResult {

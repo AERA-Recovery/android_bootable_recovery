@@ -35,7 +35,7 @@
 
 #include "bootloader_message/bootloader_message.h"
 #include "install/install.h"
-#include "install/package.h"
+#include "otautil/package.h"
 #include "recovery_ui/device.h"
 #include "recovery_ui/ui.h"
 
@@ -151,7 +151,7 @@ static std::unique_ptr<Package> ReadWipePackage(size_t wipe_package_size) {
 // partitions to wipe from the package. Checks include
 // 1. verify the package.
 // 2. check metadata (ota-type, pre-device and serial number if having one).
-static bool CheckWipePackage(Package* wipe_package, __attribute__((unused)) RecoveryUI* ui) {
+static bool CheckWipePackage(Package* wipe_package) {
   if (!verify_package(wipe_package)) {
     LOG(ERROR) << "Failed to verify package";
     return false;
@@ -172,23 +172,27 @@ static bool CheckWipePackage(Package* wipe_package, __attribute__((unused)) Reco
   return CheckPackageMetadata(metadata, OtaType::BRICK);
 }
 
-bool WipeAbDevice(Device* device, size_t wipe_package_size) {
-  auto ui = device->GetUI();
-  ui->SetBackground(RecoveryUI::ERASING);
-  ui->SetProgressType(RecoveryUI::INDETERMINATE);
+bool WipeAbDevice(size_t wipe_package_size) {
+  //auto ui = device->GetUI();
+  //ui->SetBackground(RecoveryUI::ERASING);
+  //ui->SetProgressType(RecoveryUI::INDETERMINATE);
 
   auto wipe_package = ReadWipePackage(wipe_package_size);
   if (!wipe_package) {
     LOG(ERROR) << "Failed to open wipe package";
     return false;
   }
+  return WipeAbDevice(wipe_package.get());
+}
 
-  if (!CheckWipePackage(wipe_package.get(), ui)) {
+bool WipeAbDevice(Package* wipe_package) {
+  //auto ui = device->GetUI();
+  if (!CheckWipePackage(wipe_package)) {
     LOG(ERROR) << "Failed to verify wipe package";
     return false;
   }
 
-  auto partition_list = GetWipePartitionList(wipe_package.get());
+  auto partition_list = GetWipePartitionList(wipe_package);
   if (partition_list.empty()) {
     LOG(ERROR) << "Empty wipe ab partition list";
     return false;

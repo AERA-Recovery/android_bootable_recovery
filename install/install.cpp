@@ -46,13 +46,14 @@
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 
-#include "install/package.h"
 #include "install/spl_check.h"
-#include "install/verifier.h"
 #include "install/wipe_data.h"
+#include "install/wipe_device.h"
 #include "otautil/error_code.h"
+#include "otautil/package.h"
 #include "otautil/paths.h"
 #include "otautil/sysutil.h"
+#include "otautil/verifier.h"
 #include "private/setup_commands.h"
 #include "recovery_ui/ui.h"
 #include "recovery_utils/roots.h"
@@ -70,6 +71,10 @@ static_assert(kRecoveryApiVersion == RECOVERY_API_VERSION, "Mismatching recovery
 // static constexpr float VERIFICATION_PROGRESS_FRACTION = 0.25;
 // The charater used to separate dynamic fingerprints. e.x. sargo|aosp-sargo
 static const char* FINGERPRING_SEPARATOR = "|";
+static constexpr auto&& RELEASE_KEYS_TAG = "release-keys";
+// If brick packages are smaller than |MEMORY_PACKAGE_LIMIT|, read the entire package into memory
+static constexpr size_t MEMORY_PACKAGE_LIMIT = 1024 * 1024;
+
 static std::condition_variable finish_log_temperature;
 static bool isInStringList(const std::string& target_token, const std::string& str_list,
                            const std::string& deliminator);
@@ -213,6 +218,7 @@ bool CheckPackageMetadata(const std::map<std::string, std::string>& metadata, Ot
   // We allow the package to not have any serialno; and we also allow it to carry multiple serial
   // numbers split by "|"; e.g. serialno=serialno1|serialno2|serialno3 ... We will fail the
   // verification if the device's serialno doesn't match any of these carried numbers.
+
   auto pkg_serial_no = get_value(metadata, "serialno");
   if (!pkg_serial_no.empty()) {
     auto device_serial_no = android::base::GetProperty("ro.serialno", "");
@@ -226,6 +232,21 @@ bool CheckPackageMetadata(const std::map<std::string, std::string>& metadata, Ot
       LOG(ERROR) << "Package is for serial " << pkg_serial_no;
       return false;
     }
+  } else if (ota_type == OtaType::BRICK) {
+    const auto device_build_tag = android::base::GetProperty("ro.build.tags", "");
+    if (device_build_tag.empty()) {
+      LOG(ERROR) << "Unable to determine device build tags, serial number is missing from package. "
+                    "Rejecting the brick OTA package.";
+      return false;
+    }
+    if (device_build_tag == RELEASE_KEYS_TAG) {
+      LOG(ERROR) << "Device is release key build, serial number is missing from package. "
+                    "Rejecting the brick OTA package.";
+      return false;
+    }
+    LOG(INFO)
+        << "Serial number is missing from brick OTA package, permitting anyway because device is "
+        << device_build_tag;
   }
 
   if (ota_type == OtaType::AB) {
@@ -235,30 +256,41 @@ bool CheckPackageMetadata(const std::map<std::string, std::string>& metadata, Ot
   return true;
 }
 
-bool SetUpAbUpdateCommands(const std::string& package, ZipArchiveHandle zip, int status_fd,
-                           std::vector<std::string>* cmd) {
-  CHECK(cmd != nullptr);
-
+static std::string ExtractPayloadProperties(ZipArchiveHandle zip) {
   // For A/B updates we extract the payload properties to a buffer and obtain the RAW payload offset
   // in the zip file.
   static constexpr const char* AB_OTA_PAYLOAD_PROPERTIES = "payload_properties.txt";
   ZipEntry64 properties_entry;
   if (FindEntry(zip, AB_OTA_PAYLOAD_PROPERTIES, &properties_entry) != 0) {
     LOG(ERROR) << "Failed to find " << AB_OTA_PAYLOAD_PROPERTIES;
-    return false;
+    return {};
   }
   auto properties_entry_length = properties_entry.uncompressed_length;
   if (properties_entry_length > std::numeric_limits<size_t>::max()) {
     LOG(ERROR) << "Failed to extract " << AB_OTA_PAYLOAD_PROPERTIES
                << " because's uncompressed size exceeds size of address space. "
                << properties_entry_length;
-    return false;
+    return {};
   }
-  std::vector<uint8_t> payload_properties(properties_entry_length);
+  std::string payload_properties(properties_entry_length, '\0');
   int32_t err =
-      ExtractToMemory(zip, &properties_entry, payload_properties.data(), properties_entry_length);
+      ExtractToMemory(zip, &properties_entry, reinterpret_cast<uint8_t*>(payload_properties.data()),
+                      properties_entry_length);
   if (err != 0) {
     LOG(ERROR) << "Failed to extract " << AB_OTA_PAYLOAD_PROPERTIES << ": " << ErrorCodeString(err);
+    return {};
+  }
+  return payload_properties;
+}
+
+bool SetUpAbUpdateCommands(const std::string& package, ZipArchiveHandle zip, int status_fd,
+                           std::vector<std::string>* cmd) {
+  CHECK(cmd != nullptr);
+
+  // For A/B updates we extract the payload properties to a buffer and obtain the RAW payload offset
+  // in the zip file.
+  const auto payload_properties = ExtractPayloadProperties(zip);
+  if (payload_properties.empty()) {
     return false;
   }
 
@@ -332,6 +364,15 @@ static void log_max_temperature(int* max_temperature, const std::atomic<bool>& l
   }
 }
 
+static bool PerformPowerwashIfRequired(ZipArchiveHandle zip) {
+  const auto payload_properties = ExtractPayloadProperties(zip);
+  if (payload_properties.find("POWERWASH=1") != std::string::npos) {
+    LOG(INFO) << "Payload properties has POWERWASH=1, wiping userdata...";
+    return WipeData(nullptr);
+  }
+  return true;
+}
+
 // If the package contains an update binary, extract it and run it.
 static InstallResult TryUpdateBinary(Package* package, bool* wipe_cache,
                                      std::vector<std::string>* log_buffer, int retry_count,
@@ -343,7 +384,20 @@ static InstallResult TryUpdateBinary(Package* package, bool* wipe_cache,
     return INSTALL_CORRUPT;
   }
 
-  bool package_is_ab = get_value(metadata, "ota-type") == OtaTypeToString(OtaType::AB);
+  const bool package_is_ab = get_value(metadata, "ota-type") == OtaTypeToString(OtaType::AB);
+  const bool package_is_brick = get_value(metadata, "ota-type") == OtaTypeToString(OtaType::BRICK);
+  if (package_is_brick) {
+    LOG(INFO) << "Installing a brick package";
+    if (package->GetType() == PackageType::kFile &&
+        package->GetPackageSize() < MEMORY_PACKAGE_LIMIT) {
+      std::vector<uint8_t> content(package->GetPackageSize());
+      if (package->ReadFullyAtOffset(content.data(), content.size(), 0)) {
+        auto memory_package = Package::CreateMemoryPackage(std::move(content));
+        return WipeAbDevice(memory_package.get()) ? INSTALL_SUCCESS : INSTALL_ERROR;
+      }
+    }
+    return WipeAbDevice(package) ? INSTALL_SUCCESS : INSTALL_ERROR;
+  }
   bool device_supports_ab = android::base::GetBoolProperty("ro.build.ab_update", false);
   bool ab_device_supports_nonab =
       android::base::GetBoolProperty("ro.virtual_ab.allow_non_ab", false);
@@ -529,6 +583,9 @@ static InstallResult TryUpdateBinary(Package* package, bool* wipe_cache,
     return INSTALL_ERROR;
   } else {
     LOG(FATAL) << "Invalid status code " << status;
+  }
+  if (package_is_ab) {
+    PerformPowerwashIfRequired(zip);
   }
 
   return INSTALL_SUCCESS;

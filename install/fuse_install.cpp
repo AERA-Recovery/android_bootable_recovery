@@ -150,6 +150,7 @@ InstallResult InstallWithFuseFromPath(std::string_view path, __attribute__((unus
   // We used to use fuse in a thread as opposed to a process. Since accessing
   // through fuse involves going from kernel to userspace to kernel, it leads
   // to deadlock when a page fault occurs. (Bug: 26313124)
+  auto ui = device->GetUI();
   pid_t child;
   if ((child = fork()) == 0) {
     bool status = StartInstallPackageFuse(path);
@@ -225,7 +226,7 @@ InstallResult ApplyFromSdcard(Device* device) {
   ui->Print("\n-- Install %s ...\n", path.c_str());
   SetSdcardUpdateBootloaderMessage();
 
-  auto result = InstallWithFuseFromPath(path, ui);
+  auto result = InstallWithFuseFromPath(path, device);
   ensure_path_unmounted(SDCARD_ROOT);
   return result;
 }
