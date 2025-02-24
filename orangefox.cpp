@@ -45,7 +45,6 @@
 #include "otautil/sysutil.h"
 #include <ziparchive/zip_archive.h>
 #include "install/include/install/install.h"
-#include "install/include/install/verifier.h"
 #include "variables.h"
 #include "data.hpp"
 #include "partitions.hpp"
