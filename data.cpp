@@ -827,7 +827,7 @@ void DataManager::SetDefaultValues()
   #endif
 
   #ifdef OF_FLASHLIGHT_ENABLE 
-    if (OF_FLASHLIGHT_ENABLE == "1") {
+    if ((string)OF_FLASHLIGHT_ENABLE == "1") {
       mConst.SetValue("of_fl_path_1", OF_FL_PATH1);
       mConst.SetValue("of_fl_path_2", OF_FL_PATH2);
       mData.SetValue("of_flash_on", "0");
@@ -1243,7 +1243,7 @@ void DataManager::SetDefaultValues()
   mData.SetValue("tw_terminal_state", "0");
   mData.SetValue("tw_background_thread_running", "0");
   mData.SetValue(TW_RESTORE_FILE_DATE, "0");
-  mPersist.SetValue("tw_military_time", "1");
+  mPersist.SetValue("tw_military_time", "0");
   mPersist.SetValue(TW_UNMOUNT_VENDOR, "1");
 #ifdef AB_OTA_UPDATER
 	mPersist.SetValue(TW_UNMOUNT_SYSTEM, "0");
@@ -1400,7 +1400,7 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("tw_has_mtp", "0");
   mConst.SetValue("tw_mtp_enabled", "0");
 #endif
-  mPersist.SetValue("tw_mount_system_ro", "0");
+  mPersist.SetValue("tw_mount_system_ro", "2");
   mPersist.SetValue("tw_never_show_system_ro_page", "0");
   mPersist.SetValue("tw_language", EXPAND(TW_DEFAULT_LANGUAGE));
   LOGINFO("LANG: %s\n", EXPAND(TW_DEFAULT_LANGUAGE));
@@ -1425,10 +1425,22 @@ void DataManager::SetDefaultValues()
 	mConst.SetValue("tw_oem_build", "0");
 #endif
 
+#ifndef TW_EXCLUDE_NANO
+	mConst.SetValue("tw_include_nano", "1");
+#else
+	LOGINFO("TW_EXCLUDE_NANO := true\n");
+	mConst.SetValue("tw_include_nano", "0");
+ #endif
+
 	mData.SetValue("tw_flash_both_slots", "0");
 	mData.SetValue("tw_is_slot_part", "0");
 
 	mData.SetValue("tw_enable_adb_backup", "0");
+
+	if (TWFunc::Path_Exists("/system/bin/logcat"))
+		mConst.SetValue("tw_logcat_exists", "1");
+	else
+		mConst.SetValue("tw_logcat_exists", "0");
 
 	if (TWFunc::Path_Exists(TWFunc::Get_MagiskBoot()))
 		mConst.SetValue("tw_has_repack_tools", "1");
