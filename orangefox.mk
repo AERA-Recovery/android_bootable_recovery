@@ -662,7 +662,7 @@ endif
 
 # bale out now if TW_MAX_BRIGHTNESS is not set
 ifeq ($(TW_MAX_BRIGHTNESS),)
-  $(error 'TW_MAX_BRIGHTNESS' is not set! You must provide a value for 'TW_MAX_BRIGHTNESS' in your device tree)
+  $(warning 'TW_MAX_BRIGHTNESS' is not set! You must provide a value for 'TW_MAX_BRIGHTNESS' in your device tree)
 endif
 
 # whether to use legacy services for battery, or health services (default - but broken on Mtk)
