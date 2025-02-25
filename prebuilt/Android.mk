@@ -559,6 +559,7 @@ LOCAL_MODULE_CLASS := ETC
 LOCAL_MODULE_PATH := $(TARGET_ROOT_OUT)/system/bin
 LOCAL_REQUIRED_MODULES := nano libncurses
 LOCAL_POST_INSTALL_CMD += \
+    mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/etc/; \
     cp -rf $(TARGET_OUT_SYSTEM_EXT_ETC)/nano $(TARGET_RECOVERY_ROOT_OUT)/system/etc/; \
     cp -rf external/libncurses/lib/terminfo $(TARGET_RECOVERY_ROOT_OUT)/system/etc/;
 include $(BUILD_PHONY_PACKAGE)
