@@ -412,16 +412,24 @@ int DataManager::GetValue(const string & varName, string & value)
   string localStr = varName;
   int ret = 0;
 
-  if (!mInitialized)
-    SetDefaultValues();
-
   // Strip off leading and trailing '%' if provided
   if (localStr.length() > 2 && localStr[0] == '%'
       && localStr[localStr.length() - 1] == '%')
     {
-      localStr.erase(0, 1);
-      localStr.erase(localStr.length() - 1, 1);
+      std::regex pattern(R"(%([^%]+)%)");
+      std::smatch match;
+      string retVal;
+      while (std::regex_search(localStr, match, pattern))
+        {
+          ret = GetValue(match[1].str(), retVal) ? 1 : ret ? 1 : 0;
+          localStr.replace(match.position(0), match.length(0), retVal);
+        }
+      value = localStr;
+      return ret;
     }
+
+  if (!mInitialized)
+  SetDefaultValues();
 
   // Handle magic values
   if (GetMagicValue(localStr, value) == 0)
