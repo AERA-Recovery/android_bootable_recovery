@@ -251,8 +251,7 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 		return false;
 	}
 	DataManager::SetProgress(1);
-	TWFunc::removeDir(REPACK_ORIG_DIR, false);
-	if (part->Is_SlotSelect()) { if (Repack_Options.Type == REPLACE_RAMDISK || Repack_Options.Type == REPLACE_RAMDISK_UNPACKED) {
+	if (part->Is_SlotSelect() && (Repack_Options.Type == REPLACE_RAMDISK || Repack_Options.Type == REPLACE_RAMDISK_UNPACKED)) {
 		LOGINFO("Switching slots to flash ramdisk to both partitions\n");
 		string Current_Slot = PartitionManager.Get_Active_Slot_Display();
 		if (Current_Slot == "A")
@@ -261,6 +260,15 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 			PartitionManager.Override_Active_Slot("A");
 		DataManager::SetProgress(.25);
 		PartitionManager.Update_System_Details();
+#ifdef OF_AB_DEVICE_WITH_RECOVERY_PARTITION
+		// skip repacking second recovery partition, just flash prepared image since we assume recovery contains only ramdisk
+		DataManager::SetValue("tw_flash_partition", dest_partition + ";");
+		if (!PartitionManager.Flash_Image(path, file)) {
+			LOGINFO("Error flashing new image\n");
+			return false;
+		}
+#else
+		TWFunc::removeDir(REPACK_ORIG_DIR, false);
 		if (!Backup_Image_For_Repack(part, REPACK_ORIG_DIR, Repack_Options.Backup_First, gui_lookup("repack", "Repack")))
 			return false;
 		if (TWFunc::copy_file(REPACK_NEW_DIR + ramdisk_cpio, REPACK_ORIG_DIR + ramdisk_cpio, 0644)) {
@@ -295,9 +303,10 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 			LOGINFO("Error flashing new image\n");
 			return false;
 		}
+#endif
 		DataManager::SetProgress(1);
 		TWFunc::removeDir(REPACK_ORIG_DIR, false);
-	}}
+	} else {TWFunc::removeDir(REPACK_ORIG_DIR, false);}
 	TWFunc::removeDir(REPACK_NEW_DIR, false);
 	if (dest_partition == "/boot")
 		gui_msg(Msg(msg::kWarning, "repack_overwrite_warning=If device was previously rooted, then root has been overwritten and will need to be reinstalled."));
