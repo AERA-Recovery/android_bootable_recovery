@@ -1940,6 +1940,7 @@ int GUIAction::terminalcommand(std::string arg)
       DataManager::SetValue("tw_background_thread_running", 1);
       FILE *fp;
       char line[512];
+      int exit_code = 0;
 
       fp = popen(command.c_str(), "r");
       if (fp == NULL)
@@ -1982,9 +1983,9 @@ int GUIAction::terminalcommand(std::string arg)
 		    keep_going = 0;	// Done executing
 		}
 	    }
-	  fclose(fp);
+	  exit_code = WEXITSTATUS(pclose(fp));
 	}
-      DataManager::SetValue("tw_operation_status", 0); //WEXITSTATUS(pclose(fp)) != 0 ? 1 : 0
+      DataManager::SetValue("tw_operation_status", exit_code != 0 ? 1 : 0);
       DataManager::SetValue("tw_operation_state", 1);
       DataManager::SetValue("tw_terminal_state", 0);
       DataManager::SetValue("tw_background_thread_running", 0);
@@ -2856,6 +2857,7 @@ int GUIAction::cmdf(std::string arg, std::string file)
   int fd = fileno(fp), has_data = 0, check = 0, keep_going = -1;
   struct timeval timeout;
   fd_set fdset;
+  int exit_code = 0;
 
   while (keep_going) {
     FD_ZERO(&fdset);
@@ -2877,10 +2879,10 @@ int GUIAction::cmdf(std::string arg, std::string file)
         keep_going = 0;
     }
   }
-  fclose(fp);
+  exit_code = WEXITSTATUS(pclose(fp));
   DataManager::SetValue("tw_terminal_state", 0);
   DataManager::SetValue("tw_background_thread_running", 0);
-  return 0; //WEXITSTATUS(pclose(fp)) != 0 ? 1 : 0
+  return exit_code != 0 ? 1 : 0;
 }
 
 int GUIAction::batch(std::string arg __unused)
