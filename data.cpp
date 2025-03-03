@@ -931,6 +931,9 @@ void DataManager::SetDefaultValues()
 #else
 	LOGINFO("TW_NO_HAPTICS := true\n");
 	mConst.SetValue("tw_disable_haptics", "1");
+	mPersist.SetValue("tw_button_vibrate", "0");
+	mPersist.SetValue("tw_keyboard_vibrate", "0");
+	mPersist.SetValue("tw_action_vibrate", "0");
 #endif
 
   TWPartition *store = PartitionManager.Get_Default_Storage_Partition();
