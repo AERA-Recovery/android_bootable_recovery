@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
  *
- * Copyright (C) 2018-2024 OrangeFox Recovery Project
+ * Copyright (C) 2018-2025 OrangeFox Recovery Project
  * This file is part of the OrangeFox Recovery Project.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,7 +22,7 @@
 #define _VARIABLES_HEADER_
 
 #define FOX_RECOVERY_NAME	"OrangeFox"
-#define FOX_MAIN_VERSION_STR    "R11.1"
+#define FOX_MAIN_VERSION_STR    "R11.2"
 #define FOX_BRANCH		"12"
 #define TW_VERSION_STR 		FOX_VERSION
 #define BUILD_TYPE_STR 		FOX_BUILD_TYPE
