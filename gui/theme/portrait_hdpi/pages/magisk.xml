@@ -6,14 +6,12 @@
 				<action function="ftls">
 					prop="/data/adb/magisk/util_functions.sh"
 					found="twrp xset ft_mm_found="
-					mcore="twrp xset magisk_core="
   
 					if [ ! -d "/data/adb/modules" ] || [ ! -f "$prop" ]
 					then ${found}0; exit 1; else ${found}1; fi
-					if [ -f "/cache/.disable_magisk" ] || [ -f "/data/cache/.disable_magisk" ]
-					then ${mcore}1; else ${mcore}0; fi
 					
 					twrp xset ft_mm_ver=$(cat "$prop" | grep "MAGISK_VER=" | cut -d'=' -f2 | sed 's*"**g')
+					twrp xset ft_mm_ver_code=$(cat "$prop" | grep "MAGISK_VER_CODE=" | cut -d'=' -f2 | sed 's*"**g')
 				</action>
 			</action>
 
@@ -33,46 +31,6 @@
 		</page>
 
 		<page name="magisk">
-			<fill color="%accent%">
-				<condition var1="magisk_core" var2="1"/>
-				<placement x="0" y="%ab_h%" w="%screen_w%" h="%ab_btn_h%"/>
-			</fill>
-
-			<fill color="%unactive_title%">
-				<condition var1="magisk_core" op="!=" var2="1"/>
-				<placement x="0" y="%ab_h%" w="%screen_w%" h="%ab_btn_h%"/>
-			</fill>
-
-			<image style="switch_off">
-				<condition var1="magisk_core" op="!=" var2="1"/>
-				<placement x="%ab_btn1_x%" y="%ab2_y%" placement="4"/>
-			</image>
-
-			<image style="switch_on">
-				<condition var1="magisk_core" var2="1"/>
-				<placement x="%ab_btn1_x%" y="%ab2_y%" placement="4"/>
-			</image>
-
-			<text style="text_ab_switch">
-				<placement x="%col1_x_indent%" y="%ab_bc2_y%"/>
-				<text>Magisk Core</text>
-			</text>
-
-			<button style="bs_btn">
-				<placement x="0" y="%ab_h%" w="%screen_w%" h="%ab_btn_h%"/>
-				<action function="ftls">
-					file1="/data/cache/.disable_magisk"
-					file2="/cache/.disable_magisk"
-					core="twrp xset magisk_core="
-
-					if [ -f "$file1" ] || [ -f "$file2" ]
-					then rm "$file1" "$file2"; else touch "$file1" "$file2"; fi
-					if [ -f "$file1" ] || [ -f "$file2" ]
-					then ${core}1; else ${core}0; fi
-				</action>
-				<action function="page">magisk</action>
-			</button>
-
 			<template name="base"/>
 
 			<text style="text_ab_title">
@@ -93,33 +51,26 @@
 				<image resource="actionbar_delete"/>
 			</image>
 
-			<text style="caption">
-				<placement x="%col1_x_caption%" y="%row1_3a_y%"/>
-				<text>{@mm_ver}</text>
-			</text>
-
-			<text style="text_body1">
-				<placement x="%col1_x_caption%" y="%row2_1a_y%"/>
-				<text>%ft_mm_ver%</text>
+			<text style="text_ab_title">
+				<placement x="%center_x%" y="%ab_bc2_y%" placement="5"/>
+				<text>{@mm_ver}: %ft_mm_ver% (%ft_mm_ver_code%)</text>
 			</text>
 
 			<button style="menu_btn">
 				<condition var1="fileexists" var2="%fox_magisk_path%/%fox_magisk_zip_installer%"/>
-				<placement x="%col1_x_caption%" y="%row1_3a_y%" w="%input_w%" h="%mb_h_hide%"/>
+				<placement x="0" y="%ab_bc2_y%" w="%screen_w%" h="%mb_h_hide%"/>
 				<action function="set">install_back=magisk_mount</action>
 				<action function="page">mod_magisk</action>
 			</button>
 
 			<text style="caption">
-				<condition var1="magisk_core" op="!=" var2="1"/>
-				<placement x="%col1_x_caption%" y="%row2_3a_y%"/>
+				<placement x="%col1_x_caption%" y="%row1_3_y%"/>
 				<text>{@mm_modules}</text>
 			</text>
 
 			<fileselector style="fileselector_b">
-				<condition var1="magisk_core" op="!=" var2="1"/>
 				<condition var1="list_font" var2="1"/>
-				<placement x="0" y="%row3_1a_y%" w="%fileselector_width%" h="%magisk_list_h%"/>
+				<placement x="0" y="%row2_1_y%" w="%fileselector_width%" h="%magisk_list_h%"/>
 				<sort name="0"/>
 				<icon folder="module_icon" file="module_icon" />
 				<filter folders="1" files="0" nav="0" hidden="1"/>
@@ -129,9 +80,8 @@
 			</fileselector>
 
 			<fileselector style="fileselector_s">
-				<condition var1="magisk_core" op="!=" var2="1"/>
 				<condition var1="list_font" op="!=" var2="1"/>
-				<placement x="0" y="%row3_1a_y%" w="%fileselector_width%" h="%magisk_list_h%"/>
+				<placement x="0" y="%row2_1_y%" w="%fileselector_width%" h="%magisk_list_h%"/>
 				<sort name="0"/>
 				<iconsize w="%col1_x_indent%" h="90" padding="25"/>
 				<icon folder="module_icon_small" file="module_icon_small" />
@@ -148,7 +98,7 @@
 					prop(){ twrp xset ft_mm_${1}="$(cat "%mmgui_file%/module.prop" | grep "${1}=" | cut -d'=' -f2)"; }
 					stat(){ if [ -f "%mmgui_file%/${1}" ]; then ${set}${1}=1; else ${set}${1}=0; fi; }
 
-					prop name; prop author; prop version; stat disable; stat auto_mount; stat remove;
+					prop name; prop author; prop version; stat disable; stat skip_mount; stat remove;
 				</action>
 				<action function="page">magisk_actions</action>
 			</action>
@@ -256,14 +206,14 @@
 			<listbox style="settingslist">
 				<placement x="0" y="%row5_2_y%" w="%screen_w%" h="%lb_l2%"/>
 				<listitem name="{@mm_module_mount}">
-					<condition var1="mmodule_auto_mount" op="!=" var2="0"/>
+					<condition var1="mmodule_skip_mount" op="!=" var2="0"/>
 					<icon res="checkbox_true"/>
-					<action function="ftls">rm "%mmgui_file%/auto_mount" &amp;&amp; twrp xset mmodule_auto_mount=0</action>
+					<action function="ftls">rm "%mmgui_file%/skip_mount" &amp;&amp; twrp xset mmodule_skip_mount=0</action>
 				</listitem>
 				<listitem name="{@mm_module_mount}">
-					<condition var1="mmodule_auto_mount" var2="0"/>
+					<condition var1="mmodule_skip_mount" var2="0"/>
 					<icon res="checkbox_false"/>
-					<action function="ftls">touch "%mmgui_file%/auto_mount" &amp;&amp; twrp xset mmodule_auto_mount=1</action>
+					<action function="ftls">touch "%mmgui_file%/skip_mount" &amp;&amp; twrp xset mmodule_skip_mount=1</action>
 				</listitem>
 				<listitem name="{@mm_remove}">
 					<condition var1="mmodule_remove" op="!=" var2="0"/>

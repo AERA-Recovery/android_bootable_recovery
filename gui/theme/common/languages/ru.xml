@@ -939,7 +939,7 @@
 
 		<!-- MMGUI -->
 		<string name="mm_module_active">Активен</string>
-		<string name="mm_module_mount">Авто-монтирование</string>
+		<string name="mm_module_mount">Пропустить монтирование</string>
 		<string name="mm_modules">Модули</string>
 		<string name="mm_ver">Версия Magisk</string>
 		<string name="mm_mod_ver">Версия модуля</string>
