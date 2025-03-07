@@ -115,7 +115,12 @@ static void *ActionThread_work_wrapper(void *data)
 ActionThread::ActionThread()
 {
   m_thread_running = false;
-  pthread_mutex_init(&m_act_lock, NULL);
+  DataManager::SetValue("tw_action_thread_running", "0");
+  pthread_mutexattr_t attr;
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&m_act_lock, &attr);
+  pthread_mutexattr_destroy(&attr);
 }
 
 ActionThread::~ActionThread()
@@ -159,6 +164,7 @@ void ActionThread::threadActions(GUIAction * act)
   else
     {
       m_thread_running = true;
+      DataManager::SetValue("tw_action_thread_running", "1");
       pthread_mutex_unlock(&m_act_lock);
       ThreadData *d = new ThreadData(this, act);
       pthread_create(&m_thread, NULL, &ActionThread_work_wrapper, d);
@@ -176,6 +182,7 @@ void ActionThread::run(void *data)
 
   pthread_mutex_lock(&m_act_lock);
   m_thread_running = false;
+  DataManager::SetValue("tw_action_thread_running", "0");
   pthread_mutex_unlock(&m_act_lock);
   delete d;
 }
