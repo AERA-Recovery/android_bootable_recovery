@@ -114,6 +114,9 @@ error:
 }
 
 int InfoManager::SaveValues(void) {
+	if (android::base::GetProperty("ro.twrp.fastbootd", "") == "1") // do not proceed in fastbootd mode
+		return -1;
+
 	if (File.empty())
 		return -1;
 

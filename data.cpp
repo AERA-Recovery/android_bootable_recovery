@@ -663,6 +663,9 @@ void DataManager::update_tz_environment_variables(void)
 
 void DataManager::SetBackupFolder()
 {
+  if (android::base::GetProperty("ro.twrp.fastbootd", "") == "1") // do not proceed in fastbootd mode
+    return;
+
   string str = GetCurrentStoragePath();
   TWPartition *partition = PartitionManager.Find_Partition_By_Path(str);
   str += "/Fox/BACKUPS/";
@@ -1540,6 +1543,9 @@ int DataManager::GetMagicValue(const string& varName, string& value)
 void DataManager::Output_Version(void)
 {
 #ifndef TW_OEM_BUILD
+	if (android::base::GetProperty("ro.twrp.fastbootd", "") == "1") // do not proceed in fastbootd mode
+		return;
+
 	string Path;
 	char version[255];
 
