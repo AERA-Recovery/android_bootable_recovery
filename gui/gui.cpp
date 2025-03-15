@@ -841,6 +841,15 @@ extern "C" int gui_loadResources(void)
 	int check = 0;
 	DataManager::GetValue(TW_IS_ENCRYPTED, check);
 
+#ifdef FOX_ALLOW_EARLY_SETTINGS_LOAD
+#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+	if (PartitionManager.Mount_Settings_Storage(false))
+		DataManager::ReadSettingsFile();
+#else
+	DataManager::LoadPersistValues();
+#endif
+#endif
+
 	if (check)
 	{
 		if (PageManager::LoadPackage("OrangeFox", TWRES "ui.xml", "decrypt"))
@@ -890,6 +899,17 @@ extern "C" int gui_loadResources(void)
 	PageManager::SelectPackage("OrangeFox");
 
 	gGuiInitialized = 1;
+#ifdef FOX_ALLOW_EARLY_SETTINGS_LOAD
+#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+	// Read the settings again to overwrite gui default settings that were loaded by PageManager::LoadPackage
+	if (PartitionManager.Mount_Settings_Storage(false))
+		DataManager::ReadSettingsFile();
+#else
+	DataManager::LoadPersistValues();
+#endif
+	PageManager::LoadLanguage(DataManager::GetStrValue("tw_language"));
+	GUIConsole::Translate_Now();
+#endif
 	return 0;
 
 error:

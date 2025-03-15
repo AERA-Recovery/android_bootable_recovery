@@ -50,13 +50,8 @@
 
 #define OF_SPLASH_MAX_SIZE_STR "of_splash_max_size"
 
-#ifdef FOX_SETTINGS_ROOT_DIRECTORY
-#define OF_STORAGE_PATH		    FOX_SETTINGS_ROOT_DIRECTORY"Fox"
-#else
-#define OF_STORAGE_PATH		    "/sdcard/Fox/"
-#endif
-
-#define TW_STORAGE_PATH             "/data/recovery/"
+#define OF_STORAGE_PATH             "/sdcard/Fox"
+#define TW_STORAGE_PATH             "/data/recovery"
 #define TW_SETTINGS_FILE	    ".foxs"
 #define PERSIST_SETTINGS_FILE       "/persist/.foxs"
 
@@ -69,15 +64,22 @@ static const std::string Fox_Bin_Dir = "/system/bin";
 static const std::string Fox_Tmp = "/tmp";
 
 static const std::string Fox_Home =
-#ifdef FOX_USE_DATA_RECOVERY_FOR_SETTINGS
-TW_STORAGE_PATH"Fox";
+#ifdef FOX_STUFF_ROOT_DIRECTORY
+FOX_STUFF_ROOT_DIRECTORY"/Fox";
+#else
+OF_STORAGE_PATH;
+#endif
+
+static const std::string Fox_Settings_Path =
+#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+FOX_SETTINGS_ROOT_DIRECTORY"/Fox";
 #else
 OF_STORAGE_PATH;
 #endif
 
 static const std::string Fox_ResetProp_Bin = "/system/bin/resetprop";
-static const std::string FOX_THEME_PATH = Fox_Home + "/.theme";
-static const std::string FOX_NAVBAR_PATH =  Fox_Home + "/.navbar";
+static const std::string FOX_THEME_PATH = Fox_Settings_Path + "/.theme";
+static const std::string FOX_NAVBAR_PATH =  Fox_Settings_Path + "/.navbar";
 static const std::string Fox_Home_Files = Fox_Home + "/FoxFiles";
 static const std::string Fox_Logs_Dir = Fox_Home + "/logs";
 static const std::string FOX_OTA_PATH =  Fox_Home + "/OTA";

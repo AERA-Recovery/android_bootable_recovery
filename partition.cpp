@@ -1366,6 +1366,11 @@ void TWPartition::Setup_Data_Media() {
 		}
 	}
 	ExcludeAll(Mount_Point + "/media");
+#ifdef FOX_STUFF_ROOT_DIRECTORY
+	if (TWFunc::Get_Root_Path(Fox_Home) == Mount_Point) {
+		Storage_Path = FOX_STUFF_ROOT_DIRECTORY;
+	}
+#endif
 }
 
 void TWPartition::Find_Real_Block_Device(string& Block, bool Display_Error) {

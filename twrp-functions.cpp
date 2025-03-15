@@ -348,16 +348,16 @@ void TWFunc::Run_Before_Reboot(void)
     // logs & stuff
     string Logs_Dir = Fox_Logs_Dir;
     bool use_data_recovery = (TWFunc::Fox_Property_Get("of_decryption_failed") == "true");
-    #ifdef FOX_USE_DATA_RECOVERY_FOR_SETTINGS
-	use_data_recovery = true;
-    #endif
-
+#ifdef FOX_USE_DATA_RECOVERY_FOR_SETTINGS
+       use_data_recovery = true;
+#endif
+#if defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) || !defined(FOX_STUFF_ROOT_DIRECTORY)
     // check whether decryption failed, and, if so, store the lastrecovery log under /data/recovery/
     if (use_data_recovery) {
     	Logs_Dir = TW_STORAGE_PATH;
-    	Logs_Dir += "Fox/logs";
+    	Logs_Dir += "/Fox/logs";
     }
-
+#endif
     if (!Path_Exists(Logs_Dir)) {
 	  TWFunc::Recursive_Mkdir(Logs_Dir, false);
     }
@@ -375,7 +375,7 @@ void TWFunc::Run_Before_Reboot(void)
 
     copy_file("/tmp/recovery.log", Logs_Dir + "/lastrecoverylog.log", 0644);
 
-#if defined(OF_DONT_KEEP_LOG_HISTORY) || defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) // don't backup historic logs if we're not saving to /sdcard/Fox
+#if defined(OF_DONT_KEEP_LOG_HISTORY) || defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) // don't backup historic logs
 	return;
 #endif
 
@@ -2653,9 +2653,12 @@ void TWFunc::Welcome_Message(void)
     gui_print("[Release]   : %s\n", FOX_BUILD);
     gui_print("[Variant]   : %s\n", FOX_VARIANT);
     gui_print("[Codebase]  : %s, %s\n", Fox_Property_Get("ro.build.version.sdk").c_str(), FOX_CURRENT_DEV_STR);
-    #if defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) || defined(FOX_SETTINGS_ROOT_DIRECTORY)
-    gui_print("[Settings]  : %s\n", Fox_Home.c_str());
-    #endif
+#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+    gui_print("[Settings]  : %s\n", Fox_Settings_Path.c_str());
+#endif
+#ifdef FOX_STUFF_ROOT_DIRECTORY
+    gui_print("[Stuff]     : %s\n", Fox_Home.c_str());
+#endif
     gui_print("[Build date]: %s\n", DataManager::GetStrValue("FOX_BUILD_DATE_REAL").c_str());
     
     if (uppercase(FOX_BUILD) == "UNOFFICIAL")
@@ -2831,7 +2834,7 @@ void TWFunc::OrangeFox_Startup(void)
 	{
 	  if (!Path_Exists(Fox_Home))
 	    {
-	      if (mkdir(Fox_Home.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH))
+	      if (!Create_Dir_Recursive(Fox_Home,  S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH, 0, 0))
 		  LOGINFO("Error making %s directory: %s\n", Fox_Home.c_str(), strerror(errno));
 	    }         
 	  if (Path_Exists(Fox_Home))
@@ -2844,6 +2847,12 @@ void TWFunc::OrangeFox_Startup(void)
   else
     {
       DataManager::SetValue("fox_resource_dir", Fox_Home_Files.c_str());
+    }
+
+  if (!Path_Exists(Fox_Settings_Path))
+    {
+      if (!Create_Dir_Recursive(Fox_Settings_Path,  S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH, 0, 0))
+        LOGINFO("Error making %s directory: %s\n", Fox_Settings_Path.c_str(), strerror(errno));
     }
 
   if (!Path_Exists(Fox_Logs_Dir))

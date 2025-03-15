@@ -104,7 +104,7 @@ static void Decrypt_Page(bool SkipDecryption, bool datamedia) {
 		}
 	} else if (datamedia) {
 		PartitionManager.Update_System_Details();
-		if (tw_get_default_metadata(DataManager::GetSettingsStoragePath().c_str()) != 0) {
+		if (tw_get_default_metadata(DataManager::GetSettingsStoragePath().c_str()) != 0 && tw_get_default_metadata(DataManager::GetCurrentStoragePath().c_str()) != 0) {
 			LOGINFO("Failed to get default contexts and file mode for storage files.\n");
 		} else {
 			LOGINFO("Got default contexts and file mode for storage files.\n");
@@ -263,7 +263,9 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 		TWFunc::Fixup_Time_On_Boot();
 
 	TWFunc::Update_Log_File();
+#ifndef FOX_ALLOW_EARLY_SETTINGS_LOAD
 	DataManager::ReadSettingsFile();
+#endif
 
 	// Run any outstanding OpenRecoveryScript
 	std::string cacheDir = TWFunc::get_log_dir();
@@ -320,7 +322,9 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 				if (!created)
 					LOGERR("Unable to create log directory for TWRP\n");
 			}
+#ifndef FOX_ALLOW_EARLY_SETTINGS_LOAD
 			DataManager::ReadSettingsFile();
+#endif
 #endif
 		} else {
 			if ((DataManager::GetIntValue("tw_mount_system_ro") == 0 && sys->Check_Lifetime_Writes() == 0) || DataManager::GetIntValue("tw_mount_system_ro") == 2) {
@@ -393,7 +397,11 @@ static bool Fox_CheckReload_Themes() {
   || TWFunc::Fox_Property_Get("orangefox.mount_to_decrypt") == "1") {
 	DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
     }
+#if defined(FOX_ALLOW_EARLY_SETTINGS_LOAD) && defined(FOX_SETTINGS_ROOT_DIRECTORY)
+  return false;
+#else
   return (TWFunc::Path_Exists(FOX_THEME_PATH) || TWFunc::Path_Exists(FOX_NAVBAR_PATH));
+#endif
 }
 
 int main(int argc, char **argv) {
@@ -588,11 +596,11 @@ int main(int argc, char **argv) {
 	} else {
 		process_recovery_mode(adb_bu_fifo, startup.Should_Skip_Decryption());
 	}
-
+#ifndef FOX_ALLOW_EARLY_SETTINGS_LOAD
 	// Language
 	PageManager::LoadLanguage(DataManager::GetStrValue("tw_language"));
 	GUIConsole::Translate_Now();
-
+#endif
 	// Fox extra setup
   	TWFunc::Setup_Verity_Forced_Encryption();
 

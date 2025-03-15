@@ -2182,15 +2182,18 @@ void TWPartitionManager::Post_Decrypt(const string& Block_Device) {
 		if (!dat->Mount(false)) {
 			LOGERR("Unable to mount /data after decryption");
 		}
+		string bind_path = "";
+		if (dat->Has_Data_Media && TWFunc::Path_Exists("/data/media/0"))
+			bind_path = "/data/media/0";
+		else
+			bind_path = "/data/media";
 
-		if (dat->Has_Data_Media && TWFunc::Path_Exists("/data/media/0")) {
-			dat->Storage_Path = "/data/media/0";
-		} else {
-			dat->Storage_Path = "/data/media";
-		}
+		if (TWFunc::Get_Root_Path(Fox_Home) != dat->Mount_Point) {
+			dat->Storage_Path = bind_path;
+			dat->Symlink_Path = dat->Storage_Path;
+		} else dat->Symlink_Path = bind_path;
 
-		dat->Symlink_Path = dat->Storage_Path;
-		DataManager::SetValue("tw_storage_path", dat->Symlink_Path);
+		DataManager::SetValue("tw_storage_path", dat->Storage_Path);
 		//DataManager::SetValue("tw_settings_path", dat->Symlink_Path);
 		DataManager::SetValue("tw_settings_path", Fox_Home);
 		LOGINFO("New storage path after decryption: %s\n", dat->Storage_Path.c_str());
@@ -3220,11 +3223,14 @@ bool TWPartitionManager::Add_Remove_MTP_Storage(TWPartition* Part, int message_t
 		} else if (message_type == MTP_MESSAGE_ADD_STORAGE && Part->Is_Mounted()) {
 			mtp_message.message_type = MTP_MESSAGE_ADD_STORAGE; // Add
 			mtp_message.storage_id = Part->MTP_Storage_ID;
-			if (Part->Storage_Path.size() >= sizeof(mtp_message.path)) {
-				LOGERR("Storage path '%s' too large for mtpmsg\n", Part->Storage_Path.c_str());
+			string path = Part->Storage_Path;
+			if ((TWFunc::Get_Root_Path(Fox_Home) == Part->Mount_Point) && !Part->Symlink_Path.empty())
+				path = Part->Symlink_Path;
+			if (path.size() >= sizeof(mtp_message.path)) {
+				LOGERR("Storage path '%s' too large for mtpmsg\n", path.c_str());
 				return false;
 			}
-			strcpy(mtp_message.path, Part->Storage_Path.c_str());
+			strcpy(mtp_message.path, path.c_str());
 			if (Part->Storage_Name.size() >= sizeof(mtp_message.display)) {
 				LOGERR("Storage name '%s' too large for mtpmsg\n", Part->Storage_Name.c_str());
 				return false;

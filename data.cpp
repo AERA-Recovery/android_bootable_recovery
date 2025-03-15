@@ -316,7 +316,7 @@ int DataManager::RestorePasswordBackup(void) {
 
 int DataManager::LoadPersistValues(void)
 {
-#ifdef OF_DEVICE_WITHOUT_PERSIST
+#if defined(OF_DEVICE_WITHOUT_PERSIST) || defined(FOX_SETTINGS_ROOT_DIRECTORY)
 	//LOGINFO("OF_DEVICE_WITHOUT_PERSIST is set - avoiding /persist...\n");
 	return -1;
 #endif
@@ -369,12 +369,14 @@ int DataManager::SaveValues()
   #ifndef OF_DEVICE_WITHOUT_PERSIST
   if (PartitionManager.Mount_By_Path("/persist", false))
     {
+      #ifndef FOX_SETTINGS_ROOT_DIRECTORY
       mPersist.SetFile(PERSIST_SETTINGS_FILE);
       mPersist.SetFileVersion(FILE_VERSION);
       pthread_mutex_lock(&m_valuesLock);
       mPersist.SaveValues();
       pthread_mutex_unlock(&m_valuesLock);
       LOGINFO("Saved settings file values to %s\n", PERSIST_SETTINGS_FILE);
+      #endif
 
       ofstream file;
 
@@ -745,6 +747,7 @@ void DataManager::SetDefaultValues()
 
   // variables used in the XML gui
   mConst.SetValue("fox_home_path", Fox_Home);
+  mConst.SetValue("fox_settings_path", Fox_Settings_Path);
   mConst.SetValue("fox_home_files", Fox_Home_Files);
   mConst.SetValue("fox_theme_path", FOX_THEME_PATH);
   mConst.SetValue("fox_navbar_path", FOX_NAVBAR_PATH);
@@ -1587,7 +1590,7 @@ void DataManager::ReadSettingsFile(void)
 #ifndef TW_OEM_BUILD
   // Load up the values for TWRP - Sleep to let the card be ready
   char mkdir_path[255], settings_file[255];
-#if !defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) && !defined(FOX_SETTINGS_ROOT_DIRECTORY)
+#ifndef FOX_SETTINGS_ROOT_DIRECTORY
   int is_enc, has_data_media;
 
   GetValue(TW_IS_ENCRYPTED, is_enc);
@@ -1599,7 +1602,7 @@ void DataManager::ReadSettingsFile(void)
 	if (GetStrValue("fox_startup_executed") == "1") {
 		static int dcrpfail_count=0;
 		TWFunc::Fox_Property_Set("of_decryption_failed", "true");
-		std::string tempdir = TW_STORAGE_PATH"Fox";
+		std::string tempdir = TW_STORAGE_PATH"/Fox";
 		SetValue("tw_settings_path", tempdir);
 		if (dcrpfail_count == 0) {
 			gui_print_color("warning", "I cannot load settings from encrypted device. I will try to save some settings to %s\n", tempdir.c_str());
@@ -1608,7 +1611,7 @@ void DataManager::ReadSettingsFile(void)
 	}
   }
 
-#endif // FOX_USE_DATA_RECOVERY_FOR_SETTINGS / FOX_SETTINGS_ROOT_DIRECTORY
+#endif // FOX_SETTINGS_ROOT_DIRECTORY
   memset(mkdir_path, 0, sizeof(mkdir_path));
   memset(settings_file, 0, sizeof(settings_file));
   sprintf(mkdir_path, "%s", GetSettingsStoragePath().c_str());
@@ -1648,7 +1651,11 @@ string DataManager::GetCurrentPartPath(void)
 
 string DataManager::GetSettingsStoragePath(void)
 {
+#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+  return Fox_Settings_Path;
+#else
   return GetStrValue("tw_settings_path");
+#endif
 }
 
 void DataManager::Vibrate(const string& varName)

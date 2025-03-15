@@ -2096,8 +2096,7 @@ int GUIAction::decrypt(std::string arg __unused)
 	  DataManager::GetValue(TW_HAS_DATA_MEDIA, has_datamedia);
 	  if (has_datamedia != 0)
 	    {
-	      if (tw_get_default_metadata
-		  (DataManager::GetSettingsStoragePath().c_str()) != 0)
+	      if (tw_get_default_metadata(DataManager::GetSettingsStoragePath().c_str()) != 0 && tw_get_default_metadata(DataManager::GetCurrentStoragePath().c_str()) != 0)
 		{
 		  LOGINFO
 		    ("Failed to get default contexts and file mode for storage files.\n");

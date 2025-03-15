@@ -37,12 +37,22 @@ func fox_globalFlags(ctx android.BaseContext) []string {
 		foxflags = append(foxflags, "-DOF_SUPPORT_OZIP_DECRYPTION=1")
 	}
 
-	if ctx.AConfig().Getenv("FOX_USE_DATA_RECOVERY_FOR_SETTINGS") == "1" {
-		foxflags = append(foxflags, "-DFOX_USE_DATA_RECOVERY_FOR_SETTINGS=1")
+	if ctx.AConfig().Getenv("FOX_ALLOW_EARLY_SETTINGS_LOAD") == "1" {
+		foxflags = append(foxflags, "-DFOX_ALLOW_EARLY_SETTINGS_LOAD=1")
 	}
 
-	if getMakeVars(ctx, "FOX_SETTINGS_ROOT_DIRECTORY") != "" {
-		foxflags = append(foxflags, "-DFOX_SETTINGS_ROOT_DIRECTORY="+getMakeVars(ctx, "FOX_SETTINGS_ROOT_DIRECTORY"))
+	if ctx.AConfig().Getenv("FOX_SETTINGS_ROOT_DIRECTORY") != "" {
+		foxflags = append(foxflags, "-DFOX_SETTINGS_ROOT_DIRECTORY="+"\""+ctx.AConfig().Getenv("FOX_SETTINGS_ROOT_DIRECTORY")+"\"")
+	}
+
+	if ctx.AConfig().Getenv("FOX_STUFF_ROOT_DIRECTORY") != "" {
+		foxflags = append(foxflags, "-DFOX_STUFF_ROOT_DIRECTORY="+"\""+ctx.AConfig().Getenv("FOX_STUFF_ROOT_DIRECTORY")+"\"")
+	}
+
+	if ctx.AConfig().Getenv("FOX_USE_DATA_RECOVERY_FOR_SETTINGS") == "1" {
+		foxflags = append(foxflags, "-DFOX_USE_DATA_RECOVERY_FOR_SETTINGS=1")
+		foxflags = append(foxflags, "-DFOX_SETTINGS_ROOT_DIRECTORY=\"/data/recovery\"")
+		foxflags = append(foxflags, "-DFOX_STUFF_ROOT_DIRECTORY=\"/data/recovery\"")
 	}
 
 	return foxflags

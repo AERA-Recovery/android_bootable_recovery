@@ -598,11 +598,6 @@ ifeq ($(FOX_USE_LZ4_COMPRESSION),1)
    $(error "FOX_USE_LZ4_COMPRESSION" is obsolete. Use "export OF_USE_LZ4_COMPRESSION=1" instead)
 endif
 
-# whether to use /data/recovery/Fox/ for storage, instead of /sdcard/Fox/
-ifeq ($(FOX_USE_DATA_RECOVERY_FOR_SETTINGS),1)
-    LOCAL_CFLAGS += -DFOX_USE_DATA_RECOVERY_FOR_SETTINGS
-endif
-
 # whether to display debug information about the target partition when formatting data
 ifeq ($(OF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO),1)
     LOCAL_CFLAGS += -DOF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO
@@ -644,15 +639,37 @@ ifeq ($(OF_SUPPORT_VBMETA_AVB2_PATCHING),1)
 endif
 
 # custom settings directory
+ifeq ($(FOX_USE_DATA_RECOVERY_FOR_SETTINGS),1)
+    ifneq ($(FOX_SETTINGS_ROOT_DIRECTORY),)
+       $(error You cannot use "FOX_SETTINGS_ROOT_DIRECTORY" with "FOX_USE_DATA_RECOVERY_FOR_SETTINGS")
+    endif
+    ifneq ($(FOX_STUFF_ROOT_DIRECTORY),)
+       $(error You cannot use "FOX_STUFF_ROOT_DIRECTORY" with "FOX_USE_DATA_RECOVERY_FOR_SETTINGS")
+    endif
+    LOCAL_CFLAGS += -DFOX_SETTINGS_ROOT_DIRECTORY='"/data/recovery"'
+    LOCAL_CFLAGS += -DFOX_STUFF_ROOT_DIRECTORY='"/data/recovery"'
+    LOCAL_CFLAGS += -DFOX_USE_DATA_RECOVERY_FOR_SETTINGS
+endif
+
 ifneq ($(FOX_SETTINGS_ROOT_DIRECTORY),)
- ifeq ($(FOX_BUILD_TYPE),Stable)
-    $(error You cannot use 'FOX_SETTINGS_ROOT_DIRECTORY' in stable builds)
- endif
- ifeq ($(FOX_USE_DATA_RECOVERY_FOR_SETTINGS),1)
-    $(error You cannot use "FOX_SETTINGS_ROOT_DIRECTORY" with "FOX_USE_DATA_RECOVERY_FOR_SETTINGS")
- endif
- $(warning "FOX_SETTINGS_ROOT_DIRECTORY" is used. This is EXPERIMENTAL. Ensure that "$(FOX_SETTINGS_ROOT_DIRECTORY)" will ALWAYS be accessible on the device)
- LOCAL_CFLAGS += -DFOX_SETTINGS_ROOT_DIRECTORY='"$(FOX_SETTINGS_ROOT_DIRECTORY)"'
+    LOCAL_CFLAGS += -DFOX_SETTINGS_ROOT_DIRECTORY='"$(FOX_SETTINGS_ROOT_DIRECTORY)"'
+endif
+
+ifneq ($(FOX_STUFF_ROOT_DIRECTORY),)
+    ifneq ($(FOX_USE_DATA_RECOVERY_FOR_SETTINGS),1)
+        ifeq ($(FOX_BUILD_TYPE),Stable)
+            $(error You cannot use 'FOX_STUFF_ROOT_DIRECTORY' in stable builds)
+        endif
+        $(warning "FOX_STUFF_ROOT_DIRECTORY" is used. This is EXPERIMENTAL. Ensure that "$(FOX_STUFF_ROOT_DIRECTORY)" will ALWAYS be accessible on the device)
+    endif
+    LOCAL_CFLAGS += -DFOX_STUFF_ROOT_DIRECTORY='"$(FOX_STUFF_ROOT_DIRECTORY)"'
+endif
+
+ifeq ($(FOX_ALLOW_EARLY_SETTINGS_LOAD),1)
+    #ifeq ($(FOX_SETTINGS_ROOT_DIRECTORY),)
+    #   $(error You cannot use "FOX_ALLOW_EARLY_SETTINGS_LOAD" without "FOX_SETTINGS_ROOT_DIRECTORY")
+    #endif
+    LOCAL_CFLAGS += -DFOX_ALLOW_EARLY_SETTINGS_LOAD='"1"'
 endif
 
 # whether to wipe /metadata after formatting data
