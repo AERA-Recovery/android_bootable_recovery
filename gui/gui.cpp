@@ -848,6 +848,7 @@ extern "C" int gui_loadResources(void)
 #else
 	DataManager::LoadPersistValues();
 #endif
+	TWFunc::FoxThemeCheck();
 #endif
 
 	if (check)

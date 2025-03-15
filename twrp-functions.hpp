@@ -233,6 +233,7 @@ public:
 	static uint64_t string_to_long(string String, uint64_t def_value);
 	static string sdknum_to_text(int sdk);
 	static string Check_For_TwrpFolder();
+	static void FoxThemeCheck();
 
 private:
 	static void Copy_Log(string Source, string Destination);
