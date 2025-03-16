@@ -660,9 +660,6 @@ endif
 
 ifneq ($(FOX_MISCELLANEOUS_ROOT_DIRECTORY),)
     ifneq ($(FOX_USE_DATA_RECOVERY_FOR_SETTINGS),1)
-        ifeq ($(FOX_BUILD_TYPE),Stable)
-            $(error You cannot use 'FOX_MISCELLANEOUS_ROOT_DIRECTORY' in stable builds)
-        endif
         $(warning "FOX_MISCELLANEOUS_ROOT_DIRECTORY" is used. This is EXPERIMENTAL. Ensure that "$(FOX_MISCELLANEOUS_ROOT_DIRECTORY)" will ALWAYS be accessible on the device)
     endif
     LOCAL_CFLAGS += -DFOX_MISCELLANEOUS_ROOT_DIRECTORY='"$(FOX_MISCELLANEOUS_ROOT_DIRECTORY)"'
