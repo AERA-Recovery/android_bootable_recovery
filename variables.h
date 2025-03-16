@@ -64,8 +64,8 @@ static const std::string Fox_Bin_Dir = "/system/bin";
 static const std::string Fox_Tmp = "/tmp";
 
 static const std::string Fox_Home =
-#ifdef FOX_STUFF_ROOT_DIRECTORY
-FOX_STUFF_ROOT_DIRECTORY"/Fox";
+#ifdef FOX_MISCELLANEOUS_ROOT_DIRECTORY
+FOX_MISCELLANEOUS_ROOT_DIRECTORY"/Fox";
 #else
 OF_STORAGE_PATH;
 #endif

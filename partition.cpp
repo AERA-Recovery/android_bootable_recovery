@@ -1366,9 +1366,9 @@ void TWPartition::Setup_Data_Media() {
 		}
 	}
 	ExcludeAll(Mount_Point + "/media");
-#ifdef FOX_STUFF_ROOT_DIRECTORY
+#ifdef FOX_MISCELLANEOUS_ROOT_DIRECTORY
 	if (TWFunc::Get_Root_Path(Fox_Home) == Mount_Point) {
-		Storage_Path = FOX_STUFF_ROOT_DIRECTORY;
+		Storage_Path = FOX_MISCELLANEOUS_ROOT_DIRECTORY;
 	}
 #endif
 }

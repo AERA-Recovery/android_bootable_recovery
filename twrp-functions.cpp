@@ -351,7 +351,7 @@ void TWFunc::Run_Before_Reboot(void)
 #ifdef FOX_USE_DATA_RECOVERY_FOR_SETTINGS
        use_data_recovery = true;
 #endif
-#if defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) || !defined(FOX_STUFF_ROOT_DIRECTORY)
+#if defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) || !defined(FOX_MISCELLANEOUS_ROOT_DIRECTORY)
     // check whether decryption failed, and, if so, store the lastrecovery log under /data/recovery/
     if (use_data_recovery) {
     	Logs_Dir = TW_STORAGE_PATH;
@@ -2656,8 +2656,8 @@ void TWFunc::Welcome_Message(void)
 #ifdef FOX_SETTINGS_ROOT_DIRECTORY
     gui_print("[Settings]  : %s\n", Fox_Settings_Path.c_str());
 #endif
-#ifdef FOX_STUFF_ROOT_DIRECTORY
-    gui_print("[Stuff]     : %s\n", Fox_Home.c_str());
+#ifdef FOX_MISCELLANEOUS_ROOT_DIRECTORY
+    gui_print("[Misc]      : %s\n", Fox_Home.c_str());
 #endif
     gui_print("[Build date]: %s\n", DataManager::GetStrValue("FOX_BUILD_DATE_REAL").c_str());
     
