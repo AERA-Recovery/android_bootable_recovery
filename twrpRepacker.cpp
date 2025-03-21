@@ -185,6 +185,9 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 		return false;
 	DataManager::SetProgress(.5);
 	gui_msg(Msg("repacking_image=Repacking {1}...")(part->Get_Display_Name()));
+#if defined(OF_RECOVERY_AB_FULL_REFLASH_RAMDISK) && defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION)
+	gui_msg(Msg(msg::kHighlight, "lang_wait=Please wait ..."));
+#endif
 	std::string path = REPACK_NEW_DIR;
 	if (Repack_Options.Type == REPLACE_KERNEL) {
 		// When we replace the kernel, what we really do is copy the boot partition ramdisk into the new image's folder
