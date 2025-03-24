@@ -72,6 +72,7 @@
 #include "set_metadata.h"
 #include "tw_atomic.hpp"
 #include "gui/gui.hpp"
+#include "gui/pages.hpp"
 #include "progresstracking.hpp"
 #include "twrpDigestDriver.hpp"
 #include "twrpRepacker.hpp"
@@ -101,7 +102,6 @@ extern "C" {
 #ifdef TW_INCLUDE_CRYPTO
 //#include "crypto/fde/cryptfs.h"
 #include "gui/rapidxml.hpp"
-#include "gui/pages.hpp"
 #ifdef TW_INCLUDE_FBE
 #include "Decrypt.h"
 #ifdef TW_INCLUDE_FBE_METADATA_DECRYPT
