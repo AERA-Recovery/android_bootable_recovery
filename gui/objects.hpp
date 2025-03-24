@@ -118,8 +118,17 @@ public:
 	//  Return 1 if this object handles the request, 0 if not
 	virtual int IsInRegion(int x, int y) { return ((x < mActionX || x >= mActionX + mActionW || y < mActionY || y >= mActionY + mActionH) ? 0 : 1); }
 
+	// Focus control
+	virtual void SetFocus(bool focus);
+	virtual bool HasFocus() const { return mHasFocus; }
+	virtual int GetFocusedItemActionPos(int& x, int& y, int& w, int& h) { return 0; }
+	virtual std::string GetObjectType() const { return "ActionObject"; }
+
 protected:
 	int mActionX, mActionY, mActionW, mActionH;
+	bool mHasFocus = false;
+	enum { NO_ITEM = (size_t)-1 };
+	COLOR mFocusColor = {255, 0, 0, 255};
 };
 
 class GUIObject
@@ -136,6 +145,7 @@ public:
 	// NotifyVarChange - Notify of a variable change
 	//  Returns 0 on success, <0 on error
 	virtual int NotifyVarChange(const std::string& varName, const std::string& value);
+	virtual std::string GetObjectType() const { return "GUIObject"; }
 
 protected:
 	class Condition
@@ -308,6 +318,7 @@ public:
 	virtual int NotifyTouch(TOUCH_STATE state, int x, int y);
 	virtual int NotifyKey(int key, bool down);
 	virtual int NotifyVarChange(const std::string& varName, const std::string& value);
+	virtual size_t GetActionCount() const { return mActions.size();}
 
 	int doActions();
 
@@ -468,6 +479,8 @@ public:
 	// NotifyTouch - Notify of a touch event
 	//  Return 0 on success, >0 to ignore remainder of touch, and <0 on error
 	virtual int NotifyTouch(TOUCH_STATE state, int x, int y);
+	virtual std::string GetObjectType() const { return "GUIButton"; }
+	size_t GetActionCount() const { return mAction->GetActionCount(); }
 
 protected:
 	GUIImage* mButtonImg;
@@ -530,6 +543,7 @@ public:
 	// NotifyTouch - Notify of a touch event
 	//  Return 0 on success, >0 to ignore remainder of touch, and <0 on error
 	virtual int NotifyTouch(TOUCH_STATE state, int x, int y);
+	virtual std::string GetObjectType() const { return "GUICheckbox"; }
 
 protected:
 	ImageResource* mChecked;
@@ -542,7 +556,20 @@ protected:
 	std::string mVarName;
 };
 
-class GUIScrollList : public GUIObject, public RenderObject, public ActionObject
+class IInteractiveScrollList
+{
+public:
+	virtual ~IInteractiveScrollList() {}
+
+	virtual void SetPageFocus(int inFocus) = 0;
+	virtual void SetSelectedItem(size_t index) = 0;
+	virtual bool MoveSelectionDown() = 0;
+	virtual bool MoveSelectionUp() = 0;
+	virtual size_t getSelectedItem() const = 0;
+	virtual size_t GetItemCount() const = 0;
+};
+
+class GUIScrollList : public GUIObject, public RenderObject, public ActionObject, public IInteractiveScrollList
 {
 public:
 	GUIScrollList(xml_node<>* node);
@@ -571,10 +598,17 @@ public:
 	// SetPageFocus - Notify when a page gains or loses focus
 	virtual void SetPageFocus(int inFocus);
 
+	virtual int GetFocusedItemActionPos(int& x, int& y, int& w, int& h);
+	virtual void SetSelectedItem(size_t index);
+	virtual bool MoveSelectionDown();
+	virtual bool MoveSelectionUp();
+	virtual size_t getSelectedItem() const { return selectedItem; }
+	virtual std::string GetObjectType() const { return "GUIScrollList"; }
+	// get number of items
+	virtual size_t GetItemCount() const = 0;
+
 protected:
 	// derived classes need to implement these
-	// get number of items
-	virtual size_t GetItemCount() { return 0; }
 	// render a single item in rect (mRenderX, yPos, mRenderW, actualItemHeight)
 	virtual void RenderItem(size_t itemindex, int yPos, bool selected);
 	// an item was selected
@@ -584,7 +618,6 @@ protected:
 	void RenderStdItem(int yPos, bool selected, ImageResource* icon, const char* text, const char* addtext = NULL);
 	//void RenderStdItem(int yPos, bool selected, ImageResource* icon, const char* text, int iconAndTextH = 0);
 
-	enum { NO_ITEM = (size_t)-1 };
 	// returns item index at coordinates or NO_ITEM if there is no item there
 	size_t HitTestItem(int x, int y);
 
@@ -678,7 +711,7 @@ public:
 	// SetPageFocus - Notify when a page gains or loses focus
 	virtual void SetPageFocus(int inFocus);
 
-	virtual size_t GetItemCount();
+	virtual size_t GetItemCount() const;
 	virtual void RenderItem(size_t itemindex, int yPos, bool selected);
 	virtual void NotifySelect(size_t item_selected);
 
@@ -752,7 +785,7 @@ public:
 	// SetPageFocus - Notify when a page gains or loses focus
 	virtual void SetPageFocus(int inFocus);
 
-	virtual size_t GetItemCount();
+	virtual size_t GetItemCount() const;
 	virtual void RenderItem(size_t itemindex, int yPos, bool selected);
 	virtual void NotifySelect(size_t item_selected);
 
@@ -801,7 +834,7 @@ public:
 	// SetPageFocus - Notify when a page gains or loses focus
 	virtual void SetPageFocus(int inFocus);
 
-	virtual size_t GetItemCount();
+	virtual size_t GetItemCount() const;
 	virtual void RenderItem(size_t itemindex, int yPos, bool selected);
 	virtual void NotifySelect(size_t item_selected);
 
@@ -837,9 +870,10 @@ public:
 	virtual int NotifyVarChange(const std::string& varName, const std::string& value);
 
 	// ScrollList interface
-	virtual size_t GetItemCount();
+	virtual size_t GetItemCount() const;
 	virtual void RenderItem(size_t itemindex, int yPos, bool selected);
 	virtual void NotifySelect(size_t item_selected);
+	virtual std::string GetObjectType() const { return "GUITextBox"; }
 protected:
 
 	size_t mLastCount;
@@ -873,12 +907,13 @@ public:
 	virtual int NotifyTouch(TOUCH_STATE state, int x, int y);
 
 	// ScrollList interface
-	virtual size_t GetItemCount();
+	virtual size_t GetItemCount() const;
 	virtual void RenderItem(size_t itemindex, int yPos, bool selected);
 	virtual void NotifySelect(size_t item_selected);
 
 	static void Translate_Now();
 	static void Clear_For_Retranslation();
+	virtual std::string GetObjectType() const { return "GUIConsole"; }
 protected:
 	enum SlideoutState
 	{
@@ -928,11 +963,12 @@ public:
 	virtual void SetPageFocus(int inFocus);
 
 	// ScrollList interface
-	virtual size_t GetItemCount();
+	virtual size_t GetItemCount() const;
 	virtual void RenderItem(size_t itemindex, int yPos, bool selected);
 	virtual void NotifySelect(size_t item_selected);
 	bool status();
 	void stop();
+	virtual std::string GetObjectType() const { return "GUITerminal"; }
 protected:
 	void InitAndResize();
 
@@ -1017,6 +1053,11 @@ public:
 	// NotifyTouch - Notify of a touch event
 	//  Return 0 on success, >0 to ignore remainder of touch, and <0 on error
 	virtual int NotifyTouch(TOUCH_STATE state, int x, int y);
+	virtual std::string GetObjectType() const { return "GUISlider"; }
+	//int GetHandleXScreen() const { return sCurTouchX; }
+	COLOR mFocusColor = {255, 0, 0, 255};
+	int GetValXCurr() const { return sCurTouchX; }
+	int GetSliderPos(int& xStart, int& xEnd, int& y) { xStart = mRenderX; xEnd = mRenderX + mRenderW; y = mRenderY; return 0; }
 
 protected:
 	GUIAction* sAction;
@@ -1043,13 +1084,6 @@ public:
 	GUIKeyboard(xml_node<>* node);
 	virtual ~GUIKeyboard();
 
-public:
-	virtual int Render(void);
-	virtual int Update(void);
-	virtual int NotifyTouch(TOUCH_STATE state, int x, int y);
-	virtual int SetRenderPos(int x, int y, int w = 0, int h = 0);
-	virtual void SetPageFocus(int inFocus);
-
 protected:
 	struct Key
 	{
@@ -1058,6 +1092,20 @@ protected:
 		int end_x;
 		int layout;
 	};
+
+public:
+	virtual int Render(void);
+	virtual int Update(void);
+	virtual int NotifyTouch(TOUCH_STATE state, int x, int y);
+	virtual int SetRenderPos(int x, int y, int w = 0, int h = 0);
+	virtual void SetPageFocus(int inFocus);
+	virtual std::string GetObjectType() const { return "GUIKeyboard"; }
+	bool MoveSelectionNext();
+	bool MoveSelectionPrevious();
+	void SetSelectedItem(bool firstItem);
+	virtual int GetFocusedItemActionPos(int& x, int& y, int& w, int& h);
+
+protected:
 	int ParseKey(const char* keyinfo, Key& key, int& Xindex, int keyWidth, bool longpress);
 	void LoadKeyLabels(xml_node<>* parent, int layout);
 	void DrawKey(Key& key, int keyX, int keyY, int keyW, int keyH);
@@ -1203,6 +1251,7 @@ public:
 	void ConsumeKeyRelease(int key);
 
 	bool IsKeyDown(int key_code);
+	int GetLastKey() { return mLastKey; }
 private:
 	int mLastKey;
 	int mLastKeyChar;
@@ -1237,6 +1286,10 @@ public:
 
 	// SetPageFocus - Notify when a page gains or loses focus
 	virtual void SetPageFocus(int inFocus);
+	virtual std::string GetObjectType() const { return "GUISliderValue"; }
+	int GetSliderPos(int& xStart, int& xEnd, int& y) { xStart = mLineX; xEnd = mLineX + mLineW; y = mSliderY; return 0; }
+	int GetValXCurr() const { return mLineX + sliderX; }
+	COLOR mFocusColor = {255, 0, 0, 255};
 
 protected:
 	int measureText(const std::string& str);
@@ -1265,6 +1318,7 @@ protected:
 	int mLineH;
 	int mLinePadding;
 	int mPadding;
+	uint32_t sliderX;
 	int mSliderY;
 	int mSliderW;
 	int mSliderH;
@@ -1316,6 +1370,12 @@ public:
 	virtual int NotifyTouch(TOUCH_STATE state, int x, int y);
 	virtual int NotifyVarChange(const std::string& varName, const std::string& value);
 	virtual int SetRenderPos(int x, int y, int w = 0, int h = 0);
+	virtual std::string GetObjectType() const { return "GUIPatternPassword"; }
+	bool MoveSelectionNext();
+	bool MoveSelectionPrevious();
+	void SetSelectedItem(size_t index);
+	virtual int GetFocusedItemActionPos(int& x, int& y, int& w, int& h);
+	COLOR mFocusColor = {255, 0, 0, 255};
 
 protected:
 	void CalculateDotPositions();
@@ -1339,6 +1399,7 @@ protected:
 
 	Dot* mDots;
 	int* mConnectedDots;
+	size_t mFocusedDotIndex;
 	size_t mConnectedDotsLen;
 	int mCurLineX;
 	int mCurLineY;

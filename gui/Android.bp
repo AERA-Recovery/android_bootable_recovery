@@ -22,6 +22,7 @@ libguitwrp_defaults {
 cc_library_static {
     name: "libguitwrp",
     defaults: ["libguitwrp_defaults", "twrp_defaults"],
+    rtti: true,
     cflags: [
         "-fno-strict-aliasing", 
         "-Wno-implicit-fallthrough",

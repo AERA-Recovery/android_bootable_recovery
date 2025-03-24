@@ -287,7 +287,7 @@ int ActionObject::SetActionPos(int x, int y, int w, int h)
 	return 0;
 }
 
-Page::Page(xml_node<>* page, std::vector<xml_node<>*> *templates)
+Page::Page(xml_node<>* page, std::vector<xml_node<>*> *templates) : mFocusedObjectIndex(-1)
 {
 	mTouchStart = NULL;
 
@@ -317,6 +317,11 @@ Page::Page(xml_node<>* page, std::vector<xml_node<>*> *templates)
 
 	// This is a recursive routine for template handling
 	ProcessNode(page, templates, 0);
+
+	// Set focus on the first action
+	if (!mActions.empty()) {
+		SetFocus(0); // disable on hw_button_mode 0
+	}
 }
 
 Page::~Page()
@@ -668,6 +673,13 @@ void Page::SetPageFocus(int inFocus)
 	for (iter = mRenders.begin(); iter != mRenders.end(); iter++)
 		(*iter)->SetPageFocus(inFocus);
 
+	if (inFocus == 0 && mFocusedObjectIndex >= 0 && mFocusedObjectIndex < mActions.size()) {
+		ActionObject* focusedElement = mActions[mFocusedObjectIndex];
+		if (focusedElement)
+			focusedElement->SetFocus(0);
+		mFocusedObjectIndex = -1;
+	}
+
 	return;
 }
 
@@ -679,6 +691,7 @@ int Page::NotifyVarChange(std::string varName, std::string value)
 		if ((*iter)->NotifyVarChange(varName, value))
 			LOGERR("An action handler errored on NotifyVarChange.\n");
 	}
+
 	return 0;
 }
 
@@ -1015,11 +1028,18 @@ int PageSet::SetOverlay(Page* page)
 		if (!mOverlays.empty())
 			mOverlays.back()->SetPageFocus(0);
 
+		// Fix actions on overlay
+		mOverlayActions = mCurrentPage->mActions;
+		mCurrentPage->mActions = page->mActions;
+
 		mOverlays.push_back(page);
 	} else {
 		if (!mOverlays.empty()) {
 			mOverlays.back()->SetPageFocus(0);
 			mOverlays.pop_back();
+			// Fix actions on overlay
+			mCurrentPage->mActions = mOverlayActions;
+			mOverlayActions.clear();
 			if (!mOverlays.empty())
 				mOverlays.back()->SetPageFocus(1);
 			else if (mCurrentPage)
@@ -1743,6 +1763,247 @@ void PageManager::AddStringResource(std::string resource_source, std::string res
 {
 	if (mCurrentSet)
 		mCurrentSet->AddStringResource(resource_source, resource_name, value);
+}
+
+void PageManager::MoveFocus(Page::Direction direction)
+{
+	if (mCurrentSet) mCurrentSet->MoveFocus(direction);
+}
+
+void PageManager::SelectFocusedElement(bool longPressed)
+{
+	if (mCurrentSet) mCurrentSet->SelectFocusedElement(longPressed);
+}
+
+void PageSet::MoveFocus(Page::Direction direction)
+{
+	if (mCurrentPage) mCurrentPage->MoveFocus(direction);
+}
+
+void PageSet::SelectFocusedElement(bool longPressed)
+{
+	if (mCurrentPage) mCurrentPage->SelectFocusedElement(longPressed);
+}
+
+int Page::MoveFocusIndex(Page::Direction direction) {
+	static bool keepFocusIndex = false;
+	int nextIndex = mFocusedObjectIndex;
+	size_t actionsSize = mActions.size();
+
+	if (!keepFocusIndex)
+		nextIndex -= static_cast<int>(direction);
+	else
+		keepFocusIndex = false;
+
+	do {
+		// Do not swap the checks
+		if (nextIndex < 0)
+			nextIndex = actionsSize - 1;
+
+		if (nextIndex >= actionsSize)
+			nextIndex = 0;
+
+		ActionObject* focusedElement = mActions[nextIndex];
+		GUIObject* obj = dynamic_cast<GUIObject*>(focusedElement);
+		if (obj && !obj->isConditionTrue())
+			continue;
+		string name = focusedElement->GetObjectType();
+		LOGINFO("Name is %s\n", name.c_str());
+
+		if (name == "GUIScrollList") {
+			IInteractiveScrollList* scrollList = dynamic_cast<IInteractiveScrollList*>(focusedElement);
+			if (scrollList && scrollList->GetItemCount() != 0) {
+				if (!focusedElement->HasFocus()) {
+					if (direction == Page::Direction::Down)
+						scrollList->SetSelectedItem(0);
+					else
+						scrollList->SetSelectedItem(scrollList->GetItemCount() - 1);
+					gui_forceRender();
+					keepFocusIndex = true;
+					return nextIndex; // Stay here
+				} else if ((direction == Page::Direction::Down && scrollList->MoveSelectionDown()) || (direction == Page::Direction::Up && scrollList->MoveSelectionUp())) {
+					gui_forceRender();
+					keepFocusIndex = true;
+					return nextIndex; // Stay here
+				} else {
+					// End of scrollList
+					focusedElement->SetFocus(0);
+					continue; // Searching new index
+				}
+			} else {
+				continue;
+			}
+		} else if (name == "GUIKeyboard") {
+			GUIKeyboard* keyboard = dynamic_cast<GUIKeyboard*>(focusedElement);
+			if (keyboard) {
+				if (!focusedElement->HasFocus()) {
+					if (direction == Page::Direction::Down)
+						keyboard->SetSelectedItem(true);
+					else
+						keyboard->SetSelectedItem(false);
+					gui_forceRender();
+					keepFocusIndex = true;
+					return nextIndex; // Stay here
+				} else if ((direction == Page::Direction::Down && keyboard->MoveSelectionNext()) || (direction == Page::Direction::Up && keyboard->MoveSelectionPrevious())) {
+					gui_forceRender();
+					keepFocusIndex = true;
+					return nextIndex; // Stay here
+				} else {
+					// End of keyboard
+					focusedElement->SetFocus(0);
+					continue; // Searching new index
+				}
+			} else {
+				continue;
+			}
+		} else if (name == "GUIButton") {
+			GUIButton* button = dynamic_cast<GUIButton*>(focusedElement);
+			if (button && button->GetActionCount() > 0) {
+				return nextIndex; // Next is that button
+			} else {
+				continue; // Searching new index
+			}
+		} else if (name == "GUICheckbox" || name == "GUISlider" || name == "GUISliderValue" || name == "GUIPatternPassword") {
+			return nextIndex; // Next is that object
+		}
+
+	} while ((nextIndex -= static_cast<int>(direction)) != mFocusedObjectIndex); // We work backwards, from top-most element to bottom-most element
+	return nextIndex; // Unable to find required object
+}
+
+void Page::ShiftSlider(Page::Direction direction)
+{
+	ActionObject* focusedElement = mActions[mFocusedObjectIndex];
+	GUISlider* slider = dynamic_cast<GUISlider*>(focusedElement);
+	if (slider) {
+		int moveToX = slider->GetValXCurr() + static_cast<int>(direction) * (sliderEndX - sliderStartX) / 2;
+		if (moveToX < sliderStartX)
+			moveToX = sliderStartX;
+		if (moveToX >= sliderEndX)
+			moveToX = sliderEndX;
+		focusedElement->NotifyTouch(TOUCH_DRAG, moveToX, sliderY);
+	}
+}
+
+void Page::ShiftSliderVal(Page::Direction direction)
+{
+	ActionObject* focusedElement = mActions[mFocusedObjectIndex];
+	GUISliderValue* slider = dynamic_cast<GUISliderValue*>(focusedElement);
+	if (slider) {
+		int moveToX = slider->GetValXCurr() + static_cast<int>(direction) * (sliderEndX - sliderStartX) / 10;
+		if (moveToX >= sliderEndX)
+				moveToX = sliderEndX;
+		focusedElement->NotifyTouch(TOUCH_START, moveToX, sliderY);
+		focusedElement->NotifyTouch(TOUCH_RELEASE, moveToX, sliderY);
+	}
+}
+
+void Page::MoveFocusInPattern(Page::Direction direction)
+{
+	GUIPatternPassword* patternPass = dynamic_cast<GUIPatternPassword*>(mActions[mFocusedObjectIndex]);
+	if (patternPass) {
+		if (direction == Page::Direction::Down)
+			patternPass->MoveSelectionNext();
+		else
+			patternPass->MoveSelectionPrevious();
+		gui_forceRender();
+	}
+}
+
+void Page::MoveFocus(Page::Direction direction)
+{
+	if (mActions.empty()) return;
+
+	if (mFocusSlider)
+		return ShiftSlider(direction);
+
+	if (mFocusSliderVal)
+		return ShiftSliderVal(direction);
+
+	if (mFocusPatternPassword)
+		return MoveFocusInPattern(direction);
+
+	SetFocus(MoveFocusIndex(direction));
+}
+
+void Page::SelectFocusedElement(bool longPressed) {
+	if (mFocusedObjectIndex >= 0 && mFocusedObjectIndex < mActions.size()) {
+		ActionObject* focusedElement = mActions[mFocusedObjectIndex];
+		GUISlider* slider = dynamic_cast<GUISlider*>(focusedElement);
+		GUISliderValue* sliderVal = dynamic_cast<GUISliderValue*>(focusedElement);
+		GUIPatternPassword* patternPass = dynamic_cast<GUIPatternPassword*>(focusedElement);
+		int centerX, centerY, actionW, actionH;
+
+		if (slider) {
+			if (!mFocusSlider) {
+				mFocusSlider = true;
+				slider->GetSliderPos(sliderStartX, sliderEndX, sliderY);
+				slider->mFocusColor = {0, 255, 0, 255};
+				focusedElement->NotifyTouch(TOUCH_START, sliderStartX, sliderY);
+			} else {
+				mFocusSlider = false;
+				slider->mFocusColor = {255, 0, 0, 255};
+				focusedElement->NotifyTouch(TOUCH_RELEASE, sliderEndX, sliderY);
+			}
+			return;
+		} else if (sliderVal) {
+			if (!mFocusSliderVal) {
+				mFocusSliderVal = true;
+				sliderVal->GetSliderPos(sliderStartX, sliderEndX, sliderY);
+				sliderVal->mFocusColor = {0, 255, 0, 255};
+			} else {
+				mFocusSliderVal = false;
+				sliderVal->mFocusColor = {255, 0, 0, 255};
+			}
+			return;
+		} else if (patternPass) {
+			static bool isFirstDot = true;
+			if (!mFocusPatternPassword) { // We are not in the pattern; Enter
+				mFocusPatternPassword = true;
+				patternPass->mFocusColor = {0, 255, 0, 255};
+			} else if (longPressed) { // We are already in the pattern; Exit
+				mFocusPatternPassword = false;
+				isFirstDot = true;
+				patternPass->mFocusColor = {255, 0, 0, 255};
+				focusedElement->NotifyTouch(TOUCH_RELEASE, 0, 0); // End drawing (no dots will be selected here, the coordinates will not be checked)
+			} else { // We are already in the pattern; Select dot
+				focusedElement->GetFocusedItemActionPos(centerX, centerY, actionW, actionH);
+				centerX += actionW / 2;
+				centerY += actionH / 2;
+				if (isFirstDot) {
+					focusedElement->NotifyTouch(TOUCH_START, centerX, centerY); // 1st dot
+					isFirstDot = false;
+				} else {
+					focusedElement->NotifyTouch(TOUCH_DRAG, centerX, centerY); // 2nd and others dots
+				}
+			}
+			return;
+		} else if (focusedElement->GetFocusedItemActionPos(centerX, centerY, actionW, actionH)) {
+			centerX += actionW / 2;
+			centerY += actionH / 2;
+		} else {
+			focusedElement->GetActionPos(centerX, centerY, actionW, actionH);
+			centerX += actionW / 2;
+			centerY += actionH / 2;
+		}
+
+		if (longPressed)
+			focusedElement->NotifyTouch(TOUCH_HOLD, centerX, centerY);
+		else
+			focusedElement->NotifyTouch(TOUCH_RELEASE, centerX, centerY);
+	}
+}
+
+void Page::SetFocus(int index)
+{
+	if (mFocusedObjectIndex >= 0 && mFocusedObjectIndex < mActions.size())
+		mActions[mFocusedObjectIndex]->SetFocus(0);
+
+	mFocusedObjectIndex = index;
+	if (mFocusedObjectIndex >= 0 && mFocusedObjectIndex < mActions.size())
+		mActions[mFocusedObjectIndex]->SetFocus(1);
+
+	gui_forceRender();
 }
 
 extern "C" void gui_notifyVarChange(const char *name, const char* value)

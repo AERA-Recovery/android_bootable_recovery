@@ -308,7 +308,7 @@ int GUISliderValue::Render(void)
 	}
 
 	// slider
-	uint32_t sliderX = mLineX + (mValuePct*(mLineW - mSliderW))/100;
+	sliderX = mLineX + (mValuePct*(mLineW - mSliderW))/100;
 
 	if (mHandleImage && mHandleImage->GetResource())
 	{
@@ -338,6 +338,11 @@ int GUISliderValue::Render(void)
 		sprintf(mValueStr, "%d", mValue);
 		int textW = measureText(mValueStr);
 		gr_textEx_scaleW(mRenderX + (mRenderW/2 - textW/2), mSliderY+mSliderH, mValueStr, fontResource, mRenderW, TOP_LEFT, 0);
+	}
+
+	if (HasFocus()) {
+		gr_color(mFocusColor.red, mFocusColor.green, mFocusColor.blue, mFocusColor.alpha);
+		gr_draw_rect(mRenderX + 2, mRenderY + 2, mRenderW - 4, mRenderH - 4, 3);
 	}
 
 	mRendered = true;

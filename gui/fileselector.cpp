@@ -446,7 +446,7 @@ void GUIFileSelector::SetPageFocus(int inFocus)
 	}
 }
 
-size_t GUIFileSelector::GetItemCount()
+size_t GUIFileSelector::GetItemCount() const
 {
 	size_t folderSize = mShowFolders ? mFolderList.size() : 0;
 	size_t fileSize = mShowFiles ? mFileList.size() : 0;

@@ -73,6 +73,7 @@ int gr_free_surface(gr_surface surface);
 
 // Functions in graphics_utils.c
 int gr_save_screenshot(const char *dest);
+void gr_draw_rect(int x, int y, int w, int h, int thickness);
 
 // Transform minuitwrp API coordinates into display coordinates,
 // for panels that are hardware-mounted in a rotated manner.

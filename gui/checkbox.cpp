@@ -129,6 +129,12 @@ int GUICheckbox::Render(void)
 	}
 	if (mLabel)
 		ret = mLabel->Render();
+
+	if (HasFocus()) {
+		gr_color(mFocusColor.red, mFocusColor.green, mFocusColor.blue, mFocusColor.alpha);
+		gr_draw_rect(mRenderX - 2, mRenderY - 2, mCheckW + 4, mCheckH + 4, 3);
+	}
+
 	mLastState = lastState;
 	mRendered = true;
 	return ret;

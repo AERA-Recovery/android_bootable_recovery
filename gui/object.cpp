@@ -222,3 +222,9 @@ bool GUIObject::isMounted(string vol)
 	fclose(fp);
 	return false;
 }
+
+void ActionObject::SetFocus(bool focus)
+{
+	mHasFocus = focus;
+	gui_forceRender();
+}

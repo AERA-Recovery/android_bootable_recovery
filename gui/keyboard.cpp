@@ -39,7 +39,7 @@ GUIKeyboard::GUIKeyboard(xml_node<>* node)
 	: GUIObject(node)
 {
 	int layoutindex, rowindex, keyindex, Xindex, Yindex, keyHeight = 0, keyWidth = 0;
-	currentKey = NULL;
+	currentKey = nullptr;
 	highlightRenderCount = 0;
 	hasHighlight = hasCapsHighlight = hasCtrlHighlight = false;
 	char resource[10], layout[8], row[5], key[6], longpress[7];
@@ -425,6 +425,11 @@ int GUIKeyboard::Render(void)
 				gr_color(mHighlightColor.red, mHighlightColor.green, mHighlightColor.blue, mHighlightColor.alpha);
 				gr_fill(keyX, keyY, keyW, keyH);
 			}
+
+			if (&key == currentKey && HasFocus()) {
+				gr_color(mFocusColor.red, mFocusColor.green, mFocusColor.blue, mFocusColor.alpha);
+				gr_draw_rect(keyX + 2, keyY + 2, keyW - 4, keyH - 4, 3);
+			}
 		}
 	}
 
@@ -508,7 +513,7 @@ int GUIKeyboard::NotifyTouch(TOUCH_STATE state, int x, int y)
 		break;
 
 	case TOUCH_RELEASE:
-		DataManager::SetValue("tw_keyboard_press_key", "1");
+		//DataManager::SetValue("tw_keyboard_press_key", "1"); // hw_button_mode
 		DataManager::GetValue("key_allow_swipe", swipeAct);
 
 		// TODO: we might want to notify of key releases here
@@ -652,3 +657,117 @@ void GUIKeyboard::SetPageFocus(int inFocus)
 		CtrlActive = false;
 }
 
+bool GUIKeyboard::MoveSelectionPrevious()
+{
+	Layout& lay = layouts[currentLayout - 1];
+	Key* currentFocused = currentKey;
+	bool foundCurrent = (currentFocused == nullptr);
+
+	for (int row = MAX_KEYBOARD_ROWS - 1; row >= 0; --row) {
+		for (int col = MAX_KEYBOARD_KEYS - 1; col >= 0; --col) {
+			Key& key = lay.keys[row][col];
+			if (key.key != 0 || key.layout != 0) {
+				if (foundCurrent) {
+					currentKey = &key;
+					mRendered = false;
+					return true;
+				}
+
+				if (&key == currentFocused) {
+					foundCurrent = true;
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
+bool GUIKeyboard::MoveSelectionNext()
+{
+	Layout& lay = layouts[currentLayout - 1];
+	Key* currentFocused = currentKey;
+	bool foundCurrent = (currentFocused == nullptr);
+
+	for (int row = 0; row < MAX_KEYBOARD_ROWS; ++row) {
+		for (int col = 0; col < MAX_KEYBOARD_KEYS; ++col) {
+			Key& key = lay.keys[row][col];
+			if (key.key != 0 || key.layout != 0) {
+				if (foundCurrent) {
+					currentKey = &key;
+					mRendered = false;
+					return true;
+				}
+
+				if (&key == currentFocused) {
+					foundCurrent = true;
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
+int GUIKeyboard::GetFocusedItemActionPos(int& x, int& y, int& w, int& h)
+{
+	if (!currentKey) {
+		return 0;
+	}
+
+	Layout& lay = layouts[currentLayout - 1];
+	int y1 = 0;
+	for (int row = 0; row < MAX_KEYBOARD_ROWS; ++row) {
+		int rowY = mRenderY + y1;
+		int rowH = lay.row_end_y[row] - y1;
+		y1 = lay.row_end_y[row];
+		int x1 = 0;
+		for (int col = 0; col < MAX_KEYBOARD_KEYS; ++col) {
+			Key& key = lay.keys[row][col];
+			int keyY = rowY;
+			int keyH = rowH;
+			int keyX = mRenderX + x1;
+			int keyW = key.end_x - x1;
+			x1 = key.end_x;
+
+			if (&key == currentKey) {
+				x = keyX;
+				y = keyY;
+				w = keyW;
+				h = keyH;
+				return 1;
+			}
+		}
+	}
+
+	return 0;
+}
+
+void GUIKeyboard::SetSelectedItem(bool firstItem)
+{
+	Layout& lay = layouts[currentLayout - 1];
+
+	if (firstItem) {
+		for (int row = 0; row < MAX_KEYBOARD_ROWS; ++row) {
+			for (int col = 0; col < MAX_KEYBOARD_KEYS; ++col) {
+				Key& key = lay.keys[row][col];
+				if (key.key != 0 || key.layout != 0) {
+					currentKey = &key;
+					mRendered = false;
+					return;
+				}
+			}
+		}
+	} else {
+		for (int row = MAX_KEYBOARD_ROWS - 1; row >= 0; --row) {
+			for (int col = MAX_KEYBOARD_KEYS - 1; col >= 0; --col) {
+				Key& key = lay.keys[row][col];
+				if (key.key != 0 || key.layout != 0) {
+					currentKey = &key;
+					mRendered = false;
+					return;
+				}
+			}
+		}
+	}
+}

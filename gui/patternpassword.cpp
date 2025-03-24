@@ -46,6 +46,7 @@ GUIPatternPassword::GUIPatternPassword(xml_node<>* node)
 	mGridSize = 3;
 	mDots = new Dot[mGridSize * mGridSize];
 	mConnectedDots = new int[mGridSize * mGridSize];
+	mFocusedDotIndex = NO_ITEM;
 
 	ResetActiveDots();
 	mTrackingTouch = false;
@@ -189,6 +190,16 @@ int GUIPatternPassword::Render(void)
 {
 	if (!isConditionTrue())
 		return 0;
+
+	if (HasFocus()) {
+		if (mFocusedDotIndex != NO_ITEM) {
+			gr_surface dotCircle = gr_render_circle(mDotRadius + 6, mFocusColor.red, mFocusColor.green, mFocusColor.blue, mFocusColor.alpha);
+			gr_blit(dotCircle, 0, 0, gr_get_width(dotCircle), gr_get_height(dotCircle), mDots[mFocusedDotIndex].x - 6, mDots[mFocusedDotIndex].y - 6);
+		} else {
+			gr_color(mFocusColor.red, mFocusColor.green, mFocusColor.blue, mFocusColor.alpha);
+			gr_draw_rect(mRenderX - mDotRadius / 2, mRenderY - mDotRadius / 2, mRenderW + mDotRadius, mRenderH + mDotRadius, 3);
+		}
+	}
 
 	gr_color(mLineColor.red, mLineColor.green, mLineColor.blue, mLineColor.alpha);
 	for (size_t i = 1; i < mConnectedDotsLen; ++i) {
@@ -403,6 +414,7 @@ int GUIPatternPassword::NotifyTouch(TOUCH_STATE state, int x, int y)
 		}
 		case TOUCH_RELEASE:
 		{
+			mFocusedDotIndex = NO_ITEM;
 			if (!mTrackingTouch)
 				break;
 
@@ -490,4 +502,58 @@ void GUIPatternPassword::PatternDrawn()
 
 	if (mAction)
 		mAction->doActions();
+}
+
+bool GUIPatternPassword::MoveSelectionNext()
+{
+	if (mFocusedDotIndex == NO_ITEM || mFocusedDotIndex == mGridSize * mGridSize - 1) {
+		SetSelectedItem(0);
+		return true;
+	}
+
+	if (mFocusedDotIndex < mGridSize * mGridSize - 1) {
+		mFocusedDotIndex++;
+		mUpdate = 1;
+		return true;
+	}
+
+	return false;
+}
+
+bool GUIPatternPassword::MoveSelectionPrevious()
+{
+	if (mFocusedDotIndex == NO_ITEM || mFocusedDotIndex == 0) {
+		SetSelectedItem(mGridSize * mGridSize - 1);
+		return true;
+	}
+
+	if (mFocusedDotIndex > 0) {
+		mFocusedDotIndex--;
+		mUpdate = 1;
+		return true;
+	}
+
+	return false;
+}
+
+void GUIPatternPassword::SetSelectedItem(size_t index)
+{
+	if (index < mGridSize * mGridSize) {
+		mFocusedDotIndex = index;
+		mUpdate = 1;
+	}
+}
+
+int GUIPatternPassword::GetFocusedItemActionPos(int& x, int& y, int& w, int& h)
+{
+	if (mFocusedDotIndex == NO_ITEM || mFocusedDotIndex >= mGridSize * mGridSize) {
+		return 0;
+	}
+
+	y = mDots[mFocusedDotIndex].y;
+	x = mDots[mFocusedDotIndex].x;
+	w = mDotRadius;
+	h = mDotRadius;
+
+	return 1;
 }

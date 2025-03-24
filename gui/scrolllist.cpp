@@ -340,9 +340,10 @@ void GUIScrollList::RenderItem(size_t itemindex __unused, int yPos, bool selecte
 void GUIScrollList::RenderStdItem(int yPos, bool selected, ImageResource* icon, const char* text, const char* addtext)
 //void GUIScrollList::RenderStdItem(int yPos, bool selected, ImageResource* icon, const char* text, int iconAndTextH)
 {
-	if (hasHighlightColor && selected) {
+	if (hasHighlightColor && selected && HasFocus()) {
+	//if (hasHighlightColor && selected) { // enable on hw_button_mode is 0
 		// Highlight the item background of the selected item
-		gr_color(mHighlightColor.red, mHighlightColor.green, mHighlightColor.blue, mHighlightColor.alpha);
+		gr_color(mHighlightColor.red, mHighlightColor.green, mHighlightColor.blue, mHighlightColor.alpha * 2);
 		gr_fill(mRenderX, yPos, mRenderW, actualItemHeight);
 	}
 
@@ -547,7 +548,7 @@ int GUIScrollList::NotifyTouch(TOUCH_STATE state, int x, int y)
 			DataManager::Vibrate("tw_button_vibrate");
 #endif
 
-			selectedItem = NO_ITEM;
+			//selectedItem = NO_ITEM; // enable on hw_button_mode is 0
 		} else {
 			// Start kinetic scrolling
 			scrollingSpeed = lastY - last2Y;
@@ -692,4 +693,60 @@ bool GUIScrollList::AddLines(std::vector<std::string>* origText, std::vector<std
 		}
 	}
 	return true;
+}
+
+int GUIScrollList::GetFocusedItemActionPos(int& x, int& y, int& w, int& h)
+{
+	if (selectedItem == NO_ITEM || selectedItem >= GetItemCount()) {
+		return 0;
+	}
+
+	y = mRenderY + mHeaderH + y_offset + selectedItem * actualItemHeight;
+	x = mRenderX;
+	w = mRenderW;
+	h = actualItemHeight;
+
+	return 1;
+}
+
+void GUIScrollList::SetSelectedItem(size_t index)
+{
+	if (index < GetItemCount()) {
+		selectedItem = index;
+		mUpdate = 1;
+	}
+}
+
+bool GUIScrollList::MoveSelectionDown()
+{
+	if (selectedItem == NO_ITEM) {
+		SetSelectedItem(0);
+		return true;
+	}
+
+	if (selectedItem < GetItemCount() - 1) {
+		selectedItem++;
+		SetVisibleListLocation(selectedItem);
+		mUpdate = 1;
+		return true;
+	}
+
+	return false;
+}
+
+bool GUIScrollList::MoveSelectionUp()
+{
+	if (selectedItem == NO_ITEM) {
+		SetSelectedItem(GetItemCount() - 1);
+		return true;
+	}
+
+	if (selectedItem > 0) {
+		selectedItem--;
+		SetVisibleListLocation(selectedItem);
+		mUpdate = 1;
+		return true;
+	}
+
+	return false;
 }

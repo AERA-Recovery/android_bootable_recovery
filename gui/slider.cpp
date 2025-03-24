@@ -151,6 +151,11 @@ int GUISlider::Render(void)
 		if (ret < 0)		return ret;
 	}
 
+	if (HasFocus()) {
+		gr_color(mFocusColor.red, mFocusColor.green, mFocusColor.blue, mFocusColor.alpha);
+		gr_draw_rect(mRenderX + 2, mRenderY + 2, mRenderW - 4, mRenderH - 4, 3);
+	}
+
 	sUpdate = 0;
 	return 0;
 }

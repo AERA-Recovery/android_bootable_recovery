@@ -387,7 +387,7 @@ void GUIListBox::SetPageFocus(int inFocus)
 	}
 }
 
-size_t GUIListBox::GetItemCount()
+size_t GUIListBox::GetItemCount() const
 {
 	return mVisibleItems.size();
 }

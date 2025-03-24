@@ -255,7 +255,7 @@ void GUIPartitionList::SetPosition() {
 	}
 }
 
-size_t GUIPartitionList::GetItemCount()
+size_t GUIPartitionList::GetItemCount() const
 {
 	return mList.size();
 }

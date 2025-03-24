@@ -53,6 +53,7 @@ void blanktimer::setTimer(void) {
 }
 
 void blanktimer::checkForTimeout() {
+	return; // remove on hw_button_mode 0
 #ifndef TW_NO_SCREEN_TIMEOUT
 	pthread_mutex_lock(&mutex);
 	timespec curTime, diff;
@@ -91,6 +92,7 @@ string blanktimer::getBrightness(void) {
 }
 
 void blanktimer::resetTimerAndUnblank(void) {
+	return; // remove on hw_button_mode 0
 #ifndef TW_NO_SCREEN_TIMEOUT
 	pthread_mutex_lock(&mutex);
 	setTimer();
@@ -122,7 +124,7 @@ void blanktimer::blank(void) {
  *  2) Assume screen-off causes issues for devices that set
  *     TW_NO_SCREEN_TIMEOUT and do not blank screen here either
  */
-
+	return; // remove on hw_button_mode 0
 #ifndef TW_NO_SCREEN_TIMEOUT
 	pthread_mutex_lock(&mutex);
 	if (state == kOn) {
@@ -142,6 +144,7 @@ void blanktimer::blank(void) {
 }
 
 void blanktimer::toggleBlank(void) {
+	return; // remove on hw_button_mode 0
 	if (state == kOn) {
 		blank();
 		PageManager::ChangeOverlay("lock");

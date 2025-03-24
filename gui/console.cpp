@@ -385,7 +385,7 @@ int GUIConsole::NotifyTouch(TOUCH_STATE state, int x, int y)
 	return GUIScrollList::NotifyTouch(state, x, y);
 }
 
-size_t GUIConsole::GetItemCount()
+size_t GUIConsole::GetItemCount() const
 {
 	return rConsole.size();
 }

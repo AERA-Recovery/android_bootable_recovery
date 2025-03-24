@@ -181,3 +181,14 @@ void surface_ROTATION_transform(gr_surface dst_ptr, const gr_surface src_ptr,
         DO_MATRIX_ROTATION(8, 1);
     }
 }
+
+void gr_draw_rect(int x, int y, int w, int h, int thickness) {
+    // Top border
+    gr_line(x, y, x + w - 1, y, thickness);
+    // Left border
+    gr_line(x, y, x, y + h - 1, thickness);
+    // Right border
+    gr_line(x + w - 1, y, x + w - 1, y + h - 1, thickness);
+    // Bottom border
+    gr_line(x, y + h - 1, x + w - 1, y + h - 1, thickness);
+}

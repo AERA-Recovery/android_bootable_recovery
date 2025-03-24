@@ -74,7 +74,7 @@ int GUITextBox::Update(void)
 	return 0;
 }
 
-size_t GUITextBox::GetItemCount()
+size_t GUITextBox::GetItemCount() const
 {
 	return rText.size();
 }

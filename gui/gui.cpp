@@ -277,13 +277,19 @@ void InputHandler::processHoldAndRepeat()
 		gettimeofday(&touchStart, NULL);
 		PageManager::NotifyTouch(TOUCH_REPEAT, x, y);
 	}
-	else if (key_status == KS_KEY_PRESSED && mtime > 500)
+	else if (key_status == KS_KEY_PRESSED && mtime >= key_hold_ms)
 	{
 		LOGEVENT("KEY_HOLD: %ld\n", mtime);
 		mime = mtime;
 		gettimeofday(&touchStart, NULL);
 		key_status = KS_KEY_REPEAT;
-		kb->KeyRepeat();
+
+		if (kb->GetLastKey() == KEY_POWER) {
+			// remove on hw_button_mode 0
+			PageManager::SelectFocusedElement(true);
+		} else {
+			kb->KeyRepeat();
+		}
 	}
 	else if (key_status == KS_KEY_REPEAT && mtime > key_repeat_ms)
 	{
@@ -377,6 +383,21 @@ void InputHandler::process_EV_KEY(input_event& ev)
 			kb->KeyUp(KEY_BACK);
 	} else if (ev.value != 0) {
 		// This is a key press
+		// remove on hw_button_mode 0
+		if (ev.code == KEY_VOLUMEUP) {
+			LOGEVENT("VOLUME_UP Key Pressed\n");
+			LOGINFO("VOLUME_UP Key Pressed\n");
+			//PageManager::MoveFocus(Page::Direction::Previous);
+			PageManager::MoveFocus(Page::Direction::Up);
+			return;
+		}
+		if (ev.code == KEY_VOLUMEDOWN) {
+			LOGEVENT("VOLUME_DOWN Key Pressed\n");
+			LOGINFO("VOLUME_DOWN Key Pressed\n");
+			//PageManager::MoveFocus(Page::Direction::Next);
+			PageManager::MoveFocus(Page::Direction::Down);
+			return;
+		}
 #ifdef TW_USE_KEY_CODE_TOUCH_SYNC
 		if (ev.code == TW_USE_KEY_CODE_TOUCH_SYNC) {
 			LOGEVENT("key code %i key press == touch start %i %i\n", TW_USE_KEY_CODE_TOUCH_SYNC, x, y);
@@ -395,6 +416,10 @@ void InputHandler::process_EV_KEY(input_event& ev)
 		}
 	} else {
 		// This is a key release
+		// remove on hw_button_mode 0
+		if (ev.code == KEY_POWER && key_status != KS_KEY_REPEAT) {
+			PageManager::SelectFocusedElement(false);
+		}
 		if (mime <= 500)
 			kb->KeyUp(ev.code);
 		key_status = KS_NONE;

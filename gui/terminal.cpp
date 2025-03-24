@@ -891,7 +891,7 @@ int GUITerminal::NotifyCharInput(int ch)
 	return 0;
 }
 
-size_t GUITerminal::GetItemCount()
+size_t GUITerminal::GetItemCount() const
 {
 	return engine->getLinesCount();
 }
