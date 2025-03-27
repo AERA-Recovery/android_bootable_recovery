@@ -228,8 +228,8 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(generatebackupname);
       ADD_ACTION(checkpartitionlist);
       ADD_ACTION(getpartitiondetails);
-      ADD_ACTION(screenshot);
-      ADD_ACTION_EX("screenshotinternal", screenshot);
+      ADD_ACTION(screenshotwrap);
+      ADD_ACTION_EX("screenshotinternal", screenshotwrap);
       ADD_ACTION(setbrightness);
       ADD_ACTION(fileexists);
       ADD_ACTION(killterminal);
@@ -247,7 +247,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(changeterminal);
       ADD_ACTION(unmapsuperdevices);
       ADD_ACTION(disableled);
-      ADD_ACTION(flashlight);
+      ADD_ACTION(flashlightwrap);
 
 	  //fordownloads actions
       ADD_ACTION(fileextension);

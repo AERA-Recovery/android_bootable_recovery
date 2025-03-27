@@ -1,6 +1,7 @@
 #include "kernel_module_loader.hpp"
 #include "common.h"
 #include "variables.h"
+#include "data.hpp"
 
 const std::vector<std::string> kernel_modules_requested = TWFunc::split_string(EXPAND(TW_LOAD_VENDOR_MODULES), ' ', true);
 
@@ -107,6 +108,9 @@ exit:
 		ven->UnMount(false);
 	if (ven_dlkm)
 		ven_dlkm->UnMount(false, MNT_DETACH);
+
+	if (modules_loaded == 0)
+		DataManager::SetValue("of_request_switch_control_mode" , "1");
 
 	android::base::SetProperty(TW_MODULES_MOUNTED_PROP, "true");
 

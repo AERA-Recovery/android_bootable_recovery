@@ -98,22 +98,19 @@ public:
 	void MoveFocus(Page::Direction direction);
 	void SelectFocusedElement(bool longPressed = false);
 	void SetFocus(int index);
-	std::vector<ActionObject*> mActions;
 
 protected:
 	std::string mName;
 	std::vector<GUIObject*> mObjects;
 	std::vector<RenderObject*> mRenders;
+	std::vector<ActionObject*> mActions;
 	std::vector<InputObject*> mInputs;
-	//std::vector<ActionObject*> mFilteredActions;
 
 	int mFocusedObjectIndex = -1;
 	int MoveFocusIndex(Page::Direction direction);
 	void ShiftSlider(Page::Direction direction);
 	void ShiftSliderVal(Page::Direction direction);
 	void MoveFocusInPattern(Page::Direction direction);
-	//void UpdateFilteredActions();
-	//size_t GetIndexInMActions(ActionObject* filteredAction);
 	int sliderStartX;
 	int sliderEndX;
 	int sliderY;
@@ -172,8 +169,8 @@ protected:
 	ResourceManager* mResources;
 	std::vector<Page*> mPages;
 	Page* mCurrentPage;
+	Page* mCurrentOverlay;
 	std::vector<Page*> mOverlays; // Special case for popup dialogs and the lock screen
-	std::vector<ActionObject*> mOverlayActions;
 };
 
 class PageManager

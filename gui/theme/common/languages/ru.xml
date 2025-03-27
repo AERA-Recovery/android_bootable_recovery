@@ -1217,5 +1217,11 @@
 		<string name="disabling_AVB2_complete">vbmeta AVB2.0 выключена!</string>
 		<string name="disable_avb2_success_msg">Выключение vbmeta AVB2.0: '{1}' произошло успешно.</string>
 		<string name="disable_avb2_fail_msg">Выключение vbmeta AVB2.0: '{1}' неудалось!</string>
+
+		<string name="enable_hw_control">HW управление GUI</string>
+		<string name="enable_hw_control_1">Это включит навигацию по</string>
+		<string name="enable_hw_control_2">интерфейсу с помощью аппаратных</string>
+		<string name="enable_hw_control_3">кнопкок громкости и питания.</string>
+		<string name="enable_hw_control_4">Жесты отключатся. Продолжить?</string>
 	</resources>
 </language>

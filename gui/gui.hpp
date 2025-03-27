@@ -33,5 +33,6 @@ void gui_err(Message msg);
 extern long mime;
 std::string gui_parse_text(std::string inText);
 std::string gui_lookup(const std::string& resource_name, const std::string& default_value);
+void gui_switchControlMode(void);
 
 #endif //_GUI_HPP_HEADER

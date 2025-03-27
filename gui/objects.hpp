@@ -319,6 +319,8 @@ public:
 	virtual int NotifyKey(int key, bool down);
 	virtual int NotifyVarChange(const std::string& varName, const std::string& value);
 	virtual size_t GetActionCount() const { return mActions.size();}
+	static int screenshot(std::string arg);
+	static int flashlight(std::string arg);
 
 	int doActions();
 
@@ -386,7 +388,7 @@ protected:
 	int generatebackupname(std::string arg);
 	int checkpartitionlist(std::string arg);
 	int getpartitiondetails(std::string arg);
-	int screenshot(std::string arg);
+	int screenshotwrap(std::string arg) { return GUIAction::screenshot(arg); }
 	int setbrightness(std::string arg);
 	int cmdf(std::string arg, std::string file);
 	int batch(std::string arg);
@@ -437,7 +439,7 @@ protected:
 	int togglebacklight(std::string arg);
 	int twcmd(std::string arg);
 	int setbootslot(std::string arg);
-	int flashlight(std::string arg);
+	int flashlightwrap(std::string arg) { return GUIAction::flashlight(arg); }
 	int fileextension(std::string arg);
 	int up_a_level(std::string arg);
 	int adb(std::string arg);
@@ -1250,8 +1252,8 @@ public:
 	// called by multi-key actions to suppress key-release notifications
 	void ConsumeKeyRelease(int key);
 
-	bool IsKeyDown(int key_code);
-	int GetLastKey() { return mLastKey; }
+	bool IsKeyDown(int key_code) const;
+	bool AreKeysPressed(int key1_code, int key2_code) const;
 private:
 	int mLastKey;
 	int mLastKeyChar;

@@ -674,9 +674,10 @@ void Page::SetPageFocus(int inFocus)
 		(*iter)->SetPageFocus(inFocus);
 
 	if (inFocus == 0 && mFocusedObjectIndex >= 0 && mFocusedObjectIndex < mActions.size()) {
-		ActionObject* focusedElement = mActions[mFocusedObjectIndex];
-		if (focusedElement)
-			focusedElement->SetFocus(0);
+		std::vector<ActionObject*>::iterator iter;
+		for (iter = mActions.begin(); iter != mActions.end(); iter++)
+			(*iter)->SetFocus(inFocus);
+
 		mFocusedObjectIndex = -1;
 	}
 
@@ -728,7 +729,8 @@ LoadingContext* PageManager::currentLoadingContext = NULL;
 PageSet::PageSet()
 {
 	mResources = new ResourceManager;
-	mCurrentPage = NULL;
+	mCurrentPage = nullptr;
+	mCurrentOverlay = nullptr;
 
 	set_scale_values(1, 1); // Reset any previous scaling values
 }
@@ -1022,28 +1024,27 @@ int PageSet::SetOverlay(Page* page)
 			}
 		}
 
+		mCurrentOverlay = page;
 		page->SetPageFocus(1);
 		page->NotifyVarChange("", "");
 
 		if (!mOverlays.empty())
 			mOverlays.back()->SetPageFocus(0);
 
-		// Fix actions on overlay
-		mOverlayActions = mCurrentPage->mActions;
-		mCurrentPage->mActions = page->mActions;
-
 		mOverlays.push_back(page);
 	} else {
 		if (!mOverlays.empty()) {
 			mOverlays.back()->SetPageFocus(0);
 			mOverlays.pop_back();
-			// Fix actions on overlay
-			mCurrentPage->mActions = mOverlayActions;
-			mOverlayActions.clear();
-			if (!mOverlays.empty())
+			if (!mOverlays.empty()) {
 				mOverlays.back()->SetPageFocus(1);
-			else if (mCurrentPage)
+				mCurrentOverlay = mOverlays.back();
+			} else if (mCurrentPage) {
 				mCurrentPage->SetPageFocus(1); // Just in case somehow the regular page lost focus, we'll set it again
+				mCurrentOverlay = nullptr;
+			}
+		} else {
+			mCurrentOverlay = nullptr;
 		}
 	}
 	return 0;
@@ -1777,12 +1778,18 @@ void PageManager::SelectFocusedElement(bool longPressed)
 
 void PageSet::MoveFocus(Page::Direction direction)
 {
-	if (mCurrentPage) mCurrentPage->MoveFocus(direction);
+	if (mCurrentOverlay)
+		mCurrentOverlay->MoveFocus(direction);
+	else if (mCurrentPage)
+		mCurrentPage->MoveFocus(direction);
 }
 
 void PageSet::SelectFocusedElement(bool longPressed)
 {
-	if (mCurrentPage) mCurrentPage->SelectFocusedElement(longPressed);
+	if (mCurrentOverlay)
+		mCurrentOverlay->SelectFocusedElement(longPressed);
+	else if (mCurrentPage)
+		mCurrentPage->SelectFocusedElement(longPressed);
 }
 
 int Page::MoveFocusIndex(Page::Direction direction) {

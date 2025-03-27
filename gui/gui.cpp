@@ -115,7 +115,7 @@ public:
 		// these might be read from DataManager in the future
 		touch_hold_ms = 500;
 		touch_repeat_ms = 100;
-		key_hold_ms = 500;
+		key_hold_ms = 200;
 		key_repeat_ms = 100;
 		touch_status = TS_NONE;
 		key_status = KS_NONE;
@@ -277,19 +277,32 @@ void InputHandler::processHoldAndRepeat()
 		gettimeofday(&touchStart, NULL);
 		PageManager::NotifyTouch(TOUCH_REPEAT, x, y);
 	}
-	else if (key_status == KS_KEY_PRESSED && mtime >= key_hold_ms)
+	else if (key_status == KS_KEY_PRESSED && mtime >= 200 && !kb->AreKeysPressed(KEY_VOLUMEUP, KEY_VOLUMEDOWN))
 	{
 		LOGEVENT("KEY_HOLD: %ld\n", mtime);
 		mime = mtime;
 		gettimeofday(&touchStart, NULL);
 		key_status = KS_KEY_REPEAT;
 
-		if (kb->GetLastKey() == KEY_POWER) {
-			// remove on hw_button_mode 0
+		if (kb->AreKeysPressed(KEY_VOLUMEUP, KEY_POWER)) {
+			GUIAction::flashlight("");
+			DataManager::Vibrate("tw_button_vibrate");
+		} else if (kb->AreKeysPressed(KEY_VOLUMEDOWN, KEY_POWER)) {
+			GUIAction::screenshot("");
+			DataManager::Vibrate("tw_button_vibrate");
+		} else if (kb->IsKeyDown(KEY_POWER) && DataManager::GetStrValue("of_hw_control_mode") == "1") {
 			PageManager::SelectFocusedElement(true);
 		} else {
 			kb->KeyRepeat();
 		}
+	}
+	else if (key_status == KS_KEY_PRESSED && kb->AreKeysPressed(KEY_VOLUMEUP, KEY_VOLUMEDOWN) && mtime >= 3000)
+	{
+		mime = mtime;
+		gettimeofday(&touchStart, NULL);
+		key_status = KS_KEY_REPEAT;
+
+		gui_switchControlMode();
 	}
 	else if (key_status == KS_KEY_REPEAT && mtime > key_repeat_ms)
 	{
@@ -383,21 +396,6 @@ void InputHandler::process_EV_KEY(input_event& ev)
 			kb->KeyUp(KEY_BACK);
 	} else if (ev.value != 0) {
 		// This is a key press
-		// remove on hw_button_mode 0
-		if (ev.code == KEY_VOLUMEUP) {
-			LOGEVENT("VOLUME_UP Key Pressed\n");
-			LOGINFO("VOLUME_UP Key Pressed\n");
-			//PageManager::MoveFocus(Page::Direction::Previous);
-			PageManager::MoveFocus(Page::Direction::Up);
-			return;
-		}
-		if (ev.code == KEY_VOLUMEDOWN) {
-			LOGEVENT("VOLUME_DOWN Key Pressed\n");
-			LOGINFO("VOLUME_DOWN Key Pressed\n");
-			//PageManager::MoveFocus(Page::Direction::Next);
-			PageManager::MoveFocus(Page::Direction::Down);
-			return;
-		}
 #ifdef TW_USE_KEY_CODE_TOUCH_SYNC
 		if (ev.code == TW_USE_KEY_CODE_TOUCH_SYNC) {
 			LOGEVENT("key code %i key press == touch start %i %i\n", TW_USE_KEY_CODE_TOUCH_SYNC, x, y);
@@ -416,9 +414,19 @@ void InputHandler::process_EV_KEY(input_event& ev)
 		}
 	} else {
 		// This is a key release
-		// remove on hw_button_mode 0
-		if (ev.code == KEY_POWER && key_status != KS_KEY_REPEAT) {
-			PageManager::SelectFocusedElement(false);
+		if (DataManager::GetStrValue("of_hw_control_mode") == "1") {
+			if (ev.code == KEY_VOLUMEUP && key_status != KS_KEY_REPEAT) {
+				LOGEVENT("VOLUME_UP Key Released\n");
+				PageManager::MoveFocus(Page::Direction::Up);
+			}
+			if (ev.code == KEY_VOLUMEDOWN && key_status != KS_KEY_REPEAT) {
+				LOGEVENT("VOLUME_DOWN Key Released\n");
+				PageManager::MoveFocus(Page::Direction::Down);
+			}
+			if (ev.code == KEY_POWER && key_status != KS_KEY_REPEAT) {
+				LOGEVENT("POWER Key Released\n");
+				PageManager::SelectFocusedElement(false);
+			}
 		}
 		if (mime <= 500)
 			kb->KeyUp(ev.code);
@@ -641,6 +649,11 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 
 	DataManager::SetValue("tw_loaded", 1);
 
+	if (DataManager::GetStrValue("of_request_switch_control_mode") == "1") {
+		DataManager::SetValue("of_request_switch_control_mode", "0");
+		gui_switchControlMode();
+	}
+
 	struct timeval timeout;
 	fd_set fdset;
 	int has_data = 0;
@@ -829,6 +842,23 @@ std::string gui_parse_text(std::string str)
 
 std::string gui_lookup(const std::string& resource_name, const std::string& default_value) {
 	return PageManager::GetResources()->FindString(resource_name, default_value);
+}
+
+void gui_switchControlMode(void)
+{
+	LOGINFO("Request to switch GUI control mode\n");
+	if (DataManager::GetStrValue("of_hw_control_mode") == "0") {
+		DataManager::Vibrate("tw_button_vibrate");
+		DataManager::SetValue("of_hw_control_mode", "0");
+		blankTimer.resetTimerAndUnblank();
+		PageManager::NotifyVarChange("", "");
+		gui_forceRender();
+	} else {
+		DataManager::SetValue("of_reload_back", PageManager::GetCurrentPage());
+		DataManager::Vibrate("tw_button_vibrate");
+		DataManager::SetValue("of_hw_control_mode", "1");
+		gui_changeOverlay("dialog_enable_hw_mode");
+	}
 }
 
 extern "C" int gui_init(void)

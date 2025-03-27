@@ -340,10 +340,16 @@ void GUIScrollList::RenderItem(size_t itemindex __unused, int yPos, bool selecte
 void GUIScrollList::RenderStdItem(int yPos, bool selected, ImageResource* icon, const char* text, const char* addtext)
 //void GUIScrollList::RenderStdItem(int yPos, bool selected, ImageResource* icon, const char* text, int iconAndTextH)
 {
-	if (hasHighlightColor && selected && HasFocus()) {
-	//if (hasHighlightColor && selected) { // enable on hw_button_mode is 0
+	if (DataManager::GetStrValue("of_hw_control_mode") == "1") {
+		COLOR* clr_ptr = &mFocusColor;
+		ConvertStrToColor(DataManager::GetStrValue("theme_accent_dark"), clr_ptr);
+		gr_color(mFocusColor.red, mFocusColor.green, mFocusColor.blue, mFocusColor.alpha);
+	} else {
+		gr_color(mHighlightColor.red, mHighlightColor.green, mHighlightColor.blue, mHighlightColor.alpha);
+	}
+
+	if (hasHighlightColor && selected && (HasFocus() || DataManager::GetStrValue("of_hw_control_mode") == "0")) {
 		// Highlight the item background of the selected item
-		gr_color(mHighlightColor.red, mHighlightColor.green, mHighlightColor.blue, mHighlightColor.alpha * 2);
 		gr_fill(mRenderX, yPos, mRenderW, actualItemHeight);
 	}
 
@@ -547,8 +553,8 @@ int GUIScrollList::NotifyTouch(TOUCH_STATE state, int x, int y)
 #ifndef TW_NO_HAPTICS
 			DataManager::Vibrate("tw_button_vibrate");
 #endif
-
-			//selectedItem = NO_ITEM; // enable on hw_button_mode is 0
+			if (DataManager::GetStrValue("of_hw_control_mode") == "0")
+				selectedItem = NO_ITEM;
 		} else {
 			// Start kinetic scrolling
 			scrollingSpeed = lastY - last2Y;

@@ -225,6 +225,8 @@ bool GUIObject::isMounted(string vol)
 
 void ActionObject::SetFocus(bool focus)
 {
-	mHasFocus = focus;
-	gui_forceRender();
+	if (DataManager::GetStrValue("of_hw_control_mode") == "1") {
+		mHasFocus = focus;
+		gui_forceRender();
+	}
 }

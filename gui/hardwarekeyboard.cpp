@@ -376,10 +376,15 @@ static int KeyCodeToChar(int key_code, bool shiftkey, bool ctrlkey)
 	return keyboard;
 }
 
-bool HardwareKeyboard::IsKeyDown(int key_code)
+bool HardwareKeyboard::IsKeyDown(int key_code) const
 {
 	std::set<int>::iterator it = mPressedKeys.find(key_code);
 	return (it != mPressedKeys.end());
+}
+
+bool HardwareKeyboard::AreKeysPressed(int key1_code, int key2_code) const
+{
+	return (mPressedKeys.count(key1_code) > 0 && mPressedKeys.count(key2_code) > 0);
 }
 
 int HardwareKeyboard::KeyDown(int key_code)
