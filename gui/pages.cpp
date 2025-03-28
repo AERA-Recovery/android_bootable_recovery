@@ -1952,6 +1952,7 @@ void Page::SelectFocusedElement(bool longPressed) {
 				slider->mFocusColor = {255, 0, 0, 255};
 				focusedElement->NotifyTouch(TOUCH_RELEASE, sliderEndX, sliderY);
 			}
+			gui_forceRender();
 			return;
 		} else if (sliderVal) {
 			if (!mFocusSliderVal) {
