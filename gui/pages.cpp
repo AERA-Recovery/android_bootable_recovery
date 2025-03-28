@@ -1897,11 +1897,8 @@ void Page::ShiftSliderVal(Page::Direction direction)
 	ActionObject* focusedElement = mActions[mFocusedObjectIndex];
 	GUISliderValue* slider = dynamic_cast<GUISliderValue*>(focusedElement);
 	if (slider) {
-		int moveToX = slider->GetValXCurr() + static_cast<int>(direction) * (sliderEndX - sliderStartX) / 10;
-		if (moveToX >= sliderEndX)
-				moveToX = sliderEndX;
-		focusedElement->NotifyTouch(TOUCH_START, moveToX, sliderY);
-		focusedElement->NotifyTouch(TOUCH_RELEASE, moveToX, sliderY);
+		int value = slider->GetCurrentVal() + static_cast<int>(direction) * (sliderEndX - sliderStartX) / 10;
+		slider->SetCurrentVal(value);
 	}
 }
 
@@ -1963,6 +1960,7 @@ void Page::SelectFocusedElement(bool longPressed) {
 				mFocusSliderVal = false;
 				sliderVal->mFocusColor = {255, 0, 0, 255};
 			}
+			gui_forceRender();
 			return;
 		} else if (patternPass) {
 			static bool isFirstDot = true;

@@ -1289,8 +1289,9 @@ public:
 	// SetPageFocus - Notify when a page gains or loses focus
 	virtual void SetPageFocus(int inFocus);
 	virtual std::string GetObjectType() const { return "GUISliderValue"; }
-	int GetSliderPos(int& xStart, int& xEnd, int& y) { xStart = mLineX; xEnd = mLineX + mLineW; y = mSliderY; return 0; }
-	int GetValXCurr() const { return mLineX + sliderX; }
+	int GetSliderPos(int& xStart, int& xEnd, int& y) { xStart = mMin; xEnd = mMax; y = mSliderY; return 0; }
+	int GetCurrentVal() const { return mValue; }
+	void SetCurrentVal(int value);
 	COLOR mFocusColor = {255, 0, 0, 255};
 
 protected:
@@ -1320,7 +1321,6 @@ protected:
 	int mLineH;
 	int mLinePadding;
 	int mPadding;
-	uint32_t sliderX;
 	int mSliderY;
 	int mSliderW;
 	int mSliderH;

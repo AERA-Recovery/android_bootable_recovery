@@ -311,7 +311,7 @@ int GUISliderValue::Render(void)
 	}
 
 	// slider
-	sliderX = mLineX + (mValuePct*(mLineW - mSliderW))/100;
+	uint32_t sliderX = mLineX + (mValuePct*(mLineW - mSliderW))/100;
 
 	if (mHandleImage && mHandleImage->GetResource())
 	{
@@ -449,4 +449,22 @@ void GUISliderValue::SetPageFocus(int inFocus)
 {
 	if (inFocus)
 		loadValue();
+}
+
+void GUISliderValue::SetCurrentValue(int value)
+{
+	if (value > mMax)
+		mValue = mMax;
+	else if (value < mMin)
+		mValue = mMin;
+	else
+		mValue = value;
+
+	mValuePct = pctFromValue(mValue);
+	mRendered = false;
+
+	if (!mVariable.empty())
+		DataManager::SetValue(mVariable, mValue);
+	if (mAction)
+		mAction->doActions();
 }

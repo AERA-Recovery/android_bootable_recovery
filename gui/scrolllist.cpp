@@ -351,7 +351,7 @@ void GUIScrollList::RenderStdItem(int yPos, bool selected, ImageResource* icon, 
 		gr_color(mHighlightColor.red, mHighlightColor.green, mHighlightColor.blue, mHighlightColor.alpha);
 	}
 
-	if (hasHighlightColor && selected && (HasFocus() || DataManager::GetStrValue("of_hw_control_mode") == "0")) {
+	if (hasHighlightColor && selected && (HasFocus() || DataManager::GetStrValue("of_hw_control_mode") != "1")) {
 		// Highlight the item background of the selected item
 		gr_fill(mRenderX, yPos, mRenderW, actualItemHeight);
 	}
@@ -556,7 +556,7 @@ int GUIScrollList::NotifyTouch(TOUCH_STATE state, int x, int y)
 #ifndef TW_NO_HAPTICS
 			DataManager::Vibrate("tw_button_vibrate");
 #endif
-			if (DataManager::GetStrValue("of_hw_control_mode") == "0")
+			if (DataManager::GetStrValue("of_hw_control_mode") != "1")
 				selectedItem = NO_ITEM;
 		} else {
 			// Start kinetic scrolling

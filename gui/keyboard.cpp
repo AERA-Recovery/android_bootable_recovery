@@ -516,7 +516,7 @@ int GUIKeyboard::NotifyTouch(TOUCH_STATE state, int x, int y)
 		break;
 
 	case TOUCH_RELEASE:
-		if (DataManager::GetStrValue("of_hw_control_mode") == "0")
+		if (DataManager::GetStrValue("of_hw_control_mode") != "1")
 			DataManager::SetValue("tw_keyboard_press_key", "1");
 		DataManager::GetValue("key_allow_swipe", swipeAct);
 

@@ -415,17 +415,26 @@ void InputHandler::process_EV_KEY(input_event& ev)
 	} else {
 		// This is a key release
 		if (DataManager::GetStrValue("of_hw_control_mode") == "1") {
-			if (ev.code == KEY_VOLUMEUP && key_status != KS_KEY_REPEAT) {
-				LOGEVENT("VOLUME_UP Key Released\n");
-				PageManager::MoveFocus(Page::Direction::Up);
+			if (!blankTimer.isScreenOff()) {
+				if (ev.code == KEY_VOLUMEUP && key_status != KS_KEY_REPEAT) {
+					LOGEVENT("VOLUME_UP Key Released\n");
+					PageManager::MoveFocus(Page::Direction::Up);
+				}
+				if (ev.code == KEY_VOLUMEDOWN && key_status != KS_KEY_REPEAT) {
+					LOGEVENT("VOLUME_DOWN Key Released\n");
+					PageManager::MoveFocus(Page::Direction::Down);
+				}
+				if (ev.code == KEY_POWER && key_status != KS_KEY_REPEAT) {
+					LOGEVENT("POWER Key Released\n");
+					PageManager::SelectFocusedElement(false);
+				}
+			} else {
+				blankTimer.toggleBlank();
 			}
-			if (ev.code == KEY_VOLUMEDOWN && key_status != KS_KEY_REPEAT) {
-				LOGEVENT("VOLUME_DOWN Key Released\n");
-				PageManager::MoveFocus(Page::Direction::Down);
-			}
+		} else {
 			if (ev.code == KEY_POWER && key_status != KS_KEY_REPEAT) {
 				LOGEVENT("POWER Key Released\n");
-				PageManager::SelectFocusedElement(false);
+				blankTimer.toggleBlank();
 			}
 		}
 		if (mime <= 500)
@@ -847,17 +856,17 @@ std::string gui_lookup(const std::string& resource_name, const std::string& defa
 void gui_switchControlMode(void)
 {
 	LOGINFO("Request to switch GUI control mode\n");
-	if (DataManager::GetStrValue("of_hw_control_mode") == "0") {
-		DataManager::Vibrate("tw_button_vibrate");
+
+	DataManager::Vibrate("tw_button_vibrate");
+	if (DataManager::GetStrValue("of_hw_control_mode") != "1") {
+		DataManager::SetValue("of_hw_control_mode", "1");
+		DataManager::SetValue("of_reload_back", PageManager::GetCurrentPage());
+		gui_changeOverlay("dialog_enable_hw_mode");
+	} else {
 		DataManager::SetValue("of_hw_control_mode", "0");
 		blankTimer.resetTimerAndUnblank();
 		PageManager::NotifyVarChange("", "");
 		gui_forceRender();
-	} else {
-		DataManager::SetValue("of_reload_back", PageManager::GetCurrentPage());
-		DataManager::Vibrate("tw_button_vibrate");
-		DataManager::SetValue("of_hw_control_mode", "1");
-		gui_changeOverlay("dialog_enable_hw_mode");
 	}
 }
 
