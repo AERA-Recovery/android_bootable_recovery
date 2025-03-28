@@ -285,10 +285,10 @@ void InputHandler::processHoldAndRepeat()
 		key_status = KS_KEY_REPEAT;
 
 		if (kb->AreKeysPressed(KEY_VOLUMEUP, KEY_POWER)) {
-			GUIAction::flashlight("");
+			GUIAction::flashlightImpl("");
 			DataManager::Vibrate("tw_button_vibrate");
 		} else if (kb->AreKeysPressed(KEY_VOLUMEDOWN, KEY_POWER)) {
-			GUIAction::screenshot("");
+			GUIAction::screenshotImpl("");
 			DataManager::Vibrate("tw_button_vibrate");
 		} else if (kb->IsKeyDown(KEY_POWER) && DataManager::GetStrValue("of_hw_control_mode") == "1") {
 			PageManager::SelectFocusedElement(true);

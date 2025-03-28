@@ -319,8 +319,8 @@ public:
 	virtual int NotifyKey(int key, bool down);
 	virtual int NotifyVarChange(const std::string& varName, const std::string& value);
 	virtual size_t GetActionCount() const { return mActions.size();}
-	static int screenshot(std::string arg);
-	static int flashlight(std::string arg);
+	static int screenshotImpl(std::string arg);
+	static int flashlightImpl(std::string arg);
 
 	int doActions();
 
@@ -388,7 +388,7 @@ protected:
 	int generatebackupname(std::string arg);
 	int checkpartitionlist(std::string arg);
 	int getpartitiondetails(std::string arg);
-	int screenshotwrap(std::string arg) { return GUIAction::screenshot(arg); }
+	int screenshot(std::string arg) { return GUIAction::screenshotImpl(arg); }
 	int setbrightness(std::string arg);
 	int cmdf(std::string arg, std::string file);
 	int batch(std::string arg);
@@ -439,7 +439,7 @@ protected:
 	int togglebacklight(std::string arg);
 	int twcmd(std::string arg);
 	int setbootslot(std::string arg);
-	int flashlightwrap(std::string arg) { return GUIAction::flashlight(arg); }
+	int flashlight(std::string arg) { return GUIAction::flashlightImpl(arg); }
 	int fileextension(std::string arg);
 	int up_a_level(std::string arg);
 	int adb(std::string arg);

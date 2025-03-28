@@ -228,8 +228,8 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(generatebackupname);
       ADD_ACTION(checkpartitionlist);
       ADD_ACTION(getpartitiondetails);
-      ADD_ACTION(screenshotwrap);
-      ADD_ACTION_EX("screenshotinternal", screenshotwrap);
+      ADD_ACTION(screenshot);
+      ADD_ACTION_EX("screenshotinternal", screenshot);
       ADD_ACTION(setbrightness);
       ADD_ACTION(fileexists);
       ADD_ACTION(killterminal);
@@ -247,7 +247,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(changeterminal);
       ADD_ACTION(unmapsuperdevices);
       ADD_ACTION(disableled);
-      ADD_ACTION(flashlightwrap);
+      ADD_ACTION(flashlight);
 
 	  //fordownloads actions
       ADD_ACTION(fileextension);
@@ -1364,7 +1364,7 @@ int GUIAction::getpartitiondetails(std::string arg)
   return 0;
 }
 
-int GUIAction::screenshot(std::string arg __unused)
+int GUIAction::screenshotImpl(std::string arg __unused)
 {
 	time_t tm;
 	char path[256];
@@ -2553,7 +2553,7 @@ int GUIAction::setbootslot(std::string arg)
 	return 0;
 }
 
-int GUIAction::flashlight(std::string arg __unused)
+int GUIAction::flashlightImpl(std::string arg __unused)
 {
     string enable_flash;
     DataManager::GetValue(OF_FLASHLIGHT_ENABLE_STR, enable_flash);
