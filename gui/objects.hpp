@@ -1290,8 +1290,8 @@ public:
 	virtual void SetPageFocus(int inFocus);
 	virtual std::string GetObjectType() const { return "GUISliderValue"; }
 	int GetSliderPos(int& xStart, int& xEnd, int& y) { xStart = mMin; xEnd = mMax; y = mSliderY; return 0; }
-	int GetCurrentVal() const { return mValue; }
-	void SetCurrentVal(int value);
+	int GetCurrentValue() const { return mValue; }
+	void SetCurrentValue(int value);
 	COLOR mFocusColor = {255, 0, 0, 255};
 
 protected:

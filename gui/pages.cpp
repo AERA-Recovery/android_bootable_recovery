@@ -1897,8 +1897,8 @@ void Page::ShiftSliderVal(Page::Direction direction)
 	ActionObject* focusedElement = mActions[mFocusedObjectIndex];
 	GUISliderValue* slider = dynamic_cast<GUISliderValue*>(focusedElement);
 	if (slider) {
-		int value = slider->GetCurrentVal() + static_cast<int>(direction) * (sliderEndX - sliderStartX) / 10;
-		slider->SetCurrentVal(value);
+		int value = slider->GetCurrentValue() + static_cast<int>(direction) * (sliderEndX - sliderStartX) / 10;
+		slider->SetCurrentValue(value);
 	}
 }
 
