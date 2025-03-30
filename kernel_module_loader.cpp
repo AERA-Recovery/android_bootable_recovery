@@ -61,6 +61,8 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 	vendor_module_dirs.push_back(vendor_base_dir + gki);
 #endif
 
+	TWFunc::RunFoxScript("/system/bin/beforemodules.sh", "");
+
 	switch(Get_Boot_Mode()) {
 		case RECOVERY_FASTBOOT_MODE:
 			/* On bootmode: once, there is not always stock kernel
