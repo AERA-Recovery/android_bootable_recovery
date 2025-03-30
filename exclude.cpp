@@ -91,10 +91,12 @@ uint64_t TWExclude::Get_Folder_Size(const string& Path) {
 
 			continue;
 		}
-		if ((st.st_mode & S_IFDIR) && !check_skip_dirs(FullPath) && de->d_type != DT_SOCK) {
-			dusize += Get_Folder_Size(FullPath);
-		} else if (st.st_mode & S_IFREG || st.st_mode & S_IFLNK) {
-			dusize += (uint64_t)(st.st_size);
+		if (!check_skip_dirs(FullPath)) {
+			if ((st.st_mode & S_IFDIR) && de->d_type != DT_SOCK) {
+				dusize += Get_Folder_Size(FullPath);
+			} else if (st.st_mode & S_IFREG || st.st_mode & S_IFLNK) {
+				dusize += (uint64_t)(st.st_size);
+			}
 		}
 	}
 	closedir(d);
