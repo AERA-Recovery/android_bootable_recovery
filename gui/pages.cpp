@@ -95,6 +95,8 @@ int ConvertStrToColor(std::string str, COLOR* color)
 	else if (str == "red")		{ color->red = 255; return 0; }
 	else if (str == "green")	{ color->green = 255; return 0; }
 	else if (str == "blue")		{ color->blue = 255; return 0; }
+	else if (str == "pink")		{ color->red = 255; color->green = 192; color->blue = 203; return 0; }
+	else if (str == "yellow")	{ color->red = color->green = 255; color->blue = 0; return 0; }
 
 	// At this point, we require an RGB(A) color
 	if (str[0] != '#')

@@ -193,6 +193,16 @@ void GUIConsole::Translate_Now()
 			color = "highlight";
 		else if (gMessages[m].GetKind() == msg::kWarning)
 			color = "warning";
+		else if (gMessages[m].GetKind() == msg::kGreen)
+			color = "green";
+		else if (gMessages[m].GetKind() == msg::kBlue)
+			color = "blue";
+		else if (gMessages[m].GetKind() == msg::kBlack)
+			color = "black";
+		else if (gMessages[m].GetKind() == msg::kPink)
+			color = "pink";
+		else if (gMessages[m].GetKind() == msg::kYellow)
+			color = "yellow";
 		gConsole.push_back(message);
 		gConsoleColor.push_back(color);
 	}
