@@ -939,119 +939,6 @@ void TWFunc::GUI_Operation_Text(string Read_Value, string Partition_Name,
   DataManager::SetValue("tw_partition", Partition_Name);
 }
 
-void TWFunc::Copy_Log(string Source, string Destination) {
-	int logPipe[2];
-	int pigz_pid;
-	int destination_fd;
-	std::string destLogBuffer;
-
-	PartitionManager.Mount_By_Path(Destination, false);
-
-	size_t extPos = Destination.find(".gz");
-	std::string uncompressedLog(Destination);
-	uncompressedLog.replace(extPos, Destination.length(), "");
-
-	if (Path_Exists(Destination)) {
-		Archive_Type type = Get_File_Type(Destination);
-		if (type == COMPRESSED) {
-			std::string destFileBuffer;
-			std::string getCompressedContents = "pigz -c -d " + Destination;
-			if (Exec_Cmd(getCompressedContents, destFileBuffer) < 0) {
-				LOGINFO("Unable to get destination logfile contents.\n");
-				return;
-			}
-			destLogBuffer.append(destFileBuffer);
-		}
-	} else if (Path_Exists(uncompressedLog)) {
-		std::ifstream uncompressedIfs(uncompressedLog);
-		std::stringstream uncompressedSS;
-		uncompressedSS << uncompressedIfs.rdbuf();
-		uncompressedIfs.close();
-		std::string uncompressedLogBuffer(uncompressedSS.str());
-		destLogBuffer.append(uncompressedLogBuffer);
-		std::remove(uncompressedLog.c_str());
-	}
-
-	std::ifstream ifs(Source);
-	std::stringstream ss;
-	ss << ifs.rdbuf();
-	std::string srcLogBuffer(ss.str());
-	ifs.close();
-
-	if (pipe(logPipe) < 0) {
-		LOGINFO("Unable to open pipe to write to persistent log file: %s\n", Destination.c_str());
-	}
-
-	destination_fd = open(Destination.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-
-	pigz_pid = fork();
-	if (pigz_pid < 0) {
-		LOGINFO("fork() failed\n");
-		close(destination_fd);
-		close(logPipe[0]);
-		close(logPipe[1]);
-	} else if (pigz_pid == 0) {
-		close(logPipe[1]);
-		dup2(logPipe[0], fileno(stdin));
-		dup2(destination_fd, fileno(stdout));
-		if (execlp("pigz", "pigz", "-", NULL) < 0) {
-			close(destination_fd);
-			close(logPipe[0]);
-			_exit(-1);
-		}
-	} else {
-		close(logPipe[0]);
-		if (write(logPipe[1], destLogBuffer.c_str(), destLogBuffer.size()) < 0) {
-			LOGINFO("Unable to append to persistent log: %s\n", Destination.c_str());
-			close(logPipe[1]);
-			close(destination_fd);
-			return;
-		}
-		if (write(logPipe[1], srcLogBuffer.c_str(), srcLogBuffer.size()) < 0) {
-			LOGINFO("Unable to append to persistent log: %s\n", Destination.c_str());
-			close(logPipe[1]);
-			close(destination_fd);
-			return;
-		}
-		close(logPipe[1]);
-	}
-	close(destination_fd);
-}
-
-void TWFunc::Update_Log_File(void) {
-	std::string recoveryDir = get_log_dir() + "recovery/";
-
-	if (get_log_dir() == CACHE_LOGS_DIR) {
-		if (!PartitionManager.Mount_By_Path(CACHE_LOGS_DIR, false)) {
-			LOGINFO("Failed to mount %s for TWFunc::Update_Log_File\n", CACHE_LOGS_DIR);
-		}
-	}
-
-	if (!TWFunc::Path_Exists(recoveryDir)) {
-		LOGINFO("Recreating %s folder.\n", recoveryDir.c_str());
-		if (!Create_Dir_Recursive(recoveryDir,  S_IRWXU | S_IRWXG | S_IWGRP | S_IXGRP, 0, 0)) {
-			LOGINFO("Unable to create %s folder.\n", recoveryDir.c_str());
-		}
-	}
-
-	std::string logCopy = recoveryDir + "log.gz";
-	std::string lastLogCopy = recoveryDir + "last_log.gz";
-	copy_file(logCopy, lastLogCopy, 0600);
-	Copy_Log(TMP_LOG_FILE, logCopy);
-	chown(logCopy.c_str(), 1000, 1000);
-	chmod(logCopy.c_str(), 0600);
-	chmod(lastLogCopy.c_str(), 0640);
-
-	if (get_log_dir() == CACHE_LOGS_DIR) {
-		if (PartitionManager.Mount_By_Path("/cache", false)) {
-			if (unlink("/cache/recovery/command") && errno != ENOENT) {
-				LOGINFO("Can't unlink %s\n", "/cache/recovery/command");
-			}
-		}
-	}
-	sync();
-}
-
 void TWFunc::Clear_Bootloader_Message() {
 	std::string err;
 	if (!clear_bootloader_message(&err)) {
@@ -1071,7 +958,6 @@ void TWFunc::Update_Intent_File(string Intent)
 int TWFunc::tw_reboot(RebootCommand command)
 {
 	DataManager::Flush();
-	Update_Log_File();
 
   	// if we haven't called Deactivation_Process before, check whether to call it now 
   	// This code is currently disabled - Fox_AutoDeactivate_OnReboot is never set to 1
