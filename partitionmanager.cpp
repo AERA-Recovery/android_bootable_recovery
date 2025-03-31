@@ -2236,7 +2236,7 @@ void TWPartitionManager::Parse_Users() {
 						converted = -1;
 				}
 			}
-			if (converted < 0)
+			if (converted <= 0)
 				user.userName = to_string(userId);
 			else {
 				char* userFile = PageManager::LoadFileToBuffer(path, NULL);
