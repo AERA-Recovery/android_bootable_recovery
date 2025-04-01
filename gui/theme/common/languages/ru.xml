@@ -985,7 +985,37 @@
 		<string name="abt_main_shrt">Поддержка</string>
 		<string name="welcome_msg">Добро пожаловать в</string>
 		<string name="welcome_msg2">OrangeFox!</string>
-		
+
+		<string name="fox_welcome">Добро пожаловать в OrangeFox рекавери!</string>
+		<string name="fox_platform">[Платформа]  : {1}</string>
+		<string name="fox_release">[Версия]     : {1}</string>
+		<string name="fox_variant">[Вариант]    : {1}</string>
+		<string name="fox_codebase">[Исходники]  : {1}, {2}</string>
+		<string name="fox_settings">[Настройки]  : {1}</string>
+		<string name="fox_misc">[Прочее]     : {1}</string>
+		<string name="fox_build_date">[Дата сборки]: {1}</string>
+		<string name="fox_build_type_unofficial">[Тип сборки] : Неофициальная. Неофициальные сборки лишены официальной поддержки</string>
+		<string name="fox_build_type">[Тип сборки] : {1}</string>
+		<string name="fox_support">[Поддержка]  : {1}</string>
+		<string name="fox_nosupport">[Поддержка]  : Неизвестные сборки лишены официальной поддержки</string>
+		<string name="fox_websites">Сайты OrangeFox:</string>
+		<string name="fox_downloads">[Загрузки]   : {1}</string>
+		<string name="fox_faq">[Гайды/FAQ]  : {1}</string>
+		<string name="fox_encrypted">* Хранилище зашифровано</string>
+		<string name="fox_not_encrypted">* Хранилище не зашифровано</string>
+		<string name="fox_display">* Дисплей:   {1}</string>
+		<string name="fox_device">* Девайс:    {1} ({2})</string>
+		<string name="fox_dynamic_yes">* Super:     да</string>
+		<string name="fox_dynamic_no">* Super:     нет</string>
+		<string name="fox_boot_slot">* Слот:      {1}</string>
+		<string name="fox_vab_yes">* VAB:       да</string>
+		<string name="fox_vab_no">* VAB:       нет</string>
+		<string name="fox_kernel">* Ядро:      {1}</string>
+		<string name="fox_miui_rom">* MIUI ROM (SDK:{1}, {2})</string>
+		<string name="fox_custom_rom">* Кастомный ROM (SDK:{1}, {2})</string>
+		<string name="fox_fingerprint">* Отпечаток: {1}</string>
+		<string name="fox_no_rom">* Пустой ROM.</string>
+
 		<!-- Symlink -->
 		<string name="symlink_dir_name">Ссылка на папку</string>
 		<string name="symlink_file_name">Ссылка на файл</string>
