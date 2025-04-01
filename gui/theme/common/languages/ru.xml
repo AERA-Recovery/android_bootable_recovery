@@ -987,7 +987,6 @@
 		<string name="welcome_msg2">OrangeFox!</string>
 
 		<string name="fox_welcome">Добро пожаловать в OrangeFox рекавери!</string>
-		<string name="fox_platform">[Платформа]  : {1}</string>
 		<string name="fox_release">[Версия]     : {1}</string>
 		<string name="fox_variant">[Вариант]    : {1}</string>
 		<string name="fox_codebase">[Исходники]  : {1}, {2}</string>
@@ -1005,6 +1004,7 @@
 		<string name="fox_not_encrypted">* Хранилище не зашифровано</string>
 		<string name="fox_display">* Дисплей:   {1}</string>
 		<string name="fox_device">* Девайс:    {1} ({2})</string>
+		<string name="fox_platform">* Платформа: {1}</string>
 		<string name="fox_dynamic_yes">* Super:     да</string>
 		<string name="fox_dynamic_no">* Super:     нет</string>
 		<string name="fox_boot_slot">* Слот:      {1}</string>

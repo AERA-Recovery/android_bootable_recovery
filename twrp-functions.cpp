@@ -2461,7 +2461,13 @@ int TWFunc::Check_MIUI_Treble(void)
       gui_msg(Msg(msg::kHighlight, "fox_encrypted=* Storage is encrypted"));
   else
       gui_msg(Msg(msg::kWarning, "fox_unencrypted=* Storage is not encrypted"));
-  
+
+#ifdef PRODUCT_PLATFORM
+  gui_msg(Msg("fox_platform=* Platform:   {1}")(EXPAND(PRODUCT_PLATFORM)));
+#else
+  gui_msg(Msg("fox_platform=* Platform:   {1}")(DataManager::GetStrValue(FOX_COMPATIBILITY_DEVICE).c_str()));
+#endif
+
   // show display panel name, if we got one 
   if (!display_panel.empty())
        gui_msg(Msg("fox_display=* Display:    {1}")(display_panel.c_str()));
@@ -2535,7 +2541,6 @@ void TWFunc::Welcome_Message(void)
     return;
     gui_print("--------------------------\n");
     gui_msg(Msg(msg::kGreen, "fox_welcome=Welcome to OrangeFox Recovery!"));
-    gui_msg(Msg("fox_platform=[Platform]  : {1}")(DataManager::GetStrValue(FOX_COMPATIBILITY_DEVICE).c_str()));
     gui_msg(Msg("fox_release=[Release]   : {1}")(FOX_BUILD));
     gui_msg(Msg("fox_variant=[Variant]   : {1}")(FOX_VARIANT));
     gui_msg(Msg("fox_codebase=[Codebase]  : {1}, {2}")(Fox_Property_Get("ro.build.version.sdk").c_str())(FOX_CURRENT_DEV_STR));
