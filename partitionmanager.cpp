@@ -421,13 +421,13 @@ parse:
 			continue;
 
 		if (parse_userdata) {
-			if (strstr(fstab_line, "/metadata") && !strstr(fstab_line, "/data")) {
+			if (TWFunc::HasDelimitedWord(fstab_line, "/metadata") && !strstr(fstab_line, "/data")) {
 				if (meta) {
 					Partitions.erase(std::find(Partitions.begin(), Partitions.end(), meta));
 					delete meta;
 					meta = NULL;
 				}
-			} else if (strstr(fstab_line, "/data")) {
+			} else if (TWFunc::HasDelimitedWord(fstab_line, "/data")) {
 				if (data) {
 					Partitions.erase(std::find(Partitions.begin(), Partitions.end(), data));
 					delete data;

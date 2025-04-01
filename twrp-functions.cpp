@@ -4886,6 +4886,17 @@ string TWFunc::find_phrase(std::string filename, std::string search)
   return str;
 }
 
+bool TWFunc::HasDelimitedWord(const std::string& str, const std::string& word) {
+	for (size_t pos = str.find(word); pos != std::string::npos; pos = str.find(word, pos + word.length())) {
+		bool isStartValid = (pos == 0 || (!std::isalnum(str[pos - 1]) && !std::ispunct(str[pos - 1])));
+		bool isEndValid = (pos + word.length() == str.length() || (!std::isalnum(str[pos + word.length()]) && !std::ispunct(str[pos + word.length()])));
+		if (isStartValid && isEndValid)
+			return true;
+	}
+
+	return false;
+}
+
 std::string TWFunc::Remove_Beginning_Slash(const std::string& path) {
 	std::string res;
 	size_t pos = path.find_first_of("/");

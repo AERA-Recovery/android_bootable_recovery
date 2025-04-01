@@ -226,6 +226,7 @@ public:
 	static string get_assert_device(const string filename); /* find out which device an "assert" with an ro.product.device statement wants */
 	static string get_assert_device_zip(const string filename, const ZipArchiveHandle Zip); /* find out the device asserts in a zip installer */
 	static string removechar(const string src, const char chars); /* delete all occurrences of a char from a string */
+	static bool HasDelimitedWord(const std::string& str, const std::string& word); /* checks if the specified word exists as a standalone, delimited entity in the string */
 
 	/* convert string to number, with default value in case of error */
 	static int string_to_int(string String, int def_value);
