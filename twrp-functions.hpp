@@ -234,6 +234,7 @@ public:
 	static string sdknum_to_text(int sdk);
 	static string Check_For_TwrpFolder();
 	static void FoxThemeCheck();
+	static bool IsRecoveryOverwritten(bool only_update = false);
 
 private:
 	static void Copy_Log(string Source, string Destination);

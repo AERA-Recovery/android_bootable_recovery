@@ -5079,4 +5079,36 @@ void TWFunc::FoxThemeCheck()
 	}
 }
 
+bool TWFunc::IsRecoveryOverwritten(bool only_update) {
+	static std::pair<string, string> previous_checksums;
+	TWPartition* target_partition = PartitionManager.Find_Partition_By_Path("/boot");
+#ifdef FOX_VENDOR_BOOT_RECOVERY
+	target_partition = PartitionManager.Find_Partition_By_Path("/vendor_boot");
+#endif
+#ifdef OF_AB_DEVICE_WITH_RECOVERY_PARTITION
+	target_partition = PartitionManager.Find_Partition_By_Path("/recovery");
+#endif
+	if (!target_partition)
+		return false;
+
+	std::pair<string, string> current_checksums = PartitionManager.Get_Partition_Checksums(target_partition);
+	if (current_checksums.first.empty()) {
+		LOGINFO("%s: Cannot get checksums\n", __func__);
+		return false;
+	}
+
+	if (only_update) {
+		previous_checksums = current_checksums;
+		return false;
+	}
+
+	if (previous_checksums.first.empty() || previous_checksums == current_checksums) {
+		previous_checksums = current_checksums;
+		LOGINFO("%s: The checksums match for %s\n", __func__, target_partition->Get_Mount_Point().c_str());
+		return false;
+	}
+
+	LOGINFO("%s: The checksums do not match for %s\n", __func__, target_partition->Get_Mount_Point().c_str());
+	return true;
+}
 //

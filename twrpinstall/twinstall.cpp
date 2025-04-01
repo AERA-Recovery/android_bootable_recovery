@@ -443,6 +443,8 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 				TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT, path);
 			}
 
+			TWFunc::IsRecoveryOverwritten(true);
+
 			ret_val = Run_Update_Binary(path, wipe_cache, AB_OTA_ZIP_TYPE);
 
 			DataManager::SetValue(FOX_ZIP_INSTALLER_CODE, 1); // mark as custom ROM install
@@ -459,11 +461,6 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 				gui_warn("mount_vab_partitions=Devices on super may not mount until after rebooting recovery.");
 			}
 			gui_warn("flash_ab_reboot=To flash additional zips, please reboot recovery to switch to the updated slot.");
-			DataManager::GetValue(TW_AUTO_REFLASHTWRP_VAR, reflashtwrp);
-			if (reflashtwrp) {
-			twrpRepacker repacker;
-			repacker.Flash_Current_Twrp();
-			}
 		} else {
 			std::string binary_name("ui.xml");
 			ZipEntry64 binary_entry;

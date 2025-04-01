@@ -4924,4 +4924,20 @@ unmount:
 		gui_changePage("filemanagerlist");
 	TWFunc::Toggle_MTP(mtp_was_enabled);
 }
+
+std::pair<string, string> TWPartitionManager::Get_Partition_Checksums(TWPartition* twrpPart) {
+	std::pair<string, string> res;
+	string command = "/system/bin/sha256sum -b " + twrpPart->Primary_Block_Device;
+	if (!twrpPart)
+		return res;
+
+	if (twrpPart->Is_SlotSelect()) {
+		TWFunc::Exec_Cmd(command + "_a", res.first);
+		TWFunc::Exec_Cmd(command + "_b", res.second);
+	} else {
+		TWFunc::Exec_Cmd(command, res.first);
+	}
+
+	return res;
+}
 //*

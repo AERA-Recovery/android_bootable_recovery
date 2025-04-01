@@ -644,6 +644,9 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
   DataManager::SetValue("found_fox_overwriting_rom", "0");
   TWFunc::Fox_Property_Set("found_fox_overwriting_rom", "");
   DataManager::SetValue("found_non_standard_vAB_install", "0");
+#ifdef AB_OTA_UPDATER
+  TWFunc::IsRecoveryOverwritten(true);
+#endif
 
   if (DataManager::GetIntValue(FOX_INSTALL_PREBUILT_ZIP) != 1)
     {
@@ -1103,21 +1106,16 @@ void Fox_Post_Zip_Install(const int result)
 	if (Fox_Zip_Installer_Code == 2 || Fox_Zip_Installer_Code == 3 || Fox_Zip_Installer_Code == 22 || Fox_Zip_Installer_Code == 23) {
 		gui_warn("mount_vab_partitions=Devices on super may not mount until after rebooting recovery.");
 		gui_warn("flash_ab_reboot=To flash additional zips, please reboot recovery to switch to the updated slot.");
-
-		int reflashtwrp = 0;
-		DataManager::GetValue(TW_AUTO_REFLASHTWRP_VAR, reflashtwrp);
-		if (reflashtwrp) {
-			gui_print_color("warning", "\n\nOrangeFox: this ROM installer is NOT using the standard update_engine and payload.bin! Attempting to compensate... \n");
-			gui_print_color("warning", "\nOrangeFox: reflashing OrangeFox ...\n");
-			sleep(2);
-			twrpRepacker repacker;
-			repacker.Flash_Current_Twrp();
-		}
 	}
 	#endif
 	//---- Virtual A/B compensations ---- //
-
-         //
+#ifdef AB_OTA_UPDATER
+	if (DataManager::GetIntValue(TW_AUTO_REFLASHTWRP_VAR) && TWFunc::IsRecoveryOverwritten()) {
+		twrpRepacker repacker;
+		repacker.Flash_Current_Twrp();
+		TWFunc::IsRecoveryOverwritten(true);
+	}
+#endif
          PartitionManager.Update_System_Details();
      }
 }
