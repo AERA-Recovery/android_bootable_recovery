@@ -2473,6 +2473,10 @@ int TWFunc::Check_MIUI_Treble(void)
        gui_msg(Msg("fox_display=* Display:    {1}")(display_panel.c_str()));
 
   // device name
+  string device_model = TWFunc::Fox_Property_Get("ro.orangefox.device_model");
+  if (!device_model.empty())
+       gui_msg(Msg("fox_device=* Device:     {1} ({2})")(device_model.c_str())(TWFunc::Fox_Property_Get("ro.product.device").c_str()));
+  else
        gui_msg(Msg("fox_device=* Device:     {1} ({2})")(TWFunc::Fox_Property_Get("ro.product.device").c_str())(TWFunc::Fox_Property_Get("ro.product.system.device").c_str()));
 
   // Dynamic partitions
