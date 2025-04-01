@@ -262,6 +262,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 	if (crash_counter == 0)
 		TWFunc::Fixup_Time_On_Boot();
 
+	TWFunc::Update_Log_File();
 #ifndef FOX_ALLOW_EARLY_SETTINGS_LOAD
 	DataManager::ReadSettingsFile();
 #endif
@@ -348,6 +349,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 	}
 #endif
 
+	TWFunc::Update_Log_File();
 
 	adb_bu_fifo->threadAdbBuFifo();
 
@@ -365,6 +367,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 
 static void reboot() {
 	gui_msg(Msg("rebooting=Rebooting..."));
+	TWFunc::Update_Log_File();
 	string Reboot_Arg;
 
 #ifdef TW_INCLUDE_CRYPTO

@@ -115,6 +115,7 @@ public:
 	static int Recursive_Mkdir(string Path, bool ShowErr = true);           // Recursively makes the entire path
 	static void GUI_Operation_Text(string Read_Value, string Default_Text); // Updates text for display in the GUI, e.g. Backing up %partition name%
 	static void GUI_Operation_Text(string Read_Value, string Partition_Name, string Default_Text); // Same as above but includes partition name
+	static void Update_Log_File(void);                                      // Writes the log to last_log
 	static void Update_Intent_File(string Intent);                          // Updates intent file
 	static int tw_reboot(RebootCommand command);                            // Prepares the device for rebooting
 	static void check_and_run_script(const char* script_file, const char* display_name); // checks for the existence of a script, chmods it to 755, then runs it
@@ -235,6 +236,7 @@ public:
 	static void FoxThemeCheck();
 
 private:
+	static void Copy_Log(string Source, string Destination);
 	static string Load_File(string extension);
 	static bool Patch_Forced_Encryption(void);
     	static bool Patch_DM_Verity(void);
