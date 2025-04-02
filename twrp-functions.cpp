@@ -5082,7 +5082,7 @@ void TWFunc::FoxThemeCheck()
 bool TWFunc::IsRecoveryOverwritten(bool only_update) {
 	static std::pair<string, string> previous_checksums;
 	TWPartition* target_partition = PartitionManager.Find_Partition_By_Path("/boot");
-#ifdef FOX_VENDOR_BOOT_RECOVERY
+#if defined(FOX_VENDOR_BOOT_RECOVERY) || defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT)
 	target_partition = PartitionManager.Find_Partition_By_Path("/vendor_boot");
 #endif
 #ifdef OF_AB_DEVICE_WITH_RECOVERY_PARTITION

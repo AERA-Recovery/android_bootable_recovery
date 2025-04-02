@@ -2,7 +2,7 @@
 	Copyright 2013 to 2020 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2020-2024 OrangeFox Recovery Project
+	Copyright (C) 2020-2025 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -137,7 +137,7 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 	std::string dest_partition = "/boot";
 	std::string ramdisk_cpio = "ramdisk.cpio";
 
-	#ifdef BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT
+	#if defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT) || defined(FOX_VENDOR_BOOT_RECOVERY)
 		dest_partition = "/vendor_boot";
 		is_vendor_boot = true;
 		if (DataManager::GetIntValue("tw_boot_header_version") > 3) {
@@ -263,7 +263,7 @@ bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const
 			PartitionManager.Override_Active_Slot("A");
 		DataManager::SetProgress(.25);
 		PartitionManager.Update_System_Details();
-#ifdef OF_AB_DEVICE_WITH_RECOVERY_PARTITION
+#if defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION) || defined(FOX_VENDOR_BOOT_RECOVERY) || defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT)
 		// skip repacking second recovery partition, just flash prepared image since we assume recovery contains only ramdisk
 		DataManager::SetValue("tw_flash_partition", dest_partition + ";");
 		if (!PartitionManager.Flash_Image(path, file)) {
@@ -329,7 +329,7 @@ bool twrpRepacker::Flash_Current_Twrp() {
 		slot = android::base::GetProperty("ro.boot.slot", "");
 
 	std::string dest_partition = "/recovery";
-	#if defined(FOX_VENDOR_BOOT_RECOVERY) && defined(FOX_VENDOR_BOOT_RECOVERY_FULL_REFLASH)
+	#if defined(FOX_VENDOR_BOOT_RECOVERY) || defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT)
 		dest_partition = "/vendor_boot";
 	#endif
 
@@ -383,7 +383,7 @@ bool twrpRepacker::Flash_Current_Twrp() {
 	#ifdef OF_FORCE_CHECK_RAMDISK_CHECKSUM
 	std::string verifyfiles = "cd / && sha256sum --status -c ramdisk-files.sha256sum";
 	if (TWFunc::Exec_Cmd(verifyfiles) != 0) {
-		#ifdef BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT
+		#if defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT) || defined(FOX_VENDOR_BOOT_RECOVERY)
 		gui_msg(Msg(msg::kError, "modified_ramdisk_error=ramdisk files have been modified: unable to create ramdisk to flash."));
 		#else
 		gui_msg(Msg(msg::kError, "modified_ramdisk_error=ramdisk files have been modified: unable to create ramdisk to flash; fastboot boot OrangeFox and try this option again."));

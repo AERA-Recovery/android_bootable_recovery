@@ -3003,7 +3003,7 @@ void TWPartitionManager::Get_Partition_List(string ListType,
 
 		if (DataManager::GetIntValue("tw_has_repack_tools") != 0 && DataManager::GetIntValue("tw_has_boot_slots") != 0 && DataManager::GetIntValue("tw_include_install_recovery_ramdisk") != 0) {
 			std::string dest_partition = "/boot";
-			#if defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT)
+			#if defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT) || defined(FOX_VENDOR_BOOT_RECOVERY)
 				dest_partition = "/vendor_boot";
 			#elif defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION)
 				dest_partition = "/recovery";
