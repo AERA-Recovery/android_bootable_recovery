@@ -4940,4 +4940,31 @@ std::pair<string, string> TWPartitionManager::Get_Partition_Checksums(TWPartitio
 
 	return res;
 }
+
+bool TWPartitionManager::Mount_Super_Toggle(const string& arg, bool user_toggle) {
+	bool found_rw = false; // if arg == 0, check if at least one partition can be mounted in r/w mode
+	std::vector<TWPartition*>::iterator iter;
+	for (iter = Partitions.begin(); iter != Partitions.end(); iter++) {
+		if ((*iter)->Is_Super) {
+			bool need_remount = (*iter)->Is_Mounted() && (*iter)->UnMount(false);
+
+			if (arg == "0" && (*iter)->ReMount_RW(false)) {	// Check the possibility of mounting in r/w, keep Mount_Read_Only flag if unable to mount
+				(*iter)->Change_Mount_Read_Only(false);
+				found_rw = true;
+			} else {
+				(*iter)->Change_Mount_Read_Only(true);
+			}
+
+			if (need_remount)
+				(*iter)->Mount(false);
+			else
+				(*iter)->UnMount(false);
+		}
+	}
+
+	if (user_toggle && arg == "0" && !found_rw && Find_Partition_By_Path(Get_Android_Root_Path()) && Find_Partition_By_Path(Get_Android_Root_Path())->Current_File_System == "erofs")
+		gui_msg(Msg(msg::kWarning, "erofs_is_ro_fs=EROFS is a read-only file system and cannot be mounted in read/write mode!"));
+
+	return arg == "0" ? found_rw : true;
+}
 //*

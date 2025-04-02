@@ -179,7 +179,8 @@
 		<string name="rename_backup_complete">Переименование завершено</string>
 		<string name="swipe_to_rename">Проведите для переименования</string>
 		<string name="mount_hdr">Монтирование</string>
-		<string name="mount_sys_ro_chk">Системный раздел только для чтения</string>
+		<string name="mount_sys_ro_chk">Системные разделы только для чтения</string>
+		<string name="erofs_is_ro_fs">EROFS является файловой системой только для чтения, и монтирование в режиме записи невозможно!</string>
 		<string name="decrypt_data_btn">Расшифровать</string>
 		<string name="disable_mtp_btn">Выключить MTP</string>
 		<string name="enable_mtp_btn">Включить MTP</string>
