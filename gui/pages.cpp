@@ -1817,7 +1817,6 @@ int Page::MoveFocusIndex(Page::Direction direction) {
 		if (obj && !obj->isConditionTrue())
 			continue;
 		string name = focusedElement->GetObjectType();
-		LOGINFO("Name is %s\n", name.c_str());
 
 		if (name == "GUIScrollList") {
 			IInteractiveScrollList* scrollList = dynamic_cast<IInteractiveScrollList*>(focusedElement);
