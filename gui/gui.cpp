@@ -235,7 +235,7 @@ bool InputHandler::processInput(int timeout_ms)
 		                  break;
 		          }
 	            }
-	        } else if (ev.code != KEY_BACK && ev.code < BTN_DIGI && ev.code > BTN_TOOL_QUADTAP) { // skip touch-related codes
+	        } else if (ev.code != KEY_BACK && (ev.code < BTN_DIGI || ev.code > BTN_TOOL_QUADTAP)) { // skip touch-related codes
 			process_EV_KEY(ev);
 		}
 		break;
