@@ -215,9 +215,16 @@ void inline Process_ResetProps(TWPartition *ven, TWPartition *odm) {
 	Reset_Prop_From_Partition("ro.crypto.dm_default_key.options_format.version", "", ven, odm);
 	Reset_Prop_From_Partition("ro.crypto.volume.metadata.method", "", ven, odm);
 	Reset_Prop_From_Partition("ro.crypto.volume.options", "", ven, odm);
+#ifdef OF_FORCE_CASEFOLDING
+	LOGINFO("Force setting casefolding props to true\n");
+	TWFunc::Property_Override("external_storage.projid.enabled", "1");
+	TWFunc::Property_Override("external_storage.casefold.enabled", "1");
+	TWFunc::Property_Override("external_storage.sdcardfs.enabled", "0");
+#else
 	Reset_Prop_From_Partition("external_storage.projid.enabled", "", ven, odm);
 	Reset_Prop_From_Partition("external_storage.casefold.enabled", "", ven, odm);
 	Reset_Prop_From_Partition("external_storage.sdcardfs.enabled", "", ven, odm);
+#endif
 }
 
 static inline std::string KM_Ver_From_Manifest(std::string ver) {
