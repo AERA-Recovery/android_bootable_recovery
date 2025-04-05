@@ -3249,6 +3249,15 @@ bool TWPartition::Update_Size(bool Display_Error) {
 				UnMount(false);
 			goto fail;
 		}
+	} else if (Mount_Point == "/storage") {
+		if (Mount(Display_Error)) {
+			Used = backup_exclusions.Get_Folder_Size(Mount_Point);
+			Backup_Size = Used;
+		} else {
+			if (!Was_Already_Mounted)
+				UnMount(false);
+			goto fail;
+		}
 	}
 	if (!Was_Already_Mounted)
 		UnMount(false);
