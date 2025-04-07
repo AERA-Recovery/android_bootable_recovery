@@ -447,7 +447,7 @@ int main(int argc, char **argv) {
   	property_set("ro.orangefox.type", FOX_BUILD_TYPE);
   	property_set("ro.orangefox.variant", FOX_VARIANT);
   	property_set("ro.orangefox.build", "orangefox");
-	property_set("ro.orangefox.release.version", FOX_VERSION);
+	property_set("ro.orangefox.release.version", FOX_BUILD);
   	TWFunc::Fox_Property_Set("ro.orangefox.boot.header.version", std::to_string(BOARD_BOOT_HEADER_VERSION));
 
   	#ifdef FOX_TARGET_DEVICES

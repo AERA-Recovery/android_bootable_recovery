@@ -22,13 +22,12 @@
 #define _VARIABLES_HEADER_
 
 #define FOX_RECOVERY_NAME	"OrangeFox"
-#define FOX_MAIN_VERSION_STR    "R11.2"
+#define FOX_MAIN_VERSION_STR    FOX_INTERNAL_RELEASE // defined in orangefox.mk
 #define FOX_BRANCH		"12"
-#define TW_VERSION_STR 		FOX_VERSION
+#define TW_VERSION_STR 		FOX_MAIN_VERSION_STR
 #define BUILD_TYPE_STR 		FOX_BUILD_TYPE
 
 // OrangeFox - Values
-#define FOX_BUILD               FOX_VERSION
 #define FOX_DEVICE              FOX_DEVICE_MODEL
 #define OF_MAINTAINER_STR	"of_maintainer"
 #define OF_FLASHLIGHT_ENABLE_STR "of_flashlight_enable"

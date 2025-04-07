@@ -21,10 +21,19 @@
 LOCAL_CFLAGS += -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable
 #LOCAL_CFLAGS += -Wno-implicit-fallthrough -Wno-format-extra-args
 
-ifneq ($(FOX_VERSION),)
-    LOCAL_CFLAGS += -DFOX_VERSION='"$(FOX_VERSION)"'
+# Canonical release version
+FOX_INTERNAL_RELEASE := R11.3
+LOCAL_CFLAGS += -DFOX_INTERNAL_RELEASE='"$(FOX_INTERNAL_RELEASE)"'
+
+ifneq ($(FOX_MAINTAINER_PATCH_VERSION),)
+    LOCAL_CFLAGS += -DFOX_MAINTAINER_PATCH_VERSION='"$(FOX_MAINTAINER_PATCH_VERSION)"'
+    LOCAL_CFLAGS += -DFOX_BUILD='"$(FOX_INTERNAL_RELEASE)""_""$(FOX_MAINTAINER_PATCH_VERSION)"'
 else
-    LOCAL_CFLAGS += -DFOX_VERSION='"Unofficial"'
+    LOCAL_CFLAGS += -DFOX_BUILD='"$(FOX_INTERNAL_RELEASE)"'
+endif
+
+ifneq ($(FOX_VERSION),)
+    $(error 'FOX_VERSION' is obsolete. Look at 'FOX_MAINTAINER_PATCH_VERSION' for maintainer versioning)
 endif
 
 ifeq ($(FOX_VARIANT),)

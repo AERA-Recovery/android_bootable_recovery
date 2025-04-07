@@ -731,7 +731,7 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("true", "1");
   mConst.SetValue("false", "0");
 
-  mConst.SetValue(TW_VERSION_VAR, FOX_VERSION);
+  mConst.SetValue(TW_VERSION_VAR, FOX_BUILD);
   mConst.SetValue(OF_MAINTAINER_STR, OF_MAINTAINER);
   mConst.SetValue(BUILD_TYPE_STR, FOX_BUILD_TYPE);
   mConst.SetValue("fox_branch", FOX_BRANCH);
