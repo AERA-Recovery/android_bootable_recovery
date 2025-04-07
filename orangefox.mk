@@ -755,4 +755,10 @@ endif
 ifeq ($(OF_FORCE_CASEFOLDING),1)
      LOCAL_CFLAGS += -DOF_FORCE_CASEFOLDING
 endif
+
+ifneq ($(TW_LOAD_VENDOR_MODULES),)
+    ifeq ($(OF_LOAD_PREBUILT_MODULES),1)
+        LOCAL_CFLAGS += -DOF_LOAD_PREBUILT_MODULES
+    endif
+endif
 #
