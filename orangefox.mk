@@ -19,7 +19,6 @@
 #
 
 LOCAL_CFLAGS += -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable
-#LOCAL_CFLAGS += -Wno-implicit-fallthrough -Wno-format-extra-args
 
 # Canonical release version
 FOX_INTERNAL_RELEASE := R11.3
