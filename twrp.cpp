@@ -410,7 +410,19 @@ static bool Fox_CheckReload_Themes() {
 #endif
 }
 
+// remove a problem file injected into vAB recovery ramdisk by some QPR2 ROMs
+static void Fox_Remove_Problematic_File() {
+#ifdef FOX_VIRTUAL_AB_DEVICE
+	std::string f = "/system/etc/vintf/manifest/boot-service.qti.xml";
+	android::base::RemoveFileIfExists(f);
+#endif
+}
+
+// main()
 int main(int argc, char **argv) {
+	// avoid Android 15 QPR2 problem with rogue xml file
+	Fox_Remove_Problematic_File();
+
 	// Recovery needs to install world-readable files, so clear umask
 	// set by init
 	umask(0);
