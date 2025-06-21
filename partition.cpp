@@ -1894,7 +1894,7 @@ bool TWPartition::Wipe(string New_File_System) {
 			wiped = Wipe_NTFS();
 		else if (New_File_System == "yaffs2")
 			wiped = Wipe_MTD();
-		else if (New_File_System == "f2fs")
+		else if (New_File_System == "f2fs" || Current_File_System == "mifs")
 			wiped = Wipe_F2FS();
 		else if (New_File_System == "vfat")
 			wiped = Wipe_FAT();
@@ -1971,7 +1971,7 @@ bool TWPartition::Can_Repair() {
 		return true;
 	else if (Current_File_System == "exfat" && TWFunc::Path_Exists("/system/bin/fsck.exfat"))
 		return true;
-	else if (Current_File_System == "f2fs" && TWFunc::Path_Exists("/system/bin/fsck.f2fs"))
+	else if ((Current_File_System == "f2fs"  || Current_File_System == "mifs") && TWFunc::Path_Exists("/system/bin/fsck.f2fs"))
 		return true;
 	else if ((Current_File_System == "ntfs" || Current_File_System == "tntfs") && (TWFunc::Path_Exists("/system/bin/ntfsfix") || TWFunc::Path_Exists("/system/bin/fsck.ntfs")))
 		return true;
@@ -2038,7 +2038,7 @@ bool TWPartition::Repair() {
 			return false;
 		}
 	}
-	if (Current_File_System == "f2fs") {
+	if (Current_File_System == "f2fs" || Current_File_System == "mifs") {
 		if (!TWFunc::Path_Exists("/system/bin/fsck.f2fs")) {
 			gui_msg(Msg(msg::kError, "repair_not_exist={1} does not exist! Cannot repair!")("fsck.f2fs"));
 			return false;
@@ -3439,7 +3439,7 @@ uint64_t TWPartition::Get_Max_FileSize() {
 		maxFileSize = 16 * constPB; //16 PB
 	else if (Current_File_System == "ext3")
 		maxFileSize = 2 * constTB; //2 TB
-	else if (Current_File_System == "f2fs")
+	else if (Current_File_System == "f2fs" || Current_File_System == "mifs")
 		maxFileSize = 3.94 * constTB; //3.94 TB
 	else
 		maxFileSize = 100000000L;
