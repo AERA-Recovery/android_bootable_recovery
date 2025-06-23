@@ -2496,12 +2496,11 @@ void TWFunc::Write_MIUI_Install_Status(std::string install_status,
 }
 
 string TWFunc::sdknum_to_text(int sdk) {
-//define sdk_asize 15
-const int sdk_asize=15;
-   int sdk_num[sdk_asize] = {21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35};
-   string sdk_string[sdk_asize] = {"5.0","5.1","6.0","7.0","7.1","8.0","8.1","9","10","11","12","12L","13","14","15"};
+const int sdk_asize=11;
+   int sdk_num[sdk_asize] =  {29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39};
+   string sdk_string[sdk_asize] = {"10","11","12","12L","13","14","15","16","17","18"};
    int i;
-   string s = "11"; // default
+   string s = "12"; // default
    for (i = 0; i < sdk_asize; i++) {
 	if (sdk == sdk_num[i]) {
 		s = sdk_string[i];
