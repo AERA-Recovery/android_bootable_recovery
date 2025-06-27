@@ -249,6 +249,9 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
         ifneq ($(wildcard hardware/interfaces/weaver/1.0/Android.bp),)
             RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.weaver@1.0.so
         endif
+        ifneq ($(wildcard hardware/interfaces/weaver/aidl/Android.bp),)
+            RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.weaver-V2-ndk.so
+        endif
         ifneq ($(wildcard hardware/interfaces/confirmationui/1.0/Android.bp),)
             RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.confirmationui@1.0.so
         endif

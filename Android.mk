@@ -358,6 +358,7 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
         android.hardware.gatekeeper-V1-ndk \
         android.hardware.gatekeeper@1.0 \
         android.hardware.weaver@1.0 \
+        android.hardware.weaver-V2-ndk \
         android.frameworks.stats@1.0 \
         android.security.maintenance-ndk \
         android.system.keystore2-V4-ndk \
