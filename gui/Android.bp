@@ -33,7 +33,6 @@ cc_library_static {
         "-DTWRES=\"/twres/\""
     ],
     include_dirs: [
-        "bootable/recovery/crypto/scrypt/lib/util",
         "bootable/recovery/otautil/include",
         "bootable/recovery/install/include",
         "system/libziparchive/include",
