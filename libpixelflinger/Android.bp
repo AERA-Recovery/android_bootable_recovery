@@ -18,9 +18,7 @@ cc_defaults {
 
     arch: {
         arm: {
-            neon: {
-                cflags: ["-D__ARM_HAVE_NEON"],
-            },
+            cflags: ["-D__ARM_HAVE_NEON"],
         },
     },
 }
@@ -70,11 +68,9 @@ cc_library_static {
                 "codeflinger/disassem.c",
                 "col32cb16blend.S",
                 "t32cb16blend.S",
+                "col32cb16blend_neon.S",
             ],
 
-            neon: {
-                srcs: ["col32cb16blend_neon.S"],
-            },
         },
         arm64: {
             srcs: [

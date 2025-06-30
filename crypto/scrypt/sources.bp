@@ -45,14 +45,12 @@ cc_defaults {
 
     arch: {
         arm: {
-            neon: {
-                srcs: [
-                    "lib/crypto/crypto_scrypt-neon.c",
-                ],
-                exclude_srcs: [
-                    "lib/crypto/crypto_scrypt-ref.c",
-                ],
-            },
+            srcs: [
+                "lib/crypto/crypto_scrypt-neon.c",
+            ],
+            exclude_srcs: [
+                "lib/crypto/crypto_scrypt-ref.c",
+            ],
         },
         arm64: {
             srcs: [
