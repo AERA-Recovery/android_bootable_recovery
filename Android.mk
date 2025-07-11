@@ -351,7 +351,7 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
     TW_INCLUDE_CRYPTO_FBE := true
     LOCAL_CFLAGS += -DTW_INCLUDE_FBE
     LOCAL_SHARED_LIBRARIES += android.frameworks.stats@1.0 android.hardware.authsecret@1.0 \
-	android.security.authorization-ndk \
+        android.security.authorization-ndk \
         android.hardware.oemlock@1.0 libf2fs_sparseblock \
         libandroidicu.recovery \
         lib_android_keymaster_keymint_utils \
