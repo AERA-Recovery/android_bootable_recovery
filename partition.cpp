@@ -2682,9 +2682,11 @@ bool TWPartition::Wipe_F2FS() {
 	#ifdef OF_UNBIND_SDCARD_F2FS
 		if (Mount_Point == "/data") {
 			LOGINFO("OrangeFox: bind-unmounting /sdcard before f2fs data format...\n");
-			usleep(32768);
 			string nul;
 			TWFunc::Exec_Cmd("umount /sdcard", nul);
+			usleep(32768);
+			LOGINFO("OrangeFox: running dmsetup before formatting...\n");
+			TWFunc::Exec_Cmd("dmsetup remove -f userdata", nul);
 			usleep(32768);
 		}
 	#endif
