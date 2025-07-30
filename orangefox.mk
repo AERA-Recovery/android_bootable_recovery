@@ -774,4 +774,8 @@ ifneq ($(TW_LOAD_VENDOR_MODULES),)
         LOCAL_CFLAGS += -DOF_SKIP_PREBUILT_MODULES
     endif
 endif
+
+ifeq ($(FOX_USE_DMSETUP),1)
+    LOCAL_CFLAGS += -DFOX_USE_DMSETUP='"1"'
+endif
 #

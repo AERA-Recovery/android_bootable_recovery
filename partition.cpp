@@ -2682,14 +2682,21 @@ bool TWPartition::Wipe_F2FS() {
 	#ifdef OF_UNBIND_SDCARD_F2FS
 		if (Mount_Point == "/data") {
 			LOGINFO("OrangeFox: bind-unmounting /sdcard before f2fs data format...\n");
+			usleep(32768);
 			string nul;
 			TWFunc::Exec_Cmd("umount /sdcard", nul);
 			usleep(32768);
-			LOGINFO("OrangeFox: running dmsetup before formatting...\n");
-			TWFunc::Exec_Cmd("dmsetup remove -f userdata", nul);
-			usleep(32768);
 		}
 	#endif
+
+	#ifdef FOX_USE_DMSETUP
+	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
+		LOGINFO("OrangeFox: running dmsetup before formatting...\n");
+		TWFunc::Exec_Cmd("dmsetup remove -f userdata", false);
+		usleep(32768);
+	}
+	#endif
+
 	if (TWFunc::Exec_Cmd(f2fs_command) == 0) {
 		if (NeedPreserveFooter)
 			Wipe_Crypto_Key();
