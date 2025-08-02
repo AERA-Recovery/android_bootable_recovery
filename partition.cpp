@@ -2689,7 +2689,13 @@ bool TWPartition::Wipe_F2FS() {
 		}
 	#endif
 
-	#ifdef FOX_USE_DMSETUP
+	#ifdef FOX_USE_DMCTL
+	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
+		LOGINFO("OrangeFox: running dmctl before formatting...\n");
+		TWFunc::Exec_Cmd("dmctl delete userdata", false);
+		usleep(32768);
+	}
+	#elif defined(FOX_USE_DMSETUP)
 	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
 		LOGINFO("OrangeFox: running dmsetup before formatting...\n");
 		TWFunc::Exec_Cmd("dmsetup remove -f userdata", false);

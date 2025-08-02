@@ -776,6 +776,21 @@ ifneq ($(TW_LOAD_VENDOR_MODULES),)
 endif
 
 ifeq ($(FOX_USE_DMSETUP),1)
+  ifeq ($(FOX_USE_DMCTL),1)
+    $(error You cannot use both 'FOX_USE_DMSETUP' and 'FOX_USE_DMCTL')
+  else
     LOCAL_CFLAGS += -DFOX_USE_DMSETUP='"1"'
+  endif
+endif
+
+ifeq ($(FOX_USE_DMCTL),1)
+  ifneq ($(TARGET_ARCH),arm64)
+    $(error 'FOX_USE_DMCTL' is only available for arm64)
+  endif
+  ifeq ($(FOX_USE_DMSETUP),1)
+    $(error You cannot use both 'FOX_USE_DMSETUP' and 'FOX_USE_DMCTL')
+  else
+    LOCAL_CFLAGS += -DFOX_USE_DMCTL='"1"'
+  endif
 endif
 #
