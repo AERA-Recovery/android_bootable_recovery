@@ -2875,8 +2875,14 @@ bool TWPartition::Backup_Tar(PartitionSettings *part_settings, pid_t *tar_fork_p
 
 	Backup_FileName = Backup_Name + "." + Current_File_System + ".win";
 	Full_FileName = part_settings->Backup_Folder + "/" + Backup_FileName;
-	if (Has_Data_Media)
+	if (Has_Data_Media) {
+		#ifdef BROKEN_MANIFEST14_DATA_BACKUP_IS_FIXED
 		gui_msg(Msg(msg::kWarning, "backup_storage_warning=Backups of {1} do not include any files in internal storage such as pictures or downloads.")(Display_Name));
+		#else
+		LOGERR("Backups of %s are currently BROKEN in the 14.1 branch. There is little point in making backups of %s\n\n", Display_Name.c_str(), Display_Name.c_str());
+		//return false;
+		#endif
+	}
 	if (Mount_Point == "/data" && DataManager::GetIntValue(TW_IS_FBE)) {
 		std::vector<users_struct>::iterator iter;
 		std::vector<users_struct>* userList = PartitionManager.Get_Users_List();
