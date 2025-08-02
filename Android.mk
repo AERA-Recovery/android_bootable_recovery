@@ -391,6 +391,9 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
     endif
     TW_INCLUDE_LIBRESETPROP := true
 endif
+ifeq ($(TW_USE_DMCTL), true)
+    LOCAL_CFLAGS += -DTW_USE_DMCTL
+endif
 WITH_CRYPTO_UTILS := \
     $(if $(wildcard system/core/libcrypto_utils/android_pubkey.c),true)
 ifeq ($(TW_USE_MODEL_HARDWARE_ID_FOR_DEVICE_ID), true)
