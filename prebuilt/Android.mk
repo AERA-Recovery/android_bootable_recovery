@@ -282,6 +282,9 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
          #RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libhidl-gen-hash.so
     endif
 endif
+ifeq ($(TW_USE_DMCTL), true)
+    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmctl
+endif
 ifeq ($(AB_OTA_UPDATER), true)
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_RECOVERY_ROOT_OUT)/system/bin/update_engine_sideload
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/hw/android.hardware.boot@1.0-service

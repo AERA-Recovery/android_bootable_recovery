@@ -393,6 +393,8 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
 endif
 ifeq ($(TW_USE_DMCTL), true)
     LOCAL_CFLAGS += -DTW_USE_DMCTL
+    TWRP_REQUIRED_MODULES += \
+        dmctl
 endif
 WITH_CRYPTO_UTILS := \
     $(if $(wildcard system/core/libcrypto_utils/android_pubkey.c),true)
