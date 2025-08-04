@@ -776,21 +776,24 @@ ifneq ($(TW_LOAD_VENDOR_MODULES),)
 endif
 
 ifeq ($(FOX_USE_DMSETUP),1)
-  ifeq ($(FOX_USE_DMCTL),1)
-    $(error You cannot use both 'FOX_USE_DMSETUP' and 'FOX_USE_DMCTL')
+  ifeq ($(OF_USE_DMCTL),1)
+    $(error You cannot use both 'FOX_USE_DMSETUP' and 'OF_USE_DMCTL' at the same time)
   else
     LOCAL_CFLAGS += -DFOX_USE_DMSETUP='"1"'
   endif
 endif
 
 ifeq ($(FOX_USE_DMCTL),1)
-  ifneq ($(TARGET_ARCH),arm64)
-    $(error 'FOX_USE_DMCTL' is only available for arm64)
-  endif
+  $(error 'FOX_USE_DMCTL' is obsolete. Use 'OF_USE_DMCTL' instead)
+endif
+
+ifeq ($(OF_USE_DMCTL),1)
   ifeq ($(FOX_USE_DMSETUP),1)
-    $(error You cannot use both 'FOX_USE_DMSETUP' and 'FOX_USE_DMCTL')
+    $(error You cannot use both 'FOX_USE_DMSETUP' and 'OF_USE_DMCTL' at the same time)
   else
-    LOCAL_CFLAGS += -DFOX_USE_DMCTL='"1"'
+    LOCAL_CFLAGS += -DOF_USE_DMCTL='"1"'
+    TWRP_REQUIRED_MODULES += dmctl
+    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmctl
   endif
 endif
 #
