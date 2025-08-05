@@ -284,6 +284,7 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
 endif
 ifeq ($(TW_USE_DMCTL), true)
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmctl
+    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmuserd
 endif
 ifeq ($(AB_OTA_UPDATER), true)
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_RECOVERY_ROOT_OUT)/system/bin/update_engine_sideload
