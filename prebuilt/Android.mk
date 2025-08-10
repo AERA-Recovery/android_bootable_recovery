@@ -525,6 +525,16 @@ ifeq ($(TW_USE_TOOLBOX), true)
    include $(BUILD_PREBUILT)
 endif
 
+ifeq ($(TW_INCLUDE_7ZA), true)
+    include $(CLEAR_VARS)
+    LOCAL_MODULE := 7za
+    LOCAL_MODULE_TAGS := optional
+    LOCAL_MODULE_CLASS := EXECUTABLES
+    LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/system/bin
+    LOCAL_SRC_FILES := $(LOCAL_MODULE)
+    include $(BUILD_PREBUILT)
+endif
+
 #TWRP App "placeholder"
 include $(CLEAR_VARS)
 LOCAL_MODULE := me.twrp.twrpapp.apk
