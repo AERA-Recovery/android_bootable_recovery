@@ -329,6 +329,14 @@ void InputHandler::process_EV_ABS(input_event& ev)
 	x = ev.value >> 16;
 	y = ev.value & 0xFFFF;
 
+	#ifdef FOX_USE_MEIZU_TOUCH_MAPPING
+	if ((ev.value >> 16) > gr_fb_width() || (ev.value & 0xFFFF) > gr_fb_height()) {
+		x = (ev.value >> 16) / 10;
+		y = (ev.value & 0xFFFF) / 10;
+		LOGINFO("Meizu touch mapping (x=%d; y=%d\n)", x, y);
+	}
+	#endif
+
 	if (ev.code == 0)
 	{
 #ifndef TW_USE_KEY_CODE_TOUCH_SYNC

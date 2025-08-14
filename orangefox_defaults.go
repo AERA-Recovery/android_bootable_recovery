@@ -55,6 +55,10 @@ func fox_globalFlags(ctx android.BaseContext) []string {
 		foxflags = append(foxflags, "-DFOX_MISCELLANEOUS_ROOT_DIRECTORY=\"/data/recovery\"")
 	}
 
+	if ctx.AConfig().Getenv("FOX_USE_MEIZU_TOUCH_MAPPING") == "1" {
+		foxflags = append(foxflags, "-DFOX_USE_MEIZU_TOUCH_MAPPING=1")
+	}
+
 	return foxflags
 }
 
