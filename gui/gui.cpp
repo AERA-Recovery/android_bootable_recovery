@@ -333,7 +333,7 @@ void InputHandler::process_EV_ABS(input_event& ev)
 	if ((ev.value >> 16) > gr_fb_width() || (ev.value & 0xFFFF) > gr_fb_height()) {
 		x = (ev.value >> 16) / 10;
 		y = (ev.value & 0xFFFF) / 10;
-		LOGINFO("Meizu touch mapping (x=%d; y=%d\n)", x, y);
+		//LOGINFO("Meizu touch mapping (x=%d; y=%d\n)", x, y);
 	}
 	#endif
 
