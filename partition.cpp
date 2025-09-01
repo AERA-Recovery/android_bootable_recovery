@@ -171,6 +171,7 @@ enum TW_FSTAB_FLAGS {
 	TWFLAG_DM_USE_ORIGINAL_PATH,
 	TWFLAG_FS_COMPRESS,
 	TWFLAG_LOGICAL,
+	TWFLAG_METADATA_CSUM,
 };
 
 /* Flags without a trailing '=' are considered dual format flags and can be
@@ -222,6 +223,7 @@ const struct flag_list tw_flags[] = {
 	{ "dm_use_original_path",   TWFLAG_DM_USE_ORIGINAL_PATH },
 	{ "fscompress",             TWFLAG_FS_COMPRESS },
 	{ "logical",                TWFLAG_LOGICAL },
+	{ "metadata_csum",          TWFLAG_METADATA_CSUM },
 	{ 0,                        0 },
 };
 
@@ -291,6 +293,7 @@ TWPartition::TWPartition() {
 	Original_Path = "";
 	Use_Original_Path = false;
 	Needs_Fs_Compress = false;
+	Needs_Metadata_Csum = false;
 }
 
 TWPartition::~TWPartition(void) {
@@ -1115,6 +1118,9 @@ void TWPartition::Apply_TW_Flag(const unsigned flag, const char* str, const bool
 				Needs_Fs_Compress = false;
 				LOGINFO("Ignoring the 'fscompress' fstab flag\n");
 			#endif
+			break;
+		case TWFLAG_METADATA_CSUM:
+			Needs_Metadata_Csum = true;
 			break;
 		default:
 			// Should not get here
@@ -2401,16 +2407,14 @@ bool TWPartition::Wipe_EXTFS(string File_System) {
 
 	gui_msg(Msg("formatting_using=Formatting {1} using {2}...")(Display_Name)("mke2fs"));
 
-	// Execute mke2fs to create empty ext4 filesystem
-	Command = "mke2fs -t " + File_System + " -b 4096 ";
-
-	// projid for /data ? (Project IDs require wider inodes)
-	if (android::base::GetBoolProperty("external_storage.projid.enabled", false) && Mount_Point == "/data")
-		Command += "-I 512 ";
-
-	Command += Actual_Block_Device + " " + size_str;
-
+	// Execute mke2fs to create empty ext4 filesystem (enable projid by default)
+	Command = "mke2fs -t " + File_System + " -b 4096 -I 512";
+	if (Needs_Metadata_Csum) {
+		Command += " -O metadata_csum,64bit,extent";
+	}
+	Command += " " + Actual_Block_Device + " " + size_str;
 	LOGINFO("mke2fs command: %s\n", Command.c_str());
+
 	ret = TWFunc::Exec_Cmd(Command);
 	if (ret) {
 		gui_msg(Msg(msg::kError, "unable_to_wipe=Unable to wipe {1}.")(Display_Name));
@@ -2623,8 +2627,6 @@ bool TWPartition::Wipe_F2FS() {
 	}
 
 	bool NeedPreserveFooter = true;
-	bool needs_casefold = false;
-  	bool needs_projid = false;
 
 	Find_Actual_Block_Device();
 	if (!Is_Present) {
@@ -2633,13 +2635,16 @@ bool TWPartition::Wipe_F2FS() {
 		return false;
 	}
 
-	needs_casefold = android::base::GetBoolProperty("external_storage.casefold.enabled", false);
-    	needs_projid = android::base::GetBoolProperty("external_storage.projid.enabled", false);
     	if (!Needs_Fs_Compress) {
     		Needs_Fs_Compress = android::base::GetBoolProperty("vold.has_compress", false);
     		if (Needs_Fs_Compress)
 			LOGINFO("Enabling 'fs compression' ('vold.has_compress=true')\n");
     	}
+
+	bool needs_casefold = false;
+	if (Mount_Point == "/data") {
+		needs_casefold = android::base::GetBoolProperty("external_storage.casefold.enabled", false);
+	}
 
 	unsigned long long dev_sz = TWFunc::IOCTL_Get_Block_Size(Actual_Block_Device.c_str());
 	if (!dev_sz)
@@ -2651,12 +2656,14 @@ bool TWPartition::Wipe_F2FS() {
 	char dev_sz_str[48];
 	sprintf(dev_sz_str, "%llu", (dev_sz / 4096));
 
-	if(needs_projid)
-		f2fs_command += " -O project_quota,extra_attr";
+	// Project ID
+	f2fs_command += " -O project_quota,extra_attr";
 
-	if(needs_casefold)
+	// Casefolding for /data
+	if (needs_casefold)
 		f2fs_command += " -O casefold -C utf8";
 
+	// FsCompress
 	if (Needs_Fs_Compress)
 		f2fs_command += " -O compression,extra_attr";
 
