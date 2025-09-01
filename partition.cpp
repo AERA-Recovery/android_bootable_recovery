@@ -2615,12 +2615,10 @@ bool TWPartition::Wipe_F2FS() {
 	* Your device tree should include this:
 		$(call inherit-product, $(SRC_TARGET_DIR)/product/emulated_storage.mk)
 	*/
-	if (TWFunc::Path_Exists("/system/bin/mkfs.f2fs"))
-		f2fs_command = "/system/bin/mkfs.f2fs";
-	else if (TWFunc::Path_Exists("/system/bin/make_f2fs"))
+	if (TWFunc::Path_Exists("/system/bin/make_f2fs"))
 		f2fs_command = "/system/bin/make_f2fs -g android";
 	else {
-		LOGINFO("mkfs.f2fs binary not found, using rm -rf to wipe.\n");
+		LOGINFO("mkfs_f2fs binary not found, using rm -rf to wipe.\n");
 		return Wipe_RMRF();
 	}
 
@@ -2676,7 +2674,7 @@ bool TWPartition::Wipe_F2FS() {
 			Crypto_Key_Location != "footer") {
 		NeedPreserveFooter = false;
 	}
-	LOGINFO("mkfs.f2fs command: %s\n", f2fs_command.c_str());
+	LOGINFO("mkfs_f2fs command: %s\n", f2fs_command.c_str());
 
 	// try to unbind /sdcard if it is still bind-mounted
 	#ifdef OF_UNBIND_SDCARD_F2FS

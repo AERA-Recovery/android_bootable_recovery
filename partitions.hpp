@@ -229,7 +229,7 @@ private:
 	bool Wipe_EXFAT();                                                        // Formats as EXFAT
 	bool Wipe_MTD();                                                          // Formats as yaffs2 for MTD memory types
 	bool Wipe_RMRF();                                                         // Uses rm -rf to wipe
-	bool Wipe_F2FS();                                                         // Uses mkfs.f2fs to wipe
+	bool Wipe_F2FS();                                                         // Uses mkfs_f2fs to wipe
 	bool Wipe_NTFS();                                                         // Uses mkntfs to wipe
 	bool Wipe_Data_Without_Wiping_Media();                                    // Uses rm -rf to wipe but does not wipe /data/media
 	void Wipe_Crypto_Key();                                                   // Wipe crypto key from either footer or block device
