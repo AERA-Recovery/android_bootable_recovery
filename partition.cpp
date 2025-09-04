@@ -2235,8 +2235,10 @@ bool TWPartition::Wipe_Encryption() {
 	bool Save_Data_Media = Has_Data_Media;
 	bool ret = false;
 	std::string the_wipe_fs;
-#ifdef OF_FORCE_DATA_FORMAT_F2FS
+#if defined(OF_FORCE_DATA_FORMAT_F2FS)
 	the_wipe_fs = "f2fs";
+#elif defined(OF_FORCE_DATA_FORMAT_EXT4)
+	the_wipe_fs = "ext4";
 #else
 	the_wipe_fs = Fstab_File_System;
 #endif
