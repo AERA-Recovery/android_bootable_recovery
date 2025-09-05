@@ -759,6 +759,7 @@ ifeq ($(OF_FORCE_DATA_FORMAT_EXT4),1)
 	$(error You cannot use both 'OF_FORCE_DATA_FORMAT_F2FS' and 'OF_FORCE_DATA_FORMAT_EXT4' at the same time!)
     endif
     LOCAL_CFLAGS += -DOF_FORCE_DATA_FORMAT_EXT4
+    OF_WIPE_METADATA_AFTER_DATAFORMAT := 1
 endif
 
 # whether to use legacy time_fixup code (if the clock is persistently wrong)
