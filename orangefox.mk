@@ -748,7 +748,7 @@ endif
 # whether to force f2fs when formatting data
 ifeq ($(OF_FORCE_DATA_FORMAT_F2FS),1)
     ifeq ($(OF_FORCE_DATA_FORMAT_ETX4),1)
-	$(error You cannot use both 'OF_FORCE_DATA_FORMAT_F2FS' and 'OF_FORCE_DATA_FORMAT_EXT4' at the same time!)
+        $(error You cannot use both 'OF_FORCE_DATA_FORMAT_F2FS' and 'OF_FORCE_DATA_FORMAT_EXT4' at the same time!)
     endif
     LOCAL_CFLAGS += -DOF_FORCE_DATA_FORMAT_F2FS
 endif
@@ -756,7 +756,7 @@ endif
 # whether to force ext4 when formatting data
 ifeq ($(OF_FORCE_DATA_FORMAT_EXT4),1)
     ifeq ($(OF_FORCE_DATA_FORMAT_F2FS),1)
-	$(error You cannot use both 'OF_FORCE_DATA_FORMAT_F2FS' and 'OF_FORCE_DATA_FORMAT_EXT4' at the same time!)
+        $(error You cannot use both 'OF_FORCE_DATA_FORMAT_F2FS' and 'OF_FORCE_DATA_FORMAT_EXT4' at the same time!)
     endif
     LOCAL_CFLAGS += -DOF_FORCE_DATA_FORMAT_EXT4
     OF_WIPE_METADATA_AFTER_DATAFORMAT := 1
