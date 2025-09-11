@@ -1340,6 +1340,9 @@ void TWPartition::Setup_Data_Media() {
 		ExcludeAll(Mount_Point + "/system/storage.xml");
 
 		// Fix problems with restoring data partition backups
+		#ifdef OF_WORKAROUND_BACKUP_BUG
+		backup_exclusions.add_absolute_dir("/data/data"); // temporary workaround for error 255 when restoring data backups in 14.1 branch builds
+		#endif
 		backup_exclusions.add_absolute_dir("/data/system/users/0/package-restrictions.xml");
 		backup_exclusions.add_absolute_dir("/data/system/users/0/package-restrictions.xml.reservecopy");
 
@@ -2792,6 +2795,11 @@ bool TWPartition::Wipe_Data_Without_Wiping_Media_Func(const string& parent __unu
 					closedir(d);
 					return false;
 				}
+				#ifdef OF_WORKAROUND_BACKUP_BUG
+				if (dir == "/data/data/") // temporary workaround for error 255 when restoring data backups in 14.1 branch builds
+					LOGINFO("DEBUG: OrangeFox: skipped /data/data/\n");
+				else
+				#endif
 				rmdir(dir.c_str());
 			} else if (de->d_type == DT_REG || de->d_type == DT_LNK || de->d_type == DT_FIFO || de->d_type == DT_SOCK) {
 				if (unlink(dir.c_str()) != 0)
@@ -2884,11 +2892,10 @@ bool TWPartition::Backup_Tar(PartitionSettings *part_settings, pid_t *tar_fork_p
 	Backup_FileName = Backup_Name + "." + Current_File_System + ".win";
 	Full_FileName = part_settings->Backup_Folder + "/" + Backup_FileName;
 	if (Has_Data_Media) {
-		#ifdef BROKEN_MANIFEST14_DATA_BACKUP_IS_FIXED
+		#ifdef OF_WORKAROUND_BACKUP_BUG
 		gui_msg(Msg(msg::kWarning, "backup_storage_warning=Backups of {1} do not include any files in internal storage such as pictures or downloads.")(Display_Name));
 		#else
 		LOGERR("Backups of %s are currently BROKEN in the 14.1 branch. There is little point in making backups of %s\n\n", Display_Name.c_str(), Display_Name.c_str());
-		//return false;
 		#endif
 	}
 	if (Mount_Point == "/data" && DataManager::GetIntValue(TW_IS_FBE)) {

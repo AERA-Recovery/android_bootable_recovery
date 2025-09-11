@@ -810,4 +810,11 @@ ifeq ($(OF_USE_DMCTL),1)
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmuserd
   endif
 endif
+
+# backup/restore bug - temporary workaround
+# activate the workaround by default
+OF_WORKAROUND_BACKUP_BUG := 1
+ifeq ($(OF_WORKAROUND_BACKUP_BUG),1)
+     LOCAL_CFLAGS += -DOF_WORKAROUND_BACKUP_BUG
+endif
 #
