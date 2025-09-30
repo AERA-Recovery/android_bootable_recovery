@@ -169,15 +169,16 @@ endif
 
 # vendor_boot recovery
 ifeq ($(FOX_VENDOR_BOOT_RECOVERY),1)
-    $(warning WARNING! 'FOX_VENDOR_BOOT_RECOVERY' is highly experimental and potentially VERY problematic!)
-    $(warning It is NOT recommended to use this. You have been warned!)
+    $(warning 'FOX_VENDOR_BOOT_RECOVERY' is experimental. Exercise great caution if you use it!)
     LOCAL_CFLAGS += -DFOX_VENDOR_BOOT_RECOVERY='"1"'
     FOX_AB_DEVICE := 1
     OF_NO_SPLASH_CHANGE := 1
     FOX_VANILLA_BUILD := 1
-    OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
     ifeq ($(BOARD_BOOT_HEADER_VERSION),3)
  	$(warning For a proper vendor_boot recovery build, use 'BOARD_BOOT_HEADER_VERSION := 4' and 'BOARD_INCLUDE_RECOVERY_RAMDISK_IN_VENDOR_BOOT := true')
+        OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
+    else
+        OF_RECOVERY_AB_FULL_REFLASH_RAMDISK := 1
     endif
     ifeq ($(OF_RECOVERY_AB_FULL_REFLASH_RAMDISK),1)
        LOCAL_CFLAGS += -DOF_RECOVERY_AB_FULL_REFLASH_RAMDISK
