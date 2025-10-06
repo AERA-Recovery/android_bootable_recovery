@@ -1104,6 +1104,13 @@ void DataManager::SetDefaultValues()
   	mConst.SetValue("vendor_boot_recovery", "1");
 #endif
 
+#if defined(FOX_ENABLE_KERNELSU_SUPPORT) || defined(FOX_ENABLE_KERNELSU_NEXT_SUPPORT) || defined(FOX_ENABLE_SUKISU_SUPPORT)
+	TWFunc::Fox_Property_Set("orangefox.support_kernelsu", "true");
+	mConst.SetValue("fox_support_ksu", "1");
+#else
+	mConst.SetValue("fox_support_ksu", "0");
+#endif
+
 #ifdef TW_INCLUDE_CRYPTO
   mConst.SetValue(TW_HAS_CRYPTO, "1");
   printf("TW_INCLUDE_CRYPTO := true\n");
