@@ -87,7 +87,11 @@ uint64_t TWExclude::Get_Folder_Size(const string& Path) {
 			}
 
 			if (i == 7) // ok, the errors continue - so, inform the user
+			#ifdef OF_MASK_GET_FOLDER_SIZE_READ_ERRORS
+			   LOGINFO("** Persistent read errors! **\nDecryption has probably failed!\n\n");
+			#else
 			   LOGERR("** Persistent read errors! **\nDecryption has probably failed!\n\n");
+			#endif
 
 			continue;
 		}

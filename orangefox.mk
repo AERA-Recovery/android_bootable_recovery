@@ -829,4 +829,9 @@ endif
 ifeq ($(FOX_ENABLE_SUKISU_SUPPORT),1)
     LOCAL_CFLAGS += -DFOX_ENABLE_SUKISU_SUPPORT
 endif
+
+# mask read errors on Get_Folder_Size?
+ifeq ($(OF_MASK_GET_FOLDER_SIZE_READ_ERRORS),1)
+    LOCAL_CFLAGS += -DOF_MASK_GET_FOLDER_SIZE_READ_ERRORS=1
+endif
 #
