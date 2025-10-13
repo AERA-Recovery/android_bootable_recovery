@@ -834,4 +834,9 @@ endif
 ifeq ($(OF_MASK_GET_FOLDER_SIZE_READ_ERRORS),1)
     LOCAL_CFLAGS += -DOF_MASK_GET_FOLDER_SIZE_READ_ERRORS=1
 endif
+
+# disable automatic rebooting after openrecoveryscript finishes
+ifeq ($(OF_DISABLE_ORS_AUTO_REBOOT),1)
+    LOCAL_CFLAGS += -DOF_DISABLE_ORS_AUTO_REBOOT
+endif
 #
