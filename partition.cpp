@@ -3295,8 +3295,13 @@ bool TWPartition::Update_Size(bool Display_Error) {
 		}
 	} else if (Mount_Point == "/storage") {
 		if (Mount(Display_Error)) {
-			Used = backup_exclusions.Get_Folder_Size(Mount_Point);
-			Backup_Size = Used;
+			// WiP: don't process this until the decryption is completed (unless the device is unencrypted)
+			if (TWFunc::Fox_Property_Get("twrp.decrypt.done") == "true" // either decryption is completed
+			|| !PartitionManager.Storage_Is_Encrypted() // or the device is unencrypted
+			) {
+				Used = backup_exclusions.Get_Folder_Size(Mount_Point);
+				Backup_Size = Used;
+			}
 		} else {
 			if (!Was_Already_Mounted)
 				UnMount(false);
