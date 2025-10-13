@@ -4588,6 +4588,9 @@ bool TWPartitionManager::Storage_Is_Encrypted(void)
   if (DataManager::GetIntValue(FOX_ENCRYPTED_DEVICE) == 1)
  	return true;
 
+  if (DataManager::GetIntValue(TW_IS_ENCRYPTED) == 1 && DataManager::GetIntValue(TW_IS_DECRYPTED) == 1)
+	return false;
+
   // FDE
   string res = "";
   string cmd = "cat /proc/mounts | grep /data | grep dm-";
