@@ -724,7 +724,11 @@ int OpenRecoveryScript::Run_OpenRecoveryScript_Action() {
        		  { 
  		     usleep(1000000); // sleep for 1 second
           	     op_status = 0;
-		     gui_msg(Msg(msg::kWarning, "of_ota_reboot_disabled=OTA update completed. You disabled auto-reboot. Returning control to you.\n"));
+			#ifdef OF_DISABLE_ORS_AUTO_REBOOT
+			gui_msg(Msg(msg::kHighlight, "ors_complete=OpenRecovery script completed.\n"));
+			#else
+			gui_msg(Msg(msg::kWarning, "of_ota_reboot_disabled=OTA update completed. You disabled auto-reboot. Returning control to you.\n"));
+			#endif
           	     DataManager::SetValue("tw_page_done", 1);
        		  }
        		else

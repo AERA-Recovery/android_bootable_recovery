@@ -904,7 +904,11 @@ void DataManager::SetDefaultValues()
 
 #ifdef OF_DISABLE_OTA_MENU
     mConst.SetValue("of_no_ota_menu", "1");
+    #ifdef OF_DISABLE_ORS_AUTO_REBOOT
+    mConst.SetValue(FOX_DISABLE_OTA_AUTO_REBOOT, "1");
+    #else
     mConst.SetValue(FOX_DISABLE_OTA_AUTO_REBOOT, "0");
+    #endif
 #else
     mConst.SetValue("of_no_ota_menu", "0");
     mPersist.SetValue(FOX_DISABLE_OTA_AUTO_REBOOT, "0");
