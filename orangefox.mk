@@ -839,4 +839,9 @@ endif
 ifeq ($(OF_DISABLE_ORS_AUTO_REBOOT),1)
     LOCAL_CFLAGS += -DOF_DISABLE_ORS_AUTO_REBOOT
 endif
+
+# whether to use aidl instead of hidl for bootcontrol
+ifeq ($(OF_USE_AIDL_BOOT_CONTROL),1)
+    LOCAL_CFLAGS += -DOF_USE_AIDL_BOOT_CONTROL
+endif
 #
