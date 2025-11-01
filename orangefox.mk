@@ -844,4 +844,9 @@ endif
 ifeq ($(OF_USE_AIDL_BOOT_CONTROL),1)
     LOCAL_CFLAGS += -DOF_USE_AIDL_BOOT_CONTROL
 endif
+
+# enable the FRP deletion addon?
+ifeq ($(OF_ENABLE_FRP_ADDON),1)
+    LOCAL_CFLAGS += -DOF_ENABLE_FRP_ADDON
+endif
 #

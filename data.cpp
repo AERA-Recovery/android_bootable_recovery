@@ -736,6 +736,12 @@ void DataManager::SetDefaultValues()
   mConst.SetValue(BUILD_TYPE_STR, FOX_BUILD_TYPE);
   mConst.SetValue("fox_branch", FOX_BRANCH);
 
+#ifdef OF_ENABLE_FRP_ADDON
+  if (TWFunc::Path_Exists("/dev/block/bootdevice/by-name/frp")) {
+	mConst.SetValue("enable_frp_addon", "1");
+  }
+#endif
+
 #ifdef FOX_MOVE_MAGISK_INSTALLER_TO_RAMDISK
   mConst.SetValue("fox_magisk_path", FFiles_dir + "/OF_Magisk");
 #else
