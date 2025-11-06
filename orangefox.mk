@@ -849,4 +849,12 @@ endif
 ifeq ($(OF_ENABLE_FRP_ADDON),1)
     LOCAL_CFLAGS += -DOF_ENABLE_FRP_ADDON
 endif
+
+ifeq ($(TW_INCLUDE_OMAPI),true)
+    ifeq ($(wildcard external/se_omapi/Android.bp),)
+        $(warning se_omapi sources not found! You need to clone the sources.)
+        $(warning Please run: "https://gitlab.com/OrangeFox/external/se_omapi.git -b fox_14.1 external/se_omapi")
+        $(error se_omapi sources not present; exiting.)
+    endif
+endif
 #
