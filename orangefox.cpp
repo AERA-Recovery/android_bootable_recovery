@@ -1117,6 +1117,8 @@ void Fox_Post_Zip_Install(const int result)
 	}
 #endif
          PartitionManager.Update_System_Details();
+	// Run any custom script after completion of all ROM flashing processes
+	TWFunc::RunFoxScript("/system/bin/post_rom_flash_completion.sh", "");
      }
 }
 
