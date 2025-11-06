@@ -671,6 +671,8 @@ LOCAL_POST_INSTALL_CMD := \
 # make sure that the terminfo directory is copied for nano
 ifeq ($(FOX_USE_NANO_EDITOR),1)
 	LOCAL_POST_INSTALL_CMD += \
+	mkdir -p $(TARGET_OUT_ETC)/; \
+	mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/etc/; \
 	cp -rf $(TARGET_OUT_ETC)/nano $(TARGET_RECOVERY_ROOT_OUT)/system/etc/; \
 	cp -rf external/libncurses/lib/terminfo $(TARGET_RECOVERY_ROOT_OUT)/system/etc/;
 endif
