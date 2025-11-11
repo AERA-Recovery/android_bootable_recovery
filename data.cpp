@@ -737,7 +737,7 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("fox_branch", FOX_BRANCH);
 
 #ifdef OF_ENABLE_FRP_ADDON
-  if (TWFunc::Path_Exists("/dev/block/bootdevice/by-name/frp")) {
+  if (TWFunc::Path_Exists("/dev/block/bootdevice/by-name/frp") || TWFunc::Fox_Property_Get("ro.frp.pst") != "") {
 	mConst.SetValue("enable_frp_addon", "1");
   }
 #endif
