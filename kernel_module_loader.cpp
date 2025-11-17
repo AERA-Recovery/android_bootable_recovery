@@ -4,8 +4,6 @@
 #include "data.hpp"
 
 const std::vector<std::string> kernel_modules_requested = TWFunc::split_string(EXPAND(TW_LOAD_VENDOR_MODULES), ' ', true);
-const size_t expected_module_count = kernel_modules_requested.size();
-size_t requested_modules_loaded = 0;
 
 BOOT_MODE KernelModuleLoader::Get_Boot_Mode() {
 	std::string cmdline;
@@ -32,6 +30,7 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 	// check /vendor/lib/modules/N.N-gki (vendor mounted)
 	// check /vendor_dlkm/lib/modules (vendor_dlkm mounted)
 	if (android::base::GetBoolProperty(TW_MODULES_MOUNTED_PROP, false)) return true;
+	int modules_loaded = 0;
 
 	LOGINFO("Attempting to load modules\n");
 	std::string vendor_base_dir(VENDOR_MODULE_DIR);
@@ -54,6 +53,7 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 
 	std::string rls(uts.release);
 	std::vector<std::string> release = TWFunc::split_string(rls, '.', true);
+	int expected_module_count = kernel_modules_requested.size();
 	module_dirs.push_back(base_dir + "/" + release[0] + "." + release[1]);
 #ifndef TW_LOAD_VENDOR_MODULES_EXCLUDE_GKI
 	std::string gki = "/" + release[0] + "." + release[1] + "-gki";
@@ -63,16 +63,14 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 
 	TWFunc::RunFoxScript("/system/bin/beforemodules.sh", "");
 
-	Check_Loaded_Kernel_Modules();
-
 	switch(Get_Boot_Mode()) {
 		case RECOVERY_FASTBOOT_MODE:
 			/* On bootmode: once, there is not always stock kernel
 			 * so try only with twrp prebuilt modules.
 			 */
 			for (auto&& module_dir:vendor_module_dirs) {
-				Try_And_Load_Modules(module_dir, false);
-				if (requested_modules_loaded >= expected_module_count) goto exit;
+				modules_loaded += Try_And_Load_Modules(module_dir, false);
+				if (modules_loaded >= expected_module_count) goto exit;
 			}
 			break;
 
@@ -80,8 +78,8 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 		case RECOVERY_IN_BOOT_MODE:
 #ifdef TW_LOAD_VENDOR_BOOT_MODULES
 			for (auto&& module_dir:module_dirs) {
-				Try_And_Load_Modules(module_dir, false);
-				if (requested_modules_loaded >= expected_module_count) goto exit;
+				modules_loaded += Try_And_Load_Modules(module_dir, false);
+				if (modules_loaded >= expected_module_count) goto exit;
 			}
 #endif
 			/* In both mode vendor_boot or vendor modules are used
@@ -93,37 +91,27 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 	if (ven) {
 		LOGINFO("Checking mounted /vendor\n");
 		ven->Mount(true);
-		for (auto&& module_dir:vendor_module_dirs) {
-			Try_And_Load_Modules(module_dir, true);
-			if (requested_modules_loaded >= expected_module_count) goto exit;
-		}
 	}
-
 	if (ven_dlkm) {
 		LOGINFO("Checking mounted /vendor_dlkm\n");
 		ven_dlkm->Mount(true);
-		Try_And_Load_Modules(vendor_dlkm_base_dir, true);
-		if (requested_modules_loaded >= expected_module_count) goto exit;
 	}
 
-#ifndef OF_SKIP_PREBUILT_MODULES
-	if (ven)
-		ven->UnMount(false);
-
-	LOGINFO("Checking prebuilt modules\n");
 	for (auto&& module_dir:vendor_module_dirs) {
-		Try_And_Load_Modules(module_dir, true);
-		if (requested_modules_loaded >= expected_module_count) goto exit;
+		modules_loaded += Try_And_Load_Modules(module_dir, true);
+		if (modules_loaded >= expected_module_count) goto exit;
 	}
-#endif
+
+	modules_loaded += Try_And_Load_Modules(vendor_dlkm_base_dir, true);
+	if (modules_loaded >= expected_module_count) goto exit;
 
 exit:
 	if (ven)
 		ven->UnMount(false);
 	if (ven_dlkm)
-		ven_dlkm->UnMount(false);
+		ven_dlkm->UnMount(false, MNT_DETACH);
 
-	if (requested_modules_loaded == 0)
+	if (modules_loaded == 0)
 		DataManager::SetValue("of_request_switch_control_mode" , "1");
 
 	android::base::SetProperty(TW_MODULES_MOUNTED_PROP, "true");
@@ -131,53 +119,48 @@ exit:
 	return true;
 }
 
-void KernelModuleLoader::Try_And_Load_Modules(std::string module_dir, bool vendor_is_mounted) {
-	LOGINFO("Checking directory: %s\n", module_dir.c_str());
-	int modules_loaded = 0;
-	std::string dest_module_dir;
-	dest_module_dir = "/tmp" + module_dir;
-	TWFunc::Recursive_Mkdir(dest_module_dir);
-	Copy_Modules_To_Tmpfs(module_dir);
-	if (!Write_Module_List(dest_module_dir))
-		return;
-	if (!vendor_is_mounted && module_dir == "/vendor/lib/modules") {
-		module_dir = "/lib/modules";
-	}
-	LOGINFO("mounting %s on %s\n", dest_module_dir.c_str(), module_dir.c_str());
-	if (mount(dest_module_dir.c_str(), module_dir.c_str(), "", MS_BIND, NULL) == 0) {
-		Modprobe m({module_dir}, "modules.load.twrp", false);
-		m.LoadListedModules(false);
-		modules_loaded = m.GetModuleCount();
-		umount2(module_dir.c_str(), MNT_DETACH);
-		LOGINFO("Modules Loaded (with dependencies): %d\n", modules_loaded);
-	}
-
-	Check_Loaded_Kernel_Modules();
+int KernelModuleLoader::Try_And_Load_Modules(std::string module_dir, bool vendor_is_mounted) {
+		LOGINFO("Checking directory: %s\n", module_dir.c_str());
+		int modules_loaded = 0;
+		std::string dest_module_dir;
+		dest_module_dir = "/tmp" + module_dir;
+		TWFunc::Recursive_Mkdir(dest_module_dir);
+		Copy_Modules_To_Tmpfs(module_dir);
+		if (!Write_Module_List(dest_module_dir))
+			return kernel_modules_requested.size();
+		if (!vendor_is_mounted && module_dir == "/vendor/lib/modules") {
+			module_dir = "/lib/modules";
+		}
+		LOGINFO("mounting %s on %s\n", dest_module_dir.c_str(), module_dir.c_str());
+		if (mount(dest_module_dir.c_str(), module_dir.c_str(), "", MS_BIND, NULL) == 0) {
+			Modprobe m({module_dir}, "modules.load.twrp", false);
+			m.LoadListedModules(false);
+			modules_loaded = m.GetModuleCount();
+			PartitionManager.UnMount_By_Path(module_dir.c_str(), false, MNT_DETACH);
+			LOGINFO("Modules Loaded: %d\n", modules_loaded);
+		}
+		return modules_loaded;
 }
 
-void KernelModuleLoader::Check_Loaded_Kernel_Modules() {
+std::vector<string> KernelModuleLoader::Skip_Loaded_Kernel_Modules() {
+	std::vector<string> kernel_modules = kernel_modules_requested;
 	std::vector<string> loaded_modules;
 	std::string kernel_module_file = "/proc/modules";
 	if (TWFunc::read_file(kernel_module_file, loaded_modules) < 0)
-		LOGINFO("Failed to get loaded kernel modules\n");
-	LOGINFO("Number of loaded modules: %zu\n", loaded_modules.size());
+		LOGINFO("failed to get loaded kernel modules\n");
+	LOGINFO("number of modules loaded by init: %zu\n", loaded_modules.size());
 	if (loaded_modules.size() == 0)
-		return;
-	requested_modules_loaded = 0;
+		return kernel_modules;
 	for (auto&& module_line:loaded_modules) {
 		auto module = TWFunc::Split_String(module_line, " ")[0];
 		std::string full_module_name = module + ".ko";
-		auto found = std::find(kernel_modules_requested.begin(), kernel_modules_requested.end(), full_module_name);
-		if (found != kernel_modules_requested.end()) {
-			requested_modules_loaded++;
-			LOGINFO("Found the requested module loaded: %s\n", (*found).c_str());
+		auto found = std::find(kernel_modules.begin(), kernel_modules.end(), full_module_name);
+		if (found != kernel_modules.end()) {
+			LOGINFO("found module to dedupe: %s\n", (*found).c_str());
+			kernel_modules.erase(found);
 		}
 	}
-
-	if (requested_modules_loaded >= expected_module_count)
-		LOGINFO("All requested modules are loaded\n");
-	else
-		LOGINFO("Requested modules are already loaded: %zu\n", requested_modules_loaded);
+	return kernel_modules;
 }
 
 bool KernelModuleLoader::Write_Module_List(std::string module_dir) {
@@ -185,6 +168,11 @@ bool KernelModuleLoader::Write_Module_List(std::string module_dir) {
 	struct dirent* de;
 	std::vector<std::string> kernel_modules;
 	d = opendir(module_dir.c_str());
+	auto deduped_modules = Skip_Loaded_Kernel_Modules();
+	if (deduped_modules.size() == 0) {
+		LOGINFO("Requested modules are loaded\n");
+		return false;
+	}
 	if (d != nullptr) {
 		while ((de = readdir(d)) != nullptr) {
 			std::string kernel_module = de->d_name;
