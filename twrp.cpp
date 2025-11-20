@@ -482,6 +482,10 @@ int main(int argc, char **argv) {
 	property_set("ro.orangefox.virtual_ab", "1");
 	#endif
 
+	#ifdef FOX_VANILLA_BUILD
+	property_set("ro.orangefox.vanilla", "1");
+	#endif
+
     	string fox_cfg = Fox_Cfg;
     	if (!TWFunc::Path_Exists(fox_cfg))
     	    fox_cfg = "/system" + Fox_Cfg;
