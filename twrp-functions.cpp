@@ -2691,10 +2691,6 @@ void TWFunc::Welcome_Message(void)
     gui_msg(Msg("fox_downloads=[Downloads] : {1}")(download_link.c_str()));
     gui_msg(Msg("fox_faq=[Guides/FAQ]: {1}")(faq_link.c_str()));
 
-    #if defined(OF_DISABLE_MIUI_SPECIFIC_FEATURES)
-    LOGINFO(" [MIUI-specific features not enabled]\n");
-    #endif
-    
     gui_print("--------------------------\n");
     Fox_Has_Welcomed++;
 }
@@ -4527,6 +4523,9 @@ int res=0, wipe_cache=0;
 
 bool TWFunc::MIUI_Is_Running(void)
 {
+#ifdef FOX_VANILLA_BUILD
+	return false;
+#endif
    if (Fox_Current_ROM_IsMIUI == 1 || TWFunc::JustInstalledMiui() || TWFunc::Fox_Property_Get("orangefox.miui.rom") == "1")
       return true;
    else
