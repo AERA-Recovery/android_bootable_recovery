@@ -329,6 +329,13 @@ endif
 ifeq ($(TW_NO_HAPTICS), true)
     LOCAL_CFLAGS += -DTW_NO_HAPTICS
 endif
+ifeq ($(TW_NO_NETWORK), true)
+    LOCAL_CFLAGS += -DTW_NO_NETWORK
+endif
+ifneq ($(TW_NO_NETWORK), true)
+    TWRP_REQUIRED_MODULES += \
+        index.html \
+endif
 ifneq ($(TW_ADDITIONAL_APEX_FILES),)
     LOCAL_CFLAGS += -DTW_ADDITIONAL_APEX_FILES=$(TW_ADDITIONAL_APEX_FILES)
 endif
