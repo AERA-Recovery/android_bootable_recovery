@@ -486,6 +486,12 @@ int main(int argc, char **argv) {
 	property_set("ro.orangefox.vanilla", "1");
 	#endif
 
+	#ifdef TW_INCLUDE_CRYPTO
+	property_set("ro.orangefox.crypto_enabled", "1");
+	#else
+	property_set("ro.orangefox.crypto_enabled", "0");
+	#endif
+
     	string fox_cfg = Fox_Cfg;
     	if (!TWFunc::Path_Exists(fox_cfg))
     	    fox_cfg = "/system" + Fox_Cfg;
