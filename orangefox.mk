@@ -858,4 +858,9 @@ ifeq ($(TW_INCLUDE_OMAPI),true)
         $(error se_omapi sources not present; exiting.)
     endif
 endif
+
+# fastboot reboot
+ifeq ($(OF_NO_REBOOT_FASTBOOT),1)
+    LOCAL_CFLAGS += -DOF_NO_REBOOT_FASTBOOT
+endif
 #

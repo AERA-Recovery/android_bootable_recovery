@@ -1098,10 +1098,16 @@ void DataManager::SetDefaultValues()
 	}
 	else {
 		mData.SetValue(TW_IS_SUPER, "1");
-		mData.SetValue(TW_FASTBOOT_MODE, "1");
 		mData.SetValue("fox_dynamic_device", "1");
-		TWFunc::Fox_Property_Set("ro.fastbootd.available", "1");
 		TWFunc::Fox_Property_Set("orangefox.super.partition", "true");
+		#ifdef OF_NO_REBOOT_FASTBOOT
+		printf("OF_NO_REBOOT_FASTBOOT := 1\n");
+		mData.SetValue(TW_FASTBOOT_MODE, "0");
+		TWFunc::Fox_Property_Set("ro.fastbootd.available", "0");
+		#else
+		mData.SetValue(TW_FASTBOOT_MODE, "1");
+		TWFunc::Fox_Property_Set("ro.fastbootd.available", "1");
+		#endif
 	}
 #else
 	mData.SetValue(TW_IS_SUPER, "0");
