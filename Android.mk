@@ -1,7 +1,7 @@
 # Copyright (C) 2007 The Android Open Source Project
 #
 # This file is part of the OrangeFox Recovery Project
-# Copyright (C) 2018-2025 The OrangeFox Recovery Project
+# Copyright (C) 2018-2026 The OrangeFox Recovery Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -672,7 +672,8 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_REQUIRED_MODULES := file_contexts.bin
 
 LOCAL_POST_INSTALL_CMD := \
-    $(hide) cp -f $(PRODUCT_OUT)/obj/ETC/file_contexts.bin_intermediates/file_contexts.concat.tmp $(TARGET_RECOVERY_ROOT_OUT)/file_contexts
+    mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/; \
+    cp -fn $(PRODUCT_OUT)/obj/ETC/file_contexts.bin_intermediates/file_contexts.concat.tmp $(TARGET_RECOVERY_ROOT_OUT)/file_contexts;
 
 # Darth9
 #
