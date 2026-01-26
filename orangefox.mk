@@ -1,6 +1,6 @@
 #
 #	This file is part of the OrangeFox Recovery Project
-# 	Copyright (C) 2018-2025 The OrangeFox Recovery Project
+# 	Copyright (C) 2018-2026 The OrangeFox Recovery Project
 #	
 #	OrangeFox is free software: you can redistribute it and/or modify
 #	it under the terms of the GNU General Public License as published by
@@ -862,5 +862,10 @@ endif
 # fastboot reboot
 ifeq ($(OF_NO_REBOOT_FASTBOOT),1)
     LOCAL_CFLAGS += -DOF_NO_REBOOT_FASTBOOT
+endif
+
+# initd
+ifneq ($(FOX_DELETE_INITD_ADDON),0)
+    LOCAL_CFLAGS += -DFOX_DELETE_INITD_ADDON
 endif
 #

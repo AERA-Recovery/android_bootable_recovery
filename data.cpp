@@ -2,7 +2,7 @@
 	Copyright 2012 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2025 OrangeFox Recovery Project
+	Copyright (C) 2018-2026 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -762,7 +762,9 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("fox_navbar_path", FOX_NAVBAR_PATH);
   mConst.SetValue("fox_ota_path", FOX_OTA_PATH);
   mConst.SetValue("aroma_fm_zip", Fox_Home_Files + "/AromaFM/AromaFM.zip");
+  #ifndef FOX_DELETE_INITD_ADDON
   mConst.SetValue("of_initd_zip", Fox_Home_Files + "/OF_initd.zip");
+  #endif
   //
 
   mData.SetValue("fox_startup_executed", "0");
