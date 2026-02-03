@@ -2716,20 +2716,18 @@ void TWFunc::Fox_Set_Current_Device_CodeName(void)
 
 std::string TWFunc::Get_Balanced_Governor(void)
 {
-  std::string schedutil = "schedutil";
-  std::string interactive = "interactive";
-  std::string ondemand = "ondemand";
-
-  // Default fallback
-  std::string balanced_gov = ondemand;
   std::string avail_path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors";
+  std::vector<string> governors = {"schedutil", "interactive", "ondemand", "conservative"};
+  // Default fallback
+  std::string balanced_gov = "ondemand";
 
-  if (TWFunc::Path_Exists(avail_path))
-    {
-      if (TWFunc::CheckWord(avail_path, schedutil))
-        balanced_gov = schedutil;
-      else if (TWFunc::CheckWord(avail_path, interactive))
-        balanced_gov = interactive;
+  if (TWFunc::Path_Exists(avail_path)) {
+	for (auto gov : governors) {
+		if (TWFunc::CheckWord(avail_path, gov)) {
+			balanced_gov = gov;
+			break;
+		}
+	}
     }
 
   return balanced_gov;
