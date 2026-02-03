@@ -1151,7 +1151,7 @@ void DataManager::SetDefaultValues()
   // Start of the OrangeFox variables
   mData.SetValue(FOX_INSTALL_PREBUILT_ZIP, "0");
   mData.SetValue(FOX_CALL_DEACTIVATION, "0");
-  mData.SetValue(FOX_GOVERNOR_STABLE, "interactive");
+  mData.SetValue(FOX_GOVERNOR_STABLE, TWFunc::Get_Balanced_Governor());
   mData.SetValue(FOX_RUN_SURVIVAL_BACKUP, "0");
   mData.SetValue(FOX_METADATA_PRE_BUILD, "0");
   mData.SetValue(FOX_INCREMENTAL_OTA_FAIL, "0");
