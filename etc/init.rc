@@ -106,11 +106,35 @@ on post-fs-data
 service ueventd /system/bin/ueventd
     critical
     seclabel u:r:ueventd:s0
+    user root
+
+service console /system/bin/sh
+    class core
+    console
+    disabled
+    user shell
+    group shell log readproc
+    seclabel u:r:shell:s0
+    setenv HOSTNAME console
+
+on init && property:ro.debuggable=1
+    start console
+
+service charger /system/bin/charger
+    critical
+    seclabel u:r:charger:s0
+    user root
+
+service recovery /system/bin/recovery
+    socket recovery stream 422 system system
+    seclabel u:r:recovery:s0
+    user root
 
 service adbd /system/bin/adbd --root_seclabel=u:r:su:s0 --device_banner=recovery
     disabled
     socket adbd stream 660 system system
     seclabel u:r:adbd:s0
+    user root
 
 # Always start adbd on userdebug and eng builds
 on property:ro.debuggable=1
