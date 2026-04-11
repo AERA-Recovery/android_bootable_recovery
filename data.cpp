@@ -954,6 +954,13 @@ void DataManager::SetDefaultValues()
 	mPersist.SetValue("tw_action_vibrate", "0");
 #endif
 
+#ifndef TW_NO_NETWORK
+    mConst.SetValue("tw_disable_network", "0");
+#else
+    LOGINFO("TW_NO_NETWORK := true\n");
+    mConst.SetValue("tw_disable_network", "1");
+#endif
+
   TWPartition *store = PartitionManager.Get_Default_Storage_Partition();
   if (store)
     mPersist.SetValue("tw_storage_path", store->Storage_Path);

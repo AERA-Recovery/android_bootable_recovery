@@ -1285,5 +1285,17 @@
 		<string name="enable_hw_control_2">和电源键操作界面。</string>
 		<string name="enable_hw_control_3">手势将被禁用。</string>
 		<string name="enable_hw_control_4">继续执行？</string>
+
+		<!-- WLAN -->
+		<string name="wlan_menu">WiFi</string>
+		<string name="wlan_scan">扫描网络</string>
+		<string name="wlan_scanning">扫描网络中...</string>
+		<string name="wlan_connect">连接网络</string>
+		<string name="wlan_status">获取网络信息</string>
+		<string name="wlan_test">测试联网状态</string>
+		<string name="wlan_list">WiFi列表</string>
+		<string name="wlan_select">选择需要连接的WiFi</string>
+		<string name="wlan_encryption">WiFi 加密方式:</string>
+		<string name="wlan_empty">扫描失败或者列表为空，请重新扫描！</string>
 	</resources>
 </language>

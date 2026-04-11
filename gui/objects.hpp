@@ -402,6 +402,7 @@ protected:
 #endif
 
 	int disableAVB2(std::string arg);
+	int setvaluebyfile(std::string arg);
 	// (originally) threaded actions
 	int fileexists(std::string arg);
 	int flash(std::string arg);

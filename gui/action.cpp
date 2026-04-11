@@ -40,6 +40,7 @@
 
 #include <string>
 #include <sstream>
+#include <fstream>
 #include "../partitions.hpp"
 #include "../twrp-functions.hpp"
 #include "../twrpRepacker.hpp"
@@ -301,6 +302,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
 #endif
       ADD_ACTION(mergesnapshots);
       ADD_ACTION(disableAVB2);
+      ADD_ACTION(setvaluebyfile);
 
       //[f/d] Threaded actions
       ADD_ACTION(batch);
@@ -3051,3 +3053,55 @@ int GUIAction::disableAVB2(string arg __unused) {
 	return 0;
 }
 //
+
+static std::string run_command_get_output(const std::string& cmd) {
+  FILE* fp = popen(cmd.c_str(), "r");
+  if (!fp)
+      return "";
+
+  std::string out;
+  char buf[512];
+
+  while (fgets(buf, sizeof(buf), fp) != nullptr) {
+      out += buf;
+  }
+
+  pclose(fp);
+
+  while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) {
+      out.pop_back();
+  }
+
+  return out;
+}
+
+static std::string read_file_to_string(const std::string& path) {
+  std::ifstream ifs(path.c_str(), std::ios::in);
+  if (!ifs.is_open()) {
+      return "";
+  }
+
+  std::stringstream ss;
+  ss << ifs.rdbuf();
+  std::string out = ss.str();
+
+  while (!out.empty() && (out.back() == '\n' || out.back() == '\r'))
+      out.pop_back();
+
+  return out;
+}
+
+int GUIAction::setvaluebyfile(std::string arg) {
+  size_t pos = arg.find(',');
+  std::string var  = arg.substr(0, pos);
+  std::string file = arg.substr(pos + 1);
+  std::string info = read_file_to_string(file);
+  if (!info.empty()) {
+    DataManager::SetValue(var, info);
+    LOGINFO("setvaluebyfile: %s = %s\n", var.c_str(), info.c_str());
+  } else {
+    LOGINFO("setvaluebyfile: Error: empty file %s\n", file.c_str());
+  }
+  //gui_print("%s", info.c_str());
+  return 0;
+}

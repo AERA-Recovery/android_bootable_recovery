@@ -335,6 +335,9 @@ endif
 ifneq ($(TW_NO_NETWORK), true)
     TWRP_REQUIRED_MODULES += \
         index.html \
+        wlan_connect \
+        wlan_scan \
+        wlan_info
 endif
 ifneq ($(TW_ADDITIONAL_APEX_FILES),)
     LOCAL_CFLAGS += -DTW_ADDITIONAL_APEX_FILES=$(TW_ADDITIONAL_APEX_FILES)

@@ -296,6 +296,30 @@ ifneq ($(TW_NO_NETWORK), true)
     LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/system/bin
     LOCAL_SRC_FILES := $(LOCAL_MODULE)
     include $(BUILD_PREBUILT)
+
+    include $(CLEAR_VARS)
+    LOCAL_MODULE := wlan_connect
+    LOCAL_MODULE_TAGS := optional
+    LOCAL_MODULE_CLASS := EXECUTABLES
+    LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/system/bin
+    LOCAL_SRC_FILES := $(LOCAL_MODULE)
+    include $(BUILD_PREBUILT)
+
+    include $(CLEAR_VARS)
+    LOCAL_MODULE := wlan_scan
+    LOCAL_MODULE_TAGS := optional
+    LOCAL_MODULE_CLASS := EXECUTABLES
+    LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/system/bin
+    LOCAL_SRC_FILES := $(LOCAL_MODULE)
+    include $(BUILD_PREBUILT)
+    
+    include $(CLEAR_VARS)
+    LOCAL_MODULE := wlan_info
+    LOCAL_MODULE_TAGS := optional
+    LOCAL_MODULE_CLASS := EXECUTABLES
+    LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/system/bin
+    LOCAL_SRC_FILES := $(LOCAL_MODULE)
+    include $(BUILD_PREBUILT)
 endif
 ifeq ($(TW_USE_DMCTL), true)
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmctl
