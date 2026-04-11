@@ -62,13 +62,31 @@ void InfoManager::Clear(void) {
 	mValues.clear();
 }
 
+static bool twPersistFirstMounted = false;
+
+void twPersistMount(void) {
+	twPersistFirstMounted = PartitionManager.Is_Mounted_By_Path(Fox_Settings_Path);
+	if (!twPersistFirstMounted)
+		PartitionManager.Mount_By_Path(Fox_Settings_Path, false);
+}
+
+void twPersistUnMount(void) {
+	if (!twPersistFirstMounted)
+		PartitionManager.UnMount_By_Path(Fox_Settings_Path, false);
+}
+
 int InfoManager::LoadValues(void) {
 	string str;
+
+	twPersistMount();
+	if (!TWFunc::Path_Exists(Fox_Settings_Path))
+		mkdir(Fox_Settings_Path.c_str(), 0777);
 
 	// Read in the file, if possible
 	FILE* in = fopen(File.c_str(), "rb");
 	if (!in) {
 		LOGINFO("InfoManager file '%s' not found.\n", File.c_str());
+		twPersistUnMount();
 		return -1;
 	} else {
 		LOGINFO("InfoManager loading from '%s'.\n", File.c_str());
@@ -93,13 +111,13 @@ int InfoManager::LoadValues(void) {
 		if (fread(&length, 1, sizeof(unsigned short), in) != sizeof(unsigned short))	goto error;
 		if (length >= 512)																goto error;
 		if (fread(array, 1, length, in) != length)										goto error;
-		array[length+1] = '\0';
+		array[length] = '\0';
 		Name = array;
 
 		if (fread(&length, 1, sizeof(unsigned short), in) != sizeof(unsigned short))	goto error;
 		if (length >= 512)																goto error;
 		if (fread(array, 1, length, in) != length)										goto error;
-		array[length+1] = '\0';
+		array[length] = '\0';
 		Value = array;
 
 		map<string, string>::iterator pos;
@@ -111,7 +129,12 @@ int InfoManager::LoadValues(void) {
 			mValues.insert(make_pair(Name, Value));
 		}
 	}
+	twPersistUnMount();
+	fclose(in);
+	return 0;
+
 error:
+	twPersistUnMount();
 	fclose(in);
 	return 0;
 }
