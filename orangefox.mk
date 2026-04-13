@@ -868,4 +868,14 @@ endif
 ifneq ($(FOX_DELETE_INITD_ADDON),0)
     LOCAL_CFLAGS += -DFOX_DELETE_INITD_ADDON
 endif
+
+# enable WLAN
+ifeq ($(OF_ENABLE_WLAN),1)
+    LOCAL_CFLAGS += -DOF_ENABLE_WLAN
+    TW_NO_NETWORK := false
+    $(warning The wlan features will be enabled. You need to provide (and load and manage) your WiFi drivers in your device tree)
+else
+    TW_NO_NETWORK := true
+    LOCAL_CFLAGS += -DTW_NO_NETWORK
+endif 
 #
