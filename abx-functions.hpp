@@ -32,17 +32,18 @@ public:
 	AbxToXml(std::istream& is, std::ostream& os) : m_is(is), m_os(os) {}
 
 	bool run()
-	{       
+	{
 		mError = true;
 		char buffer[4];
 		m_is.read(buffer, 4);
 		if (memcmp(buffer, "ABX", 3) != 0)
 			// TODO: handle error: not an ABX file
 			return false;
+
 		if (buffer[3] != 0)
 			// TODO: handle error: we only understand ABX version 0
 			return false;
-		
+
 		mError = false;
 		return convert_abx_content();
 	}

@@ -62,7 +62,7 @@ else
     LOCAL_CFLAGS += -DTW_EXCLUDE_APEX
 endif
 
-LOCAL_STATIC_LIBRARIES += libavb \
+LOCAL_STATIC_LIBRARIES += libavb_user \
                           libhealthhalutils \
                           libhealthshim \
                           libinit \
@@ -93,18 +93,6 @@ LOCAL_SHARED_LIBRARIES += android.hardware.boot@1.0 \
                           liblz4 \
                           libprotobuf-cpp-lite \
                           libutils
-LOCAL_C_INCLUDES += \
-    system/core/fs_mgr/libfs_avb/include/ \
-    system/core/fs_mgr/include_fstab/ \
-    system/core/fs_mgr/include/ \
-    system/core/fs_mgr/libdm/include/ \
-    system/core/fs_mgr/liblp/include/ \
-    system/core/fs_mgr/ \
-    system/gsid/include/ \
-    system/core/init/ \
-    system/extras/ext4_utils/include \
-    $(LOCAL_PATH)/twinstall/include \
-    system/vold
 
 ifneq ($(TARGET_RECOVERY_REBOOT_SRC),)
   LOCAL_SRC_FILES += $(TARGET_RECOVERY_REBOOT_SRC)
@@ -119,18 +107,10 @@ LOCAL_CFLAGS += -Wno-unused-parameter -Wno-unused-function -Wno-unused-but-set-v
 LOCAL_CLANG := true
 
 LOCAL_C_INCLUDES += \
-    bionic \
-    system/extras \
-    packages/modules/adb \
+    system/core/fs_mgr \
+    system/gsid/include \
     system/core/libsparse \
-    system/vold \
-    external/zlib \
-    system/libziparchive/include \
     external/freetype/include \
-    external/boringssl/include \
-    external/libcxx/include \
-    external/libselinux/include \
-    external/libpng \
     $(LOCAL_PATH)/gui/include \
     $(LOCAL_PATH)/recovery_ui/include \
     $(LOCAL_PATH)/otautil/include \
@@ -335,6 +315,7 @@ endif
 ifneq ($(TW_NO_NETWORK), true)
     TWRP_REQUIRED_MODULES += \
         index.html \
+        wlan_start \
         wlan_connect \
         wlan_scan \
         wlan_info
@@ -394,7 +375,7 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
         endif
         LOCAL_SHARED_LIBRARIES += libcryptfs_hw
     endif
-    ifeq ($(TW_INCLUDE_OMAPI),true)
+    ifeq ($(TW_INCLUDE_OMAPI), true)
         LOCAL_CFLAGS += -DTW_INCLUDE_OMAPI
         LOCAL_SHARED_LIBRARIES += android.hardware.secure_element-V1-ndk android.se.omapi-V1-ndk
         TWRP_REQUIRED_MODULES += \
@@ -525,6 +506,9 @@ endif
 ifeq ($(TW_FORCE_KEYMASTER_VER), true)
     LOCAL_CFLAGS += -DTW_FORCE_KEYMASTER_VER
 endif
+ifeq ($(TW_AVB_VBMETA_FLAGS_ALL_DISABLED), true)
+	LOCAL_CFLAGS += -DTW_AVB_VBMETA_FLAGS_ALL_DISABLED
+endif
 
 LOCAL_C_INCLUDES += system/vold \
 
@@ -558,6 +542,9 @@ TWRP_REQUIRED_MODULES += \
     vendor_hwservice_contexts \
     minadbd \
     twrpbu \
+    adbd_system_api_recovery \
+    me.twrp.twrpapp.apk \
+    privapp-permissions-twrpapp.xml \
     adbd_system_api_recovery \
     libsync.recovery \
     libandroidicu.recovery \
@@ -616,7 +603,7 @@ TWRP_REQUIRED_MODULES += \
 ifneq ($(TW_INCLUDE_CRYPTO),)
 TWRP_REQUIRED_MODULES += \
     vold_prepare_subdirs \
-    task_recovery_profiles.json \
+    task_profiles.json \
     fscryptpolicyget.recovery \
     keystore_auth \
     keystore2 \
@@ -710,8 +697,7 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_REQUIRED_MODULES := file_contexts.bin
 
 LOCAL_POST_INSTALL_CMD := \
-    mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/; \
-    cp -fn $(PRODUCT_OUT)/obj/ETC/file_contexts.bin_intermediates/file_contexts.concat.tmp $(TARGET_RECOVERY_ROOT_OUT)/file_contexts;
+     $(hide) cp ${SOONG_OUT_DIR}/.intermediates/system/sepolicy/file_contexts.concat.tmp/android_common/gen/file_contexts.concat.tmp $(TARGET_RECOVERY_ROOT_OUT)/file_contexts && cp $(PRODUCT_OUT)/obj/ETC/file_contexts.bin_intermediates/file_contexts.bin $(TARGET_RECOVERY_ROOT_OUT)/
 
 # Darth9
 #
@@ -800,9 +786,6 @@ LOCAL_STATIC_LIBRARIES := \
 include $(BUILD_STATIC_LIBRARY)
 
 commands_recovery_local_path := $(LOCAL_PATH)
-
-include \
-    $(commands_TWRP_local_path)/updater/Android.mk
 
 include $(commands_TWRP_local_path)/mtp/ffs/Android.mk \
     $(commands_TWRP_local_path)/minui/Android.mk
