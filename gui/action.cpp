@@ -1533,7 +1533,7 @@ int GUIAction::flash(std::string arg)
     }
 
    DataManager::Vibrate("tw_action_vibrate");
-   DataManager::Leds(true);
+   // DataManager::Leds(true); // not present on this TWRP base
 
    reinject_after_flash(); // ** redundant code
    PartitionManager.Update_System_Details();
@@ -1806,14 +1806,14 @@ int GUIAction::cancelbackup(std::string arg __unused)
 
 int GUIAction::generatedigests(std::string arg __unused)
 {
-  int op_status = 0;
+	int op_status = 1;
 
-  //Generate digests for latest backup
-  operation_start("Generate digests");
-  op_status = twrpDigestDriver::Run_Digest();
-  operation_end(op_status);
+	// Generate digests for latest backup
+	operation_start("Generate digests");
+	gui_msg(Msg(msg::kWarning, "digest_driver_missing=Digest operation is not supported on this base."));
+	operation_end(op_status);
 
-  return 0;
+	return 0;
 }
 
 int GUIAction::fixcontexts(std::string arg __unused)
@@ -1860,32 +1860,24 @@ int GUIAction::dd(std::string arg)
 
 int GUIAction::partitionsd(std::string arg __unused)
 {
-  operation_start("Partition SD Card");
-  int ret_val = 0;
+	operation_start("Partition SD Card");
+	int ret_val = 0;
 
-  if (simulate)
-    {
-      LOGINFO("DEBUG: Selected partition: %s\n", DataManager::GetCurrentPartPath().c_str());
-      simulate_progress_bar();
-    }
-  else
-    {
-      int allow_partition;
-      DataManager::GetValue(TW_ALLOW_PARTITION_SDCARD, allow_partition);
-      if (allow_partition == 0)
-	{
-	  gui_err
-	    ("no_real_sdcard=This device does not have a real SD Card! Aborting!");
+	if (simulate) {
+		LOGINFO("DEBUG: Selected storage: %s\n", DataManager::GetCurrentStoragePath().c_str());
+		simulate_progress_bar();
+	} else {
+		int allow_partition;
+		DataManager::GetValue(TW_ALLOW_PARTITION_SDCARD, allow_partition);
+		if (allow_partition == 0) {
+			gui_err("no_real_sdcard=This device does not have a real SD Card! Aborting!");
+		} else {
+			if (!PartitionManager.Partition_SDCard())
+				ret_val = 1; // failed
+		}
 	}
-      else
-	{
-	  if (!PartitionManager.Partition_SDCard())
-	    ret_val = 1;	// failed
-	}
-    }
-  operation_end(ret_val);
-  return 0;
-
+	operation_end(ret_val);
+	return 0;
 }
 
 int GUIAction::cmd(std::string arg)
@@ -2402,7 +2394,7 @@ int GUIAction::flashimage(std::string arg __unused)
 			op_status = 1; // fail
 	}
 
-  DataManager::Leds(true);
+  // DataManager::Leds(true); // not present on this TWRP base
   operation_end(op_status);
   return 0;
 }
@@ -2475,7 +2467,8 @@ int GUIAction::mountsystemtoggle(std::string arg)
 
 	operation_start("Toggle System Mount");
 	if (PartitionManager.Get_Super_Status()) {
-		op_status = !PartitionManager.Mount_Super_Toggle(arg, true);
+		gui_msg(Msg(msg::kWarning, "mount_super_toggle_missing=Super mount toggle is not supported on this base."));
+		op_status = 1; // fail
 	} else if (!PartitionManager.UnMount_By_Path(PartitionManager.Get_Android_Root_Path(), true)) {
 		op_status = 1; // fail
 	} else {
@@ -2495,6 +2488,7 @@ int GUIAction::mountsystemtoggle(std::string arg)
 		} else {
 			op_status = 1; // fail
 		}
+
 		Part = PartitionManager.Find_Partition_By_Path("/vendor");
 		if (Part) {
 			if (arg == "0") {
@@ -2505,9 +2499,6 @@ int GUIAction::mountsystemtoggle(std::string arg)
 			if (remount_vendor) {
 				Part->Mount(true);
 			}
-			op_status = 0; // success
-		} else {
-			op_status = 1; // fail
 		}
 	}
 
@@ -2676,7 +2667,7 @@ int GUIAction::disable_replace(std::string arg __unused)
 
 int GUIAction::disableled(std::string arg __unused)
 {
-  DataManager::Leds(false);
+  // DataManager::Leds(false); // not present on this TWRP base
   return 0;
 }
 
