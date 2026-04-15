@@ -48,6 +48,10 @@ cc_defaults {
         "libhealthhalutils",
         "libhealthshim",
     ],
+
+    whole_static_libs: [
+        "libext2_blkid",
+    ],
 }
 
 // A utility lib that's local to recovery (in contrast, libotautil is exposed to device-specific
@@ -75,11 +79,11 @@ cc_library_static {
 
     shared_libs: [
         // The following cannot be placed in librecovery_utils_defaults,
-        // because at the time of writing, android.hardware.health-V3-ndk.so
+        // because at the time of writing, android.hardware.health-V4-ndk.so
         // is not installed to the system image yet. (It is installed
         // to the recovery ramdisk.) Hence, minadbd_test must link to it
         // statically.
-        "android.hardware.health-V3-ndk",
+        "android.hardware.health-V4-ndk",
     ],
 
     export_include_dirs: [
@@ -99,5 +103,6 @@ cc_library_static {
         "//bootable/recovery/libaosprecovery",
         "//bootable/recovery/minadbd",
         "//bootable/recovery/tests",
+        "//bootable/deprecated-ota:__subpackages__",
     ],
 }

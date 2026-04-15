@@ -23,16 +23,13 @@ cc_library_shared {
     cflags: [
         "-DTWRES=\"/twres/\""
     ],
+    export_include_dirs: [
+        "include",
+    ],
     include_dirs: [
-        "external/libpng",
-        "external/zlib",
-        "system/core/include",
-        "external/freetype/include",
-        "external/libcxx/include",
         "bootable/recovery",
         "bootable/recovery/twrpinstall/include",
         "bootable/recovery/libpixelflinger/include",
-        "bootable/recovery/minuitwrp/include",
         "bootable/recovery/gui/include"
     ],
     srcs: [

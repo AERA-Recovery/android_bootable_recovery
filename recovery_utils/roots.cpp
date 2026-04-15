@@ -29,14 +29,17 @@
 #include <string>
 #include <vector>
 
+#include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/unique_fd.h>
+#include <blkid/blkid.h>
 #include <ext4_utils/ext4_utils.h>
 #include <ext4_utils/wipe.h>
 #include <fs_mgr.h>
 #include <fs_mgr/roots.h>
+#include <fstab/fstab.h>
 
 #include "otautil/sysutil.h"
 
@@ -44,9 +47,38 @@ using android::fs_mgr::Fstab;
 using android::fs_mgr::FstabEntry;
 using android::fs_mgr::ReadDefaultFstab;
 
+static void write_fstab_entry(const FstabEntry& entry, FILE* file) {
+  if (entry.fs_type != "emmc" && !entry.fs_mgr_flags.vold_managed && !entry.blk_device.empty() &&
+      entry.blk_device[0] == '/' && !entry.mount_point.empty() && entry.mount_point[0] == '/') {
+    fprintf(file, "%s ", entry.blk_device.c_str());
+    fprintf(file, "%s ", entry.mount_point.c_str());
+    fprintf(file, "%s ", entry.fs_type.c_str());
+    fprintf(file, "%s 0 0\n", !entry.fs_options.empty() ? entry.fs_options.c_str() : "defaults");
+  }
+}
+
 static Fstab fstab;
 
 constexpr const char* CACHE_ROOT = "/cache";
+
+FstabEntry* fstab_entry_for_mount_point_detect_fs(const std::string& path) {
+  FstabEntry* found = android::fs_mgr::GetEntryForMountPoint(&fstab, path);
+  if (found == nullptr) {
+    return nullptr;
+  }
+
+  if (char* detected_fs_type = blkid_get_tag_value(nullptr, "TYPE", found->blk_device.c_str())) {
+    for (auto& entry : fstab) {
+      if (entry.mount_point == path && entry.fs_type == detected_fs_type) {
+        found = &entry;
+        break;
+      }
+    }
+    free(detected_fs_type);
+  }
+
+  return found;
+}
 
 void load_volume_table() {
   if (!ReadDefaultFstab(&fstab)) {
@@ -61,14 +93,35 @@ void load_volume_table() {
       .length = 0,
   });
 
+  Fstab fake_fstab;
   std::cout << "recovery filesystem table" << std::endl << "=========================" << std::endl;
   for (size_t i = 0; i < fstab.size(); ++i) {
     const auto& entry = fstab[i];
     std::cout << "  " << i << " " << entry.mount_point << " "
               << " " << entry.fs_type << " " << entry.blk_device << " " << entry.length
               << std::endl;
+
+    if (std::find_if(fake_fstab.begin(), fake_fstab.end(), [entry](const FstabEntry& e) {
+          return entry.mount_point == e.mount_point;
+        }) == fake_fstab.end()) {
+      FstabEntry* entry_detectfs = fstab_entry_for_mount_point_detect_fs(entry.mount_point);
+      if (entry_detectfs == &entry) {
+        fake_fstab.emplace_back(entry);
+      }
+    }
   }
   std::cout << std::endl;
+
+  // Create a boring /etc/fstab so tools like Busybox work
+  FILE* file = fopen("/etc/fstab", "w");
+  if (file) {
+    for (auto& entry : fake_fstab) {
+      write_fstab_entry(entry, file);
+    }
+    fclose(file);
+  } else {
+    LOG(ERROR) << "Unable to create /etc/fstab";
+  }
 }
 
 Volume* volume_for_mount_point(const std::string& mount_point) {
@@ -87,6 +140,25 @@ int ensure_path_mounted(const std::string& path) {
 
 int ensure_path_unmounted(const std::string& path) {
   return android::fs_mgr::EnsurePathUnmounted(&fstab, path) ? 0 : -1;
+}
+
+bool BlockDevHasFstab(const std::string& path) {
+  std::string bdev_path;
+  if (!android::base::Realpath(path, &bdev_path)) {
+    PLOG(ERROR) << "Failed to get realpath for " << path;
+    return false;
+  }
+  for (const auto& entry : fstab) {
+    std::string fstab_bdev_path;
+    if (!android::base::Realpath(entry.blk_device, &fstab_bdev_path)) {
+      PLOG(ERROR) << "Failed to get realpath for " << entry.blk_device;
+      return false;
+    }
+    if (fstab_bdev_path == bdev_path) {
+      return true;
+    }
+  }
+  return false;
 }
 
 static int exec_cmd(const std::vector<std::string>& args) {
@@ -130,10 +202,66 @@ static int64_t get_file_size(int fd, uint64_t reserve_len) {
   return computed_size;
 }
 
-int format_volume(const std::string& volume, const std::string& directory) {
-  const FstabEntry* v = android::fs_mgr::GetEntryForPath(&fstab, volume);
-  if (v == nullptr) {
+static FstabEntry* LocateFormattableEntry(const std::vector<FstabEntry*>& entries) {
+  if (entries.empty()) {
+    return nullptr;
+  }
+  FstabEntry* f2fs_entry = nullptr;
+  for (auto&& entry : entries) {
+    if (getpagesize() != 4096 && entry->fs_type == "f2fs") {
+      f2fs_entry = entry;
+      continue;
+    }
+    if (f2fs_entry) {
+      LOG(INFO) << "Skipping F2FS format for block device " << entry->blk_device << " @ "
+                << entry->mount_point
+                << " in non-4K mode for dev option enabled devices, "
+                   "as these devices need to toggle between 4K/16K mode, and F2FS does "
+                   "not support page_size != block_size configuration.";
+    }
+    return entry;
+  }
+  if (f2fs_entry) {
+    LOG(INFO) << "Using F2FS for " << f2fs_entry->blk_device << " @ " << f2fs_entry->mount_point
+              << " even though we are in non-4K mode. Device might require a data wipe after "
+                 "going back to 4K mode, as F2FS does not support page_size != block_size";
+  }
+  return f2fs_entry;
+}
+
+bool WipeBlockDevice(const char* path) {
+  android::base::unique_fd fd(open(path, O_RDWR));
+  if (fd == -1) {
+    PLOG(ERROR) << "WipeBlockDevice: failed to open " << path;
+    return false;
+  }
+  int64_t device_size = get_file_size(fd.get(), 0);
+  if (device_size < 0) {
+    PLOG(ERROR) << "WipeBlockDevice: failed to determine size of " << device_size;
+    return false;
+  }
+  if (device_size == 0) {
+    PLOG(ERROR) << "WipeBlockDevice: block device " << device_size << " has 0 length, skip wiping";
+    return false;
+  }
+  if (!wipe_block_device(fd.get(), device_size)) {
+    return true;
+  }
+  PLOG(ERROR) << "Failed to wipe " << path;
+  return false;
+}
+
+int format_volume(const std::string& volume, const std::string& directory,
+                  std::string_view new_fstype) {
+  const auto entries = android::fs_mgr::GetEntriesForPath(&fstab, volume);
+  if (entries.empty()) {
     LOG(ERROR) << "unknown volume \"" << volume << "\"";
+    return -1;
+  }
+
+  const FstabEntry* v = LocateFormattableEntry(entries);
+  if (v == nullptr) {
+    LOG(ERROR) << "Unable to find formattable entry for \"" << volume << "\"";
     return -1;
   }
   if (v->fs_type == "ramdisk") {
@@ -176,11 +304,13 @@ int format_volume(const std::string& volume, const std::string& directory) {
   }
 
   // If the raw disk will be used as a metadata encrypted device mapper target,
-  // next boot will do encrypt_in_place the raw disk which gives a subtle duration
-  // to get any failure in the process. In order to avoid it, let's simply wipe
-  // the raw disk if we don't reserve any space, which behaves exactly same as booting
-  // after "fastboot -w".
-  if (!v->metadata_key_dir.empty() && length == 0) {
+  // next boot will do encrypt_in_place the raw disk. While fs_mgr mounts /data
+  // as RO to avoid write file operations before encrypt_inplace, this code path
+  // is not well tested so we would like to avoid it if possible. For safety,
+  // let vold do the formatting on boot for metadata encrypted devices, except
+  // when user specified a new fstype. Because init formats /data according
+  // to fstab, it's difficult to override the fstab in init.
+  if (!v->metadata_key_dir.empty() && length == 0 && new_fstype.empty()) {
     android::base::unique_fd fd(open(v->blk_device.c_str(), O_RDWR));
     if (fd == -1) {
       PLOG(ERROR) << "format_volume: failed to open " << v->blk_device;
@@ -194,7 +324,8 @@ int format_volume(const std::string& volume, const std::string& directory) {
     }
   }
 
-  if (v->fs_type == "ext4") {
+  if ((v->fs_type == "ext4" && new_fstype.empty()) || new_fstype == "ext4") {
+    LOG(INFO) << "Formatting " << v->blk_device << " as ext4";
     static constexpr int kBlockSize = 4096;
     std::vector<std::string> mke2fs_args = {
       "/system/bin/mke2fs", "-F", "-t", "ext4", "-b", std::to_string(kBlockSize),
@@ -246,6 +377,7 @@ int format_volume(const std::string& volume, const std::string& directory) {
   }
 
   // Has to be f2fs because we checked earlier.
+  LOG(INFO) << "Formatting " << v->blk_device << " as f2fs";
   static constexpr int kSectorSize = 4096;
   std::vector<std::string> make_f2fs_cmd = {
     "/system/bin/make_f2fs",
@@ -268,13 +400,17 @@ int format_volume(const std::string& volume, const std::string& directory) {
     make_f2fs_cmd.push_back("-O");
     make_f2fs_cmd.push_back("extra_attr");
   }
+  make_f2fs_cmd.push_back("-b");
+  make_f2fs_cmd.push_back(std::to_string(getpagesize()));
   make_f2fs_cmd.push_back(v->blk_device);
   if (length >= kSectorSize) {
     make_f2fs_cmd.push_back(std::to_string(length / kSectorSize));
   }
 
   if (exec_cmd(make_f2fs_cmd) != 0) {
-    PLOG(ERROR) << "format_volume: Failed to make_f2fs on " << v->blk_device;
+    PLOG(ERROR) << "format_volume: Failed to make_f2fs on " << v->blk_device
+                << " wiping the block device to avoid leaving partially formatted data.";
+    WipeBlockDevice(v->blk_device.c_str());
     return -1;
   }
   if (!directory.empty()) {
@@ -290,7 +426,7 @@ int format_volume(const std::string& volume, const std::string& directory) {
 }
 
 int format_volume(const std::string& volume) {
-  return format_volume(volume, "");
+  return format_volume(volume, "", "");
 }
 
 int setup_install_mounts() {

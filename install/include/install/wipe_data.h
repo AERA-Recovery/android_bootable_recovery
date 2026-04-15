@@ -24,7 +24,8 @@
 struct selabel_handle;
 
 // Returns true on success.
-bool WipeCache(const std::function<bool()>& confirm);
+bool WipeCache(const std::function<bool()>& confirm,
+               std::string_view new_fstype = "");
 
 // Returns true on success.
-bool WipeData(Device* device);
+bool WipeData(Device* device, bool keep_memtag_mode = false, std::string_view new_fstype = "");

@@ -163,13 +163,13 @@ exit:
 	if (ven_dlkm)
 		ven_dlkm->UnMount(false, MNT_DETACH);
 
-	if (modules_loaded == 0)
-		DataManager::SetValue("of_request_switch_control_mode" , "1");
-
 #ifdef TW_INCLUDE_CRYPTO
 	if (sysroot)
 		sysroot->UnMount(false);
 #endif
+
+	if (modules_loaded == 0)
+		DataManager::SetValue("of_request_switch_control_mode" , "1");
 
 	android::base::SetProperty(TW_MODULES_MOUNTED_PROP, "true");
 

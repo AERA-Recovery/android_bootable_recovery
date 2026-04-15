@@ -32,6 +32,10 @@ Volume* volume_for_mount_point(const std::string& mount_point);
 // success (volume is mounted).
 int ensure_path_mounted(const std::string& path);
 
+// Return true if the block device has a corresponding entry
+// in fstab
+bool BlockDevHasFstab(const std::string& path);
+
 // Similar to ensure_path_mounted, but allows one to specify the mount_point.
 int ensure_path_mounted_at(const std::string& path, const std::string& mount_point);
 
@@ -48,7 +52,8 @@ int format_volume(const std::string& volume);
 // "/cache"), no paths permitted.  Attempts to unmount the volume if
 // it is mounted.
 // Copies 'directory' to root of the newly formatted volume
-int format_volume(const std::string& volume, const std::string& directory);
+int format_volume(const std::string& volume, const std::string& directory,
+                  std::string_view new_fstype);
 
 // Ensure that all and only the volumes that packages expect to find
 // mounted (/tmp and /cache) are mounted.  Returns 0 on success.

@@ -16,13 +16,14 @@
 
 #include <iostream>
 #include <string.h>
+#include <vector>
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 #define _FILE_OFFSET_BITS 64
 //extern "C" __int64 __cdecl _ftelli64(FILE*);
 
 using namespace std;
-typedef std::basic_string<unsigned char> u_string;
+typedef std::vector<unsigned char> u_string;
 
 int decrypt(unsigned char* ciphertext, int ciphertext_len, unsigned char* key,
 	unsigned char* iv, unsigned char* plaintext)
@@ -54,27 +55,34 @@ std::string hexToASCII(string hex)
 }
 
 bool testkey(const char* keyf, const char* path) {
-	u_string key = (unsigned char*)(hexToASCII(keyf)).c_str();
+	std::string keyStr = hexToASCII(keyf);
+	u_string key(keyStr.begin(), keyStr.end());
 	int data[17];
 	FILE* fps = fopen(path, "rb");
 	fseek(fps, 4176, SEEK_SET);
 	fread(data, sizeof(char), 16, fps);
 	fclose(fps);
-	u_string udata = (unsigned char*)data;
+	u_string udata;
+	unsigned char* dataPtr = (unsigned char*)data;
+	for(int i = 0; i < 16; i++) {
+		udata.push_back(dataPtr[i]);
+	}
 	EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
 	EVP_CIPHER_CTX_init(ctx);
-	EVP_DecryptInit_ex(ctx, EVP_aes_128_ecb(), NULL, key.c_str(), NULL);
+	EVP_DecryptInit_ex(ctx, EVP_aes_128_ecb(), NULL, key.data(), NULL);
 	EVP_CIPHER_CTX_set_padding(ctx, false);
 	unsigned char buffer[1024], * pointer = buffer;
 	int outlen;
-	EVP_DecryptUpdate(ctx, pointer, &outlen, udata.c_str(), udata.length());
+	EVP_DecryptUpdate(ctx, pointer, &outlen, udata.data(), udata.size());
 	pointer += outlen;
 	EVP_DecryptFinal_ex(ctx, pointer, &outlen);
 	pointer += outlen;
 	EVP_CIPHER_CTX_free(ctx);
-	u_string test= u_string(buffer, pointer - buffer);
-	u_string checktest = test.substr(0, 4);
-	if (checktest == ((unsigned char*) "\x50\x4B\x03\x04") || checktest == ((unsigned char*) "\x41\x4E\x44\x52")) {
+	u_string test(buffer, buffer + (pointer - buffer));
+	u_string checktest(test.begin(), test.begin() + 4);
+	u_string pk0304 = {0x50, 0x4B, 0x03, 0x04};
+	u_string andr = {0x41, 0x4E, 0x44, 0x52};
+	if (checktest == pk0304 || checktest == andr) {
 		return true;
 	}
 	return false;
@@ -130,7 +138,8 @@ int main(int argc, char* argv[])
 	{
 		unsigned char data[17];
 		fread(data, sizeof(char), 16, fp);
-		decrypt(data, sizeof(data), (unsigned char*)(hexToASCII(key)).c_str(), NULL, data);
+		std::string keyStr = hexToASCII(key);
+		decrypt(data, sizeof(data), (unsigned char*)keyStr.c_str(), NULL, data);
 		fwrite(data, sizeof(char), 16, fp2);
 		sizeseek = ftello(fp);
 		if ((sizetot - sizeseek) <= 16384) {

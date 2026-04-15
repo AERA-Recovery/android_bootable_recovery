@@ -26,6 +26,8 @@
 #include <vector>
 
 #include <android-base/file.h>
+#include <android-base/hex.h>
+#include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/unique_fd.h>
@@ -174,6 +176,7 @@ bool write_bootloader_message(const bootloader_message& boot, std::string* err) 
 
 bool clear_bootloader_message(std::string* err) {
   bootloader_message boot = {};
+  LOG(INFO) << "Clearing BCB";
   return write_bootloader_message(boot, err);
 }
 
@@ -193,11 +196,12 @@ bool write_bootloader_message_to(const std::vector<std::string>& options,
 }
 
 bool update_bootloader_message(const std::vector<std::string>& options, std::string* err) {
-  bootloader_message boot;
+  bootloader_message boot{};
   if (!read_bootloader_message(&boot, err)) {
     return false;
   }
   update_bootloader_message_in_struct(&boot, options);
+  LOG(INFO) << "Writing BCB " << boot.command << " " << boot.recovery;
 
   return write_bootloader_message(boot, err);
 }
@@ -223,7 +227,7 @@ bool update_bootloader_message_in_struct(bootloader_message* boot,
 }
 
 bool write_reboot_bootloader(std::string* err) {
-  bootloader_message boot;
+  bootloader_message boot{};
   if (!read_bootloader_message(&boot, err)) {
     return false;
   }
@@ -232,6 +236,7 @@ bool write_reboot_bootloader(std::string* err) {
     return false;
   }
   strlcpy(boot.command, "bootonce-bootloader", sizeof(boot.command));
+  LOG(INFO) << "Writing BCB cmd: " << boot.command << " args: " << boot.recovery;
   return write_bootloader_message(boot, err);
 }
 
@@ -312,6 +317,43 @@ bool ReadMiscMemtagMessage(misc_memtag_message* message, std::string* err) {
 bool WriteMiscMemtagMessage(const misc_memtag_message& message, std::string* err) {
   return WriteMiscPartitionSystemSpace(&message, sizeof(message),
                                        offsetof(misc_system_space_layout, memtag_message), err);
+}
+
+bool ReadMiscKcmdlineMessage(misc_kcmdline_message* message, std::string* err) {
+  return ReadMiscPartitionSystemSpace(message, sizeof(*message),
+                                      offsetof(misc_system_space_layout, kcmdline_message), err);
+}
+
+bool WriteMiscKcmdlineMessage(const misc_kcmdline_message& message, std::string* err) {
+  return WriteMiscPartitionSystemSpace(&message, sizeof(message),
+                                       offsetof(misc_system_space_layout, kcmdline_message), err);
+}
+
+bool ReadMiscControlMessage(misc_control_message* message, std::string* err) {
+  return ReadMiscPartitionSystemSpace(message, sizeof(*message),
+                                      offsetof(misc_system_space_layout, control_message), err);
+}
+
+bool WriteMiscControlMessage(const misc_control_message& message, std::string* err) {
+  return WriteMiscPartitionSystemSpace(&message, sizeof(message),
+                                       offsetof(misc_system_space_layout, control_message), err);
+}
+
+bool CheckReservedSystemSpaceEmpty(bool* empty, std::string* err) {
+  constexpr size_t kReservedSize = SYSTEM_SPACE_SIZE_IN_MISC - sizeof(misc_system_space_layout);
+
+  uint8_t space[kReservedSize];
+  if (!ReadMiscPartitionSystemSpace(&space, kReservedSize, sizeof(misc_system_space_layout), err)) {
+    return false;
+  }
+
+  *empty = space[0] == 0 && 0 == memcmp(space, space + 1, kReservedSize - 1);
+
+  if (!*empty) {
+    *err = android::base::HexString(space, kReservedSize);
+  }
+
+  return true;
 }
 
 extern "C" bool write_reboot_bootloader(void) {

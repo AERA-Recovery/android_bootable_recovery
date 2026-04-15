@@ -2,7 +2,7 @@
 	Copyright 2012 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2025 OrangeFox Recovery Project
+	Copyright (C) 2018-2026 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -27,6 +27,8 @@
 #include "infomanager.hpp"
 #include "twcommon.h"
 #include "partitions.hpp"
+#include "twrp-functions.hpp"
+#include "variables.h"
 #include "set_metadata.h"
 
 using namespace std;
@@ -134,8 +136,8 @@ int InfoManager::LoadValues(void) {
 	return 0;
 
 error:
-	twPersistUnMount();
 	fclose(in);
+	twPersistUnMount();
 	return 0;
 }
 
@@ -146,7 +148,8 @@ int InfoManager::SaveValues(void) {
 	if (File.empty())
 		return -1;
 
-	PartitionManager.Mount_By_Path(File, true);
+	//PartitionManager.Mount_By_Path(File, true);
+	twPersistMount();
 	LOGINFO("InfoManager saving '%s'\n", File.c_str());
 	FILE* out = fopen(File.c_str(), "wb");
 	if (!out)
@@ -167,6 +170,7 @@ int InfoManager::SaveValues(void) {
 	}
 	fclose(out);
 	tw_set_default_metadata(File.c_str());
+	twPersistUnMount();
 	return 0;
 }
 

@@ -341,4 +341,10 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define TW_MODULES_MOUNTED_PROP       "twrp.modules.loaded"     // property for successfully mounted modules
 #define TW_KEYMASTER_VERSION_PROP     "keymaster_ver"
 
+// EXTRA FOX16
+#define TW_PERSIST_DIR              "/persist/TWRP"
+#define TW_RECOVERY_FOLDER_VAR      "tw_recovery_folder"
+#define TW_DEFAULT_RECOVERY_FOLDER  "/Fox"
+#define TW_SKIP_DIGEST_CHECK_ZIP_VAR    "tw_skip_digest_check_zip"
+
 #endif  // _VARIABLES_HEADER_
