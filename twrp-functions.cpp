@@ -2654,13 +2654,17 @@ int TWFunc::Check_MIUI_Treble(void)
 
 void TWFunc::Welcome_Message(void)
 {
-   if (Fox_Has_Welcomed > 0)
-    return;
+    if (Fox_Has_Welcomed > 0) {
+        return;
+    }
+
     gui_print("--------------------------\n");
     gui_msg(Msg(msg::kGreen, "fox_welcome=Welcome to OrangeFox Recovery!"));
     gui_msg(Msg("fox_release=[Release]   : {1}")(FOX_BUILD));
     gui_msg(Msg("fox_variant=[Variant]   : {1}")(FOX_VARIANT));
-    gui_msg(Msg("fox_codebase=[Codebase]  : {1}, {2}")(Fox_Property_Get("ro.build.version.sdk").c_str())(FOX_CURRENT_DEV_STR));
+    gui_msg(Msg("fox_codebase=[Codebase]  : {1}, {2}")
+        (Fox_Property_Get("ro.build.version.sdk").c_str())
+        (FOX_CURRENT_DEV_STR));
 #ifdef FOX_SETTINGS_ROOT_DIRECTORY
     gui_msg(Msg("fox_settings=[Settings]  : {1}")(Fox_Settings_Path.c_str()));
 #endif
@@ -2668,17 +2672,17 @@ void TWFunc::Welcome_Message(void)
     gui_msg(Msg("fox_misc=[Misc]      : {1}")(Fox_Home.c_str()));
 #endif
     gui_msg(Msg("fox_build_date=[Build date]: {1}")(DataManager::GetStrValue("FOX_BUILD_DATE_REAL").c_str()));
-    
+
     if (uppercase(FOX_BUILD) == "UNOFFICIAL")
-      	gui_msg(Msg(msg::kWarning, "fox_build_type_unofficial=[Build type]: Unofficial. No official support for unofficial builds"));
+        gui_msg(Msg(msg::kWarning, "fox_build_type_unofficial=[Build type]: Unofficial. No official support for unofficial builds"));
     else {
-    	gui_msg(Msg("fox_build_type=[Build type]: {1}")(FOX_BUILD_TYPE));
-    	if (uppercase(FOX_BUILD_TYPE) == "BETA" || uppercase(FOX_BUILD_TYPE) == "STABLE") {
-    	    string tg_link = "https://t.me/OrangeFoxChat";
-    	    gui_msg(Msg("fox_support=[Support]   : {1}")(tg_link.c_str()));
-    	} else {
-    	    gui_msg(Msg(msg::kWarning, "fox_nosupport=[Support]   : No official support for unknown builds"));
-    	}
+        gui_msg(Msg("fox_build_type=[Build type]: {1}")(FOX_BUILD_TYPE));
+        if (uppercase(FOX_BUILD_TYPE) == "BETA" || uppercase(FOX_BUILD_TYPE) == "STABLE") {
+            string tg_link = "https://t.me/OrangeFoxChat";
+            gui_msg(Msg("fox_support=[Support]   : {1}")(tg_link.c_str()));
+        } else {
+            gui_msg(Msg(msg::kWarning, "fox_nosupport=[Support]   : No official support for unknown builds"));
+        }
     }
 #ifdef OF_ENABLE_LAB
     gui_print_color("error", "\n*** CONFIDENTIAL ALPHA. NOT FOR RELEASE!! ***\n\n");
