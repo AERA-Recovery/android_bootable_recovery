@@ -205,6 +205,14 @@ int LoadAttrIntScaleY(xml_node<>* element, const char* attrname, int defaultvalu
 	return scale_theme_y(LoadAttrInt(element, attrname, defaultvalue));
 }
 
+float LoadAttrFloat(xml_node<>* element, const char* attrname, float defaultvalue)
+{
+	string value = LoadAttrString(element, attrname);
+	// resolve variables
+	DataManager::GetValue(value, value);
+	return value.empty() ? defaultvalue : stof(value.c_str());
+}
+
 COLOR LoadAttrColor(xml_node<>* element, const char* attrname, bool* found_color, COLOR defaultvalue)
 {
 	string value = LoadAttrString(element, attrname);

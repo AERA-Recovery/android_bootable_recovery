@@ -471,6 +471,9 @@ int OpenRecoveryScript::run_script_file(void) {
 				}
 			} else if (strcmp(command, "listmounts") == 0) {
 				TWFunc::List_Mounts();
+			} else if (strcmp(command, "reloadtheme") == 0 || strcmp(command, "reload_theme") == 0) {
+				LOGINFO("Requesting theme reload via ORS\n");
+				PageManager::RequestReload();
 			} else {
 				LOGERR("Unrecognized script command: '%s'\n", command);
 				ret_val = 1;

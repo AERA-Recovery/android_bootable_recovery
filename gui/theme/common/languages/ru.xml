@@ -40,7 +40,7 @@
 		<string name="wipe_btn">Очистка</string>
 		<string name="backup_btn">Копии</string>
 		<string name="restore_btn">Восстановление</string>
-		<string name="mount_btn">Монтирование</string>
+		<string name="mount_btn">Монтирование и MTP</string>
 		<string name="file_manager_btn">Файлы</string>
 		<string name="advanced_btn">Дополнительно</string>
 		<string name="reboot_btn">Перезагрузка</string>
@@ -935,7 +935,7 @@
 		<!-- Utilities -->
 		<string name="more">Больше...</string>
 		<string name="hide">Скрыть</string>
-		<string name="part_menu_hdr">Управление разделами</string>
+		<string name="part_menu_hdr">Редактор разделов</string>
 		<string name="run_adb_startup">Запускать ADB при загрузке</string>
 
 		<!-- Root modules manager -->
@@ -1120,6 +1120,7 @@
 		<string name="backup_quick_info2">нажатии на кнопку "Быстрая копия"</string>
 		<string name="mbyte">МБ</string>
 		<string name="mbytesec">МБ/с</string>
+		<string name="kbyte"> KБ</string>
 		<string name="backup_av_files">Файл</string>
 		<string name="backup_av_img">Образ</string>
 		<string name="backup_exp_size">Ожидаемый размер</string>
@@ -1254,5 +1255,11 @@
 		<string name="enable_hw_control_2">интерфейсу с помощью аппаратных</string>
 		<string name="enable_hw_control_3">кнопкок громкости и питания.</string>
 		<string name="enable_hw_control_4">Жесты отключатся. Продолжить?</string>
+
+		<string name="listbox_group_main">Главное</string>
+		<string name="listbox_group_static_part">Статические разделы</string>
+		<string name="listbox_group_dynamic_part">Динамические разделы</string>
+		<string name="listbox_group_additions">Дополнения</string>
+		<string name="partitions_management">Управление разделами</string>
 	</resources>
 </language>

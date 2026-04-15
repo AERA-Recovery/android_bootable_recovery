@@ -274,7 +274,6 @@ public:
 protected:
 	COLOR mColor;
 	gr_surface mCircle;
-	std::string mIsRounded;
 };
 
 class GUIBattery : public GUIObject, public RenderObject
@@ -402,7 +401,6 @@ protected:
 #endif
 
 	int disableAVB2(std::string arg);
-	int setvaluebyfile(std::string arg);
 	// (originally) threaded actions
 	int fileexists(std::string arg);
 	int flash(std::string arg);
@@ -618,7 +616,7 @@ protected:
 	virtual void NotifySelect(size_t item_selected __unused) {}
 
 	// render a standard-layout list item with optional icon and text
-	void RenderStdItem(int yPos, bool selected, ImageResource* icon, const char* text, const char* addtext = NULL);
+	void RenderStdItem(int yPos, bool selected, ImageResource* icon, const char* text, const char* addtext = NULL, int groupStatus = 0);
 	//void RenderStdItem(int yPos, bool selected, ImageResource* icon, const char* text, int iconAndTextH = 0);
 
 	// returns item index at coordinates or NO_ITEM if there is no item there
@@ -695,6 +693,13 @@ protected:
 	int fastScroll; // indicates that the inital touch was inside the fastscroll region - makes for easier fast scrolling as the touches don't have to stay within the fast scroll region and you drag your finger
 	int mUpdate; // indicates that a change took place and we need to re-render
 	bool AddLines(std::vector<std::string>* origText, std::vector<std::string>* origColor, size_t* lastCount, std::vector<std::string>* rText, std::vector<std::string>* rColor);
+
+  // [Yacha] Item padding
+  int mItemPaddingTop, mItemPaddingBottom;
+
+	COLOR groupColor;
+	ImageResource* groupArrow;
+	bool isGroup;
 };
 
 class GUIFileSelector : public GUIScrollList
@@ -761,6 +766,8 @@ protected:
 	ImageResource* mExBlockIcon;
 	ImageResource* mExSelectedIcon;
 	ImageResource* mExUnselectedIcon;
+	// Optional background for layered icons when iconsize is set
+	ImageResource* mIconBg;
 	bool updateFileList;
 	bool hasFiles, hasHiddenFiles;
 	int doubleLine = 0;
@@ -1431,6 +1438,7 @@ std::string LoadAttrString(xml_node<>* element, const char* attrname, const char
 int LoadAttrInt(xml_node<>* element, const char* attrname, int defaultvalue = 0);
 int LoadAttrIntScaleX(xml_node<>* element, const char* attrname, int defaultvalue = 0);
 int LoadAttrIntScaleY(xml_node<>* element, const char* attrname, int defaultvalue = 0);
+float LoadAttrFloat(xml_node<>* element, const char* attrname, float defaultvalue = 0.0);
 COLOR LoadAttrColor(xml_node<>* element, const char* attrname, bool* found_color, COLOR defaultvalue = COLOR(0,0,0,0));
 COLOR LoadAttrColor(xml_node<>* element, const char* attrname, COLOR defaultvalue = COLOR(0,0,0,0));
 FontResource* LoadAttrFont(xml_node<>* element, const char* attrname);

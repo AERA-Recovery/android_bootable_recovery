@@ -2,7 +2,7 @@
 	Copyright 2013 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2025 OrangeFox Recovery Project
+	Copyright (C) 2018-2026 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -40,7 +40,6 @@
 
 #include <string>
 #include <sstream>
-#include <fstream>
 #include "../partitions.hpp"
 #include "../twrp-functions.hpp"
 #include "../twrpRepacker.hpp"
@@ -302,7 +301,6 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
 #endif
       ADD_ACTION(mergesnapshots);
       ADD_ACTION(disableAVB2);
-      ADD_ACTION(setvaluebyfile);
 
       //[f/d] Threaded actions
       ADD_ACTION(batch);
@@ -878,7 +876,7 @@ int GUIAction::checkbackupfolder(std::string arg __unused)
   // if we failed to create folder, user possibly trying to open usb with ntfs
   string dirpath = path + "/.";
   if( stat(dirpath.c_str(),&s) != 0 )
-    if (!TWFunc::Recursive_Mkdir(path, false))
+  if (!TWFunc::Create_Dir_Recursive(path, 0775, AID_MEDIA_RW, AID_MEDIA_RW))
       DataManager::SetValue("of_backup_rw", "0");
 
   // open dir and trying to get file list
@@ -1028,7 +1026,7 @@ int GUIAction::copylog(std::string arg __unused)
       curr_storage = DataManager::GetCurrentStoragePath();
       dst = curr_storage + "/recovery.log";
       TWFunc::copy_file("/tmp/recovery.log", dst.c_str(), 0755);
-      tw_set_default_metadata(dst.c_str());
+      TWFunc::set_media_rw_permissions(dst.c_str());
       if (copy_kernel_log)
 	TWFunc::copy_kernel_log(curr_storage);
 
@@ -1382,6 +1380,8 @@ int GUIAction::screenshotImpl(std::string arg __unused)
 		if (!TWFunc::Create_Dir_Recursive(path, 0775, uid, gid))
 			return 0;
 	}
+	//if (android::base::GetProperty("ro.orangefox.substitute_permissions", "") == "1")
+	//	setfilecon(path, FOX_MEDIA_RW_DATA_FILE);
 
 	tm = time(NULL);
 	path_len = strlen(path);
@@ -1393,6 +1393,8 @@ int GUIAction::screenshotImpl(std::string arg __unused)
 	if (res == 0) {
 		chmod(path, 0666);
 		chown(path, uid, gid);
+		//if (android::base::GetProperty("ro.orangefox.substitute_permissions", "") == "1")
+		//	setfilecon(path, FOX_MEDIA_RW_DATA_FILE);
 
 		gui_msg(Msg("screenshot_saved=Screenshot was saved to {1}")(path));
 
@@ -1533,7 +1535,7 @@ int GUIAction::flash(std::string arg)
     }
 
    DataManager::Vibrate("tw_action_vibrate");
-   // DataManager::Leds(true); // not present on this TWRP base
+   DataManager::Leds(true);
 
    reinject_after_flash(); // ** redundant code
    PartitionManager.Update_System_Details();
@@ -1691,7 +1693,7 @@ int GUIAction::wipe(std::string arg)
 	    {
 	      LOGINFO("Making TWRP folder and saving settings.\n");
 	      Storage_Path += "/Fox";
-	      mkdir(Storage_Path.c_str(), 0777);
+	      TWFunc::Create_Dir_Recursive(Storage_Path.c_str(), 0777, AID_MEDIA_RW, AID_MEDIA_RW);
 	      DataManager::Flush();
 	    }
 	  else
@@ -1806,14 +1808,14 @@ int GUIAction::cancelbackup(std::string arg __unused)
 
 int GUIAction::generatedigests(std::string arg __unused)
 {
-	int op_status = 1;
+  int op_status = 0;
 
-	// Generate digests for latest backup
-	operation_start("Generate digests");
-	gui_msg(Msg(msg::kWarning, "digest_driver_missing=Digest operation is not supported on this base."));
-	operation_end(op_status);
+  //Generate digests for latest backup
+  operation_start("Generate digests");
+  op_status = twrpDigestDriver::Run_Digest();
+  operation_end(op_status);
 
-	return 0;
+  return 0;
 }
 
 int GUIAction::fixcontexts(std::string arg __unused)
@@ -1860,24 +1862,32 @@ int GUIAction::dd(std::string arg)
 
 int GUIAction::partitionsd(std::string arg __unused)
 {
-	operation_start("Partition SD Card");
-	int ret_val = 0;
+  operation_start("Partition SD Card");
+  int ret_val = 0;
 
-	if (simulate) {
-		LOGINFO("DEBUG: Selected storage: %s\n", DataManager::GetCurrentStoragePath().c_str());
-		simulate_progress_bar();
-	} else {
-		int allow_partition;
-		DataManager::GetValue(TW_ALLOW_PARTITION_SDCARD, allow_partition);
-		if (allow_partition == 0) {
-			gui_err("no_real_sdcard=This device does not have a real SD Card! Aborting!");
-		} else {
-			if (!PartitionManager.Partition_SDCard())
-				ret_val = 1; // failed
-		}
+  if (simulate)
+    {
+      LOGINFO("DEBUG: Selected partition: %s\n", DataManager::GetCurrentPartPath().c_str());
+      simulate_progress_bar();
+    }
+  else
+    {
+      int allow_partition;
+      DataManager::GetValue(TW_ALLOW_PARTITION_SDCARD, allow_partition);
+      if (allow_partition == 0)
+	{
+	  gui_err
+	    ("no_real_sdcard=This device does not have a real SD Card! Aborting!");
 	}
-	operation_end(ret_val);
-	return 0;
+      else
+	{
+	  if (!PartitionManager.Partition_SDCard())
+	    ret_val = 1;	// failed
+	}
+    }
+  operation_end(ret_val);
+  return 0;
+
 }
 
 int GUIAction::cmd(std::string arg)
@@ -2394,7 +2404,7 @@ int GUIAction::flashimage(std::string arg __unused)
 			op_status = 1; // fail
 	}
 
-  // DataManager::Leds(true); // not present on this TWRP base
+  DataManager::Leds(true);
   operation_end(op_status);
   return 0;
 }
@@ -2467,8 +2477,7 @@ int GUIAction::mountsystemtoggle(std::string arg)
 
 	operation_start("Toggle System Mount");
 	if (PartitionManager.Get_Super_Status()) {
-		gui_msg(Msg(msg::kWarning, "mount_super_toggle_missing=Super mount toggle is not supported on this base."));
-		op_status = 1; // fail
+		op_status = !PartitionManager.Mount_Super_Toggle(arg, true);
 	} else if (!PartitionManager.UnMount_By_Path(PartitionManager.Get_Android_Root_Path(), true)) {
 		op_status = 1; // fail
 	} else {
@@ -2488,7 +2497,6 @@ int GUIAction::mountsystemtoggle(std::string arg)
 		} else {
 			op_status = 1; // fail
 		}
-
 		Part = PartitionManager.Find_Partition_By_Path("/vendor");
 		if (Part) {
 			if (arg == "0") {
@@ -2499,6 +2507,9 @@ int GUIAction::mountsystemtoggle(std::string arg)
 			if (remount_vendor) {
 				Part->Mount(true);
 			}
+			op_status = 0; // success
+		} else {
+			op_status = 1; // fail
 		}
 	}
 
@@ -2667,7 +2678,7 @@ int GUIAction::disable_replace(std::string arg __unused)
 
 int GUIAction::disableled(std::string arg __unused)
 {
-  // DataManager::Leds(false); // not present on this TWRP base
+  DataManager::Leds(false);
   return 0;
 }
 
@@ -3044,55 +3055,3 @@ int GUIAction::disableAVB2(string arg __unused) {
 	return 0;
 }
 //
-
-static std::string run_command_get_output(const std::string& cmd) {
-  FILE* fp = popen(cmd.c_str(), "r");
-  if (!fp)
-      return "";
-
-  std::string out;
-  char buf[512];
-
-  while (fgets(buf, sizeof(buf), fp) != nullptr) {
-      out += buf;
-  }
-
-  pclose(fp);
-
-  while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) {
-      out.pop_back();
-  }
-
-  return out;
-}
-
-static std::string read_file_to_string(const std::string& path) {
-  std::ifstream ifs(path.c_str(), std::ios::in);
-  if (!ifs.is_open()) {
-      return "";
-  }
-
-  std::stringstream ss;
-  ss << ifs.rdbuf();
-  std::string out = ss.str();
-
-  while (!out.empty() && (out.back() == '\n' || out.back() == '\r'))
-      out.pop_back();
-
-  return out;
-}
-
-int GUIAction::setvaluebyfile(std::string arg) {
-  size_t pos = arg.find(',');
-  std::string var  = arg.substr(0, pos);
-  std::string file = arg.substr(pos + 1);
-  std::string info = read_file_to_string(file);
-  if (!info.empty()) {
-    DataManager::SetValue(var, info);
-    LOGINFO("setvaluebyfile: %s = %s\n", var.c_str(), info.c_str());
-  } else {
-    LOGINFO("setvaluebyfile: Error: empty file %s\n", file.c_str());
-  }
-  //gui_print("%s", info.c_str());
-  return 0;
-}

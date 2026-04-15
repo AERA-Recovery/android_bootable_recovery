@@ -27,7 +27,7 @@
 #include <cctype>
 #include <cutils/properties.h>
 #include <unistd.h>
-
+#include <private/android_filesystem_config.h>
 #include "variables.h"
 #include "data.hpp"
 #include "partitions.hpp"
@@ -759,6 +759,8 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("fox_settings_path", Fox_Settings_Path);
   mConst.SetValue("fox_home_files", Fox_Home_Files);
   mConst.SetValue("fox_theme_path", FOX_THEME_PATH);
+  mConst.SetValue("fox_media_rw", FOX_MEDIA_RW);
+  mConst.SetValue("fox_media_rw_data_file", FOX_MEDIA_RW_DATA_FILE);
   mConst.SetValue("fox_navbar_path", FOX_NAVBAR_PATH);
   mConst.SetValue("fox_ota_path", FOX_OTA_PATH);
   mConst.SetValue("aroma_fm_zip", Fox_Home_Files + "/AromaFM/AromaFM.zip");
@@ -822,6 +824,7 @@ void DataManager::SetDefaultValues()
   // number of options in some listboxes before a scrollbar is needed
   int lnum = 360;
   int lnum2 = 540;
+  int lnum_group = 512;
   #ifdef OF_OPTIONS_LIST_NUM
 	int cv = atoi(OF_OPTIONS_LIST_NUM);
 	// restrict the permissible range to something sensible
@@ -841,9 +844,12 @@ void DataManager::SetDefaultValues()
 	lnum = (cv * 90);
 	if (lnum > lnum2)
 		lnum2 = lnum;
+		
+  lnum_group = (cv * 144 + (144 * 2));
   #endif
   mConst.SetValue("options_list_num", lnum);
   mConst.SetValue("options_list_num_2", lnum2);
+  mConst.SetValue("options_list_num_group", lnum_group);
 
   #ifdef OF_ENABLE_LAB
     mConst.SetValue("fox_lab", "1");
@@ -1597,7 +1603,7 @@ void DataManager::Output_Version(void)
 
 		if (!TWFunc::Path_Exists(recoveryLogDir)) {
 			LOGINFO("Recreating %s folder.\n", recoveryLogDir.c_str());
-			if (!TWFunc::Create_Dir_Recursive(recoveryLogDir.c_str(), S_IRWXU | S_IRWXG | S_IWGRP | S_IXGRP, 0, 0)) {
+			if (!TWFunc::Create_Dir_Recursive(recoveryLogDir.c_str(), S_IRWXU | S_IRWXG | S_IWGRP | S_IXGRP, AID_MEDIA_RW, AID_MEDIA_RW)) {
 				LOGERR("DataManager::Output_Version -- Unable to make %s: %s\n", recoveryLogDir.c_str(), strerror(errno));
 				return;
 			}
@@ -1663,7 +1669,7 @@ void DataManager::ReadSettingsFile(void)
 		(settings_file));
     }
 
-  mkdir(mkdir_path, 0777);
+  TWFunc::Create_Dir_Recursive(mkdir_path, 0777, AID_MEDIA_RW, AID_MEDIA_RW);
 
   LOGINFO("Attempt to load settings from settings file...\n");
   LoadValues(settings_file);

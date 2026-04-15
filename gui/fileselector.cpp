@@ -2,7 +2,7 @@
 	Copyright 2012 bigbiff/Dees_Troy TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2025 OrangeFox Recovery Project
+	Copyright (C) 2018-2026 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -51,6 +51,7 @@ GUIFileSelector::GUIFileSelector(xml_node<>* node) : GUIScrollList(node)
 	xml_node<>* child;
 
 	mFolderIcon = mFileIcon = mUpIcon = mExZipIcon = mExImgIcon = mExTxtIcon = mExUnselectedIcon = mExSelectedIcon = mExPngIcon = mExLinkIcon = mExBlockIcon = NULL;
+	mIconBg = NULL;
 	mShowFolders = mShowFiles = mShowNavFolders = 1;
 	mUpdate = 0;
 	mPathVar = "cwd";
@@ -162,6 +163,8 @@ GUIFileSelector::GUIFileSelector(xml_node<>* node) : GUIScrollList(node)
 	if (child) {
 		iconWidth = LoadAttrIntScaleX(child, "w", iconWidth);
 		iconHeight = LoadAttrIntScaleY(child, "h", iconHeight);
+		// Optional layered icon background when iconsize is set
+		mIconBg = LoadAttrImage(child, "bg");
 		
 		// [f/d] Get additional icons
 		child = FindNode(node, "exicon");
@@ -486,8 +489,10 @@ void GUIFileSelector::RenderItem(size_t itemindex, int yPos, bool selected)
 		}
 	} else {
 		text = mFileList.at(fileindex).fileName;
-		if (allowDouble && doubleLine == 1)
-			secondLine = TWFunc::ConvertTime(mFileList.at(fileindex).lastModified) + " · " + to_string(mFileList.at(fileindex).fileSize / 1048576) + gui_parse_text("{@mbyte}");
+		if (allowDouble && doubleLine == 1) {
+			secondLine = TWFunc::ConvertTime(mFileList.at(fileindex).lastModified) + " · " + to_string(mFileList.at(fileindex).fileSize / 1024) + gui_parse_text("{@kbyte}");
+//			secondLine = TWFunc::ConvertTime(mFileList.at(fileindex).lastModified) + " · " + to_string(mFileList.at(fileindex).fileSize / 1048576) + gui_parse_text("{@mbyte}");
+		}
 		if (mSelListEnabled) {
 			std::string list = DataManager::GetStrValue("of_batch_files");
 			// list.find(text + "/") != string::npos
@@ -533,10 +538,33 @@ void GUIFileSelector::RenderItem(size_t itemindex, int yPos, bool selected)
 	// mFileList.at(fileindex).lastModified
 	// mFileList.at(fileindex).lastStatChange
 
-	if (allowDouble && doubleLine == 1 && secondLine != "")
-		RenderStdItem(yPos, selected, icon, text.c_str(), secondLine.c_str());
-	else
-		RenderStdItem(yPos, selected, icon, text.c_str());
+	// If layered background icon is available and iconsize is defined, render in two layers
+	if (mIconBg && mIconBg->GetResource()) {
+		// First render the row without an icon so text/layout is correct
+		if (allowDouble && doubleLine == 1 && secondLine != "")
+			RenderStdItem(yPos, selected, NULL, text.c_str(), secondLine.c_str());
+		else
+			RenderStdItem(yPos, selected, NULL, text.c_str());
+		// Then draw background circle and the foreground icon centered in icon area
+		int iconAndTextH = actualItemHeight;
+		int bgW = mIconBg->GetWidth();
+		int bgH = mIconBg->GetHeight();
+		int bgX = mRenderX + (maxIconWidth - bgW) / 2 - mPadding;
+		int bgY = yPos + (iconAndTextH - bgH) / 2;
+		gr_blit(mIconBg->GetResource(), 0, 0, bgW, bgH, bgX, bgY);
+		if (icon && icon->GetResource()) {
+			int iw = icon->GetWidth();
+			int ih = icon->GetHeight();
+			int ix = mRenderX + (maxIconWidth - iw) / 2 - mPadding;
+			int iy = yPos + (iconAndTextH - ih) / 2;
+			gr_blit(icon->GetResource(), 0, 0, iw, ih, ix, iy);
+		}
+	} else {
+		if (allowDouble && doubleLine == 1 && secondLine != "")
+			RenderStdItem(yPos, selected, icon, text.c_str(), secondLine.c_str());
+		else
+			RenderStdItem(yPos, selected, icon, text.c_str());
+	}
 }
 
 void GUIFileSelector::NotifySelect(size_t item_selected)

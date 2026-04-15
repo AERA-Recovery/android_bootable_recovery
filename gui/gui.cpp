@@ -85,6 +85,9 @@ int select_fd = 0;
 
 static int gRecorder = -1;
 
+static long long g_suppress_power_toggle_until_ms = 0;
+static inline long long nowMs() { struct timeval t; gettimeofday(&t, NULL); return (long long)t.tv_sec * 1000LL + t.tv_usec / 1000; }
+
 extern "C" void gr_write_frame_to_file(int fd);
 
 static void flip(void)
@@ -290,6 +293,7 @@ void InputHandler::processHoldAndRepeat()
 		} else if (kb->AreKeysPressed(KEY_VOLUMEDOWN, KEY_POWER)) {
 			GUIAction::screenshotImpl("");
 			DataManager::Vibrate("tw_button_vibrate");
+			g_suppress_power_toggle_until_ms = nowMs() + 1000; // prevent screen-off from power key after screenshot
 		} else if (kb->IsKeyDown(KEY_POWER) && DataManager::GetStrValue("of_hw_control_mode") == "1") {
 			PageManager::SelectFocusedElement(true);
 		} else {
@@ -442,7 +446,12 @@ void InputHandler::process_EV_KEY(input_event& ev)
 		} else {
 			if (ev.code == KEY_POWER && key_status != KS_KEY_REPEAT) {
 				LOGEVENT("POWER Key Released\n");
-				blankTimer.toggleBlank();
+				long long now = nowMs();
+				if (now < g_suppress_power_toggle_until_ms) {
+					LOGEVENT("Skipping POWER toggle due to recent screenshot\n");
+				} else {
+					blankTimer.toggleBlank();
+				}
 			}
 		}
 		if (mime <= 500)

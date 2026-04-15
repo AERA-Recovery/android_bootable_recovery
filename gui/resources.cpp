@@ -42,6 +42,8 @@ extern "C" {
 
 #include "rapidxml.hpp"
 #include "objects.hpp"
+#include "nanosvg.hpp"
+#include "nanosvgrast.h"
 
 #define TMP_RESOURCE_NAME   "/tmp/extract.bin"
 
@@ -73,7 +75,15 @@ int Resource::ExtractResource(ZipArchiveHandle pZip, std::string folderName, std
 	return 0;
 }
 
-void Resource::LoadImage(ZipArchiveHandle pZip, std::string file, gr_surface* surface)
+bool endsWith(std::string const &fullString, std::string const &ending) {
+    if (fullString.length() >= ending.length()) {
+        return (0 == fullString.compare (fullString.length() - ending.length(), ending.length(), ending));
+    } else {
+        return false;
+    }
+}
+
+void Resource::LoadImage(ZipArchiveHandle pZip, std::string file, gr_surface* surface, float scale)
 {
 	int rc = 0;
 	if (ExtractResource(pZip, "images", file, ".png", TMP_RESOURCE_NAME) == 0)
@@ -91,6 +101,12 @@ void Resource::LoadImage(ZipArchiveHandle pZip, std::string file, gr_surface* su
 	{
 		// File name in xml may have included .png so try without adding .png
 		rc = res_create_surface(file.c_str(), surface);
+		if (rc == 0) return;
+		
+		if (endsWith(file, ".svg")) {
+			std::string nam = std::string(TWRES) + std::string("images/") + file;
+			rc = res_create_svg_surface(nam.c_str(), scale, surface);
+		}
 	}
 	if (rc != 0)
 		LOGINFO("Failed to load image from %s%s, error %d\n", file.c_str(), pZip ? " (zip)" : "", rc);
@@ -229,10 +245,228 @@ ImageResource::ImageResource(xml_node<>* node, ZipArchiveHandle pZip)
 	}
 
 	bool retain_aspect = (node->first_attribute("retainaspect") != NULL);
+	float scale = LoadAttrFloat(node, "scale", 1.0);
 	// the value does not matter, if retainaspect is present, we assume that we want to retain it
-	LoadImage(pZip, file, &temp_surface);
+	LoadImage(pZip, file, &temp_surface, scale);
+
+	bool found_color_attr = false;
+	COLOR color = LoadAttrColor(node, "tint", &found_color_attr);
+
+	if (found_color_attr && temp_surface) {
+		GGLSurface *surface = (GGLSurface*)temp_surface;
+		int size = surface->width * surface->height;
+		uint32_t *data = (uint32_t *)surface->data;
+
+		const uint32_t tint_rgb = (color.blue << 16) | (color.green << 8) | color.red;
+
+		for (int i = 0; i < size; i++) {
+			uint8_t alpha = (*(data + i) >> 24) & 0xFF;
+
+			if (alpha > 0) {
+				*(data + i) = (alpha << 24) | tint_rgb;
+			}
+		}
+	}
+
 	CheckAndScaleImage(temp_surface, &mSurface, retain_aspect);
 }
+
+// [f/d] draw antialiased circles, rectangles, rounded rectangles
+// radius == -1 - fully rounded sides
+// stroke == 0 - filled shape
+// It's here because modifying minuitwrp requires full project rebuild
+uint32_t* createShape(int w, int h, int radius, int stroke, COLOR color, RoundedCornerFlags corners_to_round) {
+    const int malloc_size = w * h * 4;
+    uint32_t *data = (uint32_t *)malloc(malloc_size);
+    if (!data) return nullptr; // Handle allocation failure
+    memset(data, 0, malloc_size);
+
+    const uint32_t px = (color.alpha << 24) | (color.blue << 16) | (color.green << 8) | color.red;
+
+    // --- Simplification for non-rounded, filled rectangle ---
+    if (radius == 0 && stroke == 0 && corners_to_round == RoundedCornerFlags::NONE) {
+        if (color.alpha != 0) {
+            for (int i = 0; i < w * h; i++) {
+                *(data + i) = px;
+            }
+        }
+        return data;
+    }
+    // --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+
+    int min_side = std::min(w, h) / 2;
+    if (radius < 0 || radius > min_side) radius = min_side; // Fully rounded if radius is invalid or too large
+    if (stroke < 0 || stroke > min_side) stroke = 0;      // Treat invalid stroke as fill
+
+    // Optimization: if no corners need rounding, behave as if radius is 0
+    if (corners_to_round == RoundedCornerFlags::NONE && radius > 0) {
+        radius = 0;
+    }
+
+    // Handle the completely non-rounded case (either radius 0 or no corners selected)
+    if (radius == 0) {
+        if (stroke == 0) { // Filled rectangle
+             if (color.alpha != 0) {
+                for (int i = 0; i < w * h; i++) {
+                    *(data + i) = px;
+                }
+            }
+        } else { // Stroked rectangle
+             const uint32_t px_aa = ((color.alpha / 2) << 24) | (color.blue << 16) | (color.green << 8) | color.red; // Simple AA for stroke
+             // Top & Bottom lines
+            for (int x = 0; x < w; ++x) {
+                for(int s=0; s<stroke; ++s){
+                    if(color.alpha != 0) {
+                        *(data + x + s * w) = px; // Top
+                        *(data + x + (h - 1 - s) * w) = px; // Bottom
+                    }
+                    // Add very basic AA on the inner edge
+                    if(s == stroke-1 && stroke > 0 && h > stroke*2) {
+                        *(data + x + (s+1) * w) = px_aa; // Below top
+                        *(data + x + (h - 1 - s - 1) * w) = px_aa; // Above bottom
+                    }
+                }
+            }
+            // Left & Right lines
+            for (int y = stroke; y < h - stroke; ++y) {
+                 for(int s=0; s<stroke; ++s){
+                     if(color.alpha != 0) {
+                        *(data + y * w + s) = px; // Left
+                        *(data + y * w + (w - 1 -s)) = px; // Right
+                     }
+                     // Add very basic AA on the inner edge
+                     if(s == stroke-1 && stroke > 0 && w > stroke*2) {
+                         *(data + y * w + s + 1) = px_aa; // Right of Left
+                         *(data + y * w + (w - 1 - s - 1)) = px_aa; // Left of Right
+                     }
+                 }
+            }
+        }
+        return data; // Return the non-rounded shape
+    }
+
+
+    // --- Rounded corner logic proceeds if radius > 0 and at least one corner needs rounding ---
+    const int diameter = radius * 2;
+    const float radius2 = radius - 0.5f; // For centering circle calculations
+
+    const float radius_sq_outer = radius2 * radius2; // Base radius squared
+    // Adjusted checks for smoother anti-aliasing
+    const float radius_check = radius_sq_outer + radius2 * 0.6f;
+    const float radius_check_aa = radius_sq_outer + radius2 * 1.4f;
+
+    const uint32_t px_aa = ((color.alpha / 2) << 24) | (color.blue << 16) | (color.green << 8) | color.red;
+
+    // Calculate inner radius checks only if stroking
+    float radius_check_hollow = 0;
+    float radius_check_hollow_aa = 0;
+    bool is_stroking = (stroke > 0);
+    if (is_stroking) {
+        // Subtract squared stroke effect from outer radius squared
+        float inner_radius = std::max(0.0f, radius2 - stroke);
+        float inner_radius_sq = inner_radius * inner_radius;
+        radius_check_hollow = inner_radius_sq - inner_radius * 0.4f;
+         radius_check_hollow_aa = inner_radius_sq - inner_radius * 1.0f;
+    }
+
+
+    // Iterate through the entire potential shape buffer
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            uint32_t final_px = 0; // Pixel color for this position, start with transparent
+
+            // Determine relative coordinates to the nearest rounded corner center (if applicable)
+            float rx = x - radius2;          // Relative to left edge circle center X
+            float ry = y - radius2;          // Relative to top edge circle center Y
+            float rx_right = x - (w - radius2 - 1); // Relative to right edge circle center X
+            float ry_bottom = y - (h - radius2 - 1); // Relative to bottom edge circle center Y
+
+            bool in_top_left_corner = (x < radius && y < radius && (corners_to_round & RoundedCornerFlags::TOP_LEFT));
+            bool in_top_right_corner = (x >= w - radius && y < radius && (corners_to_round & RoundedCornerFlags::TOP_RIGHT));
+            bool in_bottom_left_corner = (x < radius && y >= h - radius && (corners_to_round & RoundedCornerFlags::BOTTOM_LEFT));
+            bool in_bottom_right_corner = (x >= w - radius && y >= h - radius && (corners_to_round & RoundedCornerFlags::BOTTOM_RIGHT));
+
+            float dist_sq = -1.0f; // Negative indicates not in a rounded corner check area
+
+            // Calculate squared distance only if inside a potential corner area
+            if (in_top_left_corner) {
+                dist_sq = rx * rx + ry * ry;
+            } else if (in_top_right_corner) {
+                dist_sq = rx_right * rx_right + ry * ry;
+            } else if (in_bottom_left_corner) {
+                dist_sq = rx * rx + ry_bottom * ry_bottom;
+            } else if (in_bottom_right_corner) {
+                dist_sq = rx_right * rx_right + ry_bottom * ry_bottom;
+            }
+
+            // --- Determine pixel color based on fill/stroke and position ---
+
+            if (dist_sq >= 0) { // Pixel is inside a rounded corner's quadrant
+                 if (!is_stroking) { // --- Filled Shape ---
+                    if (dist_sq <= radius_check) final_px = px;
+                    else if (dist_sq <= radius_check_aa) final_px = px_aa;
+                    // else final_px remains 0 (transparent)
+                } else { // --- Stroked Shape ---
+                    if (dist_sq <= radius_check && dist_sq > radius_check_hollow) final_px = px;
+                    else if (dist_sq <= radius_check_aa && dist_sq > radius_check_hollow_aa) final_px = px_aa; // Anti-alias edges
+                    // else final_px remains 0 (transparent outside stroke or inside hole)
+                }
+            } else { // Pixel is in the straight part of the rectangle
+                 if (!is_stroking) { // --- Filled Shape ---
+                    final_px = px;
+                 } else { // --- Stroked Shape ---
+                     // Check if pixel falls within the stroke thickness on any straight edge
+                    if (x < stroke || x >= w - stroke || y < stroke || y >= h - stroke) {
+                         // Basic check, add AA possibility near inner edge
+                         final_px = px;
+                        // Very basic AA attempt on inner edge of straight stroke (can be improved)
+                        if (x == stroke || x == w - stroke - 1 || y == stroke || y == h - stroke-1) {
+                           final_px = px_aa;
+                        }
+                    }
+                    // else final_px remains 0 (transparent center for stroke)
+                 }
+            }
+
+            *(data + y * w + x) = final_px;
+        }
+    }
+
+    return data;
+}
+
+// [f/d] constructor for fake images that are actually shapes
+// Usage: <resources><shape name="img_name" color="#FFFFFF" w="100" h="50" radius="10" stroke="0" /> </resources>
+// Then, reference it like normal image: <image resource="img_name"/>
+ImageResource::ImageResource(xml_node<>* node) : Resource(node, NULL)
+{
+	if (!node) {
+		LOGERR("ImageResource node is NULL\n");
+		return;
+	}
+
+	int original_radius = LoadAttrInt(node, "radius", 0),
+		w = LoadAttrIntScaleX(node, "w", 1),
+		h = LoadAttrIntScaleY(node, "h", 1),
+		r = original_radius <= 0 ? original_radius : scale_theme_x(original_radius), //don't scale -1 value
+		s = LoadAttrIntScaleY(node, "stroke", 0);
+
+	COLOR color = LoadAttrColor(node, "color", COLOR(0,0,0));
+	
+	GGLSurface *surface;
+	surface = (GGLSurface *)malloc(sizeof(GGLSurface));
+	memset(surface, 0, sizeof(GGLSurface));
+
+	surface->version = sizeof(surface);
+	surface->width = w;
+	surface->height = h;
+	surface->stride = w;
+	surface->data = (GGLubyte*)createShape(w, h, r, s, color);
+	surface->format = res_get_pixel_format();
+
+	mSurface = (gr_surface)surface;
+}
+// [/f/d]
 
 ImageResource::~ImageResource()
 {
@@ -410,6 +644,16 @@ void ResourceManager::LoadResources(xml_node<>* resList, ZipArchiveHandle pZip, 
 		else if (type == "image")
 		{
 			ImageResource* res = new ImageResource(child, pZip);
+			if (res && res->GetResource())
+				mImages.push_back(res);
+			else {
+				error = true;
+				delete res;
+			}
+		}
+		else if (type == "shape")
+		{
+			ImageResource* res = new ImageResource(child);
 			if (res && res->GetResource())
 				mImages.push_back(res);
 			else {

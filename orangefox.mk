@@ -21,7 +21,7 @@
 LOCAL_CFLAGS += -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable
 
 # Canonical release version
-FOX_INTERNAL_RELEASE := R11.3
+FOX_INTERNAL_RELEASE := R12.0
 LOCAL_CFLAGS += -DFOX_INTERNAL_RELEASE='"$(FOX_INTERNAL_RELEASE)"'
 
 ifneq ($(FOX_MAINTAINER_PATCH_VERSION),)
@@ -183,7 +183,9 @@ ifeq ($(FOX_VENDOR_BOOT_RECOVERY),1)
     endif
     ifeq ($(OF_RECOVERY_AB_FULL_REFLASH_RAMDISK),1)
        LOCAL_CFLAGS += -DOF_RECOVERY_AB_FULL_REFLASH_RAMDISK
+       ifneq ($(OF_NO_REFLASH_CURRENT_ORANGEFOX),1)
        OF_NO_REFLASH_CURRENT_ORANGEFOX :=
+       endif
     endif
 endif
 
@@ -878,4 +880,17 @@ else
     TW_NO_NETWORK := true
     LOCAL_CFLAGS += -DTW_NO_NETWORK
 endif 
+
+# whether to skip substituting some permissions
+ifeq ($(OF_DONT_SUBSTITUTE_PERMISSIONS),1)
+    LOCAL_CFLAGS += -DOF_DONT_SUBSTITUTE_PERMISSIONS
+endif
+
+# whether to format (instead of just wiping) data in response to OpenRecovery "--wipe-data" instructions (virtual A/B only)
+ifeq ($(OF_VAB_ORS_WIPE_DATA_IS_FORMAT),1)
+    ifneq ($(FOX_VIRTUAL_AB_DEVICE),1)
+     $(error Enable 'FOX_VIRTUAL_AB_DEVICE' before you can use 'OF_VAB_ORS_WIPE_DATA_IS_FORMAT')
+    endif
+    LOCAL_CFLAGS += -DOF_VAB_ORS_WIPE_DATA_IS_FORMAT
+endif
 #

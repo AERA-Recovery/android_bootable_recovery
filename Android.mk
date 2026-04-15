@@ -50,6 +50,7 @@ LOCAL_SRC_FILES := \
     startupArgs.cpp \
     twrp-functions.cpp \
     orangefox.cpp \
+    gui/nanosvg.cpp \
     twrpDigestDriver.cpp \
     openrecoveryscript.cpp \
     tarWrite.c \
@@ -315,6 +316,7 @@ endif
 ifneq ($(TW_NO_NETWORK), true)
     TWRP_REQUIRED_MODULES += \
         index.html \
+        fox_icon.png \
         wlan_start \
         wlan_connect \
         wlan_scan \

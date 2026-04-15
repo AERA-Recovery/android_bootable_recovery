@@ -492,6 +492,12 @@ int main(int argc, char **argv) {
 	property_set("ro.orangefox.crypto_enabled", "0");
 	#endif
 
+	#ifdef OF_DONT_SUBSTITUTE_PERMISSIONS
+	property_set("ro.orangefox.substitute_permissions", "0");
+	#else
+	property_set("ro.orangefox.substitute_permissions", "1");
+	#endif
+
     	string fox_cfg = Fox_Cfg;
     	if (!TWFunc::Path_Exists(fox_cfg))
     	    fox_cfg = "/system" + Fox_Cfg;

@@ -1362,7 +1362,7 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 	DataManager::GetValue(TW_IS_ENCRYPTED, is_encrypted);
 	if (!adbbackup || (!is_encrypted || (is_encrypted && is_decrypted))) {
 		gui_msg(Msg("backup_folder= * Backup Folder: {1}")(part_settings.Backup_Folder));
-		if (!TWFunc::Recursive_Mkdir(part_settings.Backup_Folder)) {
+		if (!TWFunc::Create_Dir_Recursive(part_settings.Backup_Folder, 0777, AID_MEDIA_RW, AID_MEDIA_RW)) {
 			gui_err("fail_backup_folder=Failed to make backup folder.");
 			return false;
 		}
@@ -4785,7 +4785,7 @@ bool TWPartitionManager::Recreate_Logs_Dir() {
 			std::string abLogsRecoveryDir(DATA_LOGS_DIR);
 			abLogsRecoveryDir += "/recovery/";
 
-			if (!TWFunc::Create_Dir_Recursive(abLogsRecoveryDir, S_IRWXU | S_IRWXG | S_IWGRP | S_IXGRP, uid, gid)) {
+			if (!TWFunc::Create_Dir_Recursive(abLogsRecoveryDir, S_IRWXU | S_IRWXG | S_IWGRP | S_IXGRP, AID_MEDIA_RW, AID_MEDIA_RW)) {
 				LOGERR("Unable to recreate %s\n", abLogsRecoveryDir.c_str());
 				return false;
 			}

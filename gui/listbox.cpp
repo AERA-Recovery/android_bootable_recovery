@@ -68,6 +68,17 @@ GUIListBox::GUIListBox(xml_node<>* node) : GUIScrollList(node)
 			iconHeight = mIconUnselected->GetHeight();
 		}
 	}
+
+	// [Yacha] Get margin for list items
+	child = FindNode(node, "margin");
+	if (child) {
+		this->mItemPaddingTop = LoadAttrIntScaleY(child, "top", 0);
+		this->mItemPaddingBottom = LoadAttrIntScaleY(child, "bottom", 0);
+		// If only one value provided, use it for both top and bottom
+		if (LoadAttrIntScaleY(child, "size", -1) != -1) {
+			this->mItemPaddingTop = this->mItemPaddingBottom = LoadAttrIntScaleY(child, "size", 0);
+		}
+	}
 	
 	SetMaxIconSize(iconWidth, iconHeight);
 
@@ -188,6 +199,12 @@ GUIListBox::GUIListBox(xml_node<>* node) : GUIScrollList(node)
 
 		child = child->next_sibling("listitem");
 	}
+
+	child = FindNode(node, "group");
+	if (child) {
+		groupArrow = LoadAttrImage(child, "arrowresource");
+		groupColor = LoadAttrColor(child, "color", &isGroup);
+	}
 }
 
 GUIListBox::~GUIListBox()
@@ -226,21 +243,17 @@ void GUIListBox::ReadFileToList(const char* fileName) {
 	mVisibleItems.clear();
 	SetVisibleListLocation(0);
 	string error = "Error";
-	std::string wlan_display;
-    DataManager::GetValue("wlanlistdisplay", wlan_display);
 	std::vector<wstring> lines;
 
-	if(wlan_display != "1")
-		lines.push_back(L"");
+	lines.push_back(L"");
 	
 	if (TWFunc::Get_File_Size(fileName) > 1572864) //1.5mb
 		error = gui_parse_text("{@file_read_error_size=File is bigger than 1.5MB!}");
 	else if (TWFunc::read_file(fileName, lines) == 0) {
-		if (lines.size() >= 2 && (lines[0] + lines[1]).find(L'\0') != std::wstring::npos)
+		if ((lines[0] + lines[1]).find('\0') != std::string::npos) // i
 			error = gui_parse_text("{@file_read_error_bin=Can't read binary file!}");
 		else {
-			if(wlan_display != "1")
-				lines.push_back(L"");
+			lines.push_back(L"");
 			unsigned int vector_size = lines.size();
 			for (unsigned int i = 0; i < vector_size; i++) {
 				wstring line = lines[i];
@@ -416,15 +429,25 @@ void GUIListBox::RenderItem(size_t itemindex, int yPos, bool selected)
 		icon = item.selected ? mIconSelected : mIconUnselected;
 	}
 	const std::string& text = item.displayName;
+	int groupStatus = 0;
+	if (isGroup) {
+		if (itemindex == 0)
+			if (mVisibleItems.size() == 1)
+				groupStatus = 4; // start & end
+			else
+				groupStatus = 1; // start
+		else if (itemindex == mVisibleItems.size() - 1)
+			groupStatus = 3; // end
+		else
+			groupStatus = 2; // body
+	}
 
-	RenderStdItem(yPos, selected, icon, text.c_str());
+	RenderStdItem(yPos, selected, icon, text.c_str(), NULL, groupStatus);
 }
 
 void GUIListBox::NotifySelect(size_t item_selected)
 {
-	std::string wlan_display;
-    DataManager::GetValue("wlanlistdisplay", wlan_display);
-	if (mVariable == "of_file_to_read" && wlan_display != "1") return;
+	if (mVariable == "of_file_to_read") return;
 	if (!isCheckList) {
 		// deselect all items, even invisible ones
 		for (size_t i = 0; i < mListItems.size(); i++) {
@@ -439,10 +462,6 @@ void GUIListBox::NotifySelect(size_t item_selected)
 		DataManager::SetValue("tw_crypto_user_id", item.variableValue);
 		DataManager::SetValue("tw_crypto_pwtype", item.id);
 		DataManager::SetValue(mVariable, item.variableValue);
-	} else if (mVariable == "of_file_to_read" && wlan_display == "1") {
-		DataManager::SetValue("wlanselectedid", item.displayName);
-		gui_changePage("wlan_connect");
-		DataManager::SetValue("wlanlistdisplay", "0");
 	} else if (isCheckList) {
 		int selected = 1 - item.selected;
 		item.selected = selected;

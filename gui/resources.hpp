@@ -27,10 +27,33 @@
 #include "rapidxml.hpp"
 #include "ziparchive/zip_archive.h"
 #include "minuitwrp/truetype.hpp"
+#include "pages.hpp"
 
 extern "C" {
 #include "minuitwrp/minui.h"
 }
+
+enum class RoundedCornerFlags : uint8_t {
+    NONE       = 0,       // 0000 0000
+    TOP_LEFT   = 1 << 0,  // 0000 0001
+    TOP_RIGHT  = 1 << 1,  // 0000 0010
+    BOTTOM_RIGHT = 1 << 2,  // 0000 0100
+    BOTTOM_LEFT = 1 << 3,  // 0000 1000
+    ALL        = TOP_LEFT | TOP_RIGHT | BOTTOM_RIGHT | BOTTOM_LEFT // 0000 1111
+};
+
+// Overload '|' operator for convenience
+inline RoundedCornerFlags operator|(RoundedCornerFlags a, RoundedCornerFlags b) {
+    return static_cast<RoundedCornerFlags>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b));
+}
+
+// Overload '&' operator for checking flags
+inline bool operator&(RoundedCornerFlags a, RoundedCornerFlags b) {
+    return (static_cast<uint8_t>(a) & static_cast<uint8_t>(b)) != 0;
+}
+
+//uint32_t* createShape(int w, int h, int radius, int stroke, unsigned char r, unsigned char g, unsigned char b, unsigned char a, RoundedCornerFlags corners_to_round = RoundedCornerFlags::ALL);
+uint32_t* createShape(int w, int h, int radius, int stroke, COLOR color, RoundedCornerFlags corners_to_round = RoundedCornerFlags::ALL);
 
 // Base Objects
 class Resource
@@ -47,7 +70,7 @@ private:
 
 protected:
 	static int ExtractResource(ZipArchiveHandle pZip, std::string folderName, std::string fileName, std::string fileExtn, std::string destFile);
-	static void LoadImage(ZipArchiveHandle pZip, std::string file, gr_surface* surface);
+	static void LoadImage(ZipArchiveHandle pZip, std::string file, gr_surface* surface, float scale = 1.0);
 	static void CheckAndScaleImage(gr_surface source, gr_surface* destination, int retain_aspect);
 };
 
@@ -78,6 +101,7 @@ class ImageResource : public Resource
 {
 public:
 	ImageResource(xml_node<>* node, ZipArchiveHandle pZip);
+	ImageResource(xml_node<>* node);
 	virtual ~ImageResource();
 
 public:

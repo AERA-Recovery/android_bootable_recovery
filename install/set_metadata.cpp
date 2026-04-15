@@ -12,6 +12,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * Copyright (C) 2026 OrangeFox Recovery Project
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 /*
@@ -27,7 +30,10 @@
 
 #include <sys/stat.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
+#include <android-base/properties.h>
+#include <private/android_filesystem_config.h>
 #include "selinux/selinux.h"
 
 static security_context_t selinux_context;
@@ -66,13 +72,29 @@ int tw_get_default_metadata(const char* filename) {
 int tw_set_default_metadata(const char* filename) {
 	int ret = 0;
 	struct stat st;
+	bool selinux_context_needs_substitution = false;
+	char substitute_context[128];
+
+	if (android::base::GetProperty("ro.orangefox.substitute_permissions", "") == "1") {
+		if (strstr(filename, "/sdcard/Fox") || strstr(filename, "/data/media/0/Fox") || strstr(filename, "recovery/Fox")
+		|| strstr(filename, "/persist/Fox") || strstr(filename, "/Fox/BACKUPS")) {
+			selinux_context_needs_substitution = true;
+		}
+	}
 
 	if (selinux_context == NULL) {
 		//printf("selinux_context was null, '%s'\n", filename);
 		ret = -1;
-	} else if (lsetfilecon(filename, selinux_context) < 0) {
-		//printf("Failed to set default contexts on '%s'.\n", filename);
-		ret = -1;
+	} else {
+		if (selinux_context_needs_substitution)
+			strcpy (substitute_context, "u:object_r:media_rw_data_file:s0");
+		else
+			strcpy (substitute_context, selinux_context);
+
+		if (lsetfilecon(filename, substitute_context) < 0) {
+			//printf("Failed to set default contexts on '%s'.\n", filename);
+			ret = -1;
+		}
 	}
 
 	if (lstat(filename, &st) == 0 && st.st_mode & S_IFREG && chmod(filename, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH) < 0) {
@@ -80,10 +102,19 @@ int tw_set_default_metadata(const char* filename) {
 		ret = -1;
 	}
 
-	if (has_stat && chown(filename, s.st_uid, s.st_gid) < 0) {
-		//printf("Failed to lchown '%s'.\n", filename);
-		ret = -1;
-	}
-	//printf("Done trying to set defaults on '%s'\n");
+	if (has_stat) {
+		uid_t uid = st.st_uid;
+		gid_t gid = st.st_gid;
+		if (selinux_context_needs_substitution) {
+			uid = AID_MEDIA_RW;
+			gid = AID_MEDIA_RW;
+		}
+		if (chown(filename, uid, gid) < 0) {
+			//printf("Failed to lchown '%s'.\n", filename);
+			ret = -1;
+		}
+	} else ret = -1;
+
+	//printf("Done trying to set defaults on '%s'\n", filename);
 	return ret;
 }

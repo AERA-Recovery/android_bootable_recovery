@@ -114,7 +114,7 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define FOX_MAGISK_ZIP_INSTALLER 	"Magisk.zip"
 #define FOX_MAGISK_UNINSTALLER 		"uninstall.zip"
 
-#define FOX_THEME_VERSION 		"1.1"
+#define FOX_THEME_VERSION 		"2.0"
 #define FOX_PASS_IN_PERSIST 		"/persist/.fsec"
 #define FOX_PRE_ROM_FLASH_SCRIPT  	"/system/bin/pre_rom_flash.sh"
 #define FOX_POST_ROM_FLASH_SCRIPT 	"/system/bin/post_rom_flash.sh"
@@ -176,6 +176,8 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define FOX_RUN_SURVIVAL_BACKUP         "fox_run_survival_backup"
 #define FOX_METADATA_PRE_BUILD          "fox_pre_build"
 #define FOX_ENCRYPTED_DEVICE		"fox_encrypted_device"
+#define FOX_MEDIA_RW			"media_rw:media_rw"
+#define FOX_MEDIA_RW_DATA_FILE		"u:object_r:media_rw_data_file:s0"
 
 //
 #define TW_USE_COMPRESSION_VAR      	"tw_use_compression"
@@ -323,6 +325,10 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 // Max archive size for tar backups before we split (1.5GB)
 #define MAX_ARCHIVE_SIZE 1610612736LLU
 //#define MAX_ARCHIVE_SIZE 52428800LLU // 50MB split for testing
+
+// define maximum number of archives
+#define MAX_ARCHIVE_COUNT 247
+
 
 #ifndef CUSTOM_LUN_FILE
 #define CUSTOM_LUN_FILE 	"/config/usb_gadget/g1/functions/mass_storage.0/lun.%d/file"

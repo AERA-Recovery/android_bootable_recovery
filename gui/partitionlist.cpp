@@ -82,6 +82,24 @@ GUIPartitionList::GUIPartitionList(xml_node<>* node) : GUIScrollList(node)
 	
 	SetMaxIconSize(iconWidth, iconHeight);
 
+	// [Yacha] Add support for padding
+	child = FindNode(node, "padding");
+	if (child) {
+		this->mItemPaddingTop = LoadAttrIntScaleY(child, "top", 0);
+		this->mItemPaddingBottom = LoadAttrIntScaleY(child, "bottom", 0);
+		// If only one value provided, use it for both top and bottom
+		if (LoadAttrIntScaleY(child, "size", -1) != -1) {
+			this->mItemPaddingTop = this->mItemPaddingBottom = LoadAttrIntScaleY(child, "size", 0);
+		}
+	}
+
+	// [Yacha] Add support for group styling
+	child = FindNode(node, "group");
+	if (child) {
+		groupArrow = LoadAttrImage(child, "arrowresource");
+		groupColor = LoadAttrColor(child, "color", &isGroup);
+	}
+
 	child = FindNode(node, "listtype");
 	if (child && (attr = child->first_attribute("name"))) {
 		ListType = attr->value();
@@ -242,7 +260,7 @@ void GUIPartitionList::CalculateTime(unsigned long long fileSize, unsigned long 
 
 	DataManager::SetValue("fox_ai_deep_learning_time",
 		((fileSize / 1048576 / avFile) + (imgSize / 1048576 / avImg)) / 60);
-} 
+}
 
 void GUIPartitionList::SetPosition() {
 	int listSize = mList.size();
@@ -270,7 +288,22 @@ void GUIPartitionList::RenderItem(size_t itemindex, int yPos, bool selected)
 	ImageResource* icon = mList.at(itemindex).selected ? mIconSelected : mIconUnselected;
 	const std::string& text = mList.at(itemindex).Display_Name;
 
-	RenderStdItem(yPos, selected, icon, text.c_str());
+	// Determine group status for rendering
+	int groupStatus = 0;
+	if (isGroup) {
+		size_t listSize = mList.size();
+		if (itemindex == 0)
+			if (listSize == 1)
+				groupStatus = 4; // start & end
+			else
+				groupStatus = 1; // start
+		else if (itemindex == listSize - 1)
+			groupStatus = 3; // end
+		else
+			groupStatus = 2; // body
+	}
+
+	RenderStdItem(yPos, selected, icon, text.c_str(), NULL, groupStatus);
 }
 
 void GUIPartitionList::NotifySelect(size_t item_selected)
@@ -374,4 +407,3 @@ void GUIPartitionList::NotifySelect(size_t item_selected)
 		}
 	}
 }
-
