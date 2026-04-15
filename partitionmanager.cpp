@@ -2,7 +2,7 @@
 	Copyright 2014 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2025 OrangeFox Recovery Project
+	Copyright (C) 2018-2026 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
 
 	TWRP is free software: you can redistribute it and/or modify
@@ -684,7 +684,9 @@ void TWPartitionManager::Decrypt_Data() {
 			Set_Crypto_Type("file");
 #ifdef TW_INCLUDE_FBE_METADATA_DECRYPT
 #ifdef USE_FSCRYPT
-			if (android::vold::fscrypt_mount_metadata_encrypted(Decrypt_Data->Actual_Block_Device, Decrypt_Data->Mount_Point, false, false, Decrypt_Data->Current_File_System, "", TWFunc::Path_Exists(additional_fstab) ? additional_fstab : "")) {
+			std::vector<std::string> user_devices;
+			std::vector<bool> device_aliased;
+			if (android::vold::fscrypt_mount_metadata_encrypted(Decrypt_Data->Actual_Block_Device, Decrypt_Data->Mount_Point, false, false, Decrypt_Data->Current_File_System, false, user_devices, device_aliased, 0, TWFunc::Path_Exists(additional_fstab) ? additional_fstab : "")) {
 				std::string crypto_blkdev = android::base::GetProperty("ro.crypto.fs_crypto_blkdev", "error");
 				Decrypt_Data->Decrypted_Block_Device = crypto_blkdev;
 				LOGINFO("Successfully decrypted metadata encrypted data partition with new block device: '%s'\n", crypto_blkdev.c_str());
@@ -705,7 +707,7 @@ void TWPartitionManager::Decrypt_Data() {
 				LOGINFO("Unable to decrypt metadata encryption\n");
 			}
 #else
-			LOGERR("Metadata FBE decrypt support not present in this build\n");
+			LOGERR("Metadata FBE decrypt support not present in this TWRP\n");
 #endif
 		}
 		if (Decrypt_Data->Is_FBE) {
@@ -719,23 +721,21 @@ void TWPartitionManager::Decrypt_Data() {
 			}
 		} else {
 			LOGINFO("FBE setup failed. Trying FDE...\n");
-			/*
-			Set_Crypto_State();
-			Set_Crypto_Type("block");
-			int password_type = cryptfs_get_password_type();
-			if (password_type == CRYPT_TYPE_DEFAULT) {
-				LOGINFO("Device is encrypted with the default password, attempting to decrypt.\n");
-				if (Decrypt_Device("default_password") == 0) {
-					gui_msg("decrypt_success=Successfully decrypted with default password.");
-					DataManager::SetValue(TW_IS_ENCRYPTED, 0);
-				} else {
-					gui_err("unable_to_decrypt=Unable to decrypt with default password.");
-				}
-			} else {
-				DataManager::SetValue("TW_CRYPTO_TYPE", password_type);
-				DataManager::SetValue("tw_crypto_pwtype_0", password_type);
-			}
-			*/
+// 			Set_Crypto_State();
+//			Set_Crypto_Type("block");
+//			int password_type = cryptfs_get_password_type();
+//			if (password_type == CRYPT_TYPE_DEFAULT) {
+//				LOGINFO("Device is encrypted with the default password, attempting to decrypt.\n");
+//				if (Decrypt_Device("default_password") == 0) {
+//					gui_msg("decrypt_success=Successfully decrypted with default password.");
+//					DataManager::SetValue(TW_IS_ENCRYPTED, 0);
+//				} else {
+//					gui_err("unable_to_decrypt=Unable to decrypt with default password.");
+//				}
+//			} else {
+//				DataManager::SetValue("TW_CRYPTO_TYPE", password_type);
+//				DataManager::SetValue("tw_crypto_pwtype_0", password_type);
+//			}
 		}
 	}
 	if (Decrypt_Data && (!Decrypt_Data->Is_Encrypted || Decrypt_Data->Is_Decrypted)) {
@@ -2085,7 +2085,6 @@ void TWPartitionManager::Update_System_Details(void) {
 			if ((*iter)->Mount_Point == Get_Android_Root_Path()) {
 				int backup_display_size = (int)((*iter)->Backup_Size / 1048576LLU);
 				DataManager::SetValue(TW_BACKUP_SYSTEM_SIZE, backup_display_size);
-				//TWFunc::Is_TWRP_App_In_System();
 			} else if ((*iter)->Mount_Point == "/data" || (*iter)->Mount_Point == "/datadata") {
 				data_size += (int)((*iter)->Backup_Size / 1048576LLU);
 			} else if ((*iter)->Mount_Point == "/cache") {
@@ -2371,6 +2370,22 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 			gui_msg(Msg("decrypt_user_success_fbe=User {1} Decrypted Successfully")(user_id));
 			Mark_User_Decrypted(user_id);
 			if (user_id == 0) {
+				// When decrypting user 0 also try all other users
+				std::vector<users_struct>::iterator iter;
+				for (iter = Users_List.begin(); iter != Users_List.end(); iter++) {
+					if ((*iter).userId == "0" || (*iter).isDecrypted)
+						continue;
+
+					int tmp_user_id = atoi((*iter).userId.c_str());
+					gui_msg(Msg("decrypting_user_fbe=Attempting to decrypt FBE for user {1}...")(tmp_user_id));
+					if (android::keystore::Decrypt_User(tmp_user_id, Password) ||
+					(Password != "!" && android::keystore::Decrypt_User(tmp_user_id, "!"))) { // "!" means default password
+						gui_msg(Msg("decrypt_user_success_fbe=User {1} Decrypted Successfully")(tmp_user_id));
+						Mark_User_Decrypted(tmp_user_id);
+					} else {
+						gui_msg(Msg("decrypt_user_fail_fbe=Failed to decrypt user {1}")(tmp_user_id));
+					}
+				}
 				Post_Decrypt("");
 			}
 

@@ -2,9 +2,9 @@
 	Copyright 2013 to 2021 TeamWin
 	This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2018-2025 OrangeFox Recovery Project
+	Copyright (C) 2018-2026 OrangeFox Recovery Project
 	This file is part of the OrangeFox Recovery Project.
-	
+
 	TWRP is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation, either version 3 of the License, or
@@ -1610,6 +1610,15 @@ bool TWPartition::Is_Mounted(void) {
 	// Check to see if the directory above the mount point exists
 	test_path = Mount_Point + "/../.";
 	if (stat(test_path.c_str(), &st2) != 0)  return false;
+
+        // Check to see if a symlink mount point exists and is mounted
+        if (!Symlink_Mount_Point.empty()) {
+            scan_mounted_volumes();
+            const MountedVolume * sml = find_mounted_volume_by_mount_point(Symlink_Mount_Point.c_str());
+            if (sml != nullptr) {
+                return true;
+            }
+        }
 
 	// Compare the device IDs -- if they match then we're (probably) using tmpfs instead of an actual device
 	int ret = (st1.st_dev != st2.st_dev) ? true : false;
