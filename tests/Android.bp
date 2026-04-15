@@ -13,6 +13,7 @@
 // limitations under the License.
 
 package {
+    default_team: "trendy_team_android_kernel",
     // See: http://go/android-license-faq
     // A large-scale-change added 'default_applicable_licenses' to import
     // all of the 'license_kinds' from "bootable_recovery_license"
@@ -38,7 +39,6 @@ cc_defaults {
         "libcutils",
         "liblog",
         "libpng",
-        "libprocessgroup",
         "libselinux",
         "libziparchive",
     ],
@@ -58,24 +58,6 @@ cc_defaults {
         },
     },
 }
-
-// libapplypatch, libapplypatch_modes
-libapplypatch_static_libs = [
-    "libapplypatch_modes",
-    "libapplypatch",
-    "libedify",
-    "libotautil",
-    "libbsdiff",
-    "libbspatch",
-    "libdivsufsort",
-    "libdivsufsort64",
-    "libutils",
-    "libbase",
-    "libbrotli",
-    "libbz",
-    "libz_stable",
-    "libziparchive",
-]
 
 // librecovery_defaults uses many shared libs that we want to avoid using in tests (e.g. we don't
 // have 32-bit android.hardware.health@2.0.so or libbootloader_message.so on marlin).
@@ -100,21 +82,17 @@ librecovery_static_libs = [
     "libhidlbase",
     "liblp",
     "libtinyxml2",
-    "libc++fs",
 ]
 
 // recovery image for unittests.
 // ========================================================
 genrule {
     name: "recovery_image",
-    cmd: "cat $(location testdata/recovery_head) <(cat $(location testdata/recovery_body) | $(location minigzip)) $(location testdata/recovery_tail) > $(out)",
+    cmd: "cat $(location testdata/recovery_head) <(cat $(location testdata/recovery_body) | gzip) $(location testdata/recovery_tail) > $(out)",
     srcs: [
         "testdata/recovery_head",
         "testdata/recovery_body",
         "testdata/recovery_tail",
-    ],
-    tools: [
-        "minigzip",
     ],
     out: [
         "testdata/recovery.img",
@@ -128,15 +106,9 @@ cc_test {
 
     defaults: [
         "recovery_test_defaults",
-        "libupdater_defaults",
-        "libupdater_device_defaults",
     ],
 
     test_suites: ["device-tests"],
-
-    tidy_timeout_srcs: [
-        "unit/commands_test.cpp",
-    ],
 
     srcs: [
         "unit/*.cpp",
@@ -146,17 +118,15 @@ cc_test {
         "libbinder_ndk",
     ],
 
-    static_libs: libapplypatch_static_libs + librecovery_static_libs + [
+    static_libs: librecovery_static_libs + [
         "android.hardware.health-translate-ndk",
-        "android.hardware.health-V3-ndk",
+        "android.hardware.health-V4-ndk",
         "libhealthshim",
         "librecovery_ui",
         "libfusesideload",
         "libminui",
         "librecovery_utils",
         "libotautil",
-        "libupdater_device",
-        "libupdater_core",
         "libupdate_verifier",
 
         "libprotobuf-cpp-lite",
@@ -187,47 +157,6 @@ cc_test {
     ],
 }
 
-cc_test_host {
-    name: "recovery_host_test",
-    isolated: true,
-
-    defaults: [
-        "recovery_test_defaults",
-        "libupdater_defaults",
-    ],
-
-    tidy_timeout_srcs: [
-        "unit/host/imgdiff_test.cpp",
-    ],
-
-    srcs: [
-        "unit/host/*",
-    ],
-
-    static_libs: [
-        "libupdater_host",
-        "libupdater_core",
-        "libimgdiff",
-        "libbsdiff",
-        "libdivsufsort64",
-        "libdivsufsort",
-        "libfstab",
-        "libc++fs",
-    ],
-
-    test_suites: ["general-tests"],
-    test_config: "RecoveryHostTest.xml",
-
-    data: ["testdata/*"],
-
-    target: {
-        darwin: {
-            // libapplypatch in "libupdater_defaults" is not available on the Mac.
-            enabled: false,
-        },
-    },
-}
-
 cc_fuzz {
     name: "libinstall_verify_package_fuzzer",
     defaults: [
@@ -237,7 +166,7 @@ cc_fuzz {
     srcs: ["fuzz/verify_package_fuzzer.cpp"],
 
     corpus: [
-      "testdata/otasigned*.zip",
+        "testdata/otasigned*.zip",
     ],
 
     static_libs: [
