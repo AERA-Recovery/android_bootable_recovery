@@ -1288,6 +1288,7 @@
 
 		<!-- WLAN -->
 		<string name="wlan_menu">WiFi</string>
+		<string name="wlan_start">启动 WLAN</string>
 		<string name="wlan_scan">扫描网络</string>
 		<string name="wlan_scanning">扫描网络中...</string>
 		<string name="wlan_connect">连接网络</string>
