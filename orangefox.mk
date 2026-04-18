@@ -808,10 +808,7 @@ ifeq ($(OF_USE_DMCTL),1)
     $(error You cannot use both 'FOX_USE_DMSETUP' and 'OF_USE_DMCTL' at the same time)
   else
     LOCAL_CFLAGS += -DOF_USE_DMCTL='"1"'
-    TWRP_REQUIRED_MODULES += dmctl
-    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmctl
-    TWRP_REQUIRED_MODULES += dmuserd
-    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmuserd
+    TW_USE_DMCTL := true
   endif
 endif
 

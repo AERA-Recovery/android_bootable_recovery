@@ -2709,7 +2709,7 @@ bool TWPartition::Wipe_F2FS() {
 		}
 	#endif
 
-	#ifdef OF_USE_DMCTL
+	#if defined(OF_USE_DMCTL) || defined(TW_USE_DMCTL)
 	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
 		LOGINFO("OrangeFox: running dmctl before formatting...\n");
 		TWFunc::Exec_Cmd("dmctl delete userdata", false);
