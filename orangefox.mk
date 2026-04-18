@@ -865,9 +865,27 @@ endif
 
 # enable WLAN
 ifeq ($(OF_ENABLE_WLAN),1)
+    ifeq ($(wildcard external/wpa_supplicant_8/Android.bp),)
+        $(warning wpa_supplicant_8 sources not found! You need to clone the sources.)
+        $(warning Please run: "git clone --depth=1 https://android.googlesource.com/platform/external/wpa_supplicant_8 -b android16-s2-release external/wpa_supplicant_8")
+        $(error wpa_supplicant_8 sources not present; exiting.)
+    endif
+
     LOCAL_CFLAGS += -DOF_ENABLE_WLAN
     TW_NO_NETWORK := false
     $(warning The wlan features will be enabled. You need to provide (and load and manage) your WiFi drivers in your device tree)
+
+    TWRP_REQUIRED_MODULES += \
+        wpa_supplicant \
+        wpa_cli
+
+   RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/hw/wpa_supplicant
+   RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/wpa_cli
+   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_SHARED_LIBRARIES)/libkeystore-engine-wifi-hidl.so
+   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_SHARED_LIBRARIES)/android.system.keystore2-V1-ndk.so
+   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.security.keymint-V1-ndk.so
+   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.wifi.common-V2-ndk.so
+   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.wifi.supplicant-V4-ndk.so
 else
     TW_NO_NETWORK := true
     LOCAL_CFLAGS += -DTW_NO_NETWORK
