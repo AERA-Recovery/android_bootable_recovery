@@ -317,6 +317,7 @@ endif
 ifneq ($(TW_NO_NETWORK), true)
     TWRP_REQUIRED_MODULES += \
         index.html \
+        fox_icon.png \
 endif
 ifneq ($(TW_ADDITIONAL_APEX_FILES),)
     LOCAL_CFLAGS += -DTW_ADDITIONAL_APEX_FILES=$(TW_ADDITIONAL_APEX_FILES)
