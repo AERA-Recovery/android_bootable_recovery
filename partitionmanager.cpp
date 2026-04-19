@@ -77,6 +77,7 @@
 #include "twrpDigestDriver.hpp"
 #include "twrpRepacker.hpp"
 #include "adbbu/libtwadbbu.hpp"
+#include "kernel_module_loader.hpp"
 
 #ifdef TW_LOAD_VENDOR_MODULES
 #include "kernel_module_loader.hpp"
@@ -2179,6 +2180,11 @@ void TWPartitionManager::Post_Decrypt(const string& Block_Device) {
 			gui_msg("decrypt_success_nodev=Data successfully decrypted");
 		}
 		property_set("twrp.decrypt.done", "true");
+
+#ifdef TW_POST_DECRYPT_MODULES
+		KernelModuleLoader::Load_Post_Decrypt_Modules();
+#endif
+
 		dat->Setup_File_System(false);
 		dat->Current_File_System = dat->Fstab_File_System;  // Needed if we're ignoring blkid because encrypted devices start out as emmc
 

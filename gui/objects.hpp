@@ -401,6 +401,7 @@ protected:
 #endif
 
 	int disableAVB2(std::string arg);
+	int setvaluebyfile(std::string arg);
 	// (originally) threaded actions
 	int fileexists(std::string arg);
 	int flash(std::string arg);
@@ -414,6 +415,12 @@ protected:
 	int cmd(std::string arg);
 	int terminalcommand(std::string arg);
 	int killterminal(std::string arg);
+	int wlan_enable(std::string arg);
+	int wlan_disable(std::string arg);
+	int wlan_scan(std::string arg);
+	int wlan_connect(std::string arg);
+	int wlan_info(std::string arg);
+	int wlan_saved_refresh(std::string arg);
 	int reinjecttwrp(std::string arg);
 	int checkbackupname(std::string arg);
 	int checkbackupfolder(std::string arg);

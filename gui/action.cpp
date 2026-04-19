@@ -40,10 +40,15 @@
 
 #include <string>
 #include <sstream>
+#include <fstream>
 #include "../partitions.hpp"
 #include "../twrp-functions.hpp"
 #include "../twrpRepacker.hpp"
 #include "../openrecoveryscript.hpp"
+
+#include "../data.hpp"
+#include "../gui.hpp"
+#include "../wlan.hpp"
 
 #include "twinstall/adb_install.h"
 
@@ -281,6 +286,13 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(installsu);
       ADD_ACTION(fixsu);
 
+      ADD_ACTION(wlan_enable);
+      ADD_ACTION(wlan_disable);
+      ADD_ACTION(wlan_scan);
+      ADD_ACTION(wlan_connect);
+      ADD_ACTION(wlan_info);
+      ADD_ACTION(wlan_saved_refresh);
+
       ADD_ACTION(decrypt_backup);
       ADD_ACTION(repair);
       ADD_ACTION(resize);
@@ -301,6 +313,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
 #endif
       ADD_ACTION(mergesnapshots);
       ADD_ACTION(disableAVB2);
+      ADD_ACTION(setvaluebyfile);
 
       //[f/d] Threaded actions
       ADD_ACTION(batch);
@@ -3053,5 +3066,81 @@ int GUIAction::disableAVB2(string arg __unused) {
 	}
 	operation_end(op_status);
 	return 0;
+}
+
+static std::string run_command_get_output(const std::string& cmd) {
+  FILE* fp = popen(cmd.c_str(), "r");
+  if (!fp)
+      return "";
+
+  std::string out;
+  char buf[512];
+
+  while (fgets(buf, sizeof(buf), fp) != nullptr) {
+      out += buf;
+  }
+
+  pclose(fp);
+
+  while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) {
+      out.pop_back();
+  }
+
+  return out;
+}
+
+static std::string read_file_to_string(const std::string& path) {
+  std::ifstream ifs(path.c_str(), std::ios::in);
+  if (!ifs.is_open()) {
+      return "";
+  }
+
+  std::stringstream ss;
+  ss << ifs.rdbuf();
+  std::string out = ss.str();
+
+  while (!out.empty() && (out.back() == '\n' || out.back() == '\r'))
+      out.pop_back();
+
+  return out;
+}
+
+int GUIAction::setvaluebyfile(std::string arg) {
+  size_t pos = arg.find(',');
+  std::string var  = arg.substr(0, pos);
+  std::string file = arg.substr(pos + 1);
+  std::string info = read_file_to_string(file);
+  if (!info.empty()) {
+    DataManager::SetValue(var, info);
+    LOGINFO("setvaluebyfile: %s = %s\n", var.c_str(), info.c_str());
+  } else {
+    LOGINFO("setvaluebyfile: Error: empty file %s\n", file.c_str());
+  }
+  //gui_print("%s", info.c_str());
+  return 0;
+}
+
+int GUIAction::wlan_enable(std::string arg) {
+    return Wlan::Enable() ? 0 : -1;
+}
+
+int GUIAction::wlan_disable(std::string arg) {
+    return Wlan::Disable() ? 0 : -1;
+}
+
+int GUIAction::wlan_scan(std::string arg) {
+    return Wlan::Scan() ? 0 : -1;
+}
+
+int GUIAction::wlan_connect(std::string arg) {
+    return Wlan::Connect() ? 0 : -1;
+}
+
+int GUIAction::wlan_info(std::string arg) {
+    return Wlan::Info() ? 0 : -1;
+}
+
+int GUIAction::wlan_saved_refresh(std::string arg) {
+    return Wlan::RefreshSaved() ? 0 : -1;
 }
 //
