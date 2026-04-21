@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <vector>
+#include <regex>
 #include <cutils/properties.h>
 
 #include "data.hpp"
@@ -45,6 +46,9 @@ static const char* WLAN_SUPP_SERVICE   = "wpa_supplicant";
 static const char* WLAN_SUPP_SVC_PROP  = "init.svc.wpa_supplicant";
 
 bool Wlan::Init() {
+    DataManager::SetValue("tw_wlan_enabled", 0);
+    DataManager::SetValue("tw_wlan_connected", 0);
+    DataManager::SetValue("wlan_connected_name", "");
     return EnsureTmpLayout();
 }
 
@@ -53,6 +57,8 @@ bool Wlan::Enable() {
 
     if (!StartSupplicant()) {
         DataManager::SetValue("tw_wlan_enabled", 0);
+        DataManager::SetValue("tw_wlan_connected", 0);
+        DataManager::SetValue("wlan_connected_name", "");
         gui_print("WLAN: failed to start supplicant service\n");
         return false;
     }
@@ -74,6 +80,7 @@ bool Wlan::Disable() {
     EnsureTmpLayout();
 
     DataManager::SetValue("tw_wlan_enabled", 0);
+    DataManager::SetValue("tw_wlan_connected", 0);
     DataManager::SetValue("wlan_connected_name", "");
     return true;
 }
@@ -120,6 +127,7 @@ bool Wlan::Connect() {
 
     if (wpacli.empty()) {
         gui_print("WLAN: wpa_cli binary not found\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
@@ -128,12 +136,14 @@ bool Wlan::Connect() {
 
     if (ssid.empty()) {
         gui_print("WLAN: no SSID selected\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
     std::string enc;
     if (!ReadFile(std::string(WLAN_LIST_DIR) + "/" + ssid, enc)) {
         gui_print("WLAN: missing metadata for selected SSID\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
     enc = Trim(enc);
@@ -151,6 +161,7 @@ bool Wlan::Connect() {
 
     if (key_mgmt != "NONE" && pass.empty()) {
         gui_print("WLAN: password required\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
@@ -191,6 +202,7 @@ bool Wlan::Connect() {
     gui_print("Add new network config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " add_network")) {
         gui_print("WLAN: add_network failed\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
@@ -198,12 +210,14 @@ bool Wlan::Connect() {
     gui_print("Add SSID to new config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 ssid '\"" + esc_ssid + "\"'")) {
         gui_print("WLAN: failed setting SSID\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
     gui_print("Add encryption to new config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 key_mgmt " + key_mgmt)) {
         gui_print("WLAN: failed setting key_mgmt\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
@@ -220,6 +234,7 @@ bool Wlan::Connect() {
 
         if (!pass_ok) {
             gui_print("WLAN: failed setting password\n");
+            DataManager::SetValue("tw_wlan_connected", 0);
             return false;
         }
     }
@@ -227,18 +242,21 @@ bool Wlan::Connect() {
     gui_print("Enable new config for network...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " enable_network 0")) {
         gui_print("WLAN: enable_network failed\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
     gui_print("Select new config for network...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " select_network 0")) {
         gui_print("WLAN: select_network failed\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
     gui_print("Reconnect...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " reconnect")) {
         gui_print("WLAN: reconnect failed\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
@@ -281,6 +299,7 @@ bool Wlan::Connect() {
     if (!completed) {
         gui_print(" \n");
         gui_print("WLAN: association failed\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         UpdateConnectedName();
         return false;
     }
@@ -293,6 +312,7 @@ bool Wlan::Connect() {
 
     if (!StartDhcp()) {
         gui_print("WLAN: DHCP failed\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         UpdateConnectedName();
         RefreshSaved();
         return false;
@@ -326,6 +346,7 @@ bool Wlan::Connect() {
 
     if (ip_addr.empty()) {
         gui_print("WLAN: no IP address assigned\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
@@ -337,9 +358,11 @@ bool Wlan::Connect() {
 
     if (Trim(connected).empty()) {
         gui_print("WLAN: connected name not updated\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
+    DataManager::SetValue("tw_wlan_connected", 1);
     gui_print("Wlan connect successfully!\n");
     return true;
 }
@@ -577,11 +600,20 @@ bool Wlan::BuildSavedList() {
 bool Wlan::BuildConnectedName() {
     const std::string iface = GetIface();
     const std::string ctrl  = GetCtrlDir();
+    const std::string wpacli = GetWpaCliBinary();
     std::string status;
 
-    if (!RunCommand(std::string(BIN_WPA_CLI) + " -i " + iface + " -p " + ctrl + " status", status)) {
+    if (wpacli.empty()) {
         unlink(WLAN_CONNECTED_FILE);
         DataManager::SetValue("wlan_connected_name", "");
+        DataManager::SetValue("tw_wlan_connected", 0);
+        return false;
+    }
+
+    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+        unlink(WLAN_CONNECTED_FILE);
+        DataManager::SetValue("wlan_connected_name", "");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
@@ -600,11 +632,13 @@ bool Wlan::BuildConnectedName() {
     if (wpa_state == "COMPLETED" && !ssid.empty()) {
         WriteFile(WLAN_CONNECTED_FILE, ssid + "\n");
         DataManager::SetValue("wlan_connected_name", ssid);
+        DataManager::SetValue("tw_wlan_connected", 1);
         return true;
     }
 
     unlink(WLAN_CONNECTED_FILE);
     DataManager::SetValue("wlan_connected_name", "");
+    DataManager::SetValue("tw_wlan_connected", 0);
     return false;
 }
 

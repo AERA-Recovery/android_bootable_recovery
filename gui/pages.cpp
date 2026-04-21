@@ -383,6 +383,12 @@ bool Page::ProcessNode(xml_node<>* page, std::vector<xml_node<>*> *templates, in
 			mObjects.push_back(element);
 			mRenders.push_back(element);
 		}
+		else if (type == "wlan")
+		{
+			GUIWlan* element = new GUIWlan(child);
+			mObjects.push_back(element);
+			mRenders.push_back(element);
+		}	
 		else if (type == "image")
 		{
 			GUIImage* element = new GUIImage(child);

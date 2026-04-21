@@ -1438,6 +1438,20 @@ protected:
 	int mUpdate;
 };
 
+class GUIWlan : public GUIObject, public RenderObject
+{
+public:
+	GUIWlan(xml_node<>* node);
+
+public:
+	virtual int Render(void);
+	virtual int Update(void);
+
+protected:
+	ImageResource* mConnectedImg;
+	int mRenderX, mRenderY, mRenderW, mRenderH;
+};
+
 
 // Helper APIs
 xml_node<>* FindNode(xml_node<>* parent, const char* nodename, int depth = 0);
