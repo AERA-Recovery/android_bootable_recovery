@@ -821,12 +821,21 @@ endif
 
 # ksu and variants
 ifeq ($(FOX_ENABLE_KERNELSU_SUPPORT),1)
+    ifneq ($(FOX_VIRTUAL_AB_DEVICE),1)
+     $(error FOX_ENABLE_KERNELSU_SUPPORT is only valid for Virtual_AB devices with a GKI 5.x or 6.x kernel)
+    endif
     LOCAL_CFLAGS += -DFOX_ENABLE_KERNELSU_SUPPORT
 endif
 ifeq ($(FOX_ENABLE_KERNELSU_NEXT_SUPPORT),1)
+    ifneq ($(FOX_VIRTUAL_AB_DEVICE),1)
+     $(error FOX_ENABLE_KERNELSU_NEXT_SUPPORT is only valid for Virtual_AB devices with a GKI 5.x or 6.x kernel)
+    endif
     LOCAL_CFLAGS += -DFOX_ENABLE_KERNELSU_NEXT_SUPPORT
 endif
 ifeq ($(FOX_ENABLE_SUKISU_SUPPORT),1)
+    ifneq ($(FOX_VIRTUAL_AB_DEVICE),1)
+     $(error FOX_ENABLE_SUKISU_SUPPORT is only valid for Virtual_AB devices with a GKI 5.x or 6.x kernel)
+    endif
     LOCAL_CFLAGS += -DFOX_ENABLE_SUKISU_SUPPORT
 endif
 
