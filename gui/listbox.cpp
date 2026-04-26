@@ -32,6 +32,7 @@ extern "C" {
 #include "../partitions.hpp"
 #include "pages.hpp"
 #include "../twrp-functions.hpp"
+#include <fstream>
 
 extern std::vector<language_struct> Language_List;
 
@@ -39,7 +40,7 @@ GUIListBox::GUIListBox(xml_node<>* node) : GUIScrollList(node)
 {
 	xml_attribute<>* attr;
 	xml_node<>* child;
-	mIconSelected = mIconUnselected = NULL;
+	mIconSelected = mIconUnselected = mIconLocked = NULL;
 	mUpdate = 0;
 	requireReload = isCheckList = isTextParsed = false;
 	
@@ -48,6 +49,7 @@ GUIListBox::GUIListBox(xml_node<>* node) : GUIScrollList(node)
 	if (child) {
 		mIconSelected = LoadAttrImage(child, "selected");
 		mIconUnselected = LoadAttrImage(child, "unselected");
+		mIconLocked = LoadAttrImage(child, "locked");
 	}
 	int iconWidth = 0, iconHeight = 0;
 	
@@ -66,6 +68,9 @@ GUIListBox::GUIListBox(xml_node<>* node) : GUIScrollList(node)
 		} else if (mIconUnselected && mIconUnselected->GetResource()) {
 			iconWidth = mIconUnselected->GetWidth();
 			iconHeight = mIconUnselected->GetHeight();
+		} else if (mIconLocked && mIconLocked->GetResource()) {
+			iconWidth = std::max(iconWidth, mIconLocked->GetWidth());
+			iconHeight = std::max(iconHeight, mIconLocked->GetHeight());
 		}
 	}
 
@@ -236,6 +241,57 @@ void GUIListBox::CreateEncryptUsersList(void) {
 	}
 }
 
+
+static std::string OF_TrimString(const std::string& s)
+{
+	size_t start = 0;
+	while (start < s.size() &&
+	       (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r')) {
+		start++;
+	}
+
+	size_t end = s.size();
+	while (end > start &&
+	       (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\n' || s[end - 1] == '\r')) {
+		end--;
+	}
+
+	return s.substr(start, end - start);
+}
+
+static bool OF_WlanSsidIsSaved(const std::string& ssid)
+{
+	std::ifstream ifs("/tmp/wlan/saved.txt");
+	if (!ifs.is_open())
+		return false;
+
+	std::string line;
+	while (std::getline(ifs, line)) {
+		line = OF_TrimString(line);
+
+		if (line == ssid)
+			return true;
+	}
+
+	return false;
+}
+
+static bool OF_WlanSsidIsOpen(const std::string& ssid)
+{
+	std::string path = "/tmp/wlan/list/" + ssid;
+	std::ifstream ifs(path.c_str());
+
+	if (!ifs.is_open())
+		return false;
+
+	std::string enc;
+	std::getline(ifs, enc);
+	enc = OF_TrimString(enc);
+
+	return enc == "OPEN";
+}
+
+//[f/d]
 //[f/d]
 void GUIListBox::ReadFileToList(const char* fileName) {
 	gui_msg(Msg(msg::kNormal, "file_read=Reading file: {1}")(fileName));
@@ -245,8 +301,14 @@ void GUIListBox::ReadFileToList(const char* fileName) {
 
 	std::string wlan_display;
 	DataManager::GetValue("wlanlistdisplay", wlan_display);
-	bool is_wlan_list = (wlan_display == "1");
-	bool use_wlan_icon = (is_wlan_list && (mIconSelected || mIconUnselected));
+
+	std::string file_name_str = fileName ? fileName : "";
+
+	bool is_wlan_list =
+		(wlan_display == "1") ||
+		(file_name_str == "/tmp/wlan/list.txt");
+
+	bool use_wlan_icon = (is_wlan_list && (mIconSelected || mIconUnselected || mIconLocked));
 
 	string error = "Error";
 	std::vector<wstring> lines;
@@ -254,16 +316,17 @@ void GUIListBox::ReadFileToList(const char* fileName) {
 	if (!is_wlan_list)
 		lines.push_back(L"");
 
-	if (TWFunc::Get_File_Size(fileName) > 1572864) // 1.5mb
+	if (TWFunc::Get_File_Size(fileName) > 1572864) { // 1.5mb
 		error = gui_parse_text("{@file_read_error_size=File is bigger than 1.5MB!}");
-	else if (TWFunc::read_file(fileName, lines) == 0) {
-		if (lines.size() >= 2 && (lines[0] + lines[1]).find(L'\0') != std::wstring::npos)
+	} else if (TWFunc::read_file(fileName, lines) == 0) {
+		if (lines.size() >= 2 && (lines[0] + lines[1]).find(L'\0') != std::wstring::npos) {
 			error = gui_parse_text("{@file_read_error_bin=Can't read binary file!}");
-		else {
+		} else {
 			if (!is_wlan_list)
 				lines.push_back(L"");
 
 			unsigned int vector_size = lines.size();
+
 			for (unsigned int i = 0; i < vector_size; i++) {
 				wstring line = lines[i];
 				size_t len = line.length();
@@ -272,23 +335,74 @@ void GUIListBox::ReadFileToList(const char* fileName) {
 					ListItem item;
 					item.displayName = TWFunc::wstr_to_str(line);
 					item.variableValue = "";
-					item.selected = 0;
 					item.action = NULL;
-					item.hasicon = use_wlan_icon;
-					item.icon = use_wlan_icon ? (mIconSelected ? mIconSelected : mIconUnselected) : NULL;
+
+					if (use_wlan_icon) {
+						item.displayName = OF_TrimString(item.displayName);
+
+						bool saved = OF_WlanSsidIsSaved(item.displayName);
+						bool open = OF_WlanSsidIsOpen(item.displayName);
+
+						item.selected = 0;
+						item.hasicon = true;
+
+						if (saved) {
+							item.icon = mIconSelected ? mIconSelected : mIconUnselected;
+						} else if (!open) {
+							item.icon = mIconLocked ? mIconLocked : mIconUnselected;
+						} else {
+							item.icon = mIconUnselected;
+						}
+
+						gui_print("WLAN LISTBOX: SSID='%s' saved=%d open=%d icon=%s\n",
+							item.displayName.c_str(),
+							saved ? 1 : 0,
+							open ? 1 : 0,
+							saved ? "wlan_saved" : (!open ? "wlan_locked" : "wlan"));
+					} else {
+						item.selected = 0;
+						item.hasicon = false;
+						item.icon = NULL;
+					}
 
 					mListItems.push_back(item);
 					mVisibleItems.push_back(mListItems.size() - 1);
 				} else {
 					size_t off = 0;
+
 					do {
 						ListItem item;
 						item.displayName = TWFunc::wstr_to_str(line.substr(off, 54));
 						item.variableValue = "";
-						item.selected = 0;
 						item.action = NULL;
-						item.hasicon = use_wlan_icon;
-						item.icon = use_wlan_icon ? (mIconSelected ? mIconSelected : mIconUnselected) : NULL;
+
+						if (use_wlan_icon) {
+							item.displayName = OF_TrimString(item.displayName);
+
+							bool saved = OF_WlanSsidIsSaved(item.displayName);
+							bool open = OF_WlanSsidIsOpen(item.displayName);
+
+							item.selected = 0;
+							item.hasicon = true;
+
+							if (saved) {
+								item.icon = mIconSelected ? mIconSelected : mIconUnselected;
+							} else if (!open) {
+								item.icon = mIconLocked ? mIconLocked : mIconUnselected;
+							} else {
+								item.icon = mIconUnselected;
+							}
+
+							gui_print("WLAN LISTBOX: SSID='%s' saved=%d open=%d icon=%s\n",
+								item.displayName.c_str(),
+								saved ? 1 : 0,
+								open ? 1 : 0,
+								saved ? "wlan_saved" : (!open ? "wlan_locked" : "wlan"));
+						} else {
+							item.selected = 0;
+							item.hasicon = false;
+							item.icon = NULL;
+						}
 
 						mListItems.push_back(item);
 						mVisibleItems.push_back(mListItems.size() - 1);
@@ -300,8 +414,9 @@ void GUIListBox::ReadFileToList(const char* fileName) {
 			gui_msg("done=Done.");
 			return;
 		}
-	} else
+	} else {
 		error = gui_parse_text("{@file_read_error=Unable to open file!}");
+	}
 
 	for (int i = 0; i < 2; i++) {
 		ListItem item;
@@ -458,8 +573,14 @@ void GUIListBox::RenderItem(size_t itemindex, int yPos, bool selected)
 void GUIListBox::NotifySelect(size_t item_selected)
 {
 	std::string wlan_display;
-    	DataManager::GetValue("wlanlistdisplay", wlan_display);
-	if (mVariable == "of_file_to_read" && wlan_display != "1") return;
+	std::string wlansaved_display;
+
+	DataManager::GetValue("wlanlistdisplay", wlan_display);
+	DataManager::GetValue("wlansaveddisplay", wlansaved_display);
+
+	if (mVariable == "of_file_to_read" && wlan_display != "1" && wlansaved_display != "1")
+		return;
+
 	if (!isCheckList) {
 		// deselect all items, even invisible ones
 		for (size_t i = 0; i < mListItems.size(); i++) {
@@ -468,26 +589,46 @@ void GUIListBox::NotifySelect(size_t item_selected)
 	}
 
 	ListItem& item = mListItems[mVisibleItems[item_selected]];
-	
+
 	if (mVariable == "tw_crypto_user_id_list") {
 		DataManager::SetValue("tw_crypto_user_display", item.displayName);
 		DataManager::SetValue("tw_crypto_user_id", item.variableValue);
 		DataManager::SetValue("tw_crypto_pwtype", item.id);
 		DataManager::SetValue(mVariable, item.variableValue);
-		} else if (mVariable == "of_file_to_read" && wlan_display == "1") {
+
+	} else if (mVariable == "of_file_to_read" && wlan_display == "1") {
 		DataManager::SetValue("wlanselectedid", item.displayName);
-		gui_changePage("wlan_connect");
+
+		/*
+		 * If this scanned SSID is already saved, auto-connect using encrypted
+		 * saved credentials. Otherwise use the normal connect/password flow.
+		 */
+		if (OF_WlanSsidIsSaved(item.displayName)) {
+			gui_changePage("wlan_connect_saved");
+		} else {
+			gui_changePage("wlan_connect");
+		}
+
 		DataManager::SetValue("wlanlistdisplay", "0");
+
+	} else if (mVariable == "of_file_to_read" && wlansaved_display == "1") {
+		DataManager::SetValue("wlanselectedid", item.displayName);
+		gui_changePage("wlan_connect_saved");
+		DataManager::SetValue("wlansaveddisplay", "0");
+
 	} else if (isCheckList) {
 		int selected = 1 - item.selected;
 		item.selected = selected;
 		DataManager::SetValue(item.variableName, selected ? "1" : "0");
+
 	} else {
 		item.selected = 1;
-		string str = item.variableValue;	// [check] should this set currentValue instead?
+		string str = item.variableValue;
 		DataManager::SetValue(mVariable, str);
 	}
+
 	if (item.action)
 		item.action->doActions();
+
 	mUpdate = 1;
 }

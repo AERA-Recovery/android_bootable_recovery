@@ -419,6 +419,7 @@ protected:
 	int wlan_disable(std::string arg);
 	int wlan_scan(std::string arg);
 	int wlan_connect(std::string arg);
+	int wlan_connect_saved(std::string arg);
 	int wlan_info(std::string arg);
 	int wlan_saved_refresh(std::string arg);
 	int reinjecttwrp(std::string arg);
@@ -829,6 +830,7 @@ protected:
 	std::string currentValue;
 	ImageResource* mIconSelected;
 	ImageResource* mIconUnselected;
+	ImageResource* mIconLocked;
 	bool isCheckList;
 	bool isTextParsed;
 	bool requireReload;
@@ -869,6 +871,7 @@ protected:
 	std::string mLastValue;
 	ImageResource* mIconSelected;
 	ImageResource* mIconUnselected;
+	ImageResource* mIconLocked;
 	bool updateList;
 	bool countTotal;
 };
