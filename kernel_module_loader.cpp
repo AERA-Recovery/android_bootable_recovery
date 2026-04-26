@@ -3,6 +3,7 @@
 #include "variables.h"
 #include "data.hpp"
 #include <cutils/properties.h>
+#include <dirent.h>
 
 #ifdef TW_INCLUDE_CRYPTO
 #include <android-base/file.h>
@@ -50,6 +51,44 @@ BOOT_MODE KernelModuleLoader::Get_Boot_Mode() {
 	return RECOVERY_IN_BOOT_MODE;
 }
 
+static bool Find_Module_Recursive(const std::string& base_dir,
+                                  const std::string& module_name,
+                                  std::string& found_path,
+                                  int depth = 0) {
+	if (depth > 4)
+		return false;
+
+	DIR* d = opendir(base_dir.c_str());
+	if (!d)
+		return false;
+
+	struct dirent* de;
+	while ((de = readdir(d)) != nullptr) {
+		std::string name = de->d_name;
+
+		if (name == "." || name == "..")
+			continue;
+
+		std::string path = base_dir + "/" + name;
+
+		if (de->d_type == DT_REG && name == module_name) {
+			found_path = path;
+			closedir(d);
+			return true;
+		}
+
+		if (de->d_type == DT_DIR) {
+			if (Find_Module_Recursive(path, module_name, found_path, depth + 1)) {
+				closedir(d);
+				return true;
+			}
+		}
+	}
+
+	closedir(d);
+	return false;
+}
+
 bool KernelModuleLoader::Stage_Post_Decrypt_Modules() {
 	if (post_decrypt_modules_requested.empty()) {
 		LOGINFO("No post-decrypt modules requested\n");
@@ -72,10 +111,51 @@ bool KernelModuleLoader::Stage_Post_Decrypt_Modules() {
 		bool found = false;
 
 		for (const auto& dir : search_dirs) {
-			std::string src = dir + "/" + mod;
-			std::string dst = post_decrypt_stage_dir + "/" + mod;
+			std::string src;
 
-			if (TWFunc::Path_Exists(src)) {
+			/*
+			 * First check the direct path:
+			 *   /system_dlkm/lib/modules/module.ko
+			 *   /vendor_dlkm/lib/modules/module.ko
+			 */
+			std::string direct_src = dir + "/" + mod;
+			if (TWFunc::Path_Exists(direct_src)) {
+				src = direct_src;
+			} else {
+				/*
+				 * Then search one level inside:
+				 *   /system_dlkm/lib/modules/<folder>/module.ko
+				 *   /vendor_dlkm/lib/modules/<folder>/module.ko
+				 *
+				 * This catches layouts like:
+				 *   /system_dlkm/lib/modules/6.1-gki/module.ko
+				 */
+				DIR* d = opendir(dir.c_str());
+				if (d != nullptr) {
+					struct dirent* de;
+
+					while ((de = readdir(d)) != nullptr) {
+						std::string name = de->d_name;
+
+						if (name == "." || name == "..")
+							continue;
+
+						std::string subdir = dir + "/" + name;
+						std::string sub_src = subdir + "/" + mod;
+
+						if (TWFunc::Path_Exists(sub_src)) {
+							src = sub_src;
+							break;
+						}
+					}
+
+					closedir(d);
+				}
+			}
+
+			if (!src.empty()) {
+				std::string dst = post_decrypt_stage_dir + "/" + mod;
+
 				if (TWFunc::copy_file(src, dst, 0700, false) == 0) {
 					LOGINFO("Staged post-decrypt module: %s -> %s\n", src.c_str(), dst.c_str());
 					module_list += mod + "\n";
@@ -83,13 +163,14 @@ bool KernelModuleLoader::Stage_Post_Decrypt_Modules() {
 				} else {
 					LOGINFO("Failed to stage post-decrypt module: %s\n", src.c_str());
 				}
+
 				found = true;
 				break;
 			}
 		}
 
 		if (!found) {
-			LOGINFO("Post-decrypt module not found in system_dlkm/vendor_dlkm: %s\n", mod.c_str());
+			LOGINFO("Post-decrypt module not found in system_dlkm/vendor_dlkm or first-level subdirs: %s\n", mod.c_str());
 		}
 	}
 
