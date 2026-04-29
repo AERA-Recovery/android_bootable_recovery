@@ -66,6 +66,7 @@ int gr_ttf_getMaxFontHeight(void *font);
 void gr_ttf_dump_stats(void);
 
 void gr_blit(gr_surface source, int sx, int sy, int w, int h, int dx, int dy);
+void gr_blit_rotated(gr_surface source, int sx, int sy, int w, int h, int dx, int dy, int angle);
 unsigned int gr_get_width(gr_surface surface);
 unsigned int gr_get_height(gr_surface surface);
 int gr_get_surface(gr_surface* surface);

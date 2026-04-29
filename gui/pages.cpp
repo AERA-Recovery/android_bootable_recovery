@@ -450,6 +450,12 @@ bool Page::ProcessNode(xml_node<>* page, std::vector<xml_node<>*> *templates, in
 			mObjects.push_back(element);
 			mRenders.push_back(element);
 		}
+		else if (type == "spinningimage")
+		{
+			GUISpinningImage* element = new GUISpinningImage(child);
+			mObjects.push_back(element);
+			mRenders.push_back(element);
+		}
 		else if (type == "progressbar")
 		{
 			GUIProgressBar* element = new GUIProgressBar(child);

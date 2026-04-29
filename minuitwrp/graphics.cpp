@@ -40,6 +40,9 @@
 #include <algorithm>
 #include "minuitwrp/truetype.hpp"
 
+// for fox_16.0
+#include <math.h>
+
 struct GRFont {
     GRSurface* texture;
     int cwidth;
@@ -324,6 +327,174 @@ void gr_blit(gr_surface source, int sx, int sy, int w, int h, int dx, int dy)
 
     if(surface->format == GGL_PIXEL_FORMAT_RGBX_8888)
         gl->enable(gl, GGL_BLEND);
+}
+
+void gr_blit_rotated(gr_surface source, int sx, int sy, int w, int h, int dx, int dy, int angle)
+{
+	if (!source || w <= 0 || h <= 0)
+		return;
+
+	if (!gr_draw || !gr_draw->data || gr_draw->pixel_bytes <= 0 || gr_draw->row_bytes <= 0)
+		return;
+
+	while (angle < 0)
+		angle += 360;
+
+	angle %= 360;
+
+	const int bpp = gr_draw->pixel_bytes;
+	const int temp_row_bytes = w * bpp;
+	const size_t temp_size = static_cast<size_t>(temp_row_bytes) * static_cast<size_t>(h);
+
+	if (temp_size == 0)
+		return;
+
+	unsigned char* before_data = static_cast<unsigned char*>(calloc(1, temp_size));
+	unsigned char* after_data = static_cast<unsigned char*>(calloc(1, temp_size));
+
+	if (!before_data || !after_data) {
+		if (before_data)
+			free(before_data);
+		if (after_data)
+			free(after_data);
+
+		gr_blit(source, sx, sy, w, h, dx, dy);
+		return;
+	}
+
+	/*
+	 * Save the current framebuffer rectangle behind the spinner.
+	 */
+	for (int y = 0; y < h; ++y) {
+		const int screen_y = dy + y;
+
+		if (screen_y < 0 || screen_y >= gr_draw->height)
+			continue;
+
+		for (int x = 0; x < w; ++x) {
+			const int screen_x = dx + x;
+
+			if (screen_x < 0 || screen_x >= gr_draw->width)
+				continue;
+
+			unsigned char* dst =
+				before_data + (y * temp_row_bytes) + (x * bpp);
+
+			const unsigned char* src =
+				gr_draw->data + (screen_y * gr_draw->row_bytes) + (screen_x * bpp);
+
+			memcpy(dst, src, bpp);
+		}
+	}
+
+	/*
+	 * Draw the source normally using the existing working image/SVG path.
+	 */
+	gr_blit(source, sx, sy, w, h, dx, dy);
+
+	/*
+	 * Capture the rectangle after normal gr_blit().
+	 */
+	for (int y = 0; y < h; ++y) {
+		const int screen_y = dy + y;
+
+		if (screen_y < 0 || screen_y >= gr_draw->height)
+			continue;
+
+		for (int x = 0; x < w; ++x) {
+			const int screen_x = dx + x;
+
+			if (screen_x < 0 || screen_x >= gr_draw->width)
+				continue;
+
+			unsigned char* dst =
+				after_data + (y * temp_row_bytes) + (x * bpp);
+
+			const unsigned char* src =
+				gr_draw->data + (screen_y * gr_draw->row_bytes) + (screen_x * bpp);
+
+			memcpy(dst, src, bpp);
+		}
+	}
+
+	/*
+	 * Restore the original background so the unrotated icon is removed.
+	 */
+	for (int y = 0; y < h; ++y) {
+		const int screen_y = dy + y;
+
+		if (screen_y < 0 || screen_y >= gr_draw->height)
+			continue;
+
+		for (int x = 0; x < w; ++x) {
+			const int screen_x = dx + x;
+
+			if (screen_x < 0 || screen_x >= gr_draw->width)
+				continue;
+
+			unsigned char* dst =
+				gr_draw->data + (screen_y * gr_draw->row_bytes) + (screen_x * bpp);
+
+			const unsigned char* src =
+				before_data + (y * temp_row_bytes) + (x * bpp);
+
+			memcpy(dst, src, bpp);
+		}
+	}
+
+	const double radians = -static_cast<double>(angle) * 3.14159265358979323846 / 180.0;
+	const double cs = cos(radians);
+	const double sn = sin(radians);
+
+	const double cx = static_cast<double>(w - 1) / 2.0;
+	const double cy = static_cast<double>(h - 1) / 2.0;
+
+	/*
+	 * Rotate only pixels changed by gr_blit().
+	 * Unchanged pixels are treated as transparent/empty.
+	 */
+	for (int y = 0; y < h; ++y) {
+		const int screen_y = dy + y;
+
+		if (screen_y < 0 || screen_y >= gr_draw->height)
+			continue;
+
+		for (int x = 0; x < w; ++x) {
+			const int screen_x = dx + x;
+
+			if (screen_x < 0 || screen_x >= gr_draw->width)
+				continue;
+
+			const double dx_local = static_cast<double>(x) - cx;
+			const double dy_local = static_cast<double>(y) - cy;
+
+			const double src_x_f = (cs * dx_local) - (sn * dy_local) + cx;
+			const double src_y_f = (sn * dx_local) + (cs * dy_local) + cy;
+
+			const int src_x = static_cast<int>(floor(src_x_f + 0.5));
+			const int src_y = static_cast<int>(floor(src_y_f + 0.5));
+
+			if (src_x < 0 || src_x >= w || src_y < 0 || src_y >= h)
+				continue;
+
+			const unsigned char* before_pixel =
+				before_data + (src_y * temp_row_bytes) + (src_x * bpp);
+
+			const unsigned char* after_pixel =
+				after_data + (src_y * temp_row_bytes) + (src_x * bpp);
+
+			if (memcmp(before_pixel, after_pixel, bpp) == 0)
+				continue;
+
+			unsigned char* dst_pixel =
+				gr_draw->data + (screen_y * gr_draw->row_bytes) + (screen_x * bpp);
+
+			memcpy(dst_pixel, after_pixel, bpp);
+		}
+	}
+
+	free(before_data);
+	free(after_data);
 }
 
 unsigned int gr_get_width(gr_surface surface) {

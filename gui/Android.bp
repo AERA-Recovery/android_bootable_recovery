@@ -65,6 +65,7 @@ cc_library_static {
         "fileselector.cpp",
         "progressbar.cpp",
         "animation.cpp",
+        "spinningimage.cpp",
         "object.cpp",
         "slider.cpp",
         "slidervalue.cpp",

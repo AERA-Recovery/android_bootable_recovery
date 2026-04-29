@@ -552,8 +552,13 @@ bool Wlan::Scan() {
 }
 
 bool Wlan::Connect() {
-    if (!IsEnabled() && !Enable())
+    DataManager::SetValue("wlan_connect_text", "Connecting");
+
+    if (!IsEnabled() && !Enable()) {
+        DataManager::SetValue("wlan_connect_text", "Failed");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
+    }
 
     const std::string iface = GetIface();
     const std::string ctrl = GetCtrlDir();
@@ -561,6 +566,7 @@ bool Wlan::Connect() {
 
     if (wpacli.empty()) {
         gui_print("WLAN: wpa_cli binary not found\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -570,6 +576,7 @@ bool Wlan::Connect() {
 
     if (ssid.empty()) {
         gui_print("WLAN: no SSID selected\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -577,6 +584,7 @@ bool Wlan::Connect() {
     std::string enc;
     if (!ReadFile(std::string(WLAN_LIST_DIR) + "/" + ssid, enc)) {
         gui_print("WLAN: missing metadata for selected SSID\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -595,6 +603,7 @@ bool Wlan::Connect() {
 
     if (key_mgmt != "NONE" && pass.empty()) {
         gui_print("WLAN: password required\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -636,6 +645,7 @@ bool Wlan::Connect() {
     gui_print("Add new network config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " add_network")) {
         gui_print("WLAN: add_network failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -645,6 +655,7 @@ bool Wlan::Connect() {
     gui_print("Add SSID to new config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 ssid '\"" + esc_ssid + "\"'")) {
         gui_print("WLAN: failed setting SSID\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -652,6 +663,7 @@ bool Wlan::Connect() {
     gui_print("Add encryption to new config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 key_mgmt " + key_mgmt)) {
         gui_print("WLAN: failed setting key_mgmt\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -669,6 +681,7 @@ bool Wlan::Connect() {
 
         if (!pass_ok) {
             gui_print("WLAN: failed setting password\n");
+            DataManager::SetValue("wlan_connect_text", "Failed");
             DataManager::SetValue("tw_wlan_connected", 0);
             return false;
         }
@@ -677,6 +690,7 @@ bool Wlan::Connect() {
     gui_print("Enable new config for network...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " enable_network 0")) {
         gui_print("WLAN: enable_network failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -684,6 +698,7 @@ bool Wlan::Connect() {
     gui_print("Select new config for network...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " select_network 0")) {
         gui_print("WLAN: select_network failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -691,6 +706,7 @@ bool Wlan::Connect() {
     gui_print("Reconnect...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " reconnect")) {
         gui_print("WLAN: reconnect failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -734,11 +750,14 @@ bool Wlan::Connect() {
     if (!completed) {
         gui_print(" \n");
         gui_print("WLAN: association failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         UpdateConnectedName();
         RefreshSaved();
         return false;
     }
+
+    DataManager::SetValue("wlan_connect_text", "Getting IP-Address");
 
     gui_print(" \n");
     gui_print("Checking connection...\n");
@@ -748,6 +767,7 @@ bool Wlan::Connect() {
 
     if (!StartDhcp()) {
         gui_print("WLAN: DHCP failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         UpdateConnectedName();
         RefreshSaved();
@@ -781,6 +801,7 @@ bool Wlan::Connect() {
 
     if (ip_addr.empty()) {
         gui_print("WLAN: no IP address assigned\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         RefreshSaved();
         return false;
@@ -794,6 +815,7 @@ bool Wlan::Connect() {
 
     if (Trim(connected).empty()) {
         gui_print("WLAN: connected name not updated\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         RefreshSaved();
         return false;
@@ -834,11 +856,11 @@ bool Wlan::Connect() {
     } else {
         gui_print("WLAN: network already saved: %s\n", ssid.c_str());
     }
-    
+
     if (OF_SaveEncryptedNetwork(ssid, pass, enc)) {
-    	gui_print("WLAN: encrypted credentials saved for: %s\n", ssid.c_str());
+        gui_print("WLAN: encrypted credentials saved for: %s\n", ssid.c_str());
     } else {
-    	gui_print("WLAN: failed to save encrypted credentials for: %s\n", ssid.c_str());
+        gui_print("WLAN: failed to save encrypted credentials for: %s\n", ssid.c_str());
     }
 
     RefreshSaved();
@@ -852,13 +874,20 @@ bool Wlan::Connect() {
 
     DataManager::SetValue("tw_wlan_connected", 1);
     DataManager::SetValue("wlan_connected_name", ssid);
+    DataManager::SetValue("wlan_connect_text", "Connected");
+
     gui_print("Wlan connect successfully!\n");
     return true;
 }
 
 bool Wlan::ConnectSaved() {
-    if (!IsEnabled() && !Enable())
+    DataManager::SetValue("wlan_connect_text", "Connecting");
+
+    if (!IsEnabled() && !Enable()) {
+        DataManager::SetValue("wlan_connect_text", "Failed");
+        DataManager::SetValue("tw_wlan_connected", 0);
         return false;
+    }
 
     const std::string iface = GetIface();
     const std::string ctrl = GetCtrlDir();
@@ -866,6 +895,7 @@ bool Wlan::ConnectSaved() {
 
     if (wpacli.empty()) {
         gui_print("WLAN: wpa_cli binary not found\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -874,6 +904,7 @@ bool Wlan::ConnectSaved() {
 
     if (ssid.empty()) {
         gui_print("WLAN: no saved SSID selected\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -883,6 +914,7 @@ bool Wlan::ConnectSaved() {
 
     if (!OF_LoadEncryptedNetwork(ssid, saved_pass, saved_enc)) {
         gui_print("WLAN: no encrypted saved credentials for: %s\n", ssid.c_str());
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -942,6 +974,7 @@ bool Wlan::ConnectSaved() {
     gui_print("Add saved network config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " add_network")) {
         gui_print("WLAN: add_network failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -951,6 +984,7 @@ bool Wlan::ConnectSaved() {
     gui_print("Add saved SSID to config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 ssid '\"" + esc_ssid + "\"'")) {
         gui_print("WLAN: failed setting saved SSID\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -958,6 +992,7 @@ bool Wlan::ConnectSaved() {
     gui_print("Add saved encryption to config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 key_mgmt " + key_mgmt)) {
         gui_print("WLAN: failed setting saved key_mgmt\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -976,6 +1011,7 @@ bool Wlan::ConnectSaved() {
 
         if (!pass_ok) {
             gui_print("WLAN: failed setting saved password\n");
+            DataManager::SetValue("wlan_connect_text", "Failed");
             DataManager::SetValue("tw_wlan_connected", 0);
             return false;
         }
@@ -984,6 +1020,7 @@ bool Wlan::ConnectSaved() {
     gui_print("Enable saved config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " enable_network 0")) {
         gui_print("WLAN: enable saved network failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -991,6 +1028,7 @@ bool Wlan::ConnectSaved() {
     gui_print("Select saved config...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " select_network 0")) {
         gui_print("WLAN: select saved network failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -998,6 +1036,7 @@ bool Wlan::ConnectSaved() {
     gui_print("Reconnect saved network...\n");
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " reconnect")) {
         gui_print("WLAN: saved reconnect failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
@@ -1036,15 +1075,19 @@ bool Wlan::ConnectSaved() {
 
     if (!completed) {
         gui_print("WLAN: saved association failed\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         UpdateConnectedName();
         return false;
     }
 
+    DataManager::SetValue("wlan_connect_text", "Getting IP-Address");
+
     gui_print("Getting dhcp ip for saved network...\n");
 
     if (!StartDhcp()) {
         gui_print("WLAN: DHCP failed on saved network\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         UpdateConnectedName();
         return false;
@@ -1078,12 +1121,14 @@ bool Wlan::ConnectSaved() {
 
     if (ip_addr.empty()) {
         gui_print("WLAN: no IP address assigned on saved network\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("tw_wlan_connected", 0);
         return false;
     }
 
     DataManager::SetValue("tw_wlan_connected", 1);
     DataManager::SetValue("wlan_connected_name", ssid);
+    DataManager::SetValue("wlan_connect_text", "Connected");
 
     gui_print("Connected saved SSID: %s\n", connected_ssid.c_str());
     gui_print("IP address: %s\n", ip_addr.c_str());

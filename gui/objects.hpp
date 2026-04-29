@@ -1090,6 +1090,32 @@ protected:
 	int sUpdate;
 };
 
+// GUISpinningImage - Rotates one normal image/SVG resource through minui
+class GUISpinningImage : public GUIObject, public RenderObject
+{
+public:
+	GUISpinningImage(xml_node<>* node);
+	virtual ~GUISpinningImage();
+
+public:
+	virtual int Render(void);
+	virtual int Update(void);
+
+protected:
+	ImageResource* mImage;
+
+	int mRender;
+	int mClockwise;
+	int mDegreesPerSecond;
+
+	double mAngle;
+
+	int mOffsetX;
+	int mOffsetY;
+
+	bool mLoggedMissingImage;
+};
+
 // these are ASCII codes reported via NotifyCharInput
 // other special keys (arrows etc.) are reported via NotifyKey
 #define KEYBOARD_ACTION 13	// CR
