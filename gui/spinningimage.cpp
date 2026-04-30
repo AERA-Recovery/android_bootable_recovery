@@ -13,11 +13,12 @@
 	</object>
 
 	rotate speed = degrees per second.
-	So speed="540" means 1.5 rotations per second on every build.
+	So speed="540" means 1.5 rotations per second, regardless of actual GUI update rate.
 */
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 
 extern "C" {
 #include "../twcommon.h"
@@ -27,6 +28,15 @@ extern "C" {
 
 #include "rapidxml.hpp"
 #include "objects.hpp"
+
+static unsigned long long SpinningImageGetMillis(void)
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+
+	return (static_cast<unsigned long long>(tv.tv_sec) * 1000ULL) +
+	       (static_cast<unsigned long long>(tv.tv_usec) / 1000ULL);
+}
 
 GUISpinningImage::GUISpinningImage(xml_node<>* node) : GUIObject(node)
 {
@@ -38,6 +48,7 @@ GUISpinningImage::GUISpinningImage(xml_node<>* node) : GUIObject(node)
 	mClockwise = 1;
 	mDegreesPerSecond = 360;
 	mAngle = 0.0;
+	mLastUpdateMs = 0;
 
 	mOffsetX = 0;
 	mOffsetY = 0;
@@ -59,7 +70,7 @@ GUISpinningImage::GUISpinningImage(xml_node<>* node) : GUIObject(node)
 	 * <speed render="2"/>
 	 *
 	 * FPS is intentionally not read here.
-	 * The object updates at the GUI framerate, TW_FRAMERATE.
+	 * Rotation uses real elapsed time, not assumed frame rate.
 	 */
 	child = FindNode(node, "speed");
 	if (child) {
@@ -158,13 +169,32 @@ int GUISpinningImage::Update(void)
 	if (!mImage || !mImage->GetResource())
 		return 0;
 
-	const double frame_rate = TW_FRAMERATE > 0 ? static_cast<double>(TW_FRAMERATE) : 60.0;
-	const double degrees_this_frame = static_cast<double>(mDegreesPerSecond) / frame_rate;
+	const unsigned long long now_ms = SpinningImageGetMillis();
+
+	if (mLastUpdateMs == 0) {
+		mLastUpdateMs = now_ms;
+		return 0;
+	}
+
+	unsigned long long delta_ms = now_ms - mLastUpdateMs;
+	mLastUpdateMs = now_ms;
+
+	/*
+	 * Avoid a giant jump if rendering stalls or the page was paused.
+	 */
+	if (delta_ms > 100)
+		delta_ms = 100;
+
+	if (delta_ms == 0)
+		return 0;
+
+	const double degrees_this_update =
+		(static_cast<double>(mDegreesPerSecond) * static_cast<double>(delta_ms)) / 1000.0;
 
 	if (mClockwise)
-		mAngle += degrees_this_frame;
+		mAngle += degrees_this_update;
 	else
-		mAngle -= degrees_this_frame;
+		mAngle -= degrees_this_update;
 
 	while (mAngle < 0.0)
 		mAngle += 360.0;

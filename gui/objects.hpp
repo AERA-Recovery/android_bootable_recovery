@@ -1109,6 +1109,7 @@ protected:
 	int mDegreesPerSecond;
 
 	double mAngle;
+	unsigned long long mLastUpdateMs;
 
 	int mOffsetX;
 	int mOffsetY;
