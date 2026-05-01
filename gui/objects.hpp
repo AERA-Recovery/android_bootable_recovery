@@ -422,6 +422,7 @@ protected:
 	int wlan_connect_saved(std::string arg);
 	int wlan_info(std::string arg);
 	int wlan_saved_refresh(std::string arg);
+	int wlan_forget_saved(std::string arg);
 	int reinjecttwrp(std::string arg);
 	int checkbackupname(std::string arg);
 	int checkbackupfolder(std::string arg);
@@ -805,6 +806,7 @@ public:
 
 	virtual size_t GetItemCount() const;
 	virtual void RenderItem(size_t itemindex, int yPos, bool selected);
+	virtual int NotifyTouch(TOUCH_STATE state, int x, int y);
 	virtual void NotifySelect(size_t item_selected);
 
 protected:
@@ -831,6 +833,9 @@ protected:
 	ImageResource* mIconSelected;
 	ImageResource* mIconUnselected;
 	ImageResource* mIconLocked;
+	ImageResource* mIconDelete;
+	bool mDeleteTouch;
+	size_t mDeleteSelectedItem;
 	bool isCheckList;
 	bool isTextParsed;
 	bool requireReload;

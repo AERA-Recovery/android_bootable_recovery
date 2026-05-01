@@ -433,6 +433,42 @@ static bool OF_LoadEncryptedNetwork(const std::string& ssid, std::string& passwo
     return false;
 }
 
+static bool OF_DeleteEncryptedNetwork(const std::string& ssid)
+{
+    if (ssid.empty())
+        return false;
+
+    std::string ssid_hex = OF_HexEncodeString(ssid);
+
+    std::vector<std::string> lines;
+    if (!OF_ReadSecureSavedLines(lines))
+        return true;
+
+    std::vector<std::string> out;
+    bool removed = false;
+
+    for (size_t i = 0; i < lines.size(); ++i) {
+        std::vector<std::string> parts = OF_SplitString(lines[i], '|');
+
+        if (parts.size() >= 1 && parts[0] == ssid_hex) {
+            removed = true;
+            continue;
+        }
+
+        out.push_back(lines[i]);
+    }
+
+    if (!removed)
+        return true;
+
+    if (out.empty()) {
+        unlink(WLAN_SAVED_SECURE_FILE);
+        return true;
+    }
+
+    return OF_WriteSecureSavedLines(out);
+}
+
 static bool OF_GetEncryptedSavedSsids(std::vector<std::string>& ssids)
 {
     ssids.clear();
@@ -1240,6 +1276,64 @@ bool Wlan::Info() {
 
 bool Wlan::RefreshSaved() {
     return BuildSavedList();
+}
+
+bool Wlan::ForgetSaved()
+{
+    std::string ssid = Trim(DataManager::GetStrValue("wlanselectedid"));
+
+    if (ssid.empty()) {
+        gui_print("WLAN: no saved network selected for delete\n");
+        return false;
+    }
+
+    gui_print("WLAN: removing saved network: %s\n", ssid.c_str());
+
+    /*
+     * Remove from the plain runtime saved list.
+     */
+    std::string saved;
+    std::ostringstream out;
+
+    if (ReadFile(WLAN_SAVED_FILE, saved)) {
+        std::istringstream iss(saved);
+        std::string line;
+
+        while (std::getline(iss, line)) {
+            std::string saved_ssid = Trim(line);
+
+            if (saved_ssid.empty())
+                continue;
+
+            if (saved_ssid == ssid)
+                continue;
+
+            out << saved_ssid << "\n";
+        }
+
+        std::string new_saved = out.str();
+
+        if (new_saved.empty()) {
+            unlink(WLAN_SAVED_FILE);
+        } else {
+            WriteFile(WLAN_SAVED_FILE, new_saved);
+        }
+    }
+
+    /*
+     * Remove encrypted credentials too.
+     */
+    if (OF_DeleteEncryptedNetwork(ssid)) {
+        gui_print("WLAN: encrypted credentials removed for: %s\n", ssid.c_str());
+    } else {
+        gui_print("WLAN: failed removing encrypted credentials for: %s\n", ssid.c_str());
+    }
+
+    DataManager::SetValue("wlanselectedid", "");
+
+    RefreshSaved();
+
+    return true;
 }
 
 bool Wlan::UpdateConnectedName() {

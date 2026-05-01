@@ -15,6 +15,7 @@ public:
     static bool Scan();
     static bool Connect();
     static bool ConnectSaved();
+    static bool ForgetSaved();
     static bool Info();
     static bool RefreshSaved();
     static bool UpdateConnectedName();

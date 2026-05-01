@@ -293,6 +293,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(wlan_info);
       ADD_ACTION(wlan_saved_refresh);
       ADD_ACTION(wlan_connect_saved);
+      ADD_ACTION(wlan_forget_saved);
 
       ADD_ACTION(decrypt_backup);
       ADD_ACTION(repair);
@@ -3147,5 +3148,9 @@ int GUIAction::wlan_info(std::string arg) {
 
 int GUIAction::wlan_saved_refresh(std::string arg) {
     return Wlan::RefreshSaved() ? 0 : -1;
+}
+
+int GUIAction::wlan_forget_saved(std::string arg) {
+    return Wlan::ForgetSaved() ? 0 : -1;
 }
 //

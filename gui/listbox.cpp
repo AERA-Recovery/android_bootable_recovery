@@ -40,7 +40,9 @@ GUIListBox::GUIListBox(xml_node<>* node) : GUIScrollList(node)
 {
 	xml_attribute<>* attr;
 	xml_node<>* child;
-	mIconSelected = mIconUnselected = mIconLocked = NULL;
+	mIconSelected = mIconUnselected = mIconLocked = mIconDelete = NULL;
+	mDeleteTouch = false;
+	mDeleteSelectedItem = NO_ITEM;
 	mUpdate = 0;
 	requireReload = isCheckList = isTextParsed = false;
 	
@@ -50,6 +52,7 @@ GUIListBox::GUIListBox(xml_node<>* node) : GUIScrollList(node)
 		mIconSelected = LoadAttrImage(child, "selected");
 		mIconUnselected = LoadAttrImage(child, "unselected");
 		mIconLocked = LoadAttrImage(child, "locked");
+		mIconDelete = LoadAttrImage(child, "delete");
 	}
 	int iconWidth = 0, iconHeight = 0;
 	
@@ -568,6 +571,125 @@ void GUIListBox::RenderItem(size_t itemindex, int yPos, bool selected)
 	}
 
 	RenderStdItem(yPos, selected, icon, text.c_str(), NULL, groupStatus);
+
+	/*
+	 * Optional right-side delete icon.
+	 * Only shows on listboxes that declare:
+	 * <icon selected="..." unselected="..." delete="delete"/>
+	 *
+	 * The wlansaveddisplay check keeps this limited to:
+	 * WLAN Settings -> Saved networks
+	 */
+	std::string wlansaved_display;
+	DataManager::GetValue("wlansaveddisplay", wlansaved_display);
+
+	if (mVariable == "of_file_to_read" &&
+	    wlansaved_display == "1" &&
+	    mIconDelete &&
+	    mIconDelete->GetResource()) {
+		const int icon_w = mIconDelete->GetWidth();
+		const int icon_h = mIconDelete->GetHeight();
+
+		if (icon_w > 0 && icon_h > 0) {
+			const int hit_w = std::max(icon_w + 48, 96);
+			const int icon_x = mRenderX + mRenderW - hit_w + ((hit_w - icon_w) / 2);
+			const int icon_y = yPos + ((actualItemHeight - icon_h) / 2);
+
+			gr_blit(mIconDelete->GetResource(), 0, 0, icon_w, icon_h, icon_x, icon_y);
+		}
+	}
+}
+
+int GUIListBox::NotifyTouch(TOUCH_STATE state, int x, int y)
+{
+	if (!isConditionTrue())
+		return -1;
+
+	/*
+	 * Only intercept touches for listboxes that have a delete icon,
+	 * and only while the saved WLAN list is displayed.
+	 * All other listboxes use the normal GUIScrollList touch handling.
+	 */
+	std::string wlansaved_display;
+	DataManager::GetValue("wlansaveddisplay", wlansaved_display);
+
+	const bool delete_enabled =
+		(mVariable == "of_file_to_read" &&
+		 wlansaved_display == "1" &&
+		 mIconDelete &&
+		 mIconDelete->GetResource());
+
+	if (!delete_enabled)
+		return GUIScrollList::NotifyTouch(state, x, y);
+
+	const int icon_w = mIconDelete->GetWidth();
+	const int hit_w = std::max(icon_w + 48, 96);
+	const int delete_left = mRenderX + mRenderW - hit_w;
+	const int delete_right = mRenderX + mRenderW;
+
+	switch (state) {
+	case TOUCH_START:
+		mDeleteTouch = false;
+		mDeleteSelectedItem = NO_ITEM;
+
+		if (x >= delete_left && x <= delete_right) {
+			size_t hit = HitTestItem(x, y);
+			if (hit != NO_ITEM) {
+				mDeleteTouch = true;
+				mDeleteSelectedItem = hit;
+				mUpdate = 1;
+				return 0;
+			}
+		}
+		break;
+
+	case TOUCH_DRAG:
+		if (mDeleteTouch) {
+			size_t hit = HitTestItem(x, y);
+
+			if (hit != mDeleteSelectedItem || x < delete_left || x > delete_right) {
+				mDeleteTouch = false;
+				mDeleteSelectedItem = NO_ITEM;
+				mUpdate = 1;
+			}
+
+			return 0;
+		}
+		break;
+
+	case TOUCH_RELEASE:
+		if (mDeleteTouch) {
+			size_t hit = HitTestItem(x, y);
+
+			if (hit == mDeleteSelectedItem &&
+			    hit != NO_ITEM &&
+			    hit < mVisibleItems.size() &&
+			    x >= delete_left &&
+			    x <= delete_right) {
+				ListItem& item = mListItems[mVisibleItems[hit]];
+
+				DataManager::SetValue("wlanselectedid", item.displayName);
+				DataManager::SetValue("wlansaveddisplay", "0");
+
+#ifndef TW_NO_HAPTICS
+				DataManager::Vibrate("tw_button_vibrate");
+#endif
+
+				gui_changePage("wlan_forget_saved");
+			}
+
+			mDeleteTouch = false;
+			mDeleteSelectedItem = NO_ITEM;
+			mUpdate = 1;
+			return 0;
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return GUIScrollList::NotifyTouch(state, x, y);
 }
 
 void GUIListBox::NotifySelect(size_t item_selected)
