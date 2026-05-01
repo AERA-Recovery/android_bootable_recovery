@@ -1219,58 +1219,79 @@ bool Wlan::ConnectSaved() {
     return true;
 }
 
-bool Wlan::Info() {
+bool Wlan::Info()
+{
+    DataManager::SetValue("wlan_info_connected", "0");
+    DataManager::SetValue("wlan_info_ssid", "");
+    DataManager::SetValue("wlan_info_ip", "");
+    DataManager::SetValue("wlan_info_state", "");
+    DataManager::SetValue("wlan_info_text", "");
+
     const std::string iface = GetIface();
-    const std::string ifconfigbin = GetIfconfigBinary();
+    const std::string ctrl = GetCtrlDir();
+    const std::string wpacli = GetWpaCliBinary();
 
-    if (ifconfigbin.empty()) {
-        gui_print("WLAN: ifconfig binary not found\n");
+    if (wpacli.empty()) {
+        gui_print("WLAN: wpa_cli binary not found for info\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
+        DataManager::SetValue("wlan_connected_name", "");
         return false;
     }
 
-    std::string info;
-    if (!RunCommand(ifconfigbin + " " + iface, info)) {
-        RunCommand(ifconfigbin + " -a " + iface, info);
-    }
-
-    if (info.empty()) {
-        gui_print("Error: Cannot get wlan0 information\n");
+    std::string status;
+    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+        gui_print("WLAN: failed to read status for info\n");
+        DataManager::SetValue("tw_wlan_connected", 0);
+        DataManager::SetValue("wlan_connected_name", "");
         return false;
     }
 
-    std::string mac = "Not found";
-    std::string ipv4 = "Not found";
-    std::string ipv6 = "Not found";
+    std::istringstream iss(status);
+    std::string line;
 
-    {
-        std::smatch m;
-        std::regex mac_re("([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}");
-        if (std::regex_search(info, m, mac_re))
-            mac = m.str(0);
+    std::string wpa_state;
+    std::string ssid;
+    std::string ip_addr;
+
+    while (std::getline(iss, line)) {
+        line = Trim(line);
+
+        if (line.rfind("wpa_state=", 0) == 0) {
+            wpa_state = line.substr(10);
+        } else if (line.rfind("ssid=", 0) == 0) {
+            ssid = line.substr(5);
+        } else if (line.rfind("ip_address=", 0) == 0) {
+            ip_addr = line.substr(11);
+        }
     }
-    {
-        std::smatch m;
-        std::regex ipv4_re("inet addr:([0-9.]+)");
-        if (std::regex_search(info, m, ipv4_re))
-            ipv4 = m.str(1);
+
+    DataManager::SetValue("wlan_info_state", wpa_state);
+
+    if (wpa_state == "COMPLETED" && !ssid.empty()) {
+        DataManager::SetValue("wlan_info_connected", "1");
+        DataManager::SetValue("wlan_info_ssid", ssid);
+        DataManager::SetValue("wlan_info_ip", ip_addr);
+
+        DataManager::SetValue("tw_wlan_connected", 1);
+        DataManager::SetValue("wlan_connected_name", ssid);
+
+        if (!ip_addr.empty()) {
+            DataManager::SetValue("wlan_info_text", "Connected: " + ssid + "  IP: " + ip_addr);
+        } else {
+            DataManager::SetValue("wlan_info_text", "Connected: " + ssid);
+        }
+
+        return true;
     }
 
-    std::ostringstream out;
-    out << "==========Network information========\n";
-    out << " \n";
-    out << "ipv4: " << ipv4 << "\n";
-    out << " \n";
-    out << "ipv6: " << ipv6 << "\n";
-    out << " \n";
-    out << "mac : " << mac << "\n";
-    out << " \n";
-    out << "=====================================\n";
-    out << " \n";
-    out << " \n";
-    out << " \n";
+    DataManager::SetValue("wlan_info_connected", "0");
+    DataManager::SetValue("wlan_info_ssid", "");
+    DataManager::SetValue("wlan_info_ip", "");
+    DataManager::SetValue("wlan_info_text", "");
 
-    WriteFile(WLAN_INFO_FILE, out.str());
-    gui_print("%s", out.str().c_str());
+    DataManager::SetValue("tw_wlan_connected", 0);
+    DataManager::SetValue("wlan_connected_name", "");
+
     return true;
 }
 
