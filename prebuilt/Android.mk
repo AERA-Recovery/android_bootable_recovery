@@ -290,15 +290,9 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
     endif
 endif
 ifneq ($(TW_NO_NETWORK), true)
-    include $(CLEAR_VARS)
-    LOCAL_MODULE_TAGS := optional
-    LOCAL_MODULE_CLASS := EXECUTABLES
-    LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/system/bin
-    LOCAL_SRC_FILES := $(LOCAL_MODULE)
     LOCAL_POST_INSTALL_CMD += \
         mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/vendor/etc/vintf/manifest/; \
         cp -f $(TARGET_OUT_VENDOR_ETC)/vintf/manifest/android.hardware.wifi.supplicant.xml $(TARGET_RECOVERY_ROOT_OUT)/vendor/etc/vintf/manifest/android.hardware.wifi.supplicant.xml;
-    include $(BUILD_PREBUILT)
 endif
 ifeq ($(TW_USE_DMCTL), true)
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmctl

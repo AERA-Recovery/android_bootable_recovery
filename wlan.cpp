@@ -1221,29 +1221,24 @@ bool Wlan::ConnectSaved() {
 
 bool Wlan::Info()
 {
-    DataManager::SetValue("wlan_info_connected", "0");
-    DataManager::SetValue("wlan_info_ssid", "");
-    DataManager::SetValue("wlan_info_ip", "");
-    DataManager::SetValue("wlan_info_state", "");
-    DataManager::SetValue("wlan_info_text", "");
-
     const std::string iface = GetIface();
     const std::string ctrl = GetCtrlDir();
     const std::string wpacli = GetWpaCliBinary();
 
+    /*
+     * Do not clear cached UI state before checking status.
+     * A temporary wpa_cli failure would otherwise remove the accent row
+     * and connected info even if WLAN is still connected.
+     */
     if (wpacli.empty()) {
-        gui_print("WLAN: wpa_cli binary not found for info\n");
-        DataManager::SetValue("tw_wlan_connected", 0);
-        DataManager::SetValue("wlan_connected_name", "");
-        return false;
+        gui_print("WLAN: wpa_cli binary not found for info, keeping cached WLAN info\n");
+        return true;
     }
 
     std::string status;
     if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
-        gui_print("WLAN: failed to read status for info\n");
-        DataManager::SetValue("tw_wlan_connected", 0);
-        DataManager::SetValue("wlan_connected_name", "");
-        return false;
+        gui_print("WLAN: failed to read status for info, keeping cached WLAN info\n");
+        return true;
     }
 
     std::istringstream iss(status);
@@ -1284,6 +1279,10 @@ bool Wlan::Info()
         return true;
     }
 
+    /*
+     * Only clear connected UI state after a valid status response that says
+     * WLAN is not actually completed/connected.
+     */
     DataManager::SetValue("wlan_info_connected", "0");
     DataManager::SetValue("wlan_info_ssid", "");
     DataManager::SetValue("wlan_info_ip", "");

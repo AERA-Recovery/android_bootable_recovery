@@ -834,6 +834,7 @@ protected:
 	ImageResource* mIconUnselected;
 	ImageResource* mIconLocked;
 	ImageResource* mIconDelete;
+	ImageResource* mIconConnected;
 	bool mDeleteTouch;
 	size_t mDeleteSelectedItem;
 	bool isCheckList;
