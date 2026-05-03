@@ -903,17 +903,18 @@ ifeq ($(OF_ENABLE_WLAN),1)
 
     WIFI_SUPP_VINTF := vendor/etc/vintf/manifest/android.hardware.wifi.supplicant.xml
 
-	ifndef OF_WIFI_SUPP_VINTF_RULE_DEFINED
-		OF_WIFI_SUPP_VINTF_RULE_DEFINED := true
+ifndef OF_WIFI_SUPP_VINTF_RULE_DEFINED
+OF_WIFI_SUPP_VINTF_RULE_DEFINED := true
 
-		$(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF): $(TARGET_OUT_VENDOR_ETC)/vintf/manifest/android.hardware.wifi.supplicant.xml
-		@mkdir -p $(dir $@) && cp -f $< $@
+$(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF): $(TARGET_OUT_VENDOR_ETC)/vintf/manifest/android.hardware.wifi.supplicant.xml
+	@mkdir -p $(dir $@) && cp -f $< $@
 
-		ALL_DEFAULT_INSTALLED_MODULES += $(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF)
-	endif
+ALL_DEFAULT_INSTALLED_MODULES += $(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF)
+
+endif
 else
-	TW_NO_NETWORK := true
-	LOCAL_CFLAGS += -DTW_NO_NETWORK
+    TW_NO_NETWORK := true
+    LOCAL_CFLAGS += -DTW_NO_NETWORK
 endif
 
 # whether to skip substituting some permissions
