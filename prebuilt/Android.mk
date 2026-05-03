@@ -289,11 +289,6 @@ ifeq ($(TW_INCLUDE_CRYPTO), true)
          #RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libhidl-gen-hash.so
     endif
 endif
-ifneq ($(TW_NO_NETWORK), true)
-    LOCAL_POST_INSTALL_CMD += \
-        mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/vendor/etc/vintf/manifest/; \
-        cp -f $(TARGET_OUT_VENDOR_ETC)/vintf/manifest/android.hardware.wifi.supplicant.xml $(TARGET_RECOVERY_ROOT_OUT)/vendor/etc/vintf/manifest/android.hardware.wifi.supplicant.xml;
-endif
 ifeq ($(TW_USE_DMCTL), true)
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmctl
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dmuserd

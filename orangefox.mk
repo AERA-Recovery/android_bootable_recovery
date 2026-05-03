@@ -886,22 +886,32 @@ ifeq ($(OF_ENABLE_WLAN),1)
 
     TWRP_REQUIRED_MODULES += \
         wpa_supplicant \
+        android.hardware.wifi.supplicant.xml \
         wpa_cli \
         dhcptool \
 
-   RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/hw/wpa_supplicant
-   RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/wpa_cli
-   RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/dhcptool
-   RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/ttyd
-   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_SHARED_LIBRARIES)/libkeystore-engine-wifi-hidl.so
-   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_SHARED_LIBRARIES)/android.system.keystore2-V1-ndk.so
-   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.security.keymint-V1-ndk.so
-   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.wifi.common-V2-ndk.so
-   RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.wifi.supplicant-V4-ndk.so
+    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/hw/wpa_supplicant
+    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/wpa_cli
+    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/dhcptool
+    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/ttyd
+
+    RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_SHARED_LIBRARIES)/libkeystore-engine-wifi-hidl.so
+    RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_SHARED_LIBRARIES)/android.system.keystore2-V1-ndk.so
+    RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.security.keymint-V1-ndk.so
+    RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.wifi.common-V2-ndk.so
+    RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.wifi.supplicant-V4-ndk.so
+
+    WIFI_SUPP_VINTF := vendor/etc/vintf/manifest/android.hardware.wifi.supplicant.xml
+
+$(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF): $(TARGET_OUT_VENDOR_ETC)/vintf/manifest/android.hardware.wifi.supplicant.xml
+	@mkdir -p $(dir $@) && cp -f $< $@
+
+    ALL_DEFAULT_INSTALLED_MODULES += $(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF)
+
 else
     TW_NO_NETWORK := true
     LOCAL_CFLAGS += -DTW_NO_NETWORK
-endif 
+endif
 
 # whether to skip substituting some permissions
 ifeq ($(OF_DONT_SUBSTITUTE_PERMISSIONS),1)
