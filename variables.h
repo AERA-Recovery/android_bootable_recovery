@@ -32,6 +32,24 @@
 #define OF_MAINTAINER_STR	"of_maintainer"
 #define OF_FLASHLIGHT_ENABLE_STR "of_flashlight_enable"
 
+// OrangeFox - NAS
+#define TW_HAS_NAS_STORAGE          "tw_has_nas_storage"
+#define TW_NAS_ENABLED              "tw_nas_enabled"
+#define TW_NAS_MOUNTED              "tw_nas_mounted"
+#define TW_NAS_USE_AS_STORAGE       "tw_nas_use_as_storage"
+#define TW_NAS_TYPE                 "tw_nas_type"       // smb or sftp
+#define TW_NAS_HOST                 "tw_nas_host"
+#define TW_NAS_PORT                 "tw_nas_port"
+#define TW_NAS_SHARE                "tw_nas_share"
+#define TW_NAS_PATH                 "tw_nas_path"
+#define TW_NAS_USER                 "tw_nas_user"
+#define TW_NAS_PASS                 "tw_nas_pass"
+#define TW_NAS_DOMAIN               "tw_nas_domain"
+#define TW_NAS_STATUS_TEXT          "tw_nas_status_text"
+#define TW_NAS_LAST_ERROR           "tw_nas_last_error"
+#define TW_NAS_MOUNT_POINT          "/mnt/nas"
+#define TW_NAS_STORAGE_NAME         "NAS Storage"
+
 // fordownloads values
 #define OF_SCREEN_H_S              "screen_original_h"
 #define OF_SCREEN_NAV_H_S          "screen_h"

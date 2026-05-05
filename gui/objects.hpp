@@ -415,6 +415,8 @@ protected:
 	int cmd(std::string arg);
 	int terminalcommand(std::string arg);
 	int killterminal(std::string arg);
+	
+	// OrangeFox WLAN
 	int wlan_enable(std::string arg);
 	int wlan_disable(std::string arg);
 	int wlan_scan(std::string arg);
@@ -423,6 +425,13 @@ protected:
 	int wlan_info(std::string arg);
 	int wlan_saved_refresh(std::string arg);
 	int wlan_forget_saved(std::string arg);
+	
+	// OrangeFox NAS
+	int nas_mount(std::string arg);
+	int nas_unmount(std::string arg);
+	int nas_select(std::string arg);
+	int nas_info(std::string arg);
+	
 	int reinjecttwrp(std::string arg);
 	int checkbackupname(std::string arg);
 	int checkbackupfolder(std::string arg);

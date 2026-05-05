@@ -46,6 +46,7 @@
 #include "partitions.hpp"
 #include "data.hpp"
 #include "twrp-functions.hpp"
+#include "nas/NasManager.hpp"
 #include "twrpTar.hpp"
 #include "exclude.hpp"
 #include "infomanager.hpp"
@@ -1645,6 +1646,12 @@ bool TWPartition::Mount(bool Display_Error) {
 		return false;
 	}
 
+	if (Mount_Point == TW_NAS_MOUNT_POINT || Current_File_System == "fuse.nas") {
+		bool mounted = NasManager::IsMounted();
+		DataManager::SetValue(TW_NAS_MOUNTED, mounted ? 1 : 0);
+		return mounted;
+	}
+
 	Find_Actual_Block_Device();
 
 	// Check the current file system before mounting
@@ -1803,6 +1810,9 @@ bool TWPartition::Bind_Mount(bool Display_Error) {
 }
 
 bool TWPartition::UnMount(bool Display_Error, int flags) {
+	if (Mount_Point == TW_NAS_MOUNT_POINT || Current_File_System == "fuse.nas") {
+	    return NasManager::Unmount();
+	}
 	if (Is_Mounted()) {
 		int never_unmount_system;
 
@@ -3247,6 +3257,26 @@ bool TWPartition::Restore_Image(PartitionSettings *part_settings) {
 
 bool TWPartition::Update_Size(bool Display_Error) {
 	bool ret = false, Was_Already_Mounted = false, ro = false;
+	
+	if (Mount_Point == TW_NAS_MOUNT_POINT || Current_File_System == "fuse.nas") {
+	    Is_Present = NasManager::IsMounted();
+	    DataManager::SetValue(TW_NAS_MOUNTED, Is_Present ? 1 : 0);
+	    
+	    if (!Is_Present) {
+	        Size = 0;
+	        Used = 0;
+	        Free = 0;
+	        Backup_Size = 0;
+	        return true;
+	    }
+	    
+	    if (Get_Size_Via_statfs(Display_Error) || Get_Size_Via_df(Display_Error)) {
+	        Backup_Size = Used;
+	        return true;
+	    }
+	    
+	    return false;
+	} 
 
 	Find_Actual_Block_Device();
 

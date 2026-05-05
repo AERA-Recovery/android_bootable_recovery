@@ -439,6 +439,8 @@ public:
 	void close_uevent();                                                      // Closes the uevent netlink socket
 	void Add_Partition(TWPartition* Part);                                    // Adds a new partition to the Partitions vector
 	bool Storage_Is_Encrypted(void);				  	  // Returns whether the device is encrypted
+	void Add_NAS_Storage();                                                   // Adds the virtual FUSE NAS storage target
+	bool Is_NAS_Path(const std::string& Path);                               // Checks whether a path belongs to the virtual NAS storage target
 	void Set_Crypto_State();                                                  // Sets encryption state for devices (ro.crypto.state)
 	int Set_Crypto_Type(const char* crypto_type);                             // Sets encryption type for FDE (block) and FBE (file) devices (ro.crypto.type)
 	void Unlock_Block_Partitions();                                           // Unlock all block devices after update_engine runs

@@ -49,6 +49,7 @@
 #include "../data.hpp"
 #include "../gui.hpp"
 #include "../wlan.hpp"
+#include "../nas/NasManager.hpp"
 
 #include "twinstall/adb_install.h"
 
@@ -263,6 +264,9 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(set_chmod);
       ADD_ACTION(setpassword);
       ADD_ACTION(passwordcheck);
+      
+      // OrangeFox NAS
+      ADD_ACTION(nas_info);
  
       // remember actions that run in the caller thread
       for (mapFunc::const_iterator it = mf.begin(); it != mf.end(); ++it)
@@ -286,6 +290,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(installsu);
       ADD_ACTION(fixsu);
 
+      // OrangeFox WLAN
       ADD_ACTION(wlan_enable);
       ADD_ACTION(wlan_disable);
       ADD_ACTION(wlan_scan);
@@ -294,6 +299,11 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(wlan_saved_refresh);
       ADD_ACTION(wlan_connect_saved);
       ADD_ACTION(wlan_forget_saved);
+
+      // OrangeFox NAS
+      ADD_ACTION(nas_mount);
+      ADD_ACTION(nas_unmount);
+      ADD_ACTION(nas_select);
 
       ADD_ACTION(decrypt_backup);
       ADD_ACTION(repair);
@@ -3152,5 +3162,88 @@ int GUIAction::wlan_saved_refresh(std::string arg) {
 
 int GUIAction::wlan_forget_saved(std::string arg) {
     return Wlan::ForgetSaved() ? 0 : -1;
+}
+
+int GUIAction::nas_mount(std::string arg __unused) {
+    operation_start("Mount NAS");
+
+    int op_status = 1;
+
+    if (simulate) {
+        simulate_progress_bar();
+        op_status = 0;
+    } else if (NasManager::Mount()) {
+        DataManager::SetValue(TW_NAS_MOUNTED, 1);
+        PartitionManager.Update_System_Details();
+        gui_msg("nas_mounted=NAS mounted successfully.");
+        op_status = 0;
+    } else {
+        DataManager::SetValue(TW_NAS_MOUNTED, 0);
+        gui_msg(Msg(msg::kError, "nas_mount_failed=Failed to mount NAS: {1}")(NasManager::GetLastError()));
+    }
+
+    operation_end(op_status);
+    return op_status == 0 ? 0 : -1;
+}
+
+int GUIAction::nas_unmount(std::string arg __unused) {
+    operation_start("Unmount NAS");
+
+    int op_status = 1;
+
+    if (simulate) {
+        simulate_progress_bar();
+        op_status = 0;
+    } else {
+        std::string current_storage = DataManager::GetCurrentStoragePath();
+
+        if (current_storage == TW_NAS_MOUNT_POINT) {
+            TWPartition* def = PartitionManager.Get_Default_Storage_Partition();
+
+            if (def && def->Storage_Path != TW_NAS_MOUNT_POINT) {
+                DataManager::SetValue("tw_storage_path", def->Storage_Path);
+                DataManager::SetValue(TW_ZIP_LOCATION_VAR, def->Storage_Path);
+            }
+
+            DataManager::SetValue(TW_NAS_USE_AS_STORAGE, 0);
+        }
+
+        if (NasManager::Unmount()) {
+            DataManager::SetValue(TW_NAS_MOUNTED, 0);
+            PartitionManager.Update_System_Details();
+            gui_msg("nas_unmounted=NAS unmounted.");
+            op_status = 0;
+        } else {
+            gui_msg(Msg(msg::kError, "nas_unmount_failed=Failed to unmount NAS: {1}")(NasManager::GetLastError()));
+        }
+    }
+
+    operation_end(op_status);
+    return op_status == 0 ? 0 : -1;
+}
+
+int GUIAction::nas_select(std::string arg __unused) {
+    operation_start("Select NAS Storage");
+
+    int op_status = 1;
+
+    if (simulate) {
+        simulate_progress_bar();
+        op_status = 0;
+    } else if (NasManager::SelectAsStorage()) {
+        PartitionManager.Update_System_Details();
+        gui_msg("nas_selected=NAS selected as current storage.");
+        op_status = 0;
+    } else {
+        gui_msg(Msg(msg::kError, "nas_select_failed=Failed to select NAS storage: {1}")(NasManager::GetLastError()));
+    }
+
+    operation_end(op_status);
+    return op_status == 0 ? 0 : -1;
+}
+
+int GUIAction::nas_info(std::string arg __unused) {
+    NasManager::RefreshStatus();
+    return 0;
 }
 //

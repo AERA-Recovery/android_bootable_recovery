@@ -79,6 +79,8 @@
 #include "adbbu/libtwadbbu.hpp"
 #include "kernel_module_loader.hpp"
 
+#include "nas/NasManager.hpp"
+
 #ifdef TW_LOAD_VENDOR_MODULES
 #include "kernel_module_loader.hpp"
 #endif
@@ -627,6 +629,8 @@ void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
 		Decrypt_Data();
 	#endif
 
+		Add_NAS_Storage();
+
 		Update_System_Details();
 		if (Get_Super_Status())
 			Setup_Super_Partition();
@@ -635,6 +639,57 @@ void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
 		DataManager::SetValue("tw_active_slot", Get_Active_Slot_Display());
 	#endif
 		setup_uevent();
+}
+
+bool TWPartitionManager::Is_NAS_Path(const std::string& Path) {
+	const std::string nas = TW_NAS_MOUNT_POINT;
+
+	return Path == nas || Path.compare(0, nas.size() + 1, nas + "/") == 0;
+}
+
+void TWPartitionManager::Add_NAS_Storage() {
+	if (Find_Partition_By_Path(TW_NAS_MOUNT_POINT) != NULL) {
+		DataManager::SetValue(TW_HAS_NAS_STORAGE, 1);
+		DataManager::SetValue(TW_NAS_MOUNTED, NasManager::IsMounted() ? 1 : 0);
+		return;
+	}
+
+	TWFunc::Recursive_Mkdir(TW_NAS_MOUNT_POINT);
+	chmod(TW_NAS_MOUNT_POINT, 0777);
+
+	TWPartition* nas = new TWPartition();
+
+	nas->Mount_Point = TW_NAS_MOUNT_POINT;
+	nas->Storage_Path = TW_NAS_MOUNT_POINT;
+	nas->Symlink_Path = TW_NAS_MOUNT_POINT;
+	nas->Symlink_Mount_Point = "";
+	nas->Display_Name = "NAS";
+	nas->Storage_Name = TW_NAS_STORAGE_NAME;
+	nas->Backup_Display_Name = TW_NAS_STORAGE_NAME;
+	nas->Backup_Name = "nas";
+	nas->Backup_Path = TW_NAS_MOUNT_POINT;
+	nas->Current_File_System = "fuse.nas";
+	nas->Fstab_File_System = "fuse.nas";
+	nas->Actual_Block_Device = "/dev/fuse";
+	nas->Primary_Block_Device = "/dev/fuse";
+
+	nas->Can_Be_Mounted = true;
+	nas->Can_Be_Wiped = false;
+	nas->Can_Be_Backed_Up = false;
+	nas->Wipe_Available_in_GUI = false;
+
+	nas->Removable = true;
+	nas->Is_Present = NasManager::IsMounted();
+	nas->Is_Storage = true;
+	nas->Is_Settings_Storage = false;
+	nas->Backup_Method = BM_NONE;
+
+	Add_Partition(nas);
+
+	DataManager::SetValue(TW_HAS_NAS_STORAGE, 1);
+	DataManager::SetValue(TW_NAS_MOUNTED, NasManager::IsMounted() ? 1 : 0);
+
+	LOGINFO("Added virtual NAS storage at %s\n", TW_NAS_MOUNT_POINT);
 }
 
 int TWPartitionManager::Write_Fstab(void) {
@@ -917,6 +972,9 @@ int TWPartitionManager::Mount_By_Path(string Path, bool Display_Error) {
 	int ret = false;
 	bool found = false;
 	string Local_Path = TWFunc::Get_Root_Path(Path);
+	
+	if (Is_NAS_Path(Path))
+	    Local_Path = TW_NAS_MOUNT_POINT;
 
 	if (Local_Path == "/tmp" || Local_Path == "/")
 		return true;
@@ -951,6 +1009,9 @@ int TWPartitionManager::UnMount_By_Path(string Path, bool Display_Error, int fla
 	int ret = false;
 	bool found = false;
 	string Local_Path = TWFunc::Get_Root_Path(Path);
+	
+	if (Is_NAS_Path(Path))
+	   Local_Path = TW_NAS_MOUNT_POINT; 
 
   	#ifdef OF_DEVICE_WITHOUT_PERSIST
   	if (Local_Path == "/persist")
@@ -977,6 +1038,8 @@ int TWPartitionManager::UnMount_By_Path(string Path, bool Display_Error, int fla
 }
 
 int TWPartitionManager::Is_Mounted_By_Path(string Path) {
+	if (Is_NAS_Path(Path))
+	    return NasManager::IsMounted();
 	TWPartition* Part = Find_Partition_By_Path(Path);
 
 	if (Part)
@@ -1005,6 +1068,8 @@ int TWPartitionManager::Mount_Settings_Storage(bool Display_Error) {
 TWPartition* TWPartitionManager::Find_Partition_By_Path(const string& Path) {
 	std::vector<TWPartition*>::iterator iter;
 	string Local_Path = TWFunc::Get_Root_Path(Path);
+	if (Is_NAS_Path(Path))
+	    Local_Path = TW_NAS_MOUNT_POINT;
 
   	#ifdef OF_DEVICE_WITHOUT_PERSIST
   	if (Local_Path == "/persist")
