@@ -1494,7 +1494,10 @@ public:
 
 protected:
 	ImageResource* mConnectedImg;
+	FontResource* mFont;
 	int mRenderX, mRenderY, mRenderW, mRenderH;
+	int mBatteryGap;
+	bool mFollowBattery;
 };
 
 

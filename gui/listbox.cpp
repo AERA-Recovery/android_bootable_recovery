@@ -335,11 +335,16 @@ void GUIListBox::ReadFileToList(const char* fileName)
 	std::string wlan_display;
 	DataManager::GetValue("wlanlistdisplay", wlan_display);
 
+	std::string wlansaved_display;
+	DataManager::GetValue("wlansaveddisplay", wlansaved_display);
+
 	std::string file_name_str = fileName ? fileName : "";
 
 	bool is_wlan_list =
 		(wlan_display == "1") ||
-		(file_name_str == "/tmp/wlan/list.txt");
+		(wlansaved_display == "1") ||
+		(file_name_str == "/tmp/wlan/list.txt") ||
+		(file_name_str == "/tmp/wlan/saved.txt");
 
 	bool use_wlan_icon = (is_wlan_list && (mIconSelected || mIconUnselected || mIconLocked));
 
@@ -504,6 +509,15 @@ int GUIListBox::NotifyVarChange(const std::string& varName, const std::string& v
 				mListItems.clear(); // free memory or something
 				mVisibleItems.clear();
 			} else {
+				ReadFileToList(value.c_str());
+			}
+		}
+
+		if (mVariable == "fox_update_release_selection" && currentValue != value) {
+			if (value.empty()) {
+				mListItems.clear();
+				mVisibleItems.clear();
+			} else if (value[0] == '/') {
 				ReadFileToList(value.c_str());
 			}
 		}
@@ -833,9 +847,17 @@ void GUIListBox::NotifySelect(size_t item_selected)
 		item.selected = selected;
 		DataManager::SetValue(item.variableName, selected ? "1" : "0");
 
+	} else if (mVariable == "fox_update_release_selection") {
+		item.selected = 1;
+		DataManager::SetValue(mVariable, item.displayName);
+		FoxUpdater::SelectAvailableRelease();
+		gui_changePage("fox_updates");
+
 	} else {
 		item.selected = 1;
 		string str = item.variableValue;
+		if (str.empty())
+			str = item.displayName;
 		DataManager::SetValue(mVariable, str);
 	}
 

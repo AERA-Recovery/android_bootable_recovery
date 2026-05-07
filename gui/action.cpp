@@ -654,9 +654,41 @@ int GUIAction::doAction(Action action)
   mapFunc::const_iterator funcitr = mf.find(function);
   if (funcitr != mf.end())
     return (this->*funcitr->second) (arg);
-  
-  if (! Hide_Reboot_Kludge_Fix(function))
-  LOGERR("Unknown action '%s'\n", function.c_str());
+
+  // OrangeFox built-in updater actions
+  if (function == "fox_update_refresh")
+    return FoxUpdater::Refresh();
+
+  if (function == "fox_update_init")
+    return FoxUpdater::Init();
+
+  if (function == "fox_update_check")
+    return FoxUpdater::Check();
+
+  if (function == "fox_update_variant_prev")
+    return FoxUpdater::VariantPrev();
+
+  if (function == "fox_update_variant_next")
+    return FoxUpdater::VariantNext();
+
+  if (function == "fox_update_select_variant")
+    return FoxUpdater::SelectVariant();
+
+  if (function == "fox_update_prepare_available")
+    return FoxUpdater::PrepareAvailableReleases();
+
+  if (function == "fox_update_select_available")
+    return FoxUpdater::SelectAvailableRelease();
+
+  if (function == "fox_update_download")
+    return FoxUpdater::Download();
+
+  if (function == "fox_update_install")
+    return FoxUpdater::Install();
+
+  if (!Hide_Reboot_Kludge_Fix(function))
+    LOGERR("Unknown action '%s'\n", function.c_str());
+
   return -1;
 }
 
