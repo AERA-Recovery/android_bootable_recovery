@@ -35,6 +35,7 @@ private:
     static bool BuildScanList();
     static bool BuildSavedList();
     static bool BuildConnectedName();
+    static bool ParseSupplicantStatus(const std::string& status, std::string& wpa_state, std::string& ssid, std::string& ip_addr);
 
     static bool RunCommand(const std::string& cmd);
     static bool RunCommand(const std::string& cmd, std::string& output);

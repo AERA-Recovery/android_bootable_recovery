@@ -834,15 +834,8 @@ bool Wlan::Connect() {
 
         std::string status;
         if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
-            std::istringstream iss(status);
-            std::string line;
-
-            while (std::getline(iss, line)) {
-                if (line.rfind("ip_address=", 0) == 0)
-                    ip_addr = line.substr(11);
-                else if (line.rfind("ssid=", 0) == 0)
-                    connected_ssid = line.substr(5);
-            }
+            std::string wpa_state;
+            ParseSupplicantStatus(status, wpa_state, connected_ssid, ip_addr);
 
             if (!ip_addr.empty() && !connected_ssid.empty())
                 break;
@@ -1001,6 +994,10 @@ bool Wlan::ConnectSaved() {
         key_mgmt = "WPA-PSK";
     }
 
+    gui_print("Disconnect current WLAN state...\n");
+    RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " disconnect");
+    usleep(500 * 1000);
+
     gui_print("Remove old network config...\n");
     std::string list_out;
 
@@ -1116,25 +1113,22 @@ bool Wlan::ConnectSaved() {
     int tries = 0;
     const int max_tries = 10;
     bool completed = false;
+    bool saw_transition = false;
 
     while (tries < max_tries) {
         usleep(1000 * 1000);
 
         std::string status;
         if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
-            std::istringstream iss(status);
-            std::string line;
             std::string wpa_state;
             std::string current_ssid;
-
-            while (std::getline(iss, line)) {
-                if (line.rfind("wpa_state=", 0) == 0)
-                    wpa_state = line.substr(10);
-                else if (line.rfind("ssid=", 0) == 0)
-                    current_ssid = line.substr(5);
-            }
+            std::string ip_addr;
+            ParseSupplicantStatus(status, wpa_state, current_ssid, ip_addr);
 
             gui_print("Saved connection state: %s (%d/%d)\n", wpa_state.c_str(), tries, max_tries);
+
+            if (wpa_state != "COMPLETED")
+                saw_transition = true;
 
             if (wpa_state == "COMPLETED" && current_ssid == ssid) {
                 completed = true;
@@ -1152,6 +1146,41 @@ bool Wlan::ConnectSaved() {
         DataManager::SetValue("tw_wlan_connected", 0);
         UpdateConnectedName();
         return false;
+    }
+
+    if (!saw_transition) {
+        gui_print("WLAN: saved association was already completed; forcing reassociation before DHCP\n");
+        RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " reassociate");
+
+        completed = false;
+
+        for (int i = 0; i < max_tries; ++i) {
+            usleep(1000 * 1000);
+
+            std::string status;
+            if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+                std::string wpa_state;
+                std::string current_ssid;
+                std::string ip_addr;
+                ParseSupplicantStatus(status, wpa_state, current_ssid, ip_addr);
+
+                gui_print("Saved reassociation state: %s (%d/%d)\n", wpa_state.c_str(), i, max_tries);
+
+                if (wpa_state == "COMPLETED" && current_ssid == ssid) {
+                    completed = true;
+                    break;
+                }
+            }
+        }
+
+        if (!completed) {
+            gui_print("WLAN: saved reassociation failed\n");
+            DataManager::SetValue("wlan_connect_text", "Failed");
+            DataManager::SetValue("wlan_connect_done", 0);
+            DataManager::SetValue("tw_wlan_connected", 0);
+            UpdateConnectedName();
+            return false;
+        }
     }
 
     DataManager::SetValue("wlan_connect_text", "Getting IP-Address");
@@ -1176,15 +1205,8 @@ bool Wlan::ConnectSaved() {
 
         std::string status;
         if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
-            std::istringstream iss(status);
-            std::string line;
-
-            while (std::getline(iss, line)) {
-                if (line.rfind("ip_address=", 0) == 0)
-                    ip_addr = line.substr(11);
-                else if (line.rfind("ssid=", 0) == 0)
-                    connected_ssid = line.substr(5);
-            }
+            std::string wpa_state;
+            ParseSupplicantStatus(status, wpa_state, connected_ssid, ip_addr);
 
             if (!ip_addr.empty() && !connected_ssid.empty())
                 break;
@@ -1241,40 +1263,21 @@ bool Wlan::Info()
         return true;
     }
 
-    std::istringstream iss(status);
-    std::string line;
-
     std::string wpa_state;
     std::string ssid;
     std::string ip_addr;
-
-    while (std::getline(iss, line)) {
-        line = Trim(line);
-
-        if (line.rfind("wpa_state=", 0) == 0) {
-            wpa_state = line.substr(10);
-        } else if (line.rfind("ssid=", 0) == 0) {
-            ssid = line.substr(5);
-        } else if (line.rfind("ip_address=", 0) == 0) {
-            ip_addr = line.substr(11);
-        }
-    }
+    ParseSupplicantStatus(status, wpa_state, ssid, ip_addr);
 
     DataManager::SetValue("wlan_info_state", wpa_state);
 
-    if (wpa_state == "COMPLETED" && !ssid.empty()) {
+    if (wpa_state == "COMPLETED" && !ssid.empty() && !ip_addr.empty()) {
         DataManager::SetValue("wlan_info_connected", "1");
         DataManager::SetValue("wlan_info_ssid", ssid);
         DataManager::SetValue("wlan_info_ip", ip_addr);
 
         DataManager::SetValue("tw_wlan_connected", 1);
         DataManager::SetValue("wlan_connected_name", ssid);
-
-        if (!ip_addr.empty()) {
-            DataManager::SetValue("wlan_info_text", "Connected: " + ssid + "  IP: " + ip_addr);
-        } else {
-            DataManager::SetValue("wlan_info_text", "Connected: " + ssid);
-        }
+        DataManager::SetValue("wlan_info_text", "Connected: " + ssid + "  IP: " + ip_addr);
 
         return true;
     }
@@ -1589,19 +1592,12 @@ bool Wlan::BuildConnectedName() {
         return false;
     }
 
-    std::istringstream iss(status);
-    std::string line;
     std::string ssid;
     std::string wpa_state;
+    std::string ip_addr;
+    ParseSupplicantStatus(status, wpa_state, ssid, ip_addr);
 
-    while (std::getline(iss, line)) {
-        if (line.rfind("ssid=", 0) == 0)
-            ssid = line.substr(5);
-        else if (line.rfind("wpa_state=", 0) == 0)
-            wpa_state = line.substr(10);
-    }
-
-    if (wpa_state == "COMPLETED" && !ssid.empty()) {
+    if (wpa_state == "COMPLETED" && !ssid.empty() && !ip_addr.empty()) {
         WriteFile(WLAN_CONNECTED_FILE, ssid + "\n");
         DataManager::SetValue("wlan_connected_name", ssid);
         DataManager::SetValue("tw_wlan_connected", 1);
@@ -1612,6 +1608,28 @@ bool Wlan::BuildConnectedName() {
     DataManager::SetValue("wlan_connected_name", "");
     DataManager::SetValue("tw_wlan_connected", 0);
     return false;
+}
+
+bool Wlan::ParseSupplicantStatus(const std::string& status, std::string& wpa_state, std::string& ssid, std::string& ip_addr) {
+    wpa_state.clear();
+    ssid.clear();
+    ip_addr.clear();
+
+    std::istringstream iss(status);
+    std::string line;
+
+    while (std::getline(iss, line)) {
+        line = Trim(line);
+
+        if (line.rfind("wpa_state=", 0) == 0)
+            wpa_state = line.substr(10);
+        else if (line.rfind("ssid=", 0) == 0)
+            ssid = line.substr(5);
+        else if (line.rfind("ip_address=", 0) == 0)
+            ip_addr = line.substr(11);
+    }
+
+    return !wpa_state.empty();
 }
 
 bool Wlan::RunCommand(const std::string& cmd) {
