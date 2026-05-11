@@ -1428,6 +1428,10 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 		}
 	}
 
+	bool nas_backup = !adbbackup && part_settings.Backup_Folder.compare(0, NasManager::Mount_Point.size(), NasManager::Mount_Point) == 0;
+	if (nas_backup)
+		NasManager::ResetTransferStats();
+
 	DataManager::SetProgress(0.0);
 
 	start_pos = 0;
@@ -1467,21 +1471,44 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 	int img_bps = (int)part_settings.img_bytes / (int)part_settings.img_time;
 	unsigned long long file_bps = part_settings.file_bytes / (int)part_settings.file_time;
 
+	string backup_log = part_settings.Backup_Folder + "/recovery.log";
+	TWFunc::copy_file("/tmp/recovery.log", backup_log, 0644);
+	tw_set_default_metadata(backup_log.c_str());
+
+	uint64_t actual_backup_size_bytes;
+	if (!adbbackup) {
+		TWExclude twe;
+		actual_backup_size_bytes = twe.Get_Folder_Size(part_settings.Backup_Folder);
+	} else
+		actual_backup_size_bytes = part_settings.file_bytes + part_settings.img_bytes;
+
+	if (nas_backup) {
+		gui_msg("nas_wait_upload=Waiting for NAS upload to finish...");
+		if (!NasManager::WaitForPendingUploads(0, actual_backup_size_bytes))
+			return false;
+	}
+
+	time(&total_stop);
+	int total_time = (int) difftime(total_stop, total_start);
+	if (total_time < 1)
+		total_time = 1;
+
+	uint64_t actual_backup_size = actual_backup_size_bytes / (1024LLU * 1024LLU);
+	gui_msg(Msg("total_backed_size=[{1} MB TOTAL BACKED UP]")(actual_backup_size));
+
+	if (nas_backup) {
+		unsigned long long delivered_bps = actual_backup_size_bytes / total_time;
+
+		if (part_settings.file_bytes != 0)
+			file_bps = delivered_bps;
+		if (part_settings.img_bytes != 0)
+			img_bps = delivered_bps > 2147483647ULL ? 2147483647 : (int)delivered_bps;
+	}
+
 	if (part_settings.file_bytes != 0)
 		gui_msg(Msg("avg_backup_fs=Average backup rate for file systems: {1} MB/sec")(file_bps / (1024 * 1024)));
 	if (part_settings.img_bytes != 0)
 		gui_msg(Msg("avg_backup_img=Average backup rate for imaged drives: {1} MB/sec")(img_bps / (1024 * 1024)));
-
-	time(&total_stop);
-	int total_time = (int) difftime(total_stop, total_start);
-
-	uint64_t actual_backup_size;
-	if (!adbbackup) {
-		TWExclude twe;
-		actual_backup_size = twe.Get_Folder_Size(part_settings.Backup_Folder);
-	} else
-		actual_backup_size = part_settings.file_bytes + part_settings.img_bytes;
-	actual_backup_size /= (1024LLU * 1024LLU);
 
 	int prev_img_bps = 0, use_compression = 0;
 	unsigned long long prev_file_bps = 0;
@@ -1503,13 +1530,9 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 	else
 		DataManager::SetValue(TW_BACKUP_AVG_FILE_RATE, file_bps);
 
-	gui_msg(Msg("total_backed_size=[{1} MB TOTAL BACKED UP]")(actual_backup_size));
 	Update_System_Details();
 	UnMount_Main_Partitions();
 	gui_msg(Msg(msg::kHighlight, "backup_completed=[BACKUP COMPLETED IN {1} SECONDS]")(total_time)); // the end
-	string backup_log = part_settings.Backup_Folder + "/recovery.log";
-	TWFunc::copy_file("/tmp/recovery.log", backup_log, 0644);
-	tw_set_default_metadata(backup_log.c_str());
 
 	if (part_settings.adbbackup) {
 		if (twadbbu::Write_ADB_Stream_Trailer() == false) {

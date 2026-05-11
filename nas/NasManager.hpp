@@ -11,6 +11,7 @@
 
 #include <string>
 #include <sys/stat.h>
+#include <stdint.h>
 #include <vector>
 
 class NasManager {
@@ -28,6 +29,8 @@ public:
 	static bool Unmount();
 	static bool SelectAsStorage();
 	static bool RefreshStatus();
+	static bool ResetTransferStats();
+	static bool WaitForPendingUploads(int max_seconds = 1800, uint64_t expected_upload_bytes = 0);
 	static std::string GetLastError();
 
 private:
@@ -38,6 +41,7 @@ private:
 	static bool WriteFile(const std::string& path, const std::string& data, mode_t mode = 0600);
 	static bool ReadFile(const std::string& path, std::string& out);
 	static bool RunAndWait(const std::vector<std::string>& args, std::string* output = nullptr);
+	static bool RunDetached(const std::vector<std::string>& args);
 	static bool BuildRcloneConfig();
 	static bool RcloneObscure(const std::string& input, std::string& output);
 	static std::string GetValue(const std::string& var, const std::string& fallback);

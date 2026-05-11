@@ -45,6 +45,7 @@
 #define TW_NAS_USER                 "tw_nas_user"
 #define TW_NAS_PASS                 "tw_nas_pass"
 #define TW_NAS_DOMAIN               "tw_nas_domain"
+#define TW_NAS_CACHE_MODE           "tw_nas_cache_mode"
 #define TW_NAS_STATUS_TEXT          "tw_nas_status_text"
 #define TW_NAS_LAST_ERROR           "tw_nas_last_error"
 #define TW_NAS_MOUNT_POINT          "/mnt/nas"
