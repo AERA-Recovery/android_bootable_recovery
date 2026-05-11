@@ -425,6 +425,7 @@ protected:
 	int wlan_info(std::string arg);
 	int wlan_saved_refresh(std::string arg);
 	int wlan_forget_saved(std::string arg);
+	int wlan_test_connection(std::string arg);
 	
 	// OrangeFox NAS
 	int nas_mount(std::string arg);

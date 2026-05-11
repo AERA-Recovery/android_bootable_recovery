@@ -19,6 +19,7 @@ public:
     static bool Info();
     static bool RefreshSaved();
     static bool UpdateConnectedName();
+    static bool TestConnection();
 
 private:
     static bool EnsureTmpLayout();
@@ -52,6 +53,7 @@ private:
     static std::string GetSupplicantConf();
     static std::string EscapeDoubleQuotes(const std::string& s);
     static std::string GetWpaCliBinary();
+    static std::string GetBusyboxBinary();
     static std::string FindBinary(const std::vector<std::string>& paths);
     static std::string GetIfconfigBinary();
 };

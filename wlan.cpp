@@ -55,6 +55,22 @@ static const char* BIN_DHCPTOOL        = "/system/bin/dhcptool";
 static const char* WLAN_SUPP_SERVICE   = "wpa_supplicant";
 static const char* WLAN_SUPP_SVC_PROP  = "init.svc.wpa_supplicant";
 
+static void SetWlanTestResult(const std::string& title,
+                              const std::string& line1,
+                              const std::string& line2,
+                              const std::string& line3,
+                              const std::string& line4,
+                              const std::string& line5)
+{
+    DataManager::SetValue("wlan_test_title", title);
+    DataManager::SetValue("wlan_test_line1", line1);
+    DataManager::SetValue("wlan_test_line2", line2);
+    DataManager::SetValue("wlan_test_line3", line3);
+    DataManager::SetValue("wlan_test_line4", line4);
+    DataManager::SetValue("wlan_test_line5", line5);
+    DataManager::SetValue("wlan_test_done", 1);
+}
+
 
 static std::string OF_HexEncode(const unsigned char* data, size_t len)
 {
@@ -509,6 +525,13 @@ bool Wlan::Init() {
     DataManager::SetValue("tw_wlan_enabled", 0);
     DataManager::SetValue("tw_wlan_connected", 0);
     DataManager::SetValue("wlan_connected_name", "");
+    DataManager::SetValue("wlan_test_title", "Network Connection");
+    DataManager::SetValue("wlan_test_line1", "");
+    DataManager::SetValue("wlan_test_line2", "");
+    DataManager::SetValue("wlan_test_line3", "");
+    DataManager::SetValue("wlan_test_line4", "");
+    DataManager::SetValue("wlan_test_line5", "");
+    DataManager::SetValue("wlan_test_done", 0);
     return EnsureTmpLayout();
 }
 
@@ -1297,6 +1320,77 @@ bool Wlan::Info()
     return true;
 }
 
+bool Wlan::TestConnection()
+{
+    DataManager::SetValue("wlan_test_title", "Network Connection");
+    DataManager::SetValue("wlan_test_line1", "Testing network connection...");
+    DataManager::SetValue("wlan_test_line2", "");
+    DataManager::SetValue("wlan_test_line3", "");
+    DataManager::SetValue("wlan_test_line4", "");
+    DataManager::SetValue("wlan_test_line5", "");
+    DataManager::SetValue("wlan_test_done", 0);
+
+    Info();
+
+    std::string ssid = Trim(DataManager::GetStrValue("wlan_info_ssid"));
+    std::string ip_addr = Trim(DataManager::GetStrValue("wlan_info_ip"));
+
+    if (DataManager::GetIntValue("tw_wlan_connected") != 1 || ssid.empty() || ip_addr.empty()) {
+        SetWlanTestResult(
+            "Network Connection",
+            "WLAN is not connected.",
+            "Connect to a WLAN network first.",
+            "",
+            "",
+            "");
+        return true;
+    }
+
+    std::string busybox = GetBusyboxBinary();
+    if (busybox.empty())
+        busybox = "busybox";
+
+    std::string internet_output;
+    bool internet_ok = RunCommand(busybox + " ping -c 1 -w 4 1.1.1.1 2>&1", internet_output);
+
+    std::string dns_output;
+    bool dns_ok = RunCommand(busybox + " ping -c 1 -w 4 bing.com 2>&1", dns_output);
+
+    LOGINFO("WLAN test internet output:\n%s\n", internet_output.c_str());
+    LOGINFO("WLAN test DNS output:\n%s\n", dns_output.c_str());
+
+    if (internet_ok && dns_ok) {
+        SetWlanTestResult(
+            "Network Connection",
+            "Connected: " + ssid,
+            "IP address: " + ip_addr,
+            "Internet: OK",
+            "DNS: OK",
+            "");
+        return true;
+    }
+
+    if (internet_ok) {
+        SetWlanTestResult(
+            "Network Connection",
+            "Connected: " + ssid,
+            "IP address: " + ip_addr,
+            "Internet: OK",
+            "DNS: Failed",
+            "Name lookup may be broken.");
+        return true;
+    }
+
+    SetWlanTestResult(
+        "Network Connection",
+        "Connected: " + ssid,
+        "IP address: " + ip_addr,
+        "Internet: Failed",
+        "DNS: " + std::string(dns_ok ? "OK" : "Failed"),
+        "Router or upstream network may be down.");
+    return true;
+}
+
 bool Wlan::RefreshSaved() {
     return BuildSavedList();
 }
@@ -1742,6 +1836,16 @@ std::string Wlan::GetWpaCliBinary() {
         "/vendor/bin/hw/wpa_cli",
         "/system_ext/bin/wpa_cli",
         "/sbin/wpa_cli"
+    });
+}
+
+std::string Wlan::GetBusyboxBinary() {
+    return FindBinary({
+        "/system/bin/busybox",
+        "/sbin/busybox",
+        "/vendor/bin/busybox",
+        "/system/xbin/busybox",
+        "/bin/busybox"
     });
 }
 

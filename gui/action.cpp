@@ -299,6 +299,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(wlan_saved_refresh);
       ADD_ACTION(wlan_connect_saved);
       ADD_ACTION(wlan_forget_saved);
+      ADD_ACTION(wlan_test_connection);
 
       // OrangeFox NAS
       ADD_ACTION(nas_mount);
@@ -3194,6 +3195,10 @@ int GUIAction::wlan_saved_refresh(std::string arg) {
 
 int GUIAction::wlan_forget_saved(std::string arg) {
     return Wlan::ForgetSaved() ? 0 : -1;
+}
+
+int GUIAction::wlan_test_connection(std::string arg) {
+    return Wlan::TestConnection() ? 0 : -1;
 }
 
 int GUIAction::nas_mount(std::string arg __unused) {
