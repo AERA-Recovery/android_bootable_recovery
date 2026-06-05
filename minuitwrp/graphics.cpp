@@ -12,6 +12,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * Copyright (C) 2026 The OrangeFox Recovery Project
+ *
  */
 
 #include <stdbool.h>
@@ -534,7 +537,11 @@ int gr_init(void)
 
     char gr_rotation_string[PROPERTY_VALUE_MAX];
     char default_rotation[4];
+#ifdef OF_LANDSCAPE_MODE
+    snprintf(default_rotation, 4, "%d", 270);
+#else
     snprintf(default_rotation, 4, "%d", TW_ROTATION);
+#endif
     property_get("persist.twrp.rotation", gr_rotation_string, default_rotation);
     gr_rotation = atoi(gr_rotation_string);
     if (!(gr_rotation == 90 || gr_rotation == 180 || gr_rotation == 270))
