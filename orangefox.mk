@@ -374,7 +374,7 @@ ifeq ($(BOARD_RAMDISK_USE_LZ4),true)
 endif
 
 ifeq ($(OF_USE_LZ4_COMPRESSION),1)
-    ifeq ($(BOARD_RAMDISK_USE_LZ4),)
+    ifneq ($(BOARD_RAMDISK_USE_LZ4),true)
     	BOARD_RAMDISK_USE_LZ4 := true
     endif
     LOCAL_CFLAGS += -DOF_USE_LZ4_COMPRESSION
