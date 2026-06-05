@@ -51,6 +51,13 @@ ifeq ($(FOX_DEVICE_MODEL),)
     LOCAL_CFLAGS += -DFOX_DEVICE_MODEL='"$(DEVICE)"'
 endif
 
+OF_CURRENT_BRANCH := $(shell git -C $(call my-dir) branch --show-current 2>/dev/null)
+ifeq ($(OF_CURRENT_BRANCH),)
+    LOCAL_CFLAGS += -DOF_CURRENT_BRANCH='"broken repo"'
+else
+    LOCAL_CFLAGS += -DOF_CURRENT_BRANCH='"$(OF_CURRENT_BRANCH)"'
+endif
+
 # include resetprop automatically
 ifneq ($(TW_INCLUDE_RESETPROP),true)
    TW_INCLUDE_RESETPROP := true
