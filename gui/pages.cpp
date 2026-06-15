@@ -2014,6 +2014,18 @@ void Page::SelectFocusedElement(bool longPressed) {
 			centerY += actionH / 2;
 		}
 
+		GUIKeyboard* keyboard = dynamic_cast<GUIKeyboard*>(focusedElement);
+		if (keyboard) {
+			focusedElement->NotifyTouch(TOUCH_START, centerX, centerY);
+
+			if (longPressed)
+				focusedElement->NotifyTouch(TOUCH_HOLD, centerX, centerY);
+			else
+				focusedElement->NotifyTouch(TOUCH_RELEASE, centerX, centerY);
+
+			return;
+		}
+
 		if (longPressed)
 			focusedElement->NotifyTouch(TOUCH_HOLD, centerX, centerY);
 		else
