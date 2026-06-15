@@ -960,11 +960,11 @@ void DataManager::SetDefaultValues()
 	mPersist.SetValue("tw_action_vibrate", "0");
 #endif
 
-#ifndef TW_NO_NETWORK
-    mConst.SetValue("tw_disable_network", "0");
+#ifdef TW_ENABLE_NETWORK
+    LOGINFO("TW_ENABLE_NETWORK := true\n");
+    mConst.SetValue("tw_enable_network", "1");
 #else
-    LOGINFO("TW_NO_NETWORK := true\n");
-    mConst.SetValue("tw_disable_network", "1");
+    mConst.SetValue("tw_enable_network", "0");
 #endif
 
   TWPartition *store = PartitionManager.Get_Default_Storage_Partition();

@@ -887,8 +887,9 @@ ifeq ($(OF_ENABLE_WLAN),1)
         $(error wpa_supplicant_8 sources not present; exiting.)
     endif
 
+    TW_ENABLE_NETWORK := true
     LOCAL_CFLAGS += -DOF_ENABLE_WLAN
-    TW_NO_NETWORK := false
+
     $(warning The wlan features will be enabled. You need to provide (and load and manage) your WiFi drivers in your device tree)
 
     TWRP_REQUIRED_MODULES += \
@@ -918,11 +919,8 @@ $(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF): $(TARGET_OUT_VENDOR_ETC)/vintf/m
 	@mkdir -p $(dir $@) && cp -f $< $@
 
 ALL_DEFAULT_INSTALLED_MODULES += $(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF)
-
 endif
-else
-    TW_NO_NETWORK := true
-    LOCAL_CFLAGS += -DTW_NO_NETWORK
+
 endif
 
 # whether to skip substituting some permissions

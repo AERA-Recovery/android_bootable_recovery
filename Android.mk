@@ -312,10 +312,8 @@ endif
 ifeq ($(TW_NO_HAPTICS), true)
     LOCAL_CFLAGS += -DTW_NO_HAPTICS
 endif
-ifeq ($(TW_NO_NETWORK), true)
-    LOCAL_CFLAGS += -DTW_NO_NETWORK
-endif
-ifneq ($(TW_NO_NETWORK), true)
+ifeq ($(TW_ENABLE_NETWORK), true)
+    LOCAL_CFLAGS += -DTW_ENABLE_NETWORK
     TWRP_REQUIRED_MODULES += \
         index.html \
         fox_icon.png \

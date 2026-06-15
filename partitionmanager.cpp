@@ -629,8 +629,9 @@ void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
 		Decrypt_Data();
 	#endif
 
+	#ifdef OF_ENABLE_WLAN
 		Add_NAS_Storage();
-
+	#endif
 		Update_System_Details();
 		if (Get_Super_Status())
 			Setup_Super_Partition();
