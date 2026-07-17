@@ -6,9 +6,13 @@
 #include <vector>
 #include <android-base/file.h>
 #include <android-base/strings.h>
+
 #ifdef AB_OTA_UPDATER
+#if defined(TW_LOAD_VENDOR_MODULES) || defined(TW_POST_DECRYPT_MODULES)
 #include <modprobe/modprobe.h>
 #endif
+#endif
+
 #include <sys/mount.h>
 #include <sys/utsname.h>
 
