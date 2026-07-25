@@ -64,7 +64,7 @@
 		<string name="sort_by_size_desc">Tamaño</string>
 		<string name="install_btn">Instalar</string>
 		<string name="wipe_btn">Borrar</string>
-		<string name="backup_btn">Copias de seguridad</string>
+		<string name="backup_btn">Copias</string>
 		<string name="restore_btn">Restaurar</string>
 		<string name="mount_btn">Montar</string>
 		<string name="file_manager_btn">Archivos</string>
