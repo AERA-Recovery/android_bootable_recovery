@@ -548,7 +548,7 @@ string tmp = "";
 
 	std::vector<string> img_names_alt = {"abl.elf", "xbl.elf", "xbl_config.elf", "devcfg.mbn", "cmnlib64.mbn"};
 
-	std::vector<string> cmd_names = {"package_extract_file", "package_unsparse_file", "/system/bin/bootctl", "rm -f /data/cache/command"};
+	std::vector<string> cmd_names = {"package_extract_file", "package_flash_partition", "package_unsparse_file", "/system/bin/bootctl", "rm -f /data/cache/command"};
 
 	// iterate through names
 	for (auto fname : img_names) {
