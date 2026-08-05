@@ -46,7 +46,9 @@
 #include "partitions.hpp"
 #include "data.hpp"
 #include "twrp-functions.hpp"
+#ifdef OF_ENABLE_WLAN
 #include "nas/NasManager.hpp"
+#endif
 #include "twrpTar.hpp"
 #include "exclude.hpp"
 #include "infomanager.hpp"
@@ -1378,9 +1380,9 @@ void TWPartition::Setup_Data_Media() {
 		}
 	}
 	ExcludeAll(Mount_Point + "/media");
-#ifdef FOX_MISCELLANEOUS_ROOT_DIRECTORY
+#ifdef OF_MISCELLANEOUS_ROOT_DIRECTORY
 	if (TWFunc::Get_Root_Path(Fox_Home) == Mount_Point) {
-		Storage_Path = FOX_MISCELLANEOUS_ROOT_DIRECTORY;
+		Storage_Path = OF_MISCELLANEOUS_ROOT_DIRECTORY;
 	}
 #endif
 }
@@ -1647,7 +1649,11 @@ bool TWPartition::Mount(bool Display_Error) {
 	}
 
 	if (Mount_Point == TW_NAS_MOUNT_POINT || Current_File_System == "fuse.nas") {
+#ifdef OF_ENABLE_WLAN
 		bool mounted = NasManager::IsMounted();
+#else
+		bool mounted = false;
+#endif
 		DataManager::SetValue(TW_NAS_MOUNTED, mounted ? 1 : 0);
 		return mounted;
 	}
@@ -1811,7 +1817,12 @@ bool TWPartition::Bind_Mount(bool Display_Error) {
 
 bool TWPartition::UnMount(bool Display_Error, int flags) {
 	if (Mount_Point == TW_NAS_MOUNT_POINT || Current_File_System == "fuse.nas") {
+#ifdef OF_ENABLE_WLAN
 	    return NasManager::Unmount();
+#else
+	    DataManager::SetValue(TW_NAS_MOUNTED, 0);
+	    return false;
+#endif
 	}
 	if (Is_Mounted()) {
 		int never_unmount_system;
@@ -2714,7 +2725,7 @@ bool TWPartition::Wipe_F2FS() {
 			LOGINFO("OrangeFox: bind-unmounting /sdcard before f2fs data format...\n");
 			usleep(32768);
 			string nul;
-			TWFunc::Exec_Cmd("umount /sdcard", nul);
+			TWFunc::Exec_Cmd("umount -f /sdcard /data", nul);
 			usleep(32768);
 		}
 	#endif
@@ -3037,8 +3048,10 @@ bool TWPartition::Raw_Read_Write(PartitionSettings *part_settings) {
 		goto exit;
 	}
 
-	if (part_settings->progress)
+	if (part_settings->progress) {
+		part_settings->progress->SetLabel(Backup_Display_Name);
 		part_settings->progress->SetPartitionSize(part_settings->total_restore_size);
+	}
 
 	while (Remain > 0) {
 		if (Remain < RW_Block_Size)
@@ -3086,8 +3099,10 @@ bool TWPartition::Backup_Dump_Image(PartitionSettings *part_settings) {
 	   gui_msg(Msg("backing_up=Backing up {1}...")(Backup_Display_Name));
 	}
 
-	if (part_settings->progress)
+	if (part_settings->progress) {
+		part_settings->progress->SetLabel(Backup_Display_Name);
 		part_settings->progress->SetPartitionSize(Backup_Size);
+	}
 
 	Backup_FileName = Backup_Name + "." + Current_File_System + ".win";
 	Full_FileName = part_settings->Backup_Folder + "/" + Backup_FileName;
@@ -3193,7 +3208,10 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
 	if (!Password.empty())
 		tar.setpassword(Password);
 #endif
-	part_settings->progress->SetPartitionSize(Get_Restore_Size(part_settings));
+	if (part_settings->progress) {
+		part_settings->progress->SetLabel(Backup_Display_Name);
+		part_settings->progress->SetPartitionSize(Get_Restore_Size(part_settings));
+	}
 	if (tar.extractTarFork() != 0)
 		ret = false;
 	else
@@ -3259,7 +3277,11 @@ bool TWPartition::Update_Size(bool Display_Error) {
 	bool ret = false, Was_Already_Mounted = false, ro = false;
 	
 	if (Mount_Point == TW_NAS_MOUNT_POINT || Current_File_System == "fuse.nas") {
+#ifdef OF_ENABLE_WLAN
 	    Is_Present = NasManager::IsMounted();
+#else
+	    Is_Present = false;
+#endif
 	    DataManager::SetValue(TW_NAS_MOUNTED, Is_Present ? 1 : 0);
 	    
 	    if (!Is_Present) {
@@ -3608,6 +3630,7 @@ bool TWPartition::Flash_Image_FI(const string& Filename, ProgressTracking *progr
 	gui_msg(Msg("flashing=Flashing {1}...")(Display_Name));
 	if (progress) {
 		file_size = (unsigned long long)(TWFunc::Get_File_Size(Filename));
+		progress->SetLabel(Display_Name);
 		progress->SetPartitionSize(file_size);
 	}
 	// Sometimes flash image doesn't like to flash due to the first 2KB matching, so we erase first to ensure that it flashes
