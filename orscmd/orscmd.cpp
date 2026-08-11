@@ -60,6 +60,7 @@ void print_usage(void) {
 	printf("  print <value>\n");
 	printf("  mkdir <directory>\n");
 	printf("  reboot [recovery|poweroff|bootloader|download|fastboot|edl]\n");
+	printf("  console_message | console_warning | console_error <message to be displayed>\n");
 	printf("\nSee more documentation at https://twrp.me/faq/openrecoveryscript.html\n");
 }
 
