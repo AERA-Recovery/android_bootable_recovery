@@ -795,6 +795,18 @@ void OpenRecoveryScript::Run_CLI_Command(const char* command) {
 				}
 			}
 		}
+	} else if (cmd_str == "console_message" || cmd_str == "console_warning" || cmd_str == "console_error") {
+		int i = cmd_str.length() + 1;
+		if (tmp.length() > i) {
+			std::string s = "warning";
+			if (cmd_str == "console_error")
+				s = "error";
+			std::string msg = tmp.substr(i);
+			if (cmd_str == "console_message")
+				gui_print("%s\n", msg.c_str());
+			else
+				gui_print_color(s.c_str(), "%s\n", msg.c_str());
+		}
 	} else if (OpenRecoveryScript::Insert_ORS_Command(command)) {
 		OpenRecoveryScript::run_script_file();
 	}
@@ -802,6 +814,26 @@ void OpenRecoveryScript::Run_CLI_Command(const char* command) {
 	// let the GUI close the output fd and restart the command listener
 	call_after_cli_command();
 	LOGINFO("Done reading ORS command from command line\n");
+}
+
+// Run a single ORS command line through the standard ORS engine and return its
+// exit code. Used by the modern "fox" CLI to reuse the well-tested ORS handlers
+// (flash, sideload, format, wipe, set_active, reboot, ...) without duplicating
+// their logic. Unlike Run_CLI_Command(), this does not touch the FIFO callback.
+int OpenRecoveryScript::Run_ORS_Line(const std::string& command) {
+	if (!Insert_ORS_Command(command))
+		return 1;
+	return run_script_file();
+}
+
+// Copy an ORS script file into the temp folder and execute it, returning the
+// exit code. Used by 'fox ors <script>'.
+int OpenRecoveryScript::Run_ORS_File(const std::string& filename) {
+	if (copy_script_file(filename) == 0) {
+		LOGINFO("fox: unable to copy script file '%s'\n", filename.c_str());
+		return 1;
+	}
+	return run_script_file();
 }
 
 int OpenRecoveryScript::remountrw(void)
