@@ -349,7 +349,7 @@ void TWFunc::Run_Before_Reboot(void)
     // logs & stuff
     string Logs_Dir = Fox_Logs_Dir;
     bool failed_decryption = (TWFunc::Fox_Property_Get("of_decryption_failed") == "true");
-#if defined(FOX_USE_DATA_RECOVERY_FOR_SETTINGS) || !defined(FOX_MISCELLANEOUS_ROOT_DIRECTORY)
+#if defined(OF_USE_DATA_RECOVERY_FOR_SETTINGS) || !defined(OF_MISCELLANEOUS_ROOT_DIRECTORY)
     // check whether decryption failed, and, if so, store the lastrecovery log under /data/recovery/
     if (failed_decryption) {
     	Logs_Dir = TW_STORAGE_PATH;
@@ -386,15 +386,15 @@ void TWFunc::Run_Before_Reboot(void)
 
     // if decryption failed, don't backup historic logs
     if (failed_decryption) {
-	#ifdef FOX_MISCELLANEOUS_ROOT_DIRECTORY
-	std::string tmp1 = FOX_MISCELLANEOUS_ROOT_DIRECTORY;
+	#ifdef OF_MISCELLANEOUS_ROOT_DIRECTORY
+	std::string tmp1 = OF_MISCELLANEOUS_ROOT_DIRECTORY;
 	if (tmp1.find("/sdcard/") != string::npos) {
 		// if we're trying to write to /sdcard with decryption failure, bail out
 		return;
 	}
 	#endif
 
-	#ifdef FOX_USE_DATA_RECOVERY_FOR_SETTINGS
+	#ifdef OF_USE_DATA_RECOVERY_FOR_SETTINGS
 		// we aren't writing to /sdcard, so continue
 	#else
 		return;
@@ -2687,10 +2687,10 @@ void TWFunc::Welcome_Message(void)
         (Fox_Property_Get("ro.build.version.sdk").c_str())
         (FOX_CURRENT_DEV_STR));
     gui_print("[Branch]    : %s\n", OF_CURRENT_BRANCH);
-#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+#ifdef OF_SETTINGS_ROOT_DIRECTORY
     gui_msg(Msg("fox_settings=[Settings]  : {1}")(Fox_Settings_Path.c_str()));
 #endif
-#ifdef FOX_MISCELLANEOUS_ROOT_DIRECTORY
+#ifdef OF_MISCELLANEOUS_ROOT_DIRECTORY
     gui_msg(Msg("fox_misc=[Misc]      : {1}")(Fox_Home.c_str()));
 #endif
     gui_msg(Msg("fox_build_date=[Build date]: {1}")(DataManager::GetStrValue("FOX_BUILD_DATE_REAL").c_str()));
@@ -2917,7 +2917,7 @@ void TWFunc::OrangeFox_Startup(void)
   TWFunc::Fresh_Fox_Install();
 
 //==== themes version matching
-#ifndef FOX_ALLOW_EARLY_SETTINGS_LOAD
+#ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
   TWFunc::FoxThemeCheck();
 #endif
 //====
@@ -5186,5 +5186,17 @@ void TWFunc::update_permissions_on_reboot() {
 	TWFunc::set_media_rw_permissions(DataManager::GetStrValue(TW_BACKUPS_FOLDER_VAR));
 	sync();
   }
+}
+
+bool TWFunc::Block_Operations_Until_Reboot() {
+#ifdef OF_BLOCK_OPERATIONS_AFTER_ROM_FLASH
+	if (TWFunc::Fox_Property_Get("fox_block_operations_pending_reboot") == "blocking") {
+		gui_print_color("error", "\n\nThis operation has been blocked. Reboot OrangeFox (NOW!) before doing anything else.\n\n");
+		return true;
+	}
+	return false;
+#else
+	return false;
+#endif
 }
 //

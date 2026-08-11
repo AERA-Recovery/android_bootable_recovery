@@ -79,7 +79,9 @@
 #include "adbbu/libtwadbbu.hpp"
 #include "kernel_module_loader.hpp"
 
+#ifdef OF_ENABLE_WLAN
 #include "nas/NasManager.hpp"
+#endif
 
 #ifdef TW_LOAD_VENDOR_MODULES
 #include "kernel_module_loader.hpp"
@@ -649,6 +651,11 @@ bool TWPartitionManager::Is_NAS_Path(const std::string& Path) {
 }
 
 void TWPartitionManager::Add_NAS_Storage() {
+#ifndef OF_ENABLE_WLAN
+	DataManager::SetValue(TW_HAS_NAS_STORAGE, 0);
+	DataManager::SetValue(TW_NAS_MOUNTED, 0);
+	return;
+#else
 	if (Find_Partition_By_Path(TW_NAS_MOUNT_POINT) != NULL) {
 		DataManager::SetValue(TW_HAS_NAS_STORAGE, 1);
 		DataManager::SetValue(TW_NAS_MOUNTED, NasManager::IsMounted() ? 1 : 0);
@@ -691,6 +698,7 @@ void TWPartitionManager::Add_NAS_Storage() {
 	DataManager::SetValue(TW_NAS_MOUNTED, NasManager::IsMounted() ? 1 : 0);
 
 	LOGINFO("Added virtual NAS storage at %s\n", TW_NAS_MOUNT_POINT);
+#endif
 }
 
 int TWPartitionManager::Write_Fstab(void) {
@@ -1039,8 +1047,13 @@ int TWPartitionManager::UnMount_By_Path(string Path, bool Display_Error, int fla
 }
 
 int TWPartitionManager::Is_Mounted_By_Path(string Path) {
-	if (Is_NAS_Path(Path))
+	if (Is_NAS_Path(Path)) {
+#ifdef OF_ENABLE_WLAN
 	    return NasManager::IsMounted();
+#else
+	    return false;
+#endif
+	}
 	TWPartition* Part = Find_Partition_By_Path(Path);
 
 	if (Part)
@@ -1429,9 +1442,15 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 		}
 	}
 
+#ifdef OF_ENABLE_WLAN
 	bool nas_backup = !adbbackup && part_settings.Backup_Folder.compare(0, NasManager::Mount_Point.size(), NasManager::Mount_Point) == 0;
+#else
+	bool nas_backup = false;
+#endif
+#ifdef OF_ENABLE_WLAN
 	if (nas_backup)
 		NasManager::ResetTransferStats();
+#endif
 
 	DataManager::SetProgress(0.0);
 
@@ -1485,8 +1504,10 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 
 	if (nas_backup) {
 		gui_msg("nas_wait_upload=Waiting for NAS upload to finish...");
+#ifdef OF_ENABLE_WLAN
 		if (!NasManager::WaitForPendingUploads(0, actual_backup_size_bytes))
 			return false;
+#endif
 	}
 
 	time(&total_stop);
@@ -2035,6 +2056,8 @@ static void Update_Encryption_Props_Before_Format() {
 }
 
 int TWPartitionManager::Format_Data(void) {
+	if (TWFunc::Block_Operations_Until_Reboot())
+		return false;
 	TWPartition* dat = Find_Partition_By_Path("/data");
 	TWPartition* metadata = Find_Partition_By_Path("/metadata");
 	bool ret = false;

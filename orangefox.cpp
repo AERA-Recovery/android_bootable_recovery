@@ -648,6 +648,9 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
   TWFunc::IsRecoveryOverwritten(true);
 #endif
 
+  if (TWFunc::Block_Operations_Until_Reboot())
+	return INSTALL_ERROR;
+
   if (DataManager::GetIntValue(FOX_INSTALL_PREBUILT_ZIP) != 1)
     {
       DataManager::SetValue(FOX_METADATA_PRE_BUILD, 0);
@@ -1119,6 +1122,11 @@ void Fox_Post_Zip_Install(const int result)
          PartitionManager.Update_System_Details();
 	// Run any custom script after completion of all ROM flashing processes
 	TWFunc::RunFoxScript("/system/bin/post_rom_flash_completion.sh", "");
+
+#ifdef OF_BLOCK_OPERATIONS_AFTER_ROM_FLASH
+	TWFunc::Fox_Property_Set("fox_block_operations_pending_reboot", "blocking");
+	gui_print_color("warning", "\n\nYou must now reboot OrangeFox - immediately!\n\nDo NOT attempt anything else, without first rebooting OrangeFox.\n");
+#endif
      }
 }
 

@@ -105,6 +105,9 @@ static int Install_Theme(const char* path, ZipArchiveHandle Zip) {
 }
 
 static int Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip) {
+	if (TWFunc::Block_Operations_Until_Reboot())
+		return INSTALL_ERROR;
+
 	char arches[PATH_MAX];
 	property_get("ro.product.cpu.abilist", arches, "error");
 	if (strcmp(arches, "error") == 0)
@@ -283,6 +286,9 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 {
   int ret_val, zip_verify = 1, unmount_system = 1, reflashtwrp = 0, unmount_vendor = 1;
   bool run_rom_scripts = false;
+
+  if (TWFunc::Block_Operations_Until_Reboot())
+	return INSTALL_CORRUPT;
 
   if (strcmp(path, "error") == 0)
     {

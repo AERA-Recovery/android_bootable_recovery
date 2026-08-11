@@ -238,7 +238,7 @@ public:
 	static bool IsRecoveryOverwritten(bool only_update = false);
 	static void set_media_rw_permissions(const string pathname); /* set selinux context and permissions to media_rw */
 	static void update_permissions_on_reboot(); /* update some permissions when rebooting */
-
+	static bool Block_Operations_Until_Reboot(); /* whether to block operations after flashing a ROM, until reboot to OrangeFox */
 private:
 	static void Copy_Log(string Source, string Destination);
 	static string Load_File(string extension);
