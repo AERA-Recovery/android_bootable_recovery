@@ -30,6 +30,8 @@
 		<resource name="Secondary-title" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
 		<resource name="caption" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
 		
+        <resource name="Secondary-navbar" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
+
 		<resource name="clock" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
 		<resource name="info" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
 
@@ -37,7 +39,8 @@
 		<resource name="orangefont" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
 
         <!-- Partition display names -->
-        <string name="system">系统</string>
+        <!-- Translator note: it will be displayed as a partition name. -->
+        <string name="system">System</string>
         <string name="system_image">System 镜像</string>
         <string name="vendor">Vendor</string>
         <string name="vendor_image">Vendor 镜像</string>
@@ -48,7 +51,7 @@
         <string name="sdcard">SD 卡</string>
         <string name="internal">内部存储</string>
         <string name="microsd">Micro SD 卡</string>
-        <string name="usb_storage">USB存储</string>
+        <string name="usb_storage">USB 外置存储</string>
         <string name="android_secure">Android Secure</string>
         <string name="dalvik">Dalvik / ART Cache</string>
         <!-- This is a rarely used partition on a Micro SD card for a very old app2sd system -->
@@ -79,13 +82,13 @@
         <string name="install_image_btn">刷入镜像</string>
         <string name="install_select_file_hdr">选择文件</string>
         <string name="install_select_file_btn">选择文件</string>
-        <string name="adb_sideload_btn">ADB &amp; Sideload</string>
+        <string name="adb_sideload_btn">ADB 与侧载</string>
         <string name="select_storage_hdr">选择存储设备</string>
         <string name="select_storage_btn">选择存储设备</string>
         <string name="queue_hdr">队列</string>
         <string name="raised_clearqueue_btn">清空队列</string>
         <string name="raised_viewqueue_btn">查看队列</string>
-        <string name="zip_queue_count">已选择 %tw_zip_queue_count% 个文件（最多 10 个）</string>
+        <string name="zip_queue_count">已选择 %tw_zip_queue_count% 个文件 (最多 10 个)</string>
         <string name="folder">文件夹</string>
         <string name="file">文件</string>
         <string name="zip_sig_chk">ZIP 文件签名校验</string>
@@ -109,9 +112,9 @@
         <string name="wiping_cache_dalvik">正在清除 Cache &amp; Dalvik...</string>
         <string name="wipe_cache_dalvik_complete">Cache &amp; Dalvik 清除完成</string>
         <string name="cache_dalvik_done">Cache &amp; Dalvik 清除完成</string>
-        <string name="swipe_wipe">滑动清除</string>
+        <string name="swipe_wipe">滑动以清除</string>
         <string name="rebooting">重启中...</string>
-        <string name="swipe_reboot">滑动重启</string>
+        <string name="swipe_reboot">滑动以重启</string>
         <string name="confirm_action">确认操作</string>
         <string name="cancel_btn">取消</string>
         <string name="wipe_hdr">清除</string>
@@ -120,7 +123,7 @@
         <string name="factory_reset2">(不包括内部存储)</string>
         <string name="factory_reset3">大多数情况下这是</string>
         <string name="factory_reset4">你唯一需要的清除</string>
-        <string name="factory_reset5">（不包括用户/锁屏）</string>
+        <string name="factory_reset5"> (不包括用户/锁屏)</string>
         <string name="factory_resetting">恢复出厂设置...</string>
         <string name="advanced_wipe_hdr">高级清除</string>
         <string name="advanced_wipe_btn">高级清除</string>
@@ -208,7 +211,7 @@
         <string name="swipe_to_rename">滑动以重命名</string>
         <string name="mount_hdr">挂载</string>
         <string name="mount_sys_ro_chk">挂载系统分区为只读</string>
-        <string name="erofs_is_ro_fs">EROFS是一个只读文件系统，无法以读/写模式挂载！</string>
+        <string name="erofs_is_ro_fs">EROFS 是只读文件系统，无法以读/写模式挂载！</string>
         <string name="decrypt_data_btn">解密 Data 分区</string>
         <string name="disable_mtp_btn">禁用 MTP</string>
         <string name="enable_mtp_btn">启用 MTP</string>
@@ -221,10 +224,10 @@
         <string name="rb_system_btn">系统</string>
         <string name="rb_poweroff_btn">关机</string>
         <string name="rb_recovery_btn">Recovery</string>
-        <string name="rb_bootloader_btn">Bootloader</string>
+        <string name="rb_bootloader_btn">Bootloader (引导加载程序)</string>
         <string name="rb_theme">主题</string>
         <string name="rb_download_btn">下载模式</string>
-        <string name="rb_edl_btn">Edl模式</string>
+        <string name="rb_edl_btn">EDL 模式</string>
         <string name="turning_off">正在关闭......</string>
         <string name="swipe_power_off">滑动以关机</string>
         <string name="sys_ro">系统分区</string>
@@ -283,16 +286,16 @@
         <string name="tz_offset_45">45</string>
         <string name="use_dst_chk">使用夏令时 (DST)</string>
         <string name="curr_tz">当前时区: %tw_time_zone%</string>
-        <string name="curr_tz_s">当前时区：</string>
+        <string name="curr_tz_s">当前时区: </string>
         <string name="set_tz_btn">设置时区</string>
         <string name="settings_screen_cptn">屏幕设置</string>
         <string name="settings_screen_timeout_cptn">超时关闭</string>
-        <string name="settings_screen_timeout_cptn2">超时：</string>
+        <string name="settings_screen_timeout_cptn2">超时: </string>
         <string name="timeout_unit">秒</string>
         <string name="enable_timeout_chk">启用屏幕超时</string>
         <string name="screen_to_na">无法设置屏幕超时</string>
         <string name="rotation_chk">旋转</string>
-        <string name="screen_bright_slider">亮度：%tw_brightness_pct%%</string>
+        <string name="screen_bright_slider">亮度: %tw_brightness_pct%%</string>
         <string name="screen_bright_na">无法设置亮度</string>
         <string name="vibration_hdr">振动</string>
         <string name="button_vibration_hdr">已关闭按钮振动</string>
@@ -302,16 +305,16 @@
         <string name="kb_vibration">键盘振动:</string>
         <string name="act_vibration">触摸振动:</string>
         <string name="advanced_hdr">高级</string>
-        <string name="copy_log_confirm">将Log日志复制至 SD 存储</string>
+        <string name="copy_log_confirm">将 LOG 日志复制至 SD 存储</string>
         <string name="copying_log">正在复制日志至 SD 存储...</string>
         <string name="copy_log_complete">日志已复制完成</string>
         <string name="terminal_btn">终端</string>
-        <string name="inject_twrp_btn">注入OrangeFox</string>
+        <string name="inject_twrp_btn">注入 OrangeFox</string>
         <string name="inject_twrp_confirm">重新注入 OrangeFox</string>
         <string name="injecting_twrp">正在重新注入 OrangeFox...</string>
         <string name="inject_twrp_complete">OrangeFox 注入完成</string>
         <string name="swipe_to_confirm">滑动以确认</string>
-        <string name="part_sd_hdr">SD卡分区</string>
+        <string name="part_sd_hdr">SD 卡分区</string>
         <string name="rem_sd">可移动存储</string>
         <string name="rem_sd_sel">选择一个可移动设备！</string>
         <string name="invalid_partsd_sel">你必须选择一个可移动设备</string>
@@ -324,13 +327,13 @@
         <string name="btn_flat_ext3">EXT3</string>
         <string name="btn_flat_more">+</string>
         <string name="btn_flat_less">-</string>
-        <string name="part_sd_swap_sz">Swap 分区大小：</string>
-        <string name="file_system">文件系统：</string>
+        <string name="part_sd_swap_sz">Swap 分区大小: </string>
+        <string name="file_system">文件系统: </string>
         <string name="swipe_part_sd">滑动以分区</string>
         <string name="partitioning_sd">分区 SD 存储中...</string>
         <string name="partitioning_sd2">这将需要几分钟.</string>
         <string name="part_sd_complete">分区完成。</string>
-        <string name="swipe_to_unlock">滑动解锁</string>
+        <string name="swipe_to_unlock">滑动以解锁</string>
         <string name="fm_actions">操作</string>
         <string name="fm_hdr">文件</string>
         <string name="fm_sel_file">选择一个文件或文件夹</string>
@@ -340,8 +343,8 @@
         <string name="fm_copying">正在复制...</string>
         <string name="fm_move_btn">移动</string>
         <string name="fm_moving">正在移动</string>
-        <string name="fm_chmod755_btn">设定权限为 755 </string>
-        <string name="fm_chmod755ing">设定权限为 755 </string>
+        <string name="fm_chmod755_btn">设定权限为 755</string>
+        <string name="fm_chmod755ing">设定权限为 755</string>
         <string name="fm_chmod644_btn">设定权限为 644</string>
         <string name="fm_chmod644ing">设定权限为 644</string>
         <string name="fm_chmod_btn">设定权限</string>
@@ -372,11 +375,11 @@
         <string name="sideload_wipe_cache_chk">清除缓存</string>
         <string name="swipe_to_sideload">滑动以启动 Sideload 模式</string>
         <string name="sideload_confirm">ADB Sideload</string>
-        <string name="sideload_usage">使用方法：ADB SideLoad File.ZIP</string>
+        <string name="sideload_usage">使用方法: ADB SideLoad File.ZIP</string>
         <string name="sideload_complete">ADB Sideload 已完成</string>
         <string name="fix_contexts_hdr">修复 Contexts</string>
         <string name="fix_contexts_confirm">修复 SELinux 环境</string>
-        <string name="fix_contexts_note1">注意：很少需要使用“修复权限”。</string>
+        <string name="fix_contexts_note1">注意: 很少需要使用“修复权限”。</string>
         <string name="fix_contexts_note2">修复 SELinux Contexts 可能导致</string>
         <string name="fix_contexts_note3">您的设备启动异常。</string>
         <string name="swipe_to_fix_contexts">滑动以修复 Contexts</string>
@@ -385,7 +388,7 @@
         <string name="reboot_hdr">重启</string>
         <string name="sel_storage_list">选择存储设备</string>
         <string name="ok_btn">确定</string>
-        <string name="install_twrp_ramdisk">安装恢复Ramdisk</string>
+        <string name="install_twrp_ramdisk">安装恢复 Ramdisk</string>
         <string name="install_kernel">安装内核</string>
         <string name="repack_backup_first">先备份现有镜像</string>
         <string name="installing">正在安装...</string>
@@ -393,14 +396,14 @@
         <string name="decrypt_users">解密用户</string>
         <string name="backup_storage_undecrypt_warning">备份不包括用户{1}的某些文件，因为用户未解密。</string>
         <string name="decrypting_user_fbe">尝试为用户{1}解密FBE...</string>
-        <string name="decrypt_user_success_fbe">用户{1}解密成功</string>
+        <string name="decrypt_user_success_fbe">已成功解密用户{1}的存储</string>
         <string name="decrypt_user_fail_fbe">无法解密用户{1}</string>
         <string name="decrypt_data_user">已选择的用户</string>
         <string name="data_users">用户</string>
         <!-- Various console messages - these consist of user displayed messages, oftentimes errors -->
         <string name="no_kernel_selinux">内核不支持读取 SELinux Contexts。</string>
         <string name="full_selinux">存在完整的 SELinux 支持。</string>
-        <string name="no_selinux">没有 SELinux 支持（无 libselinux）。</string>
+        <string name="no_selinux">没有 SELinux 支持 (无 libselinux) 。</string>
         <string name="mtp_enabled">找不到 Media 存储。</string>
         <string name="mtp_disabled">已禁用 MTP</string>
         <string name="mtp_crash">MTP 崩溃，不在启动时启用 MTP。</string>
@@ -422,7 +425,7 @@
         <string name="unable_locate_storage">无法定位存储设备。</string>
         <string name="no_space">可用的存储空间不足。</string>
         <string name="backup_started">[开始备份]</string>
-        <string name="backup_folder">警告：此 /Data 备份是使用 {1} 文件系统进行的！</string>
+        <string name="backup_folder">警告: 此 /Data 备份是使用 {1} 文件系统进行的！</string>
         <string name="fail_backup_folder">建立备份文件夹失败。</string>
         <string name="avg_backup_fs">文件系统的平均备份速度: {1} MB/s</string>
         <string name="avg_backup_img">镜像设备的平均备份速度: {1} MB/s</string>
@@ -443,13 +446,13 @@
         <string name="updating_system_details">正在更新系统详情</string>
         <string name="restore_completed">[恢复完成，用时 {1} 秒]</string>
         <!-- {1} is the path we could not open, {2} is strerror output -->
-        <string name="error_opening_strerr">打开出错：'{1}' ({2})</string>
-        <string name="unable_locate_part_backup_name">无法按如下备份名定位分区：'{1}'</string>
-        <string name="unable_find_part_path">无法在如下路径找到分区：'{1}' </string>
+        <string name="error_opening_strerr">打开出错: '{1}' ({2})</string>
+        <string name="unable_locate_part_backup_name">无法按如下备份名定位分区: '{1}'</string>
+        <string name="unable_find_part_path">无法在如下路径找到分区: '{1}' </string>
         <string name="update_part_details">正在更新分区详情...</string>
         <string name="update_part_details_done">...完成</string>
-        <string name="wiping_dalvik">正在清除 Dalvik目录...</string>
-        <string name="cleaned">已清除：{1}...</string>
+        <string name="wiping_dalvik">正在清除 Dalvik 目录...</string>
+        <string name="cleaned">已清除: {1}...</string>
         <string name="dalvik_done">-- Dalvik Cache 目录清除完成！</string>
         <string name="no_andsec">没有找到 Android Secure 分区。</string>
         <string name="unable_to_locate">无法定位 {1}。</string>
@@ -459,7 +462,7 @@
         <string name="unable_to_mount_storage">无法挂载存储</string>
         <string name="fail_decrypt">解密数据失败。</string>
         <string name="no_crypto_support">此构建版本的编译不含加密支持。</string>
-        <string name="decrypt_success_dev">数据解密成功，新的块设备：'{1}'</string>
+        <string name="decrypt_success_dev">数据解密成功，新的块设备: '{1}'</string>
         <string name="done">完成</string>
         <string name="start_partition_sd">分区 SD 存储中...</string>
         <string name="partition_sd_locate">无法定位要分区的设备。</string>
@@ -476,7 +479,7 @@
         <string name="no_mtp">不含 MTP 支持</string>
         <string name="mtp_base_path_missing">未找到媒体存储。 无法启用MTP。</string>
         <string name="image_flash_start">[映像刷入开始]</string>
-        <string name="img_to_flash">要刷入的镜像：'{1}'</string>
+        <string name="img_to_flash">要刷入的镜像: '{1}'</string>
         <string name="flash_unable_locate">无法定位要刷入的 '{1}' 分区。</string>
         <string name="no_part_flash">没有选择要刷入的分区。</string>
         <string name="too_many_flash">选择了太多要刷入的分区。</string>
@@ -486,7 +489,7 @@
         <string name="repair_not_exist">{1} 不存在！ 无法修复！</string>
         <string name="repairing_using">使用 {2} 修复 {1}...</string>
         <string name="unable_repair">{1} 不存在！</string>
-        <string name="mount_data_footer">未能挂载 /data 从而无法找到 crypto footer（加密元信息）。</string>
+        <string name="mount_data_footer">未能挂载 /data 从而无法找到 crypto footer (加密元信息) 。</string>
         <!-- {1} is the folder name that we could not create, {2} is strerror output -->
         <string name="create_folder_strerr">无法创建 '{1}' 文件夹 ({2})。</string>
         <!-- {1} is the folder name that we could not mount, {2} is strerror output -->
@@ -509,7 +512,7 @@
         <string name="backing_up">正在备份 {1}...</string>
         <string name="backing">正在备份</string>
         <string name="backup_size">'{1}' 的备份文件大小为 0 字节。</string>
-        <string name="datamedia_fs_restore">警告：此 /Data 备份是使用 {1} 文件系统进行的！ 除非您更改回  {1} 否则备份可能无法启动。</string>
+        <string name="datamedia_fs_restore">警告: 此 /Data 备份是使用 {1} 文件系统进行的！ 除非您更改回  {1} 否则备份可能无法启动。</string>
         <string name="restoring">正在恢复 {1}...</string>
         <string name="restoring_hdr">正在还原...</string>
         <string name="recreate_folder_err">无法重新创建 {1} 文件夹。</string>
@@ -517,7 +520,7 @@
         <string name="flashing">正在刷入 {1}...</string>
         <string name="backup_folder_set">备份文件夹设为 '{1}'</string>
         <string name="locate_backup_err">未找到 '{1}' 的 Digest 校验文件。</string>
-        <string name="set_restore_opt">设置恢复选项：'{1}':</string>
+        <string name="set_restore_opt">设置恢复选项: '{1}':</string>
         <string name="md5_check_skip">已设定跳过 MD5 检查</string>
         <string name="ors_encrypt_restore_err">无法使用 OpenRecoveryScript 来恢复加密的备份。</string>
         <string name="mounting">正在挂载</string>
@@ -527,17 +530,17 @@
         <string name="setting">将'{1}'设为'{2}'</string>
         <string name="setting_empty">将'{1}'设置为空</string>
         <string name="making_dir1">本地目录</string>
-        <string name="making_dir2">建立目录：'{1}'</string>
+        <string name="making_dir2">建立目录: '{1}'</string>
         <string name="running_command">运行命令</string>
-        <string name="sideload">通过ADB操作</string>
+        <string name="sideload">通过 ADB 操作</string>
         <string name="start_sideload">正在启用 ADB Sideload 特性...</string>
-        <string name="need_new_adb">您需要 ADB 1.0.32及以上版本以加载此设备。</string>
+        <string name="need_new_adb">您需要 ADB 1.0.32 及以上版本以加载此设备。</string>
         <string name="no_pwd">未输入密码。</string>
         <string name="done_ors">处理脚本文件完成</string>
         <string name="injecttwrp">正在将 OrangeFox 注入 Boot 镜像...</string>
         <string name="zip_err">安装该文件出错 '{1}'</string>
         <string name="installing_zip">正在安装文件  '{1}'</string>
-        <string name="select_backup_opt">设置备份选项：</string>
+        <string name="select_backup_opt">设置备份选项: </string>
         <string name="compression_on">启用压缩</string>
         <string name="md5_off">关闭 MD5 生成</string>
         <string name="backup_fail">备份失败</string>
@@ -553,11 +556,11 @@
         <string name="verify_zip_fail">Zip 文件签名验证错误！</string>
         <string name="verify_zip_done">Zip 文件签名验证成功。</string>
         <string name="zip_corrupt">Zip 文件已损坏 ！</string>
-        <string name="no_md5">跳过 MD5 检查：未找到 MD5 文件</string>
+        <string name="no_md5">跳过 MD5 检查: 未找到 MD5 文件</string>
         <string name="md5_fail">MD5 与文件不匹配</string>
         <string name="md5_match">MD5 与文件相匹配</string>
-        <string name="pid_signal">{1} 进程错误结束：{2}</string>
-        <string name="pid_error">{1} 进程错误结束：{2}</string>
+        <string name="pid_signal">{1} 进程错误结束: {2}</string>
+        <string name="pid_error">{1} 进程错误结束: {2}</string>
         <string name="run_script">正在运行 {1} 脚本...</string>
         <string name="split_backup">正在将备份文件拆分为多个存档...</string>
         <string name="backup_error">创建备份时出误。</string>
@@ -593,17 +596,17 @@
         <!-- new-->
         <string name="sel_color">选择颜色</string>
         <string name="s_color">颜色</string>
-        <string name="current_color">文件系统：</string>
-        <string name="show_cpu_temp_bar">显示CPU 温度：</string>
+        <string name="current_color">文件系统: </string>
+        <string name="show_cpu_temp_bar">显示 CPU 温度</string>
         <string name="ts_inform">信息</string>
-        <string name="sel_splash_png">选择启动图（.png）</string>
+        <string name="sel_splash_png">选择启动图 (.png)</string>
         <string name="swipe_to_install">滑动以安装</string>
         <string name="swipe_to_install_img">滑动以安装镜像</string>
         <string name="sel_image_type">选择 Image 类型！</string>
         <string name="zip_add_queue">添加到队列</string>
         <string name="part_fs_error_1">分区选项不</string>
         <string name="part_fs_error_2">可用于此分区！</string>
-        <string name="new_file_system">新文件系统：</string>
+        <string name="new_file_system">新文件系统: </string>
         <string name="adb_sideload_opt">Sideload 选项</string>
         <string name="about_hdr">关于</string>
         <string name="author">作者</string>
@@ -616,7 +619,7 @@
         <string name="options_cptn">选项</string>
         <string name="flash_img_confirm">刷入 Image 文件</string>
         <string name="also_wipes">同时擦除</string>
-        <string name="confirm_wipe_cptn">确认擦除</string>
+        <string name="confirm_wipe_cptn">确认擦除？</string>
         <string name="storage_cptn">存储</string>
         <string name="enter_password_restore">密码</string>
         <string name="enter_password_cptn">安全</string>
@@ -624,7 +627,7 @@
         <string name="fordowns_sl">正在启动 Sideload ......</string>
         <string name="fordowns_to">至</string>
         <string name="dbg">调试</string>
-        <string name="dbg_active">Debug菜单已激活！</string>
+        <string name="dbg_active">Debug 菜单已激活！</string>
         <string name="dbg_act">执行</string>
         <string name="dbg_func">功能</string>
         <string name="dbg_set">应用</string>
@@ -637,7 +640,7 @@
         <string name="cust_navbar_black">黑</string>
         <string name="cust_navbar_white">使用白色按钮</string>
         <string name="cust_navbar_gray">使用灰色按钮</string>
-        <string name="fm_open">用...打开</string>
+        <string name="fm_open">打开方式...</string>
         <string name="fm_open_text">文本文件</string>
         <string name="fm_open_ZIP">可刷入ZIP</string>
         <string name="fm_open_backup">备份</string>
@@ -708,13 +711,13 @@
         <string name="theme_sec_font_sel">次字体</string>
         <string name="of">/</string>
         <string name="sph_sph">启动图</string>
-        <string name="real">实数</string>
+        <string name="real">完整</string>
         <string name="info">信息</string>
         <string name="time_m">修改</string>
         <string name="time_c">更改</string>
         <string name="access">访问</string>
         <string name="fm_sums">校验</string>
-        <string name="use_fixed_font">终端（Terminal）使用等宽字体</string>
+        <string name="use_fixed_font">终端 (Terminal) 使用等宽字体</string>
         <string name="adb_backup_pc1">此备份将会</string>
         <string name="adb_backup_pc2">保存在你的电脑上</string>
         <string name="starting_aroma">正在启动 Aromma 文件管理器...</string>
@@ -728,7 +731,7 @@
         <string name="skip_digest_backup_chk" version="2">生成备份时跳过Digest</string>
         <string name="restore_digest_chk" version="2">启用 Digest 验证备份</string>
         <string name="restore_enable_digest_chk" version="2">启用 Digest 验证备份</string>
-        <string name="decrypt_data_vold_os_missing">Vold 解密所需的文件丢失： {1}</string>
+        <string name="decrypt_data_vold_os_missing">Vold 解密所需的文件丢失:  {1}</string>
         <string name="generating_digest1" version="2">生成 Digest</string>
         <string name="generating_digest2" version="2">* 生成 Digest…</string>
         <string name="digest_created" version="2">* Digest 已创建。</string>
@@ -736,7 +739,7 @@
         <string name="digest_compute_error" version="2">* 计算 Digest 时出错</string>
         <string name="verifying_digest" version="2">正在验证Digest</string>
         <string name="skip_digest" version="2">根据用户设定，跳过 Digest 检查。</string>
-        <string name="decrypt_success_nodev">Data 解密成功</string>
+        <string name="decrypt_success_nodev">已成功解密 Data 分区</string>
         <string name="no_digest_found" version="2">未找到 ‘{1}’ 的 Digest 校验文件。 请取消勾选“启用 Digest 校验备份文件”复选框。</string>
         <string name="digest_fail_match" version="2">Digest 无法与 ‘{1}’ 匹配。</string>
         <string name="digest_matched" version="2">'{1}' 的 Digest 已匹配</string>
@@ -744,7 +747,7 @@
         <string name="digest_off" version="2">关闭 Digest 生成</string>
         <string name="invalid_zip_format">无效的 Zip 文件！</string>
         <string name="check_for_digest" version="2">检查 Digest 文件中…</string>
-        <string name="no_digest" version="2">跳过 Digest 检查：未找到 Digest 文件</string>
+        <string name="no_digest" version="2">跳过 Digest 检查: 未找到 Digest 文件</string>
         <string name="digest_fail" version="2">Digest 不匹配</string>
         <string name="digest_match" version="2">Digest匹配</string>
         <string name="password">密码</string>
@@ -756,13 +759,13 @@
         <string name="changing_boot_slot">正在更改启动位置</string>
         <string name="changing_boot_slot_complete">已成功更改启动位置</string>
         <string name="unable_set_boot_slot">将 Bootloader 启动位置更改为 {1} 时出错</string>
-        <string name="flash_ab_inactive">将A/B zip刷入非活动槽：{1}</string>
+        <string name="flash_ab_inactive">将A/B zip刷入非活动槽: {1}</string>
         <string name="flash_ab_reboot">要刷入其他zip文件，请重启恢复以切换到更新的槽。</string>
         <string name="flash_ab_both_slots">刷入到两个槽</string>
         <string name="ozip_decrypt_decryption">正在启动 Ozip 解密...</string>
         <string name="ozip_decrypt_finish">Ozip 解密已完成！</string>
         <string name="backup_storage_warning">备份 {1} 不包括内部存储中的任何文件，例如图片或下载等。</string>
-        <string name="sha2_chk">使用 SHA2 进行散列</string>
+        <string name="sha2_chk">使用 SHA2 进行校验</string>
         <string name="disabled">未启用</string>
         <string name="enabled">已启用</string>
         <string name="keep_storage_data">恢复存储时跳过擦除</string>
@@ -773,30 +776,30 @@
         <string name="unmount_vendor_install">安装ZIP前卸载 Vendor 分区</string>
         <string name="unmount_vendor">正在卸载 Vendor分区...</string>
         <string name="unmount_vendor_err">卸载 Vendor 分区失败</string>
-        <string name="fbe_wipe_msg">警告： {1} 已被清除。 FBE 设备应该被启动到安卓系统，而不是恢复以设置清除后的初始FBE策略</string>
-        <string name="fastboot_button">Fastboot</string>
+        <string name="fbe_wipe_msg">警告:  {1} 已被清除。 FBE 设备应该被启动到安卓系统，而不是恢复以设置清除后的初始FBE策略</string>
+        <string name="fastboot_button">Fastbootd (用户空间)</string>
         <string name="enable_adb">启用 ADB</string>
-        <string name="enable_fastboot">启用 Fastboot</string>
-        <string name="fastboot_console_msg">已进入 Fastboot 模式...</string>
+        <string name="enable_fastboot">启用 Fastbootd (用户空间)</string>
+        <string name="fastboot_console_msg">已进入 Fastbootd (用户空间) ...</string>
         <string name="data_media_fbe_msg">OrangeFox不会在FBE设备上重新创建/data/media。 请重启到您的rom以创建/data/media</string>
         <!-- Console Messages -->
         <string name="fox_incremental_ota_compatibility_chk">正在验证增量包签名...</string>
         <string name="fox_incremental_ota_compatibility_false">增量包与此 ROM 不兼容！</string>
         <string name="fox_incremental_ota_compatibility_true">增量包兼容此 ROM</string>
-        <string name="fox_incremental_ota_status_enabled">支持增量包状态：已启用</string>
-        <string name="fox_incremental_ota_status_disabled">支持增量包状态：已禁用</string>
+        <string name="fox_incremental_ota_status_enabled">支持增量包状态: 已启用</string>
+        <string name="fox_incremental_ota_status_disabled">支持增量包状态: 已禁用</string>
         <string name="fox_incremental_package_detected">检测到增量包 {1}</string>
         <string name="fox_survival_does_not_exist">OTA Survival 不存在！ 请先刷入当前版本或是更高版本的完整 ROM！</string>
         <string name="fox_install_detecting">检测到当前版本</string>
         <string name="fox_install_standard_detected">- 检测到标准包</string>
         <string name="fox_install_miui_detected">- 检测到 MIUI 更新包</string>
-        <string name="fox_zip_have_bootloader">警告：检测到重新安装了由 '{1}' 调用的 Bootloader。</string>
+        <string name="fox_zip_have_bootloader">警告: 检测到重新安装了由 '{1}' 调用的 Bootloader。</string>
         <string name="fox_no_space_ota_survival">内部存储空间不足，无法创建 OTA Survival。</string>
         <string name="fox_incremental_ota_res">OTA_RES -- 已完成</string>
         <string name="fox_incremental_ota_res_run">正在运行 OTA_RES 进程...</string>
         <string name="fox_incremental_ota_bak_run">正在运行 OTA_BAK 进程...</string>
         <string name="fox_incremental_ota_bak">OTA_BAK -- 已完成</string>
-        <string name="fox_internal_fatal_i1">OrangeFox：致命错误！ 你不能将内部存储备份到内部存储上！</string>
+        <string name="fox_internal_fatal_i1">OrangeFox: 致命错误！ 你不能将内部存储备份到内部存储上！</string>
         <string name="fox_internal_fatal_i2">您必须将备份目标更改为 MicroSD 或是 USB-OTG。</string>
         <string name="fox_internal_q1">OrangeFox  - 内部存储 - 注意！</string>
         <string name="copy_kernel_log">已将内核日志复制到 {1}</string>
@@ -808,7 +811,7 @@
         <string name="of_dm_verity_off">DM-Verity未启用</string>
         <string name="of_encryption">成功修补强制加密</string>
         <string name="of_encryption_off">未启用强制加密</string>
-        <string name="of_fstab">检测到 fstab：'{1}'</string>
+        <string name="of_fstab">检测到 fstab: '{1}'</string>
         <string name="install_remlatest">删除最新的</string>
         <string name="backups_remove_all">所有备份</string>
         <string name="backups_remove">删除</string>
@@ -834,7 +837,7 @@
         <string name="fox_files_not_exist_2">请使用这个安装文件</string>
         <string name="fox_files_not_exist_3">安装压缩包</string>
         <!-- Customization -->
-        <string name="cust_new_ota_screen">运行 OTA 更新时显示更少的细节</string>
+        <string name="cust_new_ota_screen">OTA 更新时显示升级屏幕（而不是日志）</string>
         <string name="fm_icons_simple">放大文件图标</string>
         <string name="theme_engine_update">是否应用更改并重新加载?</string>
         <string name="theme_engine_reset">重置主题并重新加载吗？</string>
@@ -901,15 +904,15 @@
         <string name="new_pass_info_4_2_gk">请再次绘制手势密码</string>
         <string name="pass_page_block">Recovery 当前上锁方式</string>
         <string name="pass_page_block_inf1">知道自己受到保护,</string>
-        <string name="pass_page_block_inf2">您可以休眠得更好</string>
-        <string name="pass_page_select">请选择密码类型</string>
+        <string name="pass_page_block_inf2">可供您无忧地安眠。</string>
+        <string name="pass_page_select">密码类型</string>
         <!-- Utilities -->
         <string name="more">更多</string>
         <string name="hide">隐藏</string>
         <string name="part_menu_hdr">管理分区</string>
         <string name="run_adb_startup">启动时运行 ADB</string>
         <!-- Root modules manager -->
-        <string name="mm_module_active">活动</string>
+        <string name="mm_module_active">激活</string>
         <string name="mm_module_mount">跳过挂载</string>
         <string name="mm_modules">模块</string>
         <string name="mm_ver">Magisk 版本</string>
@@ -955,44 +958,44 @@
             <!-- If welcome message is too big in your lang, use this string -->
         </string>
         <string name="fox_welcome">欢迎使用OrangeFox Recovery！</string>
-        <string name="fox_release">[发行版]：{1}</string>
-        <string name="fox_variant">[变体]：{1}</string>
-        <string name="fox_codebase">[代码库]：{1}，{2}</string>
-        <string name="fox_settings">[设置]：{1}</string>
-        <string name="fox_misc">[杂项]：{1}</string>
-        <string name="fox_build_date">[构建日期]：{1}</string>
-        <string name="fox_build_type_unofficial">[构建类型]：非官方。 非官方构建没有官方支持</string>
-        <string name="fox_build_type">[构建类型]：{1}</string>
-        <string name="fox_support">[支持]：{1}</string>
-        <string name="fox_nosupport">[支持]：未知构建没有官方支持</string>
-        <string name="fox_websites">OrangeFox网站：</string>
-        <string name="fox_downloads">[下载]：{1}</string>
-        <string name="fox_faq">[指南/FAQ]：{1}</string>
+        <string name="fox_release">[发行版]: {1}</string>
+        <string name="fox_variant">[变体]: {1}</string>
+        <string name="fox_codebase">[代码库]: {1}，{2}</string>
+        <string name="fox_settings">[设置]: {1}</string>
+        <string name="fox_misc">[杂项]: {1}</string>
+        <string name="fox_build_date">[构建日期]: {1}</string>
+        <string name="fox_build_type_unofficial">[构建类型]: 非官方。 非官方构建没有官方支持</string>
+        <string name="fox_build_type">[构建类型]: {1}</string>
+        <string name="fox_support">[支持]: {1}</string>
+        <string name="fox_nosupport">[支持]: 未知构建没有官方支持</string>
+        <string name="fox_websites">OrangeFox网站: </string>
+        <string name="fox_downloads">[下载]: {1}</string>
+        <string name="fox_faq">[指南/FAQ]: {1}</string>
         <string name="fox_encrypted">* 存储已加密</string>
         <string name="fox_unencrypted">* 存储未加密</string>
-        <string name="fox_display">* 显示：{1}</string>
-        <string name="fox_device">* 设备：{1}（{2}）</string>
-        <string name="fox_platform">* 平台：{1}</string>
-        <string name="fox_dynamic_yes">* 动态：是</string>
-        <string name="fox_dynamic_no">* 动态：否</string>
-        <string name="fox_boot_slot">* 启动槽：{1}</string>
-        <string name="fox_vab_yes">* Virtual_AB：是</string>
-        <string name="fox_vab_no">* Virtual_AB：否</string>
-        <string name="fox_kernel">* 内核：{1}</string>
-        <string name="fox_miui_rom">* MIUI ROM（SDK:{1}, {2}）</string>
-        <string name="fox_custom_rom">* 自定义ROM（SDK:{1}, {2}）</string>
-        <string name="fox_fingerprint">* 指纹：{1}</string>
+        <string name="fox_display">* 显示: {1}</string>
+        <string name="fox_device">* 设备: {1} ({2})</string>
+        <string name="fox_platform">* 平台: {1}</string>
+        <string name="fox_dynamic_yes">* 动态: 是</string>
+        <string name="fox_dynamic_no">* 动态: 否</string>
+        <string name="fox_boot_slot">* 启动槽: {1}</string>
+        <string name="fox_vab_yes">* Virtual_AB: 是</string>
+        <string name="fox_vab_no">* Virtual_AB: 否</string>
+        <string name="fox_kernel">* 内核: {1}</string>
+        <string name="fox_miui_rom">* MIUI ROM (SDK:{1}, {2})</string>
+        <string name="fox_custom_rom">* 自定义ROM (SDK:{1}, {2})</string>
+        <string name="fox_fingerprint">* 指纹: {1}</string>
         <string name="fox_no_rom">* 无ROM。</string>
         <!-- Symlink -->
         <string name="symlink_dir_name">链接到文件夹</string>
         <string name="symlink_file_name">链接到文件</string>
-        <string name="symlink_broken_name">失效链接</string>
-        <string name="symlink_folder">打开实体文件夹</string>
-        <string name="symlink_file">打开实体文件</string>
+        <string name="symlink_broken_name">无效链接</string>
+        <string name="symlink_folder">打开目标文件夹</string>
+        <string name="symlink_file">打开目标文件</string>
         <!-- Files -->
         <string name="files_show_hidden">显示隐藏文件</string>
         <string name="files_auto_open">自动检测文件类型</string>
-        <string name="file_read">读取文件：{1}</string>
+        <string name="file_read">读取文件: {1}</string>
         <string name="file_read_error">无法打开文件!</string>
         <string name="file_read_error_size">文件大小超过1.5MB！</string>
         <string name="file_read_error_bin">无法读取二进制文件！</string>
@@ -1017,21 +1020,21 @@
         <string name="fox_led_title">LED设置</string>
         <string name="fox_use_green_led">使用绿色 LED 灯</string>
         <string name="fox_boot_fastcharge">强制快速充电</string>
-        <string name="fox_boot_bypass_charge">启用旁路充电（防止过热）</string>
+        <string name="fox_boot_bypass_charge">启用旁路充电 (防止过热)</string>
         <!-- OTA -->
         <string name="fox_ota_msg_ready">您已准备好接收更新！</string>
         <string name="fox_ota_msg_custom">启用自定义ROM模式</string>
         <string name="fox_ota_msg_reflash">请刷入完整的ROM！</string>
         <string name="fox_advanced_stock_recovery">强制禁用官方 Recovery</string>
         <string name="fox_support_miui_ota_chk">支持 OTA</string>
-        <string name="fox_include_system_survival_chk">OTA Survival（含系统）</string>
+        <string name="fox_include_system_survival_chk">OTA Survival (含系统)</string>
         <string name="fox_verify_incremental_ota_signature_chk">增量OTA签名验证</string>
         <string name="fox_dmverity_chk">禁用 DM 检验</string>
         <string name="fox_forced_encryption_chk">禁用强制加密</string>
-        <string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">OTA 更新完成。</string>
+        <string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">OTA 更新完成后阻止自动重启</string>
         <string name="of_ota_reboot_disabled">OTA 更新完成。 根据您的设置， 已阻止自动重启。</string>
         <!-- Wipe format moved -->
-        <string name="wipe_format_moved_info1">注意：格式化 Data 分区移动到</string>
+        <string name="wipe_format_moved_info1">注意: 格式化 Data 分区移动到</string>
         <string name="wipe_format_moved_info2">分区管理界面</string>
         <!-- R11 -->
         <string name="gst_title">手势导航</string>
@@ -1052,15 +1055,15 @@
         <!-- 124/14354 files, 20/5412MB (5%)  -->
         <string name="file_progress_v2">%llu/%llu 文件，</string>
         <string name="size_progress_v2">%llu/%llu MB (%i%%)</string>
-        <string name="navpan_new_design">新的导航面板设计</string>
+        <string name="navpan_new_design">使用新的导航面板设计</string>
         <string name="full_partition_list">显示额外可供备份的分区</string>
         <string name="data_decrypted_reload">解密成功！</string>
         <string name="install_queue_magisk_btn">添加 Magisk</string>
-        <string name="hint_ffiles_missing">您丢失某些数据了吗？</string>
+        <string name="hint_ffiles_missing">这里似乎少了些什么？</string>
         <string name="hint_ffiles_missing1">Fox Addons不可用</string>
         <string name="hint_ffiles_missing2">OrangeFox无法访问其文件。</string>
-        <string name="hint_ffiles_missing3">尝试挂载/data或重新安装</string>
-        <string name="hint_ffiles_missing4">请尝试挂载 /data 或重新安装 OrangeFox</string>
+        <string name="hint_ffiles_missing3">尝试挂载/data分区，</string>
+        <string name="hint_ffiles_missing4">或重新安装 OrangeFox。</string>
         <string name="hint_ffiles_missing5">
             <!-- Use this line if this hint is too big in your language -->
         </string>
@@ -1077,10 +1080,10 @@
         <string name="backup_av_img">图片</string>
         <string name="backup_exp_size">预计大小</string>
         <string name="time_minute">分钟</string>
-        <string name="backup_av">为默认吗？</string>
+        <string name="backup_av">平均速度</string>
         <string name="backup_av1">您想要重置速度值</string>
-        <string name="backup_av2">为默认吗？ 为默认吗？</string>
-        <string name="backup_av3">预测值可能不太准确</string>
+        <string name="backup_av2">为默认吗？</string>
+        <string name="backup_av3">预测值可能不太准确。</string>
         <string name="cust_line_white">使用白线</string>
         <string name="cust_line_gray">使用灰线</string>
         <!-- Updated slot selection -->
@@ -1097,7 +1100,7 @@
         <string name="theme_fweight_norm">默认值</string>
         <string name="theme_fweight_reg">常规</string>
         <string name="theme_fweight_med">中等</string>
-        <string name="swipe_up_to_unlock">从屏幕底部向上滑动以解锁</string>
+        <string name="swipe_up_to_unlock">向上滑动以解锁</string>
         <string name="spl_background">背景色</string>
         <string name="spl_logo">Logo</string>
         <string name="spl_white">白</string>
@@ -1138,7 +1141,7 @@
         <string name="try_app">试试我们的APP！</string>
         <string name="try_app_2">使用我们的新APP来</string>
         <string name="try_app_3">检查recovery更新吧！</string>
-        <string name="try_app_4">下载链接：</string>
+        <string name="try_app_4">下载链接: </string>
         <string name="try_app_5">https://app.orangefox.tech</string>
         <string name="fm_edit_file">用 nano 编辑文件</string>
         <string name="fm_open_terminal_btn">在此处打开终端</string>
@@ -1147,12 +1150,17 @@
         <string name="custom_settings">%fox_compatibility_fox_device% 的自定义设置</string>
         <string name="custom_settings_title">自定义设置</string>
         <string name="tap_to_show">点击以显示</string>
+        <!-- R12 -->
+        <string name="theme_fox_style">品牌风格</string>
+		<string name="theme_custom_style">传统风格</string>
+		<string name="brand_theme_no_accents">品牌风格无法应用强调色。</string>
+
         <!-- Android Rescue Party trigger -->
-        <string name="rescue_party0">安卓救援队触发！ 可能的解决方案？ 尝试：</string>
+        <string name="rescue_party0">Android Rescue 模式被触发！您的系统无法启动！尝试: </string>
         <string name="rescue_party1">1. 清除cache, 并且/或者</string>
-        <string name="rescue_party2">2. 格式化data, 并且/或者</string>
+        <string name="rescue_party2">2. 格式化data (恢复出厂设置，将删除所有数据) , 并且/或者</string>
         <string name="rescue_party3">3. 用清洁的方式刷入ROM。</string>
-        <string name="rescue_party4">报告的问题是：</string>
+        <string name="rescue_party4">报告的问题是: </string>
         <string name="restore_system_context">无法获取 {1} 默认的context -- Android 可能无法启动。</string>
         <string name="batch_progress">进度</string>
         <string name="recovery_busy">Recovery 正忙</string>
@@ -1162,7 +1170,7 @@
         <string name="merges_snapshots">合并快照</string>
         <string name="merging_snapshots">正在合并快照...</string>
         <string name="merging_snapshots_complete">已合并快照</string>
-        <string name="unmap_super_devices">取消映射Super设备</string>
+        <string name="unmap_super_devices">取消映射 Super 设备</string>
         <string name="unmapping_super_devices">正在取消映射Super设备...</string>
         <string name="unmap_super_devices_complete">已取消映射所有Super设备</string>
         <string name="auto_reflashtwrp_chk">刷入ROM后重新刷入OrangeFox</string>
@@ -1176,12 +1184,12 @@
         <string name="disable_avb2_confirm">禁用vbmeta AVB2.0？</string>
         <string name="disabling_AVB2">正在禁用vbmeta AVB2.0...</string>
         <string name="disabling_AVB2_complete">vbmeta AVB2.0已禁用！</string>
-        <string name="disable_avb2_success_msg">禁用vbmeta AVB2.0：成功处理'{1}'。</string>
-        <string name="disable_avb2_fail_msg">禁用vbmeta AVB2.0：处理'{1}'失败！</string>
-        <string name="enable_hw_control">硬件GUI控制</string>
-        <string name="enable_hw_control_1">这将允许通过</string>
-        <string name="enable_hw_control_2">使用硬件</string>
-        <string name="enable_hw_control_3">音量和电源按钮导航界面。</string>
+        <string name="disable_avb2_success_msg">禁用vbmeta AVB2.0: 成功处理'{1}'。</string>
+        <string name="disable_avb2_fail_msg">禁用vbmeta AVB2.0: 处理'{1}'失败！</string>
+        <string name="enable_hw_control">启用开关控制？</string>
+        <string name="enable_hw_control_1">这将允许通过硬件按钮，</string>
+        <string name="enable_hw_control_2">如音量和电源按钮控制设备。</string>
+        <string name="enable_hw_control_3">音量键切换，电源键交互。</string>
         <string name="enable_hw_control_4">手势将被禁用。 继续吗？</string>
         <string name="listbox_group_main">主菜单</string>
 		<string name="listbox_group_static_part">静态分区</string>
