@@ -3,40 +3,40 @@
     <display>Chinese Traditional</display>
     <resources>
         <!-- Font overrides - only change these if your language requires special characters -->
-		<resource name="status" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="bigfont" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="body1" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="body2" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="subhead" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="title" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="mainbutton" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="button" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="menu" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="input_fail" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="splash" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
+		<resource name="status" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="bigfont" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="body1" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="body2" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="subhead" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="title" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="mainbutton" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="button" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="menu" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="input_fail" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="splash" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
 
-		<resource name="font_l" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="font_m" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="font_s" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="font_b" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
+		<resource name="font_l" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="font_m" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="font_s" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="font_b" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
 
-		<resource name="keylabel" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="keylabel-bold" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="keylabel-num" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="keylabel-small" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="keylabel-longpress" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
+		<resource name="keylabel" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="keylabel-bold" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="keylabel-num" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="keylabel-small" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="keylabel-longpress" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
 
-		<resource name="Secondary" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="Secondary-title" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="caption" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
+		<resource name="Secondary" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="Secondary-title" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="caption" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
 
-        <resource name="Secondary-navbar" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
+		<resource name="Secondary-navbar" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
 
-		<resource name="clock" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
-		<resource name="info" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
+		<resource name="clock" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
+		<resource name="info" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
 
-		<resource name="fixed" type="fontoverride" filename="DroidSansFallback.ttf" scale="100" />
-		<resource name="orangefont" type="fontoverride" filename="DroidSansFallback.ttf" scale="100"/>
+		<resource name="fixed" type="fontoverride" filename="wqy-microhei.ttf" scale="100" />
+		<resource name="orangefont" type="fontoverride" filename="wqy-microhei.ttf" scale="100"/>
 
         <!-- Partition display names -->
         <!-- Translator note: it will be displayed as a partition name. -->
