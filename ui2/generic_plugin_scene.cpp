@@ -144,7 +144,8 @@ void RequestOperation(GenericScene *scene,
   if (message.request_id == 0 || message.value <
           static_cast<uint32_t>(plugin_api::Operation::kBackupSettings) ||
       message.value >
-          static_cast<uint32_t>(plugin_api::Operation::kRestoreSettings)) {
+          static_cast<uint32_t>(
+              plugin_api::Operation::kRestoreAndroidSettings)) {
     scene->session.Send(plugin_api::Kind::kOperationResult,
                         message.request_id, 0, 0, nullptr,
                         "Unsupported host operation.");

@@ -25,7 +25,15 @@ enum class Kind : uint32_t {
 };
 
 enum class Lifecycle : uint32_t { kResume = 1, kPause, kStop };
-enum class Operation : uint32_t { kBackupSettings = 1, kRestoreSettings };
+// Operation numbers are part of the public Host API 2 wire contract. Never
+// renumber an existing entry: independently released plugins send these raw
+// values over the socket.
+enum class Operation : uint32_t {
+  kBackupSettings = 1,
+  kRestoreSettings = 2,
+  kBackupAndroidSettings = 3,
+  kRestoreAndroidSettings = 4,
+};
 enum Flags : uint32_t {
   kPrimary = 1U << 0,
   kDestructive = 1U << 1,

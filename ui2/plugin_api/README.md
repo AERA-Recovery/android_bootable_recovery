@@ -10,9 +10,19 @@ over a `SOCK_SEQPACKET` channel inherited as file descriptor 4.
 An API 2 manifest uses `type: "ui-runtime"`, `entry: "main"`,
 `min_host_api: 2`, `protocol_version: 2`, and
 `executable: "usr/bin/aera-plugin"`. It must request `display` and
-`touch-input`. Supported privileged permissions are currently
-`settings-backup` and `settings-restore`; access is denied unless declared and
-the user confirms the individual request in trusted AERA UI.
+`touch-input`. Supported privileged permissions are:
+
+- `settings-backup` / `settings-restore` for AERA Recovery preferences
+- `android-settings-backup` / `android-settings-restore` for Android user
+  0's SettingsProvider `system`, `secure`, and `global` databases, plus
+  the LineageSettingsProvider database when the installed ROM supplies it
+
+Access is denied unless the permission is declared and the user confirms the
+individual request in trusted AERA UI. The Android settings operations use wire
+operation IDs 3 and 4. They include ROM customization values such as Infinity-X
+and Lineage settings but deliberately exclude lock credentials, accounts, app data,
+SettingsProvider SSAIDs, and arbitrary `/data` access. Restore validates and
+stages the complete snapshot before transactionally replacing live files.
 
 API 1 manifests and their built-in scene routing remain compatible.
 

@@ -229,7 +229,9 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
                      return permission == "display" ||
                             permission == "touch-input" ||
                             permission == "settings-backup" ||
-                            permission == "settings-restore";
+                            permission == "settings-restore" ||
+                            permission == "android-settings-backup" ||
+                            permission == "android-settings-restore";
                    }));
   if (!SafeId(plugin.id) || plugin.name.empty() || plugin.name.size() > 80 ||
       plugin.version.empty() || plugin.version.size() > 32 ||

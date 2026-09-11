@@ -105,7 +105,9 @@ recovery rebuild. Plugins run as isolated workers and describe a bounded page;
 AERA owns every visible widget, touch event, permission prompt and privileged
 operation. Existing Host API 1 apps retain their built-in routing. See
 `plugin_api/README.md` for the manifest, protocol, isolation and lifecycle
-contract.
+contract. API 2 also exposes separately permissioned, host-mediated backup and
+restore for AERA preferences and Android user 0's SettingsProvider databases;
+plugins never receive the underlying files or direct `/data` access.
 
 ## Picture viewer
 
