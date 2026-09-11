@@ -94,14 +94,23 @@ static int gRecorder = -1;
 static long long g_suppress_power_toggle_until_ms = 0;
 static inline long long nowMs() { struct timeval t; gettimeofday(&t, NULL); return (long long)t.tv_sec * 1000LL + t.tv_usec / 1000; }
 
-static bool gUseRecoveryUi2 = false;
+// AERA is the recovery interface. Device trees must not need a marker file or
+// runtime environment switch to select it.
+static bool gUseRecoveryUi2 = true;
 
-static bool RecoveryUi2Requested()
-{
-	const char* value = getenv("RECOVERY_UI2");
-	return (value != nullptr && strcmp(value, "1") == 0) ||
-	       access("/system/etc/recovery-ui2.enabled", R_OK) == 0;
-}
+#ifdef AERA_UI2_ADAPTIVE_RESOLUTION
+#ifndef AERA_SCREEN_H
+#define AERA_SCREEN_H 2376
+#endif
+#ifndef AERA_STATUS_H
+#define AERA_STATUS_H 124
+#endif
+static constexpr auto kAeraDisplayMetrics =
+	recovery_ui2::DisplayMetrics::FromThemeMetrics(
+		true, AERA_SCREEN_H, AERA_STATUS_H);
+#else
+static constexpr recovery_ui2::DisplayMetrics kAeraDisplayMetrics{};
+#endif
 
 extern "C" void gr_write_frame_to_file(int fd);
 
@@ -924,7 +933,6 @@ extern "C" int gui_init(void)
 {
 	gr_init();
 	TWFunc::Set_Brightness(DataManager::GetStrValue("tw_brightness"));
-	gUseRecoveryUi2 = RecoveryUi2Requested();
 	const bool fastboot_mode =
 		android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
 
@@ -935,13 +943,13 @@ extern "C" int gui_init(void)
 #endif
 
 	if (gUseRecoveryUi2) {
-		LOGINFO("AERA Recovery Project native engine requested; skipping XML splash.\n");
+		LOGINFO("Starting the AERA Recovery Project native engine; skipping XML splash.\n");
 #ifdef TW_DELAY_TOUCH_INIT_MS
 		usleep(TW_DELAY_TOUCH_INIT_MS);
 #endif
 		ev_init();
 		if (!fastboot_mode)
-			recovery_ui2::StartRecoveryUi2Early();
+			recovery_ui2::StartRecoveryUi2Early(kAeraDisplayMetrics);
 		else
 			LOGINFO("Fastbootd startup detected; deferring to dedicated AERA fastbootd UI.\n");
 		return 0;
@@ -1106,8 +1114,8 @@ extern "C" int gui_startPage(const char *page_name, const int allow_commands, in
 			android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
 		if (!fastboot_mode) recovery_ui2::RecoveryWifiInitialize();
 		const auto result = fastboot_mode
-			? recovery_ui2::RunRecoveryUi2Fastboot()
-			: recovery_ui2::RunRecoveryUi2();
+			? recovery_ui2::RunRecoveryUi2Fastboot(kAeraDisplayMetrics)
+			: recovery_ui2::RunRecoveryUi2(kAeraDisplayMetrics);
 		LOGINFO("AERA Recovery Project native engine exited (%d); dispatching the requested action.\n",
 		        static_cast<int>(result));
 		gUseRecoveryUi2 = false;

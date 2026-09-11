@@ -99,11 +99,13 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   AttachStatusBar(screen, callback, context, StatusBarAction::kNone, true);
   const bool landscape = lv_obj_get_width(screen) > lv_obj_get_height(screen);
   if (landscape) {
-    s->view_top = 165;
+    s->view_top = StatusBarHeight();
     s->view_height = lv_obj_get_height(screen) - s->view_top;
     s->view_width = s->view_height * kBrowserViewportWidth /
                     kBrowserViewportHeight;
     s->view_left = 48;
+  } else {
+    s->view_height = lv_obj_get_height(screen) - s->view_top;
   }
   s->web_progress = lv_bar_create(screen);
   lv_obj_set_pos(s->web_progress, landscape ? 760 : 24, 316);

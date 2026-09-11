@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 namespace recovery_ui2 {
 
 enum class RunResult {
@@ -22,9 +24,23 @@ enum class DecryptionResult {
     kSkipped = 1,
 };
 
+// AERA_SCREEN_H uses the stock theme's 1080-wide reference space, while
+// AERA_STATUS_H is the requested UI status-bar height and must remain literal.
+// Convert only the screen height at the renderer boundary.
+struct DisplayMetrics {
+    bool adaptive_resolution = false;
+    int32_t logical_height = 3168;
+    int32_t status_bar_height = 165;
+
+    static constexpr DisplayMetrics FromThemeMetrics(
+            bool adaptive, int32_t screen_height, int32_t status_height) {
+        return {adaptive, screen_height * 4 / 3, status_height};
+    }
+};
+
 // Starts the native renderer while the recovery core continues partition and
 // decryption setup. Must be called after gr_init() and ev_init().
-void StartRecoveryUi2Early();
+void StartRecoveryUi2Early(const DisplayMetrics& metrics = {});
 
 // Displays AERA's native credential page and blocks recovery startup until
 // data is unlocked or the user explicitly chooses to continue encrypted.
@@ -36,10 +52,10 @@ DecryptionResult RunRecoveryUi2Decryption(int credential_type,
 
 // Marks the recovery backend ready, then joins the already-running native UI.
 // Hardware Back and ordinary workflows stay inside the native engine.
-RunResult RunRecoveryUi2();
+RunResult RunRecoveryUi2(const DisplayMetrics& metrics = {});
 
 // Runs a dedicated userspace-fastboot surface. This deliberately bypasses
 // boot animation, decryption, recovery navigation and plugin initialization.
-RunResult RunRecoveryUi2Fastboot();
+RunResult RunRecoveryUi2Fastboot(const DisplayMetrics& metrics = {});
 
 }  // namespace recovery_ui2

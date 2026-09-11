@@ -222,7 +222,7 @@ void MakeConfirmation(lv_obj_t *screen, BrowserState *state) {
   state->overlay = lv_obj_create(screen);
   NoScroll(state->overlay);
   lv_obj_set_pos(state->overlay, 0, 0);
-  lv_obj_set_size(state->overlay, 1440, 3168);
+  lv_obj_set_size(state->overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_bg_color(state->overlay, Color(0x020204), 0);
   lv_obj_set_style_bg_opa(state->overlay, LV_OPA_80, 0);
   lv_obj_set_style_border_width(state->overlay, 0, 0);
@@ -230,8 +230,8 @@ void MakeConfirmation(lv_obj_t *screen, BrowserState *state) {
 
   lv_obj_t *sheet = lv_obj_create(state->overlay);
   Panel(sheet, 38, kPanelStrong);
-  lv_obj_set_pos(sheet, 32, 1770);
   lv_obj_set_size(sheet, 1376, 1366);
+  lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -32);
   lv_obj_set_style_pad_all(sheet, 46, 0);
   lv_obj_t *tag = Kicker(sheet, "READY TO FLASH", kAccent);
   lv_obj_set_pos(tag, 0, 40);

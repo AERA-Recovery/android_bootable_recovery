@@ -79,7 +79,9 @@ class Engine final {
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
-    bool Initialize(bool fastboot_mode = false);
+    bool Initialize(bool fastboot_mode = false,
+                    bool adaptive_resolution = false,
+                    int32_t logical_height = 3168);
     void Shutdown();
 
     // Terminal actions hand control to init, which will replace this process.

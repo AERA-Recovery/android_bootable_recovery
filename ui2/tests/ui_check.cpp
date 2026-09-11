@@ -73,6 +73,7 @@ void AttachStatusBar(lv_obj_t *screen, void (*)(Action,void*),void*,StatusBarAct
   auto *label=design::Label(screen,"23:30                         100%",&lv_font_montserrat_32,design::kText);
   lv_obj_set_pos(label,54,65);
 }
+int32_t StatusBarHeight() { return 165; }
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
   if (kind == "wipe") return {{"Dalvik / ART cache","DALVIK",0},{"Data","/data",23000000000},
     {"Internal storage","INTERNAL",12000000000},{"Metadata","/metadata",40960000}};

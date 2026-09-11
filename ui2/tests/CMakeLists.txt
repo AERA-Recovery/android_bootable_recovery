@@ -21,3 +21,6 @@ target_link_libraries(ui_check PRIVATE lvgl PNG::PNG Threads::Threads)
 enable_testing()
 add_test(NAME ui_confirmation_navigation_preferences
   COMMAND ui_check "${LVGL_DIR}/examples/libs/libpng/png_demo.png")
+add_executable(display_transform_test display_transform_test.cpp)
+target_include_directories(display_transform_test PRIVATE ../include)
+add_test(NAME adaptive_display_transform COMMAND display_transform_test)

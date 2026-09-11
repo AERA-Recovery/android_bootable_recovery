@@ -216,8 +216,9 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent, ActionCallback callback,
   auto *content = lv_obj_create(root);
   state->content = content;
   Clear(content);
-  lv_obj_set_pos(content, 0, 165);
-  lv_obj_set_size(content, screen_width, screen_height - 165);
+  const int status_height = StatusBarHeight();
+  lv_obj_set_pos(content, 0, status_height);
+  lv_obj_set_size(content, screen_width, screen_height - status_height);
   lv_obj_remove_flag(content, LV_OBJ_FLAG_CLICKABLE);
 
   // A true deboss: the fill is darker than the wallpaper, the top-left inner

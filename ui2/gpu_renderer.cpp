@@ -327,11 +327,23 @@ bool GpuRenderer::Initialize(int32_t width, int32_t height) {
   return true;
 }
 
-lv_display_t* GpuRenderer::CreateDisplay() {
-  if (!ready_)
+lv_display_t* GpuRenderer::CreateDisplay(int32_t logical_width,
+                                         int32_t logical_height) {
+  if (!ready_ || logical_width <= 0 || logical_height <= 0)
     return nullptr;
-  lv_display_t* display = lv_opengles_texture_create(width_, height_);
+  logical_width_ = logical_width;
+  logical_height_ = logical_height;
+  lv_display_t* display =
+      lv_opengles_texture_create(logical_width_, logical_height_);
   driver_initialized_ = display != nullptr;
+  if (display != nullptr) {
+    const GLuint texture = lv_opengles_texture_get_texture_id(display);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    // The logical canvas is normally resampled to the native panel. Linear
+    // filtering keeps text and curves clean instead of exposing pixel steps.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  }
   return display;
 }
 
@@ -345,7 +357,7 @@ bool GpuRenderer::Present(lv_display_t* display) {
   glDisable(GL_SCISSOR_TEST);
   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT);
-  // The native scanout and LVGL texture share Dodge's portrait orientation.
+  // The native scanout and LVGL texture share the panel's portrait orientation.
   // No additional axis mirroring is required for the final composition.
   lv_opengles_render_display_texture(display, false, false);
   glFinish();
@@ -423,6 +435,8 @@ void GpuRenderer::Shutdown() {
   }
   width_ = 0;
   height_ = 0;
+  logical_width_ = 0;
+  logical_height_ = 0;
   next_buffer_ = 0;
   driver_initialized_ = false;
 }

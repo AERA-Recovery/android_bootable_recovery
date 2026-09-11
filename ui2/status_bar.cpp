@@ -61,6 +61,7 @@ struct StatusState {
 };
 
 constexpr int kShadeHeight = 1390;
+int32_t gStatusBarHeight = 165;
 
 void PulseRecordingDot(void *target, int32_t opacity) {
   lv_obj_set_style_bg_opa(static_cast<lv_obj_t *>(target),
@@ -562,6 +563,16 @@ void Activate(lv_event_t *event) {
 
 }  // namespace
 
+void ConfigureStatusBarHeight(int32_t height) {
+  // Keep malformed device configuration from making the status bar consume
+  // the whole display or disappear completely.
+  gStatusBarHeight = std::clamp(height, 112, 260);
+}
+
+int32_t StatusBarHeight() {
+  return gStatusBarHeight;
+}
+
 void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
                      void *context, StatusBarAction action, bool soft_surface) {
   auto *state = new StatusState;
@@ -575,7 +586,7 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
   state->bar = bar;
   NoScroll(bar);
   lv_obj_set_pos(bar, 0, 0);
-  lv_obj_set_size(bar, LV_PCT(100), 165);
+  lv_obj_set_size(bar, LV_PCT(100), gStatusBarHeight);
   lv_obj_set_style_radius(bar, 0, 0);
   lv_obj_set_style_bg_color(bar, kCanvas, 0);
   lv_obj_set_style_bg_opa(bar, soft_surface ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
@@ -598,8 +609,8 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
 
   state->recording_dot = lv_obj_create(bar);
   NoScroll(state->recording_dot);
-  lv_obj_set_pos(state->recording_dot, 250, 75);
   lv_obj_set_size(state->recording_dot, 16, 16);
+  lv_obj_align(state->recording_dot, LV_ALIGN_LEFT_MID, 250, 0);
   lv_obj_set_style_radius(state->recording_dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(state->recording_dot, kRed, 0);
   lv_obj_set_style_bg_opa(state->recording_dot, LV_OPA_COVER, 0);
@@ -618,8 +629,8 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
   lv_anim_start(&pulse);
 
   state->recording = Label(bar, "", &lv_font_montserrat_24, kRed);
-  lv_obj_set_pos(state->recording, 280, 67);
   lv_obj_set_width(state->recording, 260);
+  lv_obj_align(state->recording, LV_ALIGN_LEFT_MID, 280, 0);
   lv_obj_add_flag(state->recording, LV_OBJ_FLAG_HIDDEN);
 
   state->wifi = Label(bar, "", &lv_font_montserrat_32, kMutedStrong);

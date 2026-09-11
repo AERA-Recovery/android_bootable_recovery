@@ -17,13 +17,21 @@ and does not use PageManager for ordinary navigation or tool screens.
 normalized touch coordinates through `Engine::SetPointer()` and calls
 `Engine::RunFrame()` at the returned interval.
 
+Device trees can set `AERA_UI2_ADAPTIVE_RESOLUTION := true` together with
+`AERA_SCREEN_H` and `AERA_STATUS_H`. Screen height uses the stock theme's
+1080-wide reference units and is converted to UI2's 1440-wide coordinate space;
+status-bar height remains literal. Infiniti's 2340/141 values therefore become
+a 1440 x 3120 canvas with a 141-pixel status bar. That canvas renders across the complete native framebuffer
+without letterbox bars, and physical touch coordinates are mapped back to it.
+Leaving adaptive mode unset retains native one-to-one rendering.
+
 For bring-up, create `/tmp/recovery-ui2-capture` over ADB. The runner removes
 the request and writes the current framebuffer to `/tmp/recovery-ui2.png`.
 
-The native engine launches when `/system/etc/recovery-ui2.enabled` exists or the
-`RECOVERY_UI2=1` environment variable is set. Hardware Back returns to the AERA
-home surface. The XML renderer is retained only as an emergency engine-failure
-path while device bring-up is still in progress.
+The native engine is the unconditional AERA recovery interface; device trees do
+not need an enable marker or runtime environment switch. Hardware Back returns
+to the AERA home surface. The XML renderer remains linked only for legacy
+support code and is not selected during normal AERA startup.
 
 ## Main interface
 

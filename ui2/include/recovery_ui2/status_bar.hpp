@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 #include "recovery_ui2/engine.hpp"
 
 struct _lv_obj_t;
@@ -15,6 +17,11 @@ enum class StatusBarAction {
   kPower,
   kBack,
 };
+
+// Set once before the first UI2 scene is constructed. The value is expressed
+// in UI2's 1440-wide logical coordinate space.
+void ConfigureStatusBarHeight(int32_t height);
+int32_t StatusBarHeight();
 
 // Adds the persistent clock and battery chrome used by native recovery pages.
 void AttachStatusBar(_lv_obj_t *screen, void (*callback)(Action, void *),

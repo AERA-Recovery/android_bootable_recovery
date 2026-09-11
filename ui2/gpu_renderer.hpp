@@ -26,7 +26,7 @@ class GpuRenderer final {
   GpuRenderer& operator=(const GpuRenderer&) = delete;
 
   bool Initialize(int32_t width, int32_t height);
-  lv_display_t* CreateDisplay();
+  lv_display_t* CreateDisplay(int32_t logical_width, int32_t logical_height);
   bool Present(lv_display_t* display);
   void Shutdown();
   bool IsReady() const { return ready_; }
@@ -45,6 +45,8 @@ class GpuRenderer final {
   gr_surface scanouts_[2] = {nullptr, nullptr};
   int32_t width_ = 0;
   int32_t height_ = 0;
+  int32_t logical_width_ = 0;
+  int32_t logical_height_ = 0;
   unsigned int next_buffer_ = 0;
   bool driver_initialized_ = false;
   bool ready_ = false;

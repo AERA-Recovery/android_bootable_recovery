@@ -423,9 +423,10 @@ void ShowAttachmentPicker(TelegramScene *scene, const std::string &requested) {
   Clear(overlay);
   lv_obj_set_user_data(overlay, &kModalMarker);
   lv_obj_set_align(overlay, LV_ALIGN_TOP_LEFT);
-  lv_obj_set_pos(overlay, 0, 160);
+  const int status_height = StatusBarHeight();
+  lv_obj_set_pos(overlay, 0, status_height);
   lv_obj_set_size(overlay, lv_obj_get_width(scene->screen),
-                   lv_obj_get_height(scene->screen) - 160);
+                   lv_obj_get_height(scene->screen) - status_height);
   lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
   lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
 
@@ -445,7 +446,7 @@ void ShowAttachmentPicker(TelegramScene *scene, const std::string &requested) {
   Clear(list);
   lv_obj_set_pos(list, 24, 160);
   lv_obj_set_size(list, scene->landscape ? 3120 : 1392,
-                  scene->landscape ? 1090 : 2824);
+                  lv_obj_get_height(overlay) - 184);
   lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(list, LV_DIR_VER);
   lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
@@ -774,9 +775,10 @@ void BuildTelegramScene(lv_obj_t *screen, ActionCallback callback, void *context
   scene->surface = lv_obj_create(screen);
   Clear(scene->surface);
   lv_obj_set_align(scene->surface, LV_ALIGN_TOP_LEFT);
-  lv_obj_set_pos(scene->surface, 0, 160);
+  const int status_height = StatusBarHeight();
+  lv_obj_set_pos(scene->surface, 0, status_height);
   lv_obj_set_size(scene->surface, lv_obj_get_width(screen),
-                  lv_obj_get_height(screen) - 160);
+                  lv_obj_get_height(screen) - status_height);
   lv_obj_set_style_bg_color(scene->surface, kMainCanvas, 0);
   lv_obj_set_style_bg_opa(scene->surface, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(scene->surface, 0, 0);

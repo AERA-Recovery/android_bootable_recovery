@@ -4,6 +4,7 @@
  */
 
 #include "recovery_ui2/engine.hpp"
+#include "recovery_ui2/display_transform.hpp"
 
 #include <algorithm>
 #include <array>
@@ -53,26 +54,34 @@ class Engine::Impl final {
 public:
   ~Impl() { Shutdown(); }
 
-  bool Initialize(bool fastboot_mode) {
+  bool Initialize(bool fastboot_mode, bool adaptive_resolution,
+                  int32_t logical_height) {
     if (initialized_)
       return true;
 
     fastboot_mode_ = fastboot_mode;
-    width_ = gr_fb_width();
-    height_ = gr_fb_height();
-    if (width_ <= 0 || height_ <= 0) {
+    physical_width_ = gr_fb_width();
+    physical_height_ = gr_fb_height();
+    transform_ = adaptive_resolution
+        ? DisplayTransform::Adaptive(physical_width_, physical_height_,
+                                     logical_height)
+        : DisplayTransform::Native(physical_width_, physical_height_);
+    width_ = transform_.logical_width;
+    height_ = transform_.logical_height;
+    if (!transform_.IsValid()) {
       __android_log_print(ANDROID_LOG_ERROR, kLogTag,
                           "minui is not initialized (invalid display %dx%d)",
-                          width_, height_);
+                          physical_width_, physical_height_);
       return false;
     }
 
     direct_scanout_ = ConfigureDirectScanout();
-    if (!direct_scanout_) {
-      const size_t pixel_count = static_cast<size_t>(width_) * height_;
-      if (pixel_count > SIZE_MAX / kBytesPerPixel)
-        return false;
-      buffer_size_ = pixel_count * kBytesPerPixel;
+    const size_t pixel_count = static_cast<size_t>(width_) * height_;
+    if (pixel_count > SIZE_MAX / kBytesPerPixel)
+      return false;
+    const size_t logical_buffer_size = pixel_count * kBytesPerPixel;
+    if (!direct_scanout_ || transform_.IsScaled()) {
+      buffer_size_ = logical_buffer_size;
       if (posix_memalign(&draw_buffer_, kBufferAlignment, buffer_size_) != 0) {
         draw_buffer_ = nullptr;
         __android_log_print(ANDROID_LOG_ERROR, kLogTag,
@@ -85,12 +94,12 @@ public:
 
     gpu_accelerated_ =
         direct_scanout_ &&
-        gpu_renderer_.Initialize(width_, height_);
+        gpu_renderer_.Initialize(physical_width_, physical_height_);
     lv_draw_opengles_set_enabled(gpu_accelerated_);
     lv_init();
     lv_tick_set_cb(MonotonicMilliseconds);
 
-    display_ = gpu_accelerated_ ? gpu_renderer_.CreateDisplay()
+    display_ = gpu_accelerated_ ? gpu_renderer_.CreateDisplay(width_, height_)
                                 : lv_display_create(width_, height_);
     if (display_ == nullptr && gpu_accelerated_) {
       __android_log_print(ANDROID_LOG_WARN, kLogTag,
@@ -113,7 +122,7 @@ public:
       // The OpenGL texture display supplies its own dummy LVGL draw buffer.
       // Its flush callback below composites directly into imported DRM
       // scanout images.
-    } else if (direct_scanout_) {
+    } else if (direct_scanout_ && !transform_.IsScaled()) {
       lv_display_set_color_format(display_, LV_COLOR_FORMAT_XRGB8888);
       lv_display_set_buffers_with_stride(
           display_, scanout_surface1_->data, scanout_surface2_->data,
@@ -122,7 +131,9 @@ public:
           LV_DISPLAY_RENDER_MODE_DIRECT);
     } else {
       // A full-frame compositor is retained only as a safe non-DRM fallback.
-      lv_display_set_color_format(display_, LV_COLOR_FORMAT_ARGB8888);
+      lv_display_set_color_format(
+          display_, direct_scanout_ ? LV_COLOR_FORMAT_XRGB8888
+                                    : LV_COLOR_FORMAT_ARGB8888);
       lv_display_set_buffers(display_, draw_buffer_, nullptr,
                              static_cast<uint32_t>(buffer_size_),
                              LV_DISPLAY_RENDER_MODE_FULL);
@@ -162,9 +173,10 @@ public:
     initialized_ = true;
     __android_log_print(
         ANDROID_LOG_INFO, kLogTag,
-        "engine initialized at %dx%d with %s rendering (%.2f MiB); "
+        "engine initialized at logical %dx%d on physical %dx%d with %s "
+        "rendering (%.2f MiB); "
         "%u Hz scheduler",
-        width_, height_,
+        width_, height_, physical_width_, physical_height_,
         gpu_accelerated_ ? "zero-copy Adreno/LVGL"
                          : (direct_scanout_ ? "software DRM scanout"
                                             : "minui fallback"),
@@ -390,8 +402,8 @@ public:
 
   void SetPointer(const PointerEvent &event) {
     const bool was_pressed = pointer_.pressed;
-    pointer_.x = std::clamp(event.x, 0, std::max(width_ - 1, 0));
-    pointer_.y = std::clamp(event.y, 0, std::max(height_ - 1, 0));
+    pointer_.x = transform_.ToLogicalX(event.x);
+    pointer_.y = transform_.ToLogicalY(event.y);
     pointer_.pressed = event.pressed;
 
     if (suspended_ || lock_overlay_ != nullptr || !backend_ready_ ||
@@ -805,8 +817,8 @@ private:
 
     if (action == Action::kToggleRecording) {
       if (recorder::Active()) recorder::Stop();
-      else recorder::Start(static_cast<uint32_t>(self->width_),
-                           static_cast<uint32_t>(self->height_));
+      else recorder::Start(static_cast<uint32_t>(self->physical_width_),
+                           static_cast<uint32_t>(self->physical_height_));
       return;
     }
 
@@ -1169,6 +1181,34 @@ private:
     }
   }
 
+  bool PresentScaledSoftware(const uint8_t *pixels) {
+    const unsigned int index = next_software_scanout_;
+    GRSurface *surface = index == 0 ? scanout_surface1_ : scanout_surface2_;
+    gr_surface target = index == 0 ? scanout1_ : scanout2_;
+    if (surface == nullptr || target == nullptr || pixels == nullptr)
+      return false;
+
+    // This path is only used when the device has direct DRM scanout but the
+    // optional Adreno renderer cannot start. It deliberately favors a small,
+    // dependency-free nearest-neighbour fallback over making recovery fail.
+    const auto *source = reinterpret_cast<const uint32_t *>(pixels);
+    for (int32_t y = 0; y < physical_height_; ++y) {
+      const int32_t source_y = static_cast<int32_t>(
+          static_cast<int64_t>(y) * height_ / physical_height_);
+      auto *destination = reinterpret_cast<uint32_t *>(
+          surface->data + static_cast<size_t>(y) * surface->row_bytes);
+      for (int32_t x = 0; x < physical_width_; ++x) {
+        const int32_t source_x = static_cast<int32_t>(
+            static_cast<int64_t>(x) * width_ / physical_width_);
+        destination[x] = source[static_cast<size_t>(source_y) * width_ +
+                                source_x];
+      }
+    }
+    if (gr_drm_present(target) != 0) return false;
+    next_software_scanout_ = 1U - index;
+    return true;
+  }
+
   static void FlushDisplay(lv_display_t *display, const lv_area_t *area,
                            uint8_t *pixels) {
     auto *self = static_cast<Impl *>(lv_display_get_user_data(display));
@@ -1193,13 +1233,19 @@ private:
 
     if (self->direct_scanout_) {
       if (lv_display_flush_is_last(display)) {
-        gr_surface target = nullptr;
-        if (pixels == self->scanout_surface1_->data)
-          target = self->scanout1_;
-        else if (pixels == self->scanout_surface2_->data)
-          target = self->scanout2_;
+        bool presented = false;
+        if (self->transform_.IsScaled()) {
+          presented = self->PresentScaledSoftware(pixels);
+        } else {
+          gr_surface target = nullptr;
+          if (pixels == self->scanout_surface1_->data)
+            target = self->scanout1_;
+          else if (pixels == self->scanout_surface2_->data)
+            target = self->scanout2_;
+          presented = target != nullptr && gr_drm_present(target) == 0;
+        }
 
-        if (target == nullptr || gr_drm_present(target) != 0) {
+        if (!presented) {
           __android_log_print(ANDROID_LOG_ERROR, kLogTag,
                               "DRM rejected LVGL scanout buffer %p", pixels);
         } else {
@@ -1220,9 +1266,27 @@ private:
     surface.format = GGL_PIXEL_FORMAT_BGRA_8888;
 
     if (lv_display_flush_is_last(display)) {
-      gr_blit(static_cast<gr_surface>(&surface), 0, 0, self->width_,
-              self->height_, 0, 0);
+      gr_surface output = static_cast<gr_surface>(&surface);
+      gr_surface scaled = nullptr;
+      int32_t output_width = self->width_;
+      int32_t output_height = self->height_;
+      if (self->transform_.IsScaled()) {
+        if (res_scale_surface(output, &scaled,
+                              static_cast<float>(self->physical_width_) /
+                                  self->width_,
+                              static_cast<float>(self->physical_height_) /
+                                  self->height_) == 0) {
+          output = scaled;
+          output_width = self->physical_width_;
+          output_height = self->physical_height_;
+        } else {
+          __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                              "minui could not scale the adaptive frame");
+        }
+      }
+      gr_blit(output, 0, 0, output_width, output_height, 0, 0);
       gr_flip();
+      if (scaled != nullptr) res_free_surface(scaled);
       self->TrackSubmittedFrame();
       recorder::CapturePresentedFrame();
     }
@@ -1237,10 +1301,10 @@ private:
     scanout_surface2_ = static_cast<GRSurface *>(scanout2_);
     const bool valid =
         scanout_surface1_ != nullptr && scanout_surface2_ != nullptr &&
-        scanout_surface1_->width == width_ &&
-        scanout_surface1_->height == height_ &&
-        scanout_surface2_->width == width_ &&
-        scanout_surface2_->height == height_ &&
+        scanout_surface1_->width == physical_width_ &&
+        scanout_surface1_->height == physical_height_ &&
+        scanout_surface2_->width == physical_width_ &&
+        scanout_surface2_->height == physical_height_ &&
         scanout_surface1_->pixel_bytes == static_cast<int>(kBytesPerPixel) &&
         scanout_surface2_->pixel_bytes == static_cast<int>(kBytesPerPixel) &&
         scanout_surface1_->format == GGL_PIXEL_FORMAT_BGRA_8888 &&
@@ -1256,7 +1320,8 @@ private:
       return false;
     }
 
-    buffer_size_ = static_cast<size_t>(scanout_surface1_->row_bytes) * height_;
+    buffer_size_ = static_cast<size_t>(scanout_surface1_->row_bytes) *
+                   physical_height_;
     return buffer_size_ <= UINT32_MAX;
   }
 
@@ -1295,10 +1360,13 @@ private:
                                          : LV_INDEV_STATE_RELEASED;
   }
 
+  int32_t physical_width_ = 0;
+  int32_t physical_height_ = 0;
   int32_t width_ = 0;
   Action current_tool_ = Action::kNone;
   Action current_scene_ = Action::kBackHome;
   int32_t height_ = 0;
+  DisplayTransform transform_{};
   size_t buffer_size_ = 0;
   void *draw_buffer_ = nullptr;
   gr_surface scanout1_ = nullptr;
@@ -1352,6 +1420,7 @@ private:
   int32_t swipe_last_y_ = 0;
   int32_t swipe_farthest_x_ = 0;
   bool direct_scanout_ = false;
+  unsigned int next_software_scanout_ = 0;
   bool gpu_accelerated_ = false;
   bool backend_ready_ = false;
   bool boot_animation_complete_ = false;
@@ -1379,8 +1448,9 @@ private:
 Engine::Engine() : impl_(std::make_unique<Impl>()) {}
 Engine::~Engine() = default;
 
-bool Engine::Initialize(bool fastboot_mode) {
-  return impl_->Initialize(fastboot_mode);
+bool Engine::Initialize(bool fastboot_mode, bool adaptive_resolution,
+                        int32_t logical_height) {
+  return impl_->Initialize(fastboot_mode, adaptive_resolution, logical_height);
 }
 void Engine::Shutdown() { impl_->Shutdown(); }
 void Engine::AbandonForTerminalAction() { impl_.release(); }

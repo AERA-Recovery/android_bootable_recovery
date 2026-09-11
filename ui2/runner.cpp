@@ -25,6 +25,7 @@
 #include <minuitwrp/minui.h>
 
 #include "recovery_ui2/engine.hpp"
+#include "recovery_ui2/status_bar.hpp"
 
 namespace recovery_ui2 {
 namespace {
@@ -184,6 +185,7 @@ bool gEarlyStarted = false;
 bool gDecryptResolved = false;
 DecryptionResult gDecryptResult = DecryptionResult::kUnavailable;
 RunResult gEarlyResult = RunResult::kUnexpectedExit;
+DisplayMetrics gDisplayMetrics{};
 
 struct HardwareState {
     bool screen_off = false;
@@ -357,13 +359,17 @@ RunResult ToRunResult(Action action) {
 
 }  // namespace
 
-RunResult RunLoop(bool fastboot_mode = false) {
+RunResult RunLoop(bool fastboot_mode = false,
+                  const DisplayMetrics& metrics = {}) {
     InteractionBoost performance;
     performance.Boost();
     HardwareState hardware;
     WriteVolume(hardware.volume);
+    ConfigureStatusBarHeight(metrics.status_bar_height);
     Engine engine;
-    if (!engine.Initialize(fastboot_mode)) return RunResult::kEngineFailure;
+    if (!engine.Initialize(fastboot_mode, metrics.adaptive_resolution,
+                           metrics.logical_height))
+        return RunResult::kEngineFailure;
 
     __android_log_print(ANDROID_LOG_INFO, kLogTag,
                         "AERA Recovery Project native engine active; hardware Back and edge swipe use navigation history");
@@ -450,7 +456,7 @@ RunResult RunLoop(bool fastboot_mode = false) {
     }
 }
 
-void StartRecoveryUi2Early() {
+void StartRecoveryUi2Early(const DisplayMetrics& metrics) {
     std::lock_guard<std::mutex> lock(gEarlyMutex);
     if (gEarlyStarted) return;
 
@@ -462,9 +468,10 @@ void StartRecoveryUi2Early() {
         gDecryptResult = DecryptionResult::kUnavailable;
     }
     gEarlyResult = RunResult::kUnexpectedExit;
+    gDisplayMetrics = metrics;
     gEarlyStarted = true;
     gEarlyThread = std::thread([] {
-        gEarlyResult = RunLoop();
+        gEarlyResult = RunLoop(false, gDisplayMetrics);
         {
             std::lock_guard<std::mutex> lock(gDecryptMutex);
             if (gDecryptRequested.load(std::memory_order_acquire) &&
@@ -500,7 +507,7 @@ DecryptionResult RunRecoveryUi2Decryption(int credential_type,
     return gDecryptResult;
 }
 
-RunResult RunRecoveryUi2() {
+RunResult RunRecoveryUi2(const DisplayMetrics& metrics) {
     std::thread early_thread;
     bool run_inline = false;
     {
@@ -514,7 +521,7 @@ RunResult RunRecoveryUi2() {
         }
     }
 
-    if (run_inline) return RunLoop();
+    if (run_inline) return RunLoop(false, metrics);
 
     if (early_thread.joinable()) early_thread.join();
 
@@ -523,8 +530,8 @@ RunResult RunRecoveryUi2() {
     return gEarlyResult;
 }
 
-RunResult RunRecoveryUi2Fastboot() {
-    return RunLoop(true);
+RunResult RunRecoveryUi2Fastboot(const DisplayMetrics& metrics) {
+    return RunLoop(true, metrics);
 }
 
 }  // namespace recovery_ui2
