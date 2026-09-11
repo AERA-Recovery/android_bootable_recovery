@@ -30,54 +30,41 @@ extern unsigned int gr_rotation;
 
 int gr_save_screenshot(const char *dest)
 {
-    uint32_t y, stride_bytes;
+    uint32_t y;
     volatile int res = -1;
-    GGLContext *gl = NULL;
-    GGLSurface surface;
-    uint8_t * volatile img_data = NULL;
-    uint8_t *ptr;
+    uint8_t * volatile png_row = NULL;
     FILE * volatile fp = NULL;
     png_structp png_ptr = NULL;
     png_infop info_ptr = NULL;
+    GGLSurface capture_source = gr_mem_surface;
+    const gr_surface presented = gr_drm_get_presented_surface();
+    if (presented != NULL) {
+        const GRSurface *drm_surface = (const GRSurface *)presented;
+        capture_source.version = sizeof(capture_source);
+        capture_source.width = drm_surface->width;
+        capture_source.height = drm_surface->height;
+        capture_source.stride = drm_surface->row_bytes / drm_surface->pixel_bytes;
+        capture_source.data = drm_surface->data;
+        capture_source.format = drm_surface->format;
+    }
+
+    // DRM direct scanout does not use minui's legacy gr_draw surface. Use
+    // the dimensions and mapped pixels of the actually presented buffer;
+    // dereferencing gr_draw here caused a null-pointer crash in AERA's GPU
+    // UI and left a zero-byte PNG behind.
+    if (capture_source.data == NULL || capture_source.width == 0 ||
+        capture_source.height == 0 || capture_source.stride == 0)
+        goto exit;
 
     fp = fopen(dest, "wb");
     if(!fp)
         goto exit;
 
-    img_data = (uint8_t *)malloc(gr_mem_surface.stride * gr_mem_surface.height * gr_draw->pixel_bytes);
-    if (!img_data) {
-        printf("gr_save_screenshot failed to malloc img_data\n");
+    png_row = (uint8_t *)malloc((size_t)capture_source.width * 3);
+    if (!png_row) {
+        printf("gr_save_screenshot failed to allocate PNG row\n");
         goto exit;
     }
-    surface.version = sizeof(surface);
-    surface.width = gr_mem_surface.width;
-    surface.height = gr_mem_surface.height;
-    surface.stride = gr_mem_surface.stride;
-    surface.data = img_data;
-
-#if defined(RECOVERY_BGRA)
-    surface.format = GGL_PIXEL_FORMAT_BGRA_8888;
-#else
-    surface.format = GGL_PIXEL_FORMAT_RGBA_8888;
-#endif
-
-    gglInit(&gl);
-    gl->colorBuffer(gl, &surface);
-    gl->activeTexture(gl, 0);
-
-    if(gr_mem_surface.format == GGL_PIXEL_FORMAT_RGBX_8888)
-        gl->disable(gl, GGL_BLEND);
-
-    gl->bindTexture(gl, &gr_mem_surface);
-    gl->texEnvi(gl, GGL_TEXTURE_ENV, GGL_TEXTURE_ENV_MODE, GGL_REPLACE);
-    gl->texGeni(gl, GGL_S, GGL_TEXTURE_GEN_MODE, GGL_ONE_TO_ONE);
-    gl->texGeni(gl, GGL_T, GGL_TEXTURE_GEN_MODE, GGL_ONE_TO_ONE);
-    gl->enable(gl, GGL_TEXTURE_2D);
-    gl->texCoord2i(gl, 0, 0);
-    gl->recti(gl, 0, 0, gr_mem_surface.width, gr_mem_surface.height);
-
-    gglUninit(gl);
-    gl = NULL;
 
     png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (!png_ptr)
@@ -91,20 +78,47 @@ int gr_save_screenshot(const char *dest)
         goto exit;
 
     png_init_io(png_ptr, fp);
-    png_set_IHDR(png_ptr, info_ptr, surface.width, surface.height,
+    png_set_IHDR(png_ptr, info_ptr, capture_source.width, capture_source.height,
          8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
          PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
     png_write_info(png_ptr, info_ptr);
 
-    // To remove the alpha channel for PNG_COLOR_TYPE_RGB format,
-    png_set_filler(png_ptr, 0, PNG_FILLER_AFTER);
+    // AERA presents a mapped DRM scanout buffer. Converting that buffer
+    // directly avoids Pixelflinger, whose GGL context is not valid while the
+    // LVGL/Adreno UI owns direct scanout. The old GGL path either returned an
+    // empty image or dereferenced a null legacy draw surface.
+    for (y = 0; y < capture_source.height; ++y) {
+        const uint8_t *src = capture_source.data +
+            (size_t)y * capture_source.stride *
+            ((capture_source.format == GGL_PIXEL_FORMAT_RGB_565) ? 2 : 4);
+        uint8_t *dst = (uint8_t *)png_row;
 
-    ptr = img_data;
-    stride_bytes = surface.stride*4;
-    for(y = 0; y < surface.height; ++y)
-    {
-        png_write_row(png_ptr, ptr);
-        ptr += stride_bytes;
+        for (uint32_t x = 0; x < capture_source.width; ++x) {
+            if (capture_source.format == GGL_PIXEL_FORMAT_BGRA_8888) {
+                dst[0] = src[2];
+                dst[1] = src[1];
+                dst[2] = src[0];
+                src += 4;
+            } else if (capture_source.format == GGL_PIXEL_FORMAT_RGBA_8888 ||
+                       capture_source.format == GGL_PIXEL_FORMAT_RGBX_8888) {
+                dst[0] = src[0];
+                dst[1] = src[1];
+                dst[2] = src[2];
+                src += 4;
+            } else if (capture_source.format == GGL_PIXEL_FORMAT_RGB_565) {
+                const uint16_t pixel = src[0] | ((uint16_t)src[1] << 8);
+                dst[0] = (uint8_t)(((pixel >> 11) & 0x1f) * 255 / 31);
+                dst[1] = (uint8_t)(((pixel >> 5) & 0x3f) * 255 / 63);
+                dst[2] = (uint8_t)((pixel & 0x1f) * 255 / 31);
+                src += 2;
+            } else {
+                printf("gr_save_screenshot unsupported pixel format %d\n",
+                       capture_source.format);
+                goto exit;
+            }
+            dst += 3;
+        }
+        png_write_row(png_ptr, (png_bytep)png_row);
     }
 
     png_write_end(png_ptr, NULL);
@@ -115,12 +129,12 @@ exit:
         png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
     if(png_ptr)
         png_destroy_write_struct(&png_ptr, (png_infopp)NULL);
-    if(gl)
-        gglUninit(gl);
-    if(img_data)
-        free(img_data);
+    if(png_row)
+        free((void *)png_row);
     if(fp)
         fclose(fp);
+    if (res != 0)
+        remove(dest);
     return res;
 }
 

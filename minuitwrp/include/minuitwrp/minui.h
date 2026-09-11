@@ -32,6 +32,16 @@ struct GRSurface {
 typedef void* gr_surface;
 typedef unsigned short gr_pixel;
 
+// Metadata for importing a minui DRM scanout buffer into a GPU API. The
+// returned dma-buf descriptor belongs to the caller and must be closed.
+struct GRDrmBufferInfo {
+    int dma_buf_fd;
+    int width;
+    int height;
+    int pitch;
+    __u32 drm_format;
+};
+
 #define FONT_TYPE_TWRP 0
 #define FONT_TYPE_TTF  1
 
@@ -44,8 +54,32 @@ gr_pixel *gr_fb_data(void);
 void gr_flip(void);
 void gr_fb_blank(bool blank);
 
+int gr_drm_get_scanout_buffers(gr_surface* buffer1, gr_surface* buffer2);
+#ifdef __cplusplus
+extern "C"
+#endif
+int gr_drm_export_scanout_buffer(gr_surface buffer, GRDrmBufferInfo* info);
+#ifdef __cplusplus
+extern "C"
+#endif
+int gr_drm_import_scanout_buffer(const GRDrmBufferInfo* info,
+                                 gr_surface* buffer);
+#ifdef __cplusplus
+extern "C"
+#endif
+int gr_drm_release_imported_scanout_buffer(gr_surface buffer);
+int gr_drm_present(gr_surface buffer);
+gr_surface gr_drm_get_presented_surface(void);
+
 void gr_color(unsigned char r, unsigned char g, unsigned char b, unsigned char a);
 void gr_clip(int x, int y, int w, int h);
+// Nested clipping: gr_clip_push intersects (x,y,w,h) with the currently
+// active clip and makes it the active region; gr_clip_pop restores the
+// previous one. While a region is pushed, plain gr_clip()/gr_noclip() calls
+// are intersected with / reset to it, so a child widget that sets its own clip
+// (e.g. a scroll list inside a scroll container) stays confined to the parent.
+void gr_clip_push(int x, int y, int w, int h);
+void gr_clip_pop();
 void gr_noclip();
 void gr_fill(int x, int y, int w, int h);
 void gr_line(int x0, int y0, int x1, int y1, int width);

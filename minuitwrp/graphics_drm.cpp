@@ -60,6 +60,7 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 #include <sstream>
+#include <vector>
 
 #include "minuitwrp/minui.h"
 #include "graphics.h"
@@ -71,6 +72,11 @@ struct drm_surface {
     GRSurface base;
     uint32_t fb_id;
     uint32_t handle;
+    uint32_t drm_format;
+    // Imported AHardwareBuffers have no DRM dumb-buffer mapping. Retain a
+    // private dma-buf descriptor so read-only consumers such as AERA's
+    // screenshot writer can map the pixels on demand.
+    int dma_buf_fd;
 };
 
 #define NUM_MAIN 1
@@ -224,6 +230,9 @@ struct drm_msm_spr_init_cfg_v2 {
 
 static drm_surface *drm_surfaces[2];
 static int current_buffer;
+static int presented_buffer = -1;
+static drm_surface *presented_surface = nullptr;
+static std::vector<drm_surface*> imported_surfaces;
 static GRSurface *draw_buf = nullptr;
 
 static drmModeCrtc *main_monitor_crtc;
@@ -627,6 +636,10 @@ static void drm_destroy_surface(struct drm_surface *surface) {
         munmap(surface->base.data, surface->base.row_bytes * surface->base.height);
     }
 
+    if (surface->dma_buf_fd >= 0) {
+        close(surface->dma_buf_fd);
+    }
+
     if (surface->fb_id) {
         int ret = drmModeRmFB(drm_fd, surface->fb_id);
         if (ret) {
@@ -676,6 +689,7 @@ static drm_surface *drm_create_surface(int width, int height) {
         printf("Can't allocate memory\n");
         return nullptr;
     }
+    surface->dma_buf_fd = -1;
 
 #if defined(RECOVERY_ABGR)
     format = DRM_FORMAT_RGBA8888;
@@ -690,9 +704,9 @@ static drm_surface *drm_create_surface(int width, int height) {
     base_format = GGL_PIXEL_FORMAT_BGRA_8888;
     printf("setting DRM_FORMAT_ABGR8888 and GGL_PIXEL_FORMAT_BGRA_8888, GGL_PIXEL_FORMAT may not match!\n");
 #elif defined(RECOVERY_RGBX)
-    format = DRM_FORMAT_XBGR8888;
-    base_format = GGL_PIXEL_FORMAT_RGBA_8888;
-    printf("setting DRM_FORMAT_XBGR8888 and GGL_PIXEL_FORMAT_RGBA_8888\n");
+	format = DRM_FORMAT_XRGB8888;
+	base_format = GGL_PIXEL_FORMAT_BGRA_8888;
+	printf("setting DRM_FORMAT_XRGB8888 and GGL_PIXEL_FORMAT_BGRA_8888\n");
 #else
     format = DRM_FORMAT_RGB565;
     base_format = GGL_PIXEL_FORMAT_BGRA_8888;
@@ -712,6 +726,7 @@ static drm_surface *drm_create_surface(int width, int height) {
         return nullptr;
     }
     surface->handle = create_dumb.handle;
+    surface->drm_format = format;
 
     uint32_t handles[4], pitches[4], offsets[4];
 
@@ -898,14 +913,14 @@ static void disable_non_main_crtcs(int fd,
   drmModeAtomicFree(atomic_req);
 }
 
-static void update_plane_fb() {
+static int update_plane_fb(uint32_t fb_id) {
   uint32_t i, prop_id;
 
   /* Set atomic req */
   drmModeAtomicReqPtr atomic_req = drmModeAtomicAlloc();
   if (!atomic_req) {
      printf("Atomic Alloc failed. Could not update fb_id\n");
-     return;
+     return -ENOMEM;
   }
 
   /* Add conn-crtc association property required
@@ -917,7 +932,7 @@ static void update_plane_fb() {
   /* Add property */
   for(i = 0; i < number_of_lms; i++)
     drmModeAtomicAddProperty(atomic_req, plane_res[i].plane->plane_id,
-                             fb_prop_id, drm_surfaces[current_buffer]->fb_id);
+                             fb_prop_id, fb_id);
 
   /* Commit changes */
   int32_t ret;
@@ -928,6 +943,8 @@ static void update_plane_fb() {
 
   if (ret)
     printf("Atomic commit failed ret=%d\n", ret);
+
+  return ret;
 
 }
 
@@ -1000,7 +1017,8 @@ static GRSurface* drm_init(minui_backend* backend __unused) {
   int width = main_monitor_crtc->mode.hdisplay;
   int height = main_monitor_crtc->mode.vdisplay;
 
-  printf("width: %d, height: %d\n", width, height);
+	printf("display mode: %dx%d @ %d Hz (%s)\n", width, height,
+	       main_monitor_crtc->mode.vrefresh, main_monitor_crtc->mode.name);
 
   drmModeFreeResources(res);
 
@@ -1036,7 +1054,8 @@ static GRSurface* drm_init(minui_backend* backend __unused) {
     return nullptr;
   }
 
-  current_buffer = 0;
+	current_buffer = 0;
+	presented_buffer = -1;
 
   drmSetClientCap(drm_fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
   drmSetClientCap(drm_fd, DRM_CLIENT_CAP_ATOMIC, 1);
@@ -1149,18 +1168,165 @@ static GRSurface* drm_init(minui_backend* backend __unused) {
 static GRSurface* drm_flip(minui_backend* backend __unused) {
     memcpy(drm_surfaces[current_buffer]->base.data,
             draw_buf->data, draw_buf->height * draw_buf->row_bytes);
-    update_plane_fb();
-    current_buffer = 1 - current_buffer;
-    return draw_buf;
+	update_plane_fb(drm_surfaces[current_buffer]->fb_id);
+	presented_buffer = current_buffer;
+	presented_surface = drm_surfaces[current_buffer];
+	current_buffer = 1 - current_buffer;
+	return draw_buf;
+}
+
+int gr_drm_get_scanout_buffers(gr_surface* buffer1, gr_surface* buffer2) {
+	if (!buffer1 || !buffer2 || drm_fd < 0 || !drm_surfaces[0] || !drm_surfaces[1])
+		return -1;
+	*buffer1 = static_cast<gr_surface>(&drm_surfaces[0]->base);
+	*buffer2 = static_cast<gr_surface>(&drm_surfaces[1]->base);
+	return 0;
+}
+
+int gr_drm_export_scanout_buffer(gr_surface buffer, GRDrmBufferInfo* info) {
+	if (!buffer || !info || drm_fd < 0) return -1;
+	for (int i = 0; i < 2; ++i) {
+		if (!drm_surfaces[i] ||
+		    buffer != static_cast<gr_surface>(&drm_surfaces[i]->base))
+			continue;
+
+		int dma_buf_fd = -1;
+		if (drmPrimeHandleToFD(drm_fd, drm_surfaces[i]->handle,
+		                       DRM_CLOEXEC | DRM_RDWR, &dma_buf_fd) != 0)
+			return -1;
+
+		info->dma_buf_fd = dma_buf_fd;
+		info->width = drm_surfaces[i]->base.width;
+		info->height = drm_surfaces[i]->base.height;
+		info->pitch = drm_surfaces[i]->base.row_bytes;
+		info->drm_format = drm_surfaces[i]->drm_format;
+		return 0;
+	}
+	return -1;
+}
+
+extern "C" int gr_drm_import_scanout_buffer(const GRDrmBufferInfo* info,
+                                               gr_surface* buffer) {
+	if (!info || !buffer || info->dma_buf_fd < 0 || info->width <= 0 ||
+	    info->height <= 0 || info->pitch <= 0 || drm_fd < 0)
+		return -EINVAL;
+
+	drm_surface* surface = static_cast<drm_surface*>(calloc(1, sizeof(*surface)));
+	if (!surface) return -ENOMEM;
+	surface->dma_buf_fd = -1;
+	if (drmPrimeFDToHandle(drm_fd, info->dma_buf_fd, &surface->handle) != 0) {
+		free(surface);
+		return -errno;
+	}
+	surface->dma_buf_fd = fcntl(info->dma_buf_fd, F_DUPFD_CLOEXEC, 0);
+	if (surface->dma_buf_fd < 0) {
+		drm_destroy_surface(surface);
+		return -errno;
+	}
+
+	uint32_t handles[4] = {surface->handle, 0, 0, 0};
+	uint32_t pitches[4] = {static_cast<uint32_t>(info->pitch), 0, 0, 0};
+	uint32_t offsets[4] = {0, 0, 0, 0};
+	const int ret = drmModeAddFB2(drm_fd, info->width, info->height,
+	                              info->drm_format, handles, pitches, offsets,
+	                              &surface->fb_id, 0);
+	if (ret != 0) {
+		drm_gem_close gem_close = {};
+		gem_close.handle = surface->handle;
+		drmIoctl(drm_fd, DRM_IOCTL_GEM_CLOSE, &gem_close);
+		free(surface);
+		return ret;
+	}
+
+	surface->drm_format = info->drm_format;
+	surface->base.width = info->width;
+	surface->base.height = info->height;
+	surface->base.row_bytes = info->pitch;
+	surface->base.pixel_bytes = drm_format_to_bpp(info->drm_format) / 8;
+	surface->base.format = GGL_PIXEL_FORMAT_RGBA_8888;
+	surface->base.data = nullptr;
+	imported_surfaces.push_back(surface);
+	*buffer = static_cast<gr_surface>(&surface->base);
+	return 0;
+}
+
+extern "C" int gr_drm_release_imported_scanout_buffer(gr_surface buffer) {
+	if (!buffer || drm_fd < 0) return -EINVAL;
+	for (auto it = imported_surfaces.begin(); it != imported_surfaces.end(); ++it) {
+		drm_surface* surface = *it;
+		if (buffer != static_cast<gr_surface>(&surface->base)) continue;
+		if (presented_surface == surface && drm_surfaces[0]) {
+			update_plane_fb(drm_surfaces[0]->fb_id);
+			presented_surface = drm_surfaces[0];
+			presented_buffer = 0;
+		}
+		imported_surfaces.erase(it);
+		drm_destroy_surface(surface);
+		return 0;
+	}
+	return -ENOENT;
+}
+
+int gr_drm_present(gr_surface buffer) {
+	if (!buffer || drm_fd < 0) return -1;
+	drm_surface* surface = nullptr;
+	int index = -1;
+	for (int i = 0; i < 2; ++i) {
+		if (drm_surfaces[i] && buffer == static_cast<gr_surface>(&drm_surfaces[i]->base)) {
+			index = i;
+			surface = drm_surfaces[i];
+			break;
+		}
+	}
+	if (!surface) {
+		for (drm_surface* imported : imported_surfaces) {
+			if (buffer == static_cast<gr_surface>(&imported->base)) {
+				surface = imported;
+				break;
+			}
+		}
+	}
+	if (!surface || update_plane_fb(surface->fb_id) != 0) return -1;
+	presented_surface = surface;
+	if (index >= 0) {
+		presented_buffer = index;
+		current_buffer = 1 - index;
+	} else {
+		presented_buffer = -1;
+	}
+	return 0;
+}
+
+gr_surface gr_drm_get_presented_surface(void) {
+	if (!presented_surface) return nullptr;
+	if (!presented_surface->base.data && presented_surface->dma_buf_fd >= 0) {
+		const size_t length =
+			static_cast<size_t>(presented_surface->base.row_bytes) *
+			presented_surface->base.height;
+		void* data = mmap(nullptr, length, PROT_READ, MAP_SHARED,
+		                  presented_surface->dma_buf_fd, 0);
+		if (data == MAP_FAILED) {
+			printf("could not map presented dma-buf for screenshot: %s\n",
+			       strerror(errno));
+			return nullptr;
+		}
+		presented_surface->base.data = static_cast<unsigned char*>(data);
+	}
+	return static_cast<gr_surface>(&presented_surface->base);
 }
 
 static void drm_exit(minui_backend* backend __unused) {
     drm_blank(nullptr, true);
     drmModeDestroyPropertyBlob(drm_fd, crtc_res.mode_blob_id);
+	for (drm_surface* surface : imported_surfaces)
+		drm_destroy_surface(surface);
+	imported_surfaces.clear();
     drm_destroy_surface(drm_surfaces[0]);
     drm_destroy_surface(drm_surfaces[1]);
     close(drm_fd);
-    drm_fd = -1;
+	drm_fd = -1;
+	presented_buffer = -1;
+	presented_surface = nullptr;
 }
 
 static minui_backend drm_backend = {
