@@ -23,7 +23,6 @@ static constexpr uid_t kBrowserUid = 99090;
 static constexpr uid_t kTelegramUid = 99091;
 static constexpr uid_t kMediaUid = 99092;
 static constexpr uid_t kRecorderUid = 99093;
-static constexpr uid_t kPluginV2Uid = 99094;
 static constexpr gid_t kMediaRwGid = 1023;
 static void Die(const char *message) { perror(message); _exit(78); }
 static void Check(int result, const char *what) { if (result < 0) Die(what); }
@@ -165,23 +164,20 @@ int main(int argc, char **argv) {
   if (argc != 3 || (strcmp(argv[1], "--probe") &&
       strcmp(argv[1], "--browser") && strcmp(argv[1], "--retroarch") &&
       strcmp(argv[1], "--telegram") && strcmp(argv[1], "--media") &&
-      strcmp(argv[1], "--recorder") && strcmp(argv[1], "--plugin-v2")) ||
-      getuid() || geteuid()) {
-    fprintf(stderr, "Usage (root recovery only): aera-browser-jail --probe|--browser|--retroarch|--telegram|--media|--recorder|--plugin-v2 RUNTIME\n");
+      strcmp(argv[1], "--recorder")) || getuid() || geteuid()) {
+    fprintf(stderr, "Usage (root recovery only): aera-browser-jail --probe|--browser|--retroarch|--telegram|--media|--recorder RUNTIME\n");
     return 78;
   }
   const bool retroarch = !strcmp(argv[1], "--retroarch");
   const bool telegram = !strcmp(argv[1], "--telegram");
   const bool media = !strcmp(argv[1], "--media");
   const bool recorder = !strcmp(argv[1], "--recorder");
-  const bool plugin_v2 = !strcmp(argv[1], "--plugin-v2");
   const std::string root = argv[2];
-  const size_t prefix = plugin_v2 ? 13 : recorder ? 14 : media ? 16 :
+  const size_t prefix = recorder ? 14 : media ? 16 :
       (retroarch || telegram) ? 13 : 14;
   const char *expected = retroarch ? "/tmp/aera-ra-" :
       telegram ? "/tmp/aera-tg-" : media ? "/tmp/aera-media-" :
-      recorder ? "/tmp/aera-rec-" : plugin_v2 ? "/tmp/aera-p2-" :
-      "/tmp/aera-web-";
+      recorder ? "/tmp/aera-rec-" : "/tmp/aera-web-";
   if (retroarch) PrepareRetroStorage();
   if (recorder) PrepareRecorderStorage();
   if (root.size() != prefix + 6 || root.compare(0, prefix, expected) ||
@@ -210,17 +206,16 @@ int main(int argc, char **argv) {
       Die("RetroArch compatibility mount point");
     close(storage);
   }
-  if (!retroarch && !media && !recorder && !plugin_v2)
+  if (!retroarch && !media && !recorder)
     WriteResolverConfig(directory);
   Check(fchmod(directory, 0755), "runtime root permissions");
   close(directory);
-  Supervise(root, plugin_v2 ? "268435456" : telegram ? "536870912" :
+  Supervise(root, telegram ? "536870912" :
       (media || recorder) ? "1073741824" : "1610612736");
   Check(setsid(), "private browser process group");
-  rlimit files{plugin_v2 ? 64U : 512U, plugin_v2 ? 64U : 512U},
-      processes{plugin_v2 ? 32U : 192U, plugin_v2 ? 32U : 192U},
-      core{0, 0}, size{recorder ? 2ULL << 30 : plugin_v2 ? 16ULL << 20 : 64ULL << 20,
-                       recorder ? 2ULL << 30 : plugin_v2 ? 16ULL << 20 : 64ULL << 20};
+  rlimit files{512U, 512U}, processes{192U, 192U}, core{0, 0},
+      size{recorder ? 2ULL << 30 : 64ULL << 20,
+           recorder ? 2ULL << 30 : 64ULL << 20};
   Check(setrlimit(RLIMIT_NOFILE, &files), "file descriptor limit");
   Check(setrlimit(RLIMIT_NPROC, &processes), "process limit");
   Check(setrlimit(RLIMIT_CORE, &core), "core limit");
@@ -232,17 +227,13 @@ int main(int argc, char **argv) {
   if (!jail) Die("minijail_new");
   minijail_namespace_vfs(jail);
   minijail_namespace_uts(jail);
-  // Generic plugins have no direct networking capability in Host API 2.
-  // Future access must be added as an explicit host-mediated operation.
-  if (plugin_v2) minijail_namespace_net(jail);
   // Use recovery's already-configured WLAN route. The browser still runs as a
   // dedicated UID inside its chroot with no capabilities and a socket-filtered
   // seccomp policy; it cannot listen, open raw sockets, or alter routes.
   Check(minijail_namespace_set_hostname(jail,
         retroarch ? "aera-retroarch" :
         telegram ? "aera-telegram" : media ? "aera-media" :
-        recorder ? "aera-recorder" : plugin_v2 ? "aera-plugin-v2" :
-        "aera-browser"), "private hostname");
+        recorder ? "aera-recorder" : "aera-browser"), "private hostname");
   Check(minijail_enter_chroot(jail, root.c_str()), "private filesystem");
   Check(minijail_bind(jail, root.c_str(), "/", 0), "read-only runtime");
   const unsigned long flags = MS_NOSUID | MS_NODEV | MS_NOEXEC;
@@ -260,7 +251,7 @@ int main(int argc, char **argv) {
   // Turnip needs for Vulkan external-memory file descriptors. It receives no
   // display, input, camera, Binder or storage devices; exposing the wider host
   // /dev tree or Android's vendor EGL stack is unnecessary.
-  if (!retroarch && !telegram && !media && !recorder && !plugin_v2) {
+  if (!retroarch && !telegram && !media && !recorder) {
     Check(minijail_bind(jail, "/dev/kgsl-3d0", "/dev/kgsl-3d0", 1),
           "browser GPU device");
     Check(minijail_bind(jail, "/dev/dma_heap/system", "/dev/dma_heap/system", 1),
@@ -292,10 +283,10 @@ int main(int argc, char **argv) {
                                 "size=128M,mode=1777"), "private shared memory");
   minijail_change_uid(jail, telegram ? kTelegramUid :
       media ? kMediaUid : recorder ? kRecorderUid :
-      plugin_v2 ? kPluginV2Uid : kBrowserUid);
+      kBrowserUid);
   minijail_change_gid(jail, telegram ? kTelegramUid :
       media ? kMediaUid : recorder ? kRecorderUid :
-      plugin_v2 ? kPluginV2Uid : kBrowserUid);
+      kBrowserUid);
   // Android 16 annotates the list parameter as non-null even when a zero
   // length requests that minijail clear all supplementary groups.
   const bool media_access = retroarch || telegram || media || recorder;
@@ -358,16 +349,10 @@ int main(int argc, char **argv) {
     const_cast<char *>("PATH=/usr/bin"), const_cast<char *>("HOME=/state"),
     const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>("LANG=C.UTF-8"),
     nullptr};
-  char *const plugin_v2_environment[] = {
-    const_cast<char *>("PATH=/usr/bin"), const_cast<char *>("HOME=/tmp"),
-    const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>("LANG=C.UTF-8"),
-    const_cast<char *>("AERA_PLUGIN_FD=4"),
-    const_cast<char *>("AERA_HOST_API=2"), nullptr};
   const char *program = probe ? "/usr/bin/aera-jail-probe" :
       retroarch ? "/usr/bin/retroarch" :
       telegram ? "/usr/bin/aera-telegram" :
       media ? "/usr/bin/aera-media" : recorder ? "/usr/bin/aera-recorder" :
-      plugin_v2 ? "/usr/bin/aera-plugin" :
       "/usr/bin/aera-browser-worker";
   char *const browser_args[] = {const_cast<char *>(program),
     const_cast<char *>(probe ? "--inside" : "--isolated-ipc-v1"), nullptr};
@@ -378,13 +363,11 @@ int main(int argc, char **argv) {
     const_cast<char *>("--isolated-ipc-v1"), nullptr};
   char *const media_args[] = {const_cast<char *>(program), nullptr};
   char *const recorder_args[] = {const_cast<char *>(program), nullptr};
-  char *const plugin_v2_args[] = {const_cast<char *>(program),
-    const_cast<char *>("--aera-host-api=2"), nullptr};
   execve(program, retroarch ? retroarch_args :
          telegram ? telegram_args : media ? media_args :
-         recorder ? recorder_args : plugin_v2 ? plugin_v2_args : browser_args,
+         recorder ? recorder_args : browser_args,
          retroarch ? retroarch_environment :
          telegram ? telegram_environment :
-         plugin_v2 ? plugin_v2_environment : browser_environment);
+         browser_environment);
   Die("exec isolated browser");
 }

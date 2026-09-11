@@ -1,9 +1,12 @@
 # AERA Host API 2
 
 Host API 2 lets a plugin with a previously unknown ID install and run without
-rebuilding recovery. AERA remains the only UI and privileged process. The
-plugin is an isolated ARM64 worker that sends bounded declarative UI messages
-over a `SOCK_SEQPACKET` channel inherited as file descriptor 4.
+rebuilding recovery. The Host API surface remains rendered by AERA. The plugin
+is an ARM64 root worker that sends bounded declarative UI messages over
+a `SOCK_SEQPACKET` channel inherited as file descriptor 4. It runs in recovery's
+filesystem and network namespaces as UID/GID 0, with recovery's capabilities,
+devices, mounted partitions and data available directly. Running the plugin
+therefore grants it the same access as recovery itself.
 
 ## Manifest contract
 
@@ -19,13 +22,14 @@ An API 2 manifest uses `type: "ui-runtime"`, `entry: "main"`,
 - `screen-mirror` to start or stop AERA's existing USB-only display stream;
   framebuffer capture and input injection remain in the trusted host
 
-Access is denied unless the permission is declared and the user confirms the
-individual request in trusted AERA UI. The Android settings operations use wire
-operation IDs 3 and 4; USB mirror start/stop use IDs 5 and 6. Android settings
-operations include ROM customization values such as Infinity-X
-and Lineage settings but deliberately exclude lock credentials, accounts, app data,
-SettingsProvider SSAIDs, and arbitrary `/data` access. Restore validates and
-stages the complete snapshot before transactionally replacing live files.
+Host-mediated operations are denied unless the permission is declared and the
+user confirms the individual request in trusted AERA UI. Root plugins may also
+operate on recovery resources directly. The Android settings operations use
+wire operation IDs 3 and 4; USB mirror start/stop use IDs 5 and 6. The Android
+settings convenience implementation includes ROM customization values such as
+Infinity-X and Lineage settings but excludes lock credentials, accounts, app
+data and SettingsProvider SSAIDs. Restore validates and stages the complete
+snapshot before transactionally replacing live files.
 
 API 1 manifests and their built-in scene routing remain compatible.
 
@@ -41,11 +45,12 @@ buttons, status updates, lifecycle events and mediated operations. AERA rejects
 bad sequences, duplicate action IDs, unknown flags, oversized packets and more
 than 128 worker messages per second.
 
-The host expands a hash-verified runtime into private RAM, launches it under a
-dedicated UID with no capabilities, storage, devices or network, and limits it
-to 256 MiB RAM, 64 file descriptors, 32 processes and 16 MiB output files.
-Leaving the scene, protocol failure or worker exit closes the channel and kills
-the complete cgroup.
+The host expands a hash-verified runtime into private RAM and launches its musl
+loader directly as root. It does not apply a chroot, Minijail, namespaces,
+seccomp, capability removal or resource limits to Host API 2 plugins. Leaving
+the scene terminates the plugin's process group and closes the channel. `PATH`
+contains both the plugin's `usr/bin` and recovery command directories, while
+`AERA_PLUGIN_ROOT` names the extracted runtime for bundled resources.
 
 `AERA-settings-backup-plugin` is the reference implementation. It proves a new
 ID can render and request backup/restore without being added to recovery's

@@ -101,13 +101,13 @@ protocol negotiation/resource limits.
 ## Plugin Host API 2
 
 Arbitrary plugin IDs can use the generic Host API 2 entrypoint without a
-recovery rebuild. Plugins run as isolated workers and describe a bounded page;
+recovery rebuild. Plugins run as root workers and describe a bounded page;
 AERA owns every visible widget, touch event, permission prompt and privileged
 operation. Existing Host API 1 apps retain their built-in routing. See
-`plugin_api/README.md` for the manifest, protocol, isolation and lifecycle
-contract. API 2 also exposes separately permissioned, host-mediated backup and
-restore for AERA preferences and Android user 0's SettingsProvider databases;
-plugins never receive the underlying files or direct `/data` access.
+`plugin_api/README.md` for the manifest, protocol, root execution and lifecycle
+contract. API 2 also exposes host-mediated backup and restore helpers for AERA
+preferences and Android user 0's SettingsProvider databases. Host API 2 plugins
+additionally have direct access to recovery's files, devices and mounted data.
 
 ## Picture viewer
 

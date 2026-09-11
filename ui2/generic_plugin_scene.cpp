@@ -258,7 +258,7 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
     delete static_cast<GenericScene *>(lv_event_get_user_data(event));
   }, LV_EVENT_DELETE, scene);
   Header(screen, scene->plugin.name.c_str(),
-         "Isolated app rendered by AERA Host API 2.", callback, context);
+         "Root app rendered by AERA Host API 2.", callback, context);
   const bool landscape = Landscape(screen);
   scene->card = lv_obj_create(screen);
   Panel(scene->card, 42, kMainPanel);
