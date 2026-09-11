@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "operations.hpp"
 
+
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -422,6 +423,9 @@ bool OperationAllowed(const plugins::Plugin& plugin, Operation operation) {
       return plugins::HasPermission(plugin, "android-settings-backup");
     case Operation::kRestoreAndroidSettings:
       return plugins::HasPermission(plugin, "android-settings-restore");
+    case Operation::kStartMirror:
+    case Operation::kStopMirror:
+      return plugins::HasPermission(plugin, "screen-mirror");
   }
   return false;
 }
@@ -430,6 +434,16 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
   if (!OperationAllowed(plugin, operation)) {
     result = "Permission denied by the AERA host.";
     return false;
+  }
+  if (operation == Operation::kStartMirror) {
+    result = success
+                 ? "USB mirror ready at 30 FPS. Open AERA Mirror on your computer."
+                 : "Could not start the AERA USB mirror.";
+    return success;
+  }
+  if (operation == Operation::kStopMirror) {
+    result = "AERA USB mirror stopped.";
+    return true;
   }
   Fd aera;
   Fd backup;
@@ -487,6 +501,10 @@ const char* OperationTitle(Operation operation) {
       return "Back up Android settings?";
     case Operation::kRestoreAndroidSettings:
       return "Restore Android settings?";
+    case Operation::kStartMirror:
+      return "Start USB screen sharing?";
+    case Operation::kStopMirror:
+      return "Stop USB screen sharing?";
   }
   return "Run plugin operation?";
 }
@@ -507,6 +525,12 @@ const char* OperationPrompt(Operation operation) {
       return "AERA will replace user 0's saved Android and ROM settings. Restore only "
              "onto the same ROM and Android version. "
              "The isolated plugin never receives direct /data access.";
+    case Operation::kStartMirror:
+      return "AERA will capture the recovery display at up to 30 FPS and expose it only "
+             "through the existing USB/ADB channel. Touch and keyboard input remain "
+             "under AERA's trusted input service.";
+    case Operation::kStopMirror:
+      return "Stop capturing the recovery display and close the USB mirror stream.";
   }
   return "The plugin requested an unknown operation.";
 }

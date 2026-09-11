@@ -16,10 +16,13 @@ An API 2 manifest uses `type: "ui-runtime"`, `entry: "main"`,
 - `android-settings-backup` / `android-settings-restore` for Android user
   0's SettingsProvider `system`, `secure`, and `global` databases, plus
   the LineageSettingsProvider database when the installed ROM supplies it
+- `screen-mirror` to start or stop AERA's existing USB-only display stream;
+  framebuffer capture and input injection remain in the trusted host
 
 Access is denied unless the permission is declared and the user confirms the
 individual request in trusted AERA UI. The Android settings operations use wire
-operation IDs 3 and 4. They include ROM customization values such as Infinity-X
+operation IDs 3 and 4; USB mirror start/stop use IDs 5 and 6. Android settings
+operations include ROM customization values such as Infinity-X
 and Lineage settings but deliberately exclude lock credentials, accounts, app data,
 SettingsProvider SSAIDs, and arbitrary `/data` access. Restore validates and
 stages the complete snapshot before transactionally replacing live files.

@@ -231,7 +231,8 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
                             permission == "settings-backup" ||
                             permission == "settings-restore" ||
                             permission == "android-settings-backup" ||
-                            permission == "android-settings-restore";
+                            permission == "android-settings-restore" ||
+                            permission == "screen-mirror";
                    }));
   if (!SafeId(plugin.id) || plugin.name.empty() || plugin.name.size() > 80 ||
       plugin.version.empty() || plugin.version.size() > 32 ||
