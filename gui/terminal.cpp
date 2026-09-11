@@ -20,6 +20,13 @@
 */
 
 // terminal.cpp - GUITerminal object
+//
+// The terminal back-end (TerminalEngine) is built on libvterm: it owns a real
+// xterm-class terminal state machine and cell grid. We feed it PTY bytes and it
+// maintains the screen, scrollback, cursor, colours and attributes. The GUI side
+// (GUITerminal, a GUIScrollList) only renders the resulting cells and forwards
+// key/character input. This replaces the old hand-rolled VT100 subset parser and
+// gives us SGR colours, the alternate screen (vi/htop/less), scroll regions, etc.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,9 +36,15 @@
 #include <termio.h>
 
 #include <string>
+#include <vector>
+#include <deque>
+#include <algorithm>
 #include <cctype>
 #include <linux/input.h>
+#include <poll.h>
 #include <sys/wait.h>
+
+#include <vterm.h>
 
 extern "C" {
 #include "../twcommon.h"
@@ -40,6 +53,7 @@ extern "C" {
 #include "minuitwrp/truetype.hpp"
 
 #include "gui.hpp"
+#include "recovery_ui2/backend.hpp"
 
 #include "rapidxml.hpp"
 #include "objects.hpp"
@@ -52,6 +66,39 @@ extern "C" {
 
 extern int g_pty_fd; // in gui.cpp where the select is
 
+// Maximum number of scrollback lines kept above the visible screen. Kept modest
+// on purpose: each line stores a full row of VTermScreenCell, and recovery RAM is
+// limited. ~2000 lines is plenty for an on-device terminal.
+static const size_t kMaxScrollback = 2000;
+
+// Append a UTF-8 codepoint to string s
+static size_t utf8add(std::string& s, uint32_t cp)
+{
+	if (cp < 0x80) {
+		s += (char)cp;
+		return 1;
+	}
+	else if (cp < 0x800) {
+		s += (char)(0xc0 | (cp >> 6));
+		s += (char)(0x80 | (cp & 0x3f));
+		return 2;
+	}
+	else if (cp < 0x10000) {
+		s += (char)(0xe0 | (cp >> 12));
+		s += (char)(0x80 | ((cp >> 6) & 0x3f));
+		s += (char)(0x80 | (cp & 0x3f));
+		return 3;
+	}
+	else if (cp < 0x110000) {
+		s += (char)(0xf0 | (cp >> 18));
+		s += (char)(0x80 | ((cp >> 12) & 0x3f));
+		s += (char)(0x80 | ((cp >> 6) & 0x3f));
+		s += (char)(0x80 | (cp & 0x3f));
+		return 4;
+	}
+	return 0;
+}
+
 /*
 Pseudoterminal handler.
 */
@@ -63,6 +110,7 @@ public:
 	}
 
 	bool started() const { return pid > 0; }
+	int descriptor() const { return fdMaster; }
 
 	bool start()
 	{
@@ -118,6 +166,13 @@ public:
 		// As the child is a session leader, set the controlling terminal to be the slave side of the PTY
 		// (Mandatory for programs like the shell to make them manage correctly their outputs)
 		ioctl(0, TIOCSCTTY, 1);
+
+		// Advertise full xterm-class emulation. libvterm understands xterm-256color
+		// sequences, and the matching terminfo entry is shipped under
+		// /system/etc/terminfo (see Android.mk). TERMINFO points there in case the
+		// system database is not on the default search path in recovery.
+		setenv("TERM", "xterm-256color", 1);
+		setenv("TERMINFO", "/system/etc/terminfo", 1);
 
 		execl("/system/bin/sh", "sh", NULL);
 		_exit(127);
@@ -192,75 +247,29 @@ private:
 	pid_t pid;
 };
 
-// UTF-8 decoder
-// Copyright (c) 2008-2009 Bjoern Hoehrmann <bjoern@hoehrmann.de>
-// See http://bjoern.hoehrmann.de/utf-8/decoder/dfa/ for details.
+// A single rendered cell handed to the GUI side. Colours are already resolved to
+// RGB, except that the default-fg/default-bg flags are preserved so the renderer
+// can substitute the theme's text/background colours.
+struct RenderCell
+{
+	std::string text;       // UTF-8 for the cell glyph (empty means blank)
+	uint8_t width;          // 1 for normal, 2 for wide (CJK), 0 for the right half of a wide cell
+	bool bold;
+	bool underline;
+	bool reverse;
+	bool fgDefault, bgDefault;
+	uint8_t fr, fg, fb;     // foreground RGB (valid when !fgDefault)
+	uint8_t br, bg, bb;     // background RGB (valid when !bgDefault)
 
-const uint32_t UTF8_ACCEPT = 0;
-const uint32_t UTF8_REJECT = 1;
-
-static const uint8_t utf8d[] = {
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 00..1f
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 20..3f
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 40..5f
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 60..7f
-	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9, // 80..9f
-	7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7, // a0..bf
-	8,8,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, // c0..df
-	0xa,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x4,0x3,0x3, // e0..ef
-	0xb,0x6,0x6,0x6,0x5,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8, // f0..ff
-	0x0,0x1,0x2,0x3,0x5,0x8,0x7,0x1,0x1,0x1,0x4,0x6,0x1,0x1,0x1,0x1, // s0..s0
-	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1,0,1,1,1,1,1,1, // s1..s2
-	1,2,1,1,1,1,1,2,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1,1, // s3..s4
-	1,2,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,3,1,3,1,1,1,1,1,1, // s5..s6
-	1,3,1,1,1,1,1,3,1,3,1,1,1,1,1,1,1,3,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // s7..s8
+	RenderCell() : width(1), bold(false), underline(false), reverse(false),
+		fgDefault(true), bgDefault(true),
+		fr(0), fg(0), fb(0), br(0), bg(0), bb(0) {}
 };
 
-uint32_t inline utf8decode(uint32_t* state, uint32_t* codep, uint32_t byte)
-{
-	uint32_t type = utf8d[byte];
-
-	*codep = (*state != UTF8_ACCEPT) ?
-		(byte & 0x3fu) | (*codep << 6) :
-		(0xff >> type) & (byte);
-
-	*state = utf8d[256 + *state*16 + type];
-	return *state;
-}
-// end of UTF-8 decoder
-
-// Append a UTF-8 codepoint to string s
-size_t utf8add(std::string& s, uint32_t cp)
-{
-	if (cp < 0x7f) {
-		s += cp;
-		return 1;
-	}
-	else if (cp < 0x7ff) {
-		s += (0xc0 | (cp >> 6));
-		s += (0x80 | (cp & 0x3f));
-		return 2;
-	}
-	else if (cp < 0xffff) {
-		s += (0xe0 | (cp >> 12));
-		s += (0x80 | ((cp >> 6) & 0x3f));
-		s += (0x80 | (cp & 0x3f));
-		return 3;
-	}
-	else if (cp < 0x1fffff) {
-		s += (0xf0 | (cp >> 18));
-		s += (0x80 | ((cp >> 12) & 0x3f));
-		s += (0x80 | ((cp >> 6) & 0x3f));
-		s += (0x80 | (cp & 0x3f));
-		return 4;
-	}
-	return 0;
-}
-
 /*
-TerminalEngine is the terminal back-end, dealing with the text buffer and attributes
-and with communicating with the pty.
-It does not care about visual things like rendering, fonts, windows etc.
+TerminalEngine is the terminal back-end, wrapping a libvterm instance. It owns the
+PTY, the terminal state machine and the scrollback buffer. It does not care about
+visual things like fonts or windows.
 The idea is that 0 to n GUITerminal instances (e.g. on different pages) can connect
 to one TerminalEngine to interact with the terminal, and that the TerminalEngine
 survives things like page changes or even theme reloads.
@@ -268,127 +277,86 @@ survives things like page changes or even theme reloads.
 class TerminalEngine
 {
 public:
-#if 0 // later
-	struct Attributes
-	{
-		COLOR fgcolor; // TODO: what about palette?
-		COLOR bgcolor;
-		// could add bold, underline, blink, etc.
-	};
-
-	struct AttributeRange
-	{
-		size_t start; // start position inside text (in bytes)
-		Attributes a;
-	};
-#endif
-	typedef uint32_t CodePoint; // Unicode code point
-
-	// A line of text, optimized for rendering and storage in the buffer
-	struct Line
-	{
-		std::string text; // in UTF-8 format
-//		std::vector<AttributeRange> attrs;
-		Line() {}
-		size_t utf8forward(size_t start) const
-		{
-			if (start >= text.size())
-				return start;
-			uint32_t u8state = 0, u8cp = 0;
-			size_t i = start;
-			uint32_t rc;
-			do {
-				rc = utf8decode(&u8state, &u8cp, (unsigned char)text[i]);
-				++i;
-			} while (rc != UTF8_ACCEPT && rc != UTF8_REJECT && i < text.size());
-			return i;
-		}
-
-		std::string substr(size_t start, size_t n) const
-		{
-			size_t i = 0;
-			for (; start && i < text.size(); i = utf8forward(i))
-				--start;
-			size_t s = i;
-			for (; n && i < text.size(); i = utf8forward(i))
-				--n;
-			return text.substr(s, i - s);
-		}
-		size_t length() const
-		{
-			size_t n = 0;
-			for (size_t i = 0; i < text.size(); i = utf8forward(i))
-				++n;
-			return n;
-		}
-	};
-
-	// A single character cell with a Unicode code point
-	struct Cell
-	{
-		Cell() : cp(' ') {}
-		Cell(CodePoint cp) : cp(cp) {}
-		CodePoint cp;
-//		Attributes a;
-	};
-
-	// A line of text, optimized for editing single characters
-	struct UnpackedLine
-	{
-		std::vector<Cell> cells;
-		void eraseFrom(size_t x)
-		{
-			if (cells.size() > x)
-				cells.erase(cells.begin() + x, cells.end());
-		}
-
-		void eraseTo(size_t x)
-		{
-			if (x > 0)
-				cells.erase(cells.begin(), cells.begin() + x);
-		}
-	};
-
 	TerminalEngine()
+		: vt(NULL), screen(NULL), rows(10), cols(40),
+		  cursorRow(0), cursorCol(0), cursorVisible(true), updateCounter(0)
 	{
-		// the default size will be overwritten by the GUI window when the size is known
-		width = 40;
-		height = 10;
+		createVterm();
+	}
 
-		clear();
-		updateCounter = 0;
-		state = kStateGround;
-		utf8state = utf8codepoint = 0;
+	~TerminalEngine()
+	{
+		if (vt)
+			vterm_free(vt);
 	}
 
 	void setSize(int xChars, int yChars, int w, int h)
 	{
-		width = xChars;
-		height = yChars;
+		xChars = std::max(xChars, 1);
+		yChars = std::max(yChars, 1);
+		if (xChars == cols && yChars == rows) {
+			// still update the pty pixel size, harmless
+			if (pty.started())
+				pty.resize(cols, rows, w, h);
+			return;
+		}
+		cols = xChars;
+		rows = yChars;
+		if (vt)
+			vterm_set_size(vt, rows, cols); // note: libvterm takes (rows, cols)
 		if (pty.started())
-			pty.resize(width, height, w, h);
+			pty.resize(cols, rows, w, h);
+		++updateCounter;
 		debug_printf("setSize: %d*%d chars, %d*%d pixels\n", xChars, yChars, w, h);
 	}
 
 	void initPty()
 	{
-		if (!pty.started())
-		{
+		if (!pty.started()) {
 			pty.start();
-			pty.resize(width, height, 0, 0);
+			pty.resize(cols, rows, 0, 0);
 		}
 	}
 
 	void readPty()
 	{
-		char buffer[1024];
+		char buffer[4096];
 		int rc = pty.read(buffer, sizeof(buffer));
 		debug_printf("readPty: %d bytes\n", rc);
-		if (rc < 0)
-			output("\r\nChild process exited.\r\n");	// TODO: maybe exit terminal here
-		else
-			for (int i = 0; i < rc; ++i)
-				output(buffer[i]);
+		if (rc <= 0) {
+			// EOF means the shell closed the slave end. Mark the pty stopped so
+			// AERA's non-blocking poll timer does not keep observing POLLHUP and
+			// repeatedly redraw the terminal forever.
+			if (rc == 0)
+				pty.stop();
+			const char msg[] = "\r\nChild process exited.\r\n";
+			vterm_input_write(vt, msg, sizeof(msg) - 1);
+		}
+		else {
+			vterm_input_write(vt, buffer, rc);
+		}
+		vterm_screen_flush_damage(screen);
+		++updateCounter;
+	}
+
+	bool pollPty()
+	{
+		if (!pty.started())
+			return false;
+		bool changed = false;
+		// Drain a bounded number of ready chunks. This is called from AERA's
+		// LVGL timer and must never block its frame loop.
+		for (int i = 0; i < 8; ++i) {
+			struct pollfd descriptor = { pty.descriptor(), POLLIN, 0 };
+			if (poll(&descriptor, 1, 0) <= 0 ||
+			    !(descriptor.revents & (POLLIN | POLLHUP | POLLERR)))
+				break;
+			readPty();
+			changed = true;
+			if (!pty.started())
+				break;
+		}
+		return changed;
 	}
 
 	bool status() {
@@ -401,391 +369,336 @@ public:
 
 	void clear()
 	{
-		cursorX = cursorY = 0;
-		lines.clear();
-		setY(0);
-		unpackLine(0);
-		linewrap = false;
+		scrollback.clear();
+		if (screen)
+			vterm_screen_reset(screen, 1);
+		cursorRow = cursorCol = 0;
 		++updateCounter;
 	}
 
-	void output(const char *buf)
-	{
-		for (const char* p = buf; *p; ++p)
-			output(*p);
-	}
-
-	void output(const char ch)
-	{
-		char debug[2]; debug[0] = ch; debug[1] = 0;
-		debug_printf("output: %d %s\n", (int)ch, (ch >= ' ' && ch < 127) ? debug : ch == 27 ? "esc" : "");
-		if (ch < 32) {
-			// always process control chars, even after incomplete UTF-8 fragments
-			processC0(ch);
-			if (utf8state != UTF8_ACCEPT)
-			{
-				debug_printf("Terminal: incomplete UTF-8 fragment before control char ignored, codepoint=%u ch=%d\n", utf8codepoint, (int)ch);
-				utf8state = UTF8_ACCEPT;
-			}
-			return;
-		}
-		uint32_t rc = utf8decode(&utf8state, &utf8codepoint, (unsigned char)ch);
-		if (rc == UTF8_ACCEPT)
-			processCodePoint(utf8codepoint);
-		else if (rc == UTF8_REJECT) {
-			debug_printf("Terminal: invalid UTF-8 sequence ignored, codepoint=%u ch=%d\n", utf8codepoint, (int)ch);
-			utf8state = UTF8_ACCEPT;
-		}
-		// else we need to read more bytes to assemble a codepoint
-	}
+	// --- input ---
 
 	bool inputChar(int ch)
 	{
 		debug_printf("inputChar: %d\n", ch);
-		initPty();	// reinit just in case it died before
-		// encode the char as UTF-8 and send it to the pty
-		std::string c;
-		utf8add(c, (uint32_t)ch);
-		pty.write(c.c_str(), c.size());
+		initPty(); // reinit just in case it died before
+		if (ch < 0x20 || ch == 0x7f) {
+			// control characters (incl. Enter, Tab, Ctrl-*) go to the pty verbatim,
+			// so app-mode and signal-generating keys keep working as the shell expects
+			char c = (char)ch;
+			pty.write(&c, 1);
+		}
+		else {
+			vterm_keyboard_unichar(vt, (uint32_t)ch, VTERM_MOD_NONE);
+		}
 		return true;
 	}
 
 	bool inputKey(int key)
 	{
 		debug_printf("inputKey: %d\n", key);
+		initPty();
+		VTermKey vk = VTERM_KEY_NONE;
 		switch (key)
 		{
-			case KEY_UP: pty.write("\e[A"); break;
-			case KEY_DOWN: pty.write("\e[B"); break;
-			case KEY_RIGHT: pty.write("\e[C"); break;
-			case KEY_LEFT: pty.write("\e[D"); break;
-			case KEY_HOME: pty.write("\eOH"); break;
-			case KEY_END: pty.write("\eOF"); break;
-			case KEY_INSERT: pty.write("\e[2~"); break;
-			case KEY_DELETE: pty.write("\e[3~"); break;
-			case KEY_PAGEUP: pty.write("\e[5~"); break;
-			case KEY_PAGEDOWN: pty.write("\e[6~"); break;
-			// TODO: other keys
+			case KEY_UP: vk = VTERM_KEY_UP; break;
+			case KEY_DOWN: vk = VTERM_KEY_DOWN; break;
+			case KEY_RIGHT: vk = VTERM_KEY_RIGHT; break;
+			case KEY_LEFT: vk = VTERM_KEY_LEFT; break;
+			case KEY_HOME: vk = VTERM_KEY_HOME; break;
+			case KEY_END: vk = VTERM_KEY_END; break;
+			case KEY_INSERT: vk = VTERM_KEY_INS; break;
+			case KEY_DELETE: vk = VTERM_KEY_DEL; break;
+			case KEY_PAGEUP: vk = VTERM_KEY_PAGEUP; break;
+			case KEY_PAGEDOWN: vk = VTERM_KEY_PAGEDOWN; break;
+			case KEY_ENTER: vk = VTERM_KEY_ENTER; break;
+			case KEY_TAB: vk = VTERM_KEY_TAB; break;
+			case KEY_BACKSPACE: vk = VTERM_KEY_BACKSPACE; break;
+			case KEY_ESC: vk = VTERM_KEY_ESCAPE; break;
+			// F-keys are not contiguous in linux/input.h (F11/F12 jump), so map them explicitly
+			case KEY_F1: vk = (VTermKey)VTERM_KEY_FUNCTION(1); break;
+			case KEY_F2: vk = (VTermKey)VTERM_KEY_FUNCTION(2); break;
+			case KEY_F3: vk = (VTermKey)VTERM_KEY_FUNCTION(3); break;
+			case KEY_F4: vk = (VTermKey)VTERM_KEY_FUNCTION(4); break;
+			case KEY_F5: vk = (VTermKey)VTERM_KEY_FUNCTION(5); break;
+			case KEY_F6: vk = (VTermKey)VTERM_KEY_FUNCTION(6); break;
+			case KEY_F7: vk = (VTermKey)VTERM_KEY_FUNCTION(7); break;
+			case KEY_F8: vk = (VTermKey)VTERM_KEY_FUNCTION(8); break;
+			case KEY_F9: vk = (VTermKey)VTERM_KEY_FUNCTION(9); break;
+			case KEY_F10: vk = (VTermKey)VTERM_KEY_FUNCTION(10); break;
+			case KEY_F11: vk = (VTermKey)VTERM_KEY_FUNCTION(11); break;
+			case KEY_F12: vk = (VTermKey)VTERM_KEY_FUNCTION(12); break;
 			default:
 				return false;
 		}
+		vterm_keyboard_key(vt, vk, VTERM_MOD_NONE);
 		return true;
 	}
 
-	size_t getLinesCount() const { return lines.size(); }
-	const Line& getLine(size_t n) { if (unpackedY == n) packLine(); return lines[n]; }
-	int getCursorX() const { return cursorX; }
-	int getCursorY() const { return cursorY; }
+	// --- queries used by the renderer ---
+
+	int getCols() const { return cols; }
+	int getRows() const { return rows; }
+	size_t getLinesCount() const { return scrollback.size() + rows; }
+	int getCursorAbsRow() const { return (int)scrollback.size() + cursorRow; }
+	int getCursorCol() const { return cursorCol; }
+	bool isCursorVisible() const { return cursorVisible; }
 	int getUpdateCounter() const { return updateCounter; }
 
-	void setX(int x)
+	// Fill 'out' with the cells of the given absolute row (scrollback rows come
+	// first, then the live screen rows).
+	void getRow(size_t absRow, std::vector<RenderCell>& out)
 	{
-		x = min(width, max(x, 0));
-		cursorX = x;
-		linewrap = false;
-		++updateCounter;
+		out.clear();
+		if (absRow < scrollback.size()) {
+			const std::vector<VTermScreenCell>& line = scrollback[absRow];
+			out.resize(line.size());
+			for (size_t c = 0; c < line.size(); ++c)
+				fillRenderCell(line[c], out[c]);
+			return;
+		}
+		int r = (int)(absRow - scrollback.size());
+		if (r < 0 || r >= rows)
+			return;
+		out.resize(cols);
+		for (int c = 0; c < cols; ++c) {
+			VTermScreenCell cell;
+			VTermPos pos; pos.row = r; pos.col = c;
+			if (vterm_screen_get_cell(screen, pos, &cell))
+				fillRenderCell(cell, out[c]);
+		}
 	}
-
-	void setY(int y)
-	{
-		//y = min(height, max(y, 0));
-		y = max(y, 0);
-		cursorY = y;
-		linewrap = false;
-		while (lines.size() <= (size_t) y)
-			lines.push_back(Line());
-		++updateCounter;
-	}
-
-	void up(int n = 1) { setY(cursorY - n); }
-	void down(int n = 1) { setY(cursorY + n); }
-	void left(int n = 1) { setX(cursorX - n); }
-	void right(int n = 1) { setX(cursorX + n); }
 
 private:
-	void packLine()
+	void createVterm()
 	{
-		std::string& s = lines[unpackedY].text;
-		s.clear();
-		for (size_t i = 0; i < unpackedLine.cells.size(); ++i) {
-			Cell& c = unpackedLine.cells[i];
-			utf8add(s, c.cp);
-			// later: if attributes changed, add attributes
+		vt = vterm_new(rows, cols);
+		vterm_set_utf8(vt, 1);
+		screen = vterm_obtain_screen(vt);
+		vterm_screen_set_callbacks(screen, &kCallbacks, this);
+		vterm_screen_enable_altscreen(screen, 1);
+		vterm_screen_reset(screen, 1);
+		// libvterm emits replies (cursor reports, DA, etc.) through this callback;
+		// route them straight back to the shell's pty.
+		vterm_output_set_callback(vt, &outputCb, this);
+	}
+
+	void fillRenderCell(const VTermScreenCell& c, RenderCell& rc)
+	{
+		rc.text.clear();
+		if (c.chars[0] == 0xffffffff) {
+			// right half of a wide character: nothing to draw here
+			rc.width = 0;
+			return;
+		}
+		for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && c.chars[i]; ++i)
+			utf8add(rc.text, c.chars[i]);
+		rc.width = c.width ? c.width : 1;
+		rc.bold = c.attrs.bold;
+		rc.underline = c.attrs.underline != 0;
+		rc.reverse = c.attrs.reverse;
+
+		VTermColor fg = c.fg;
+		VTermColor bg = c.bg;
+		rc.fgDefault = VTERM_COLOR_IS_DEFAULT_FG(&fg);
+		rc.bgDefault = VTERM_COLOR_IS_DEFAULT_BG(&bg);
+		if (!rc.fgDefault) {
+			vterm_screen_convert_color_to_rgb(screen, &fg);
+			rc.fr = fg.rgb.red; rc.fg = fg.rgb.green; rc.fb = fg.rgb.blue;
+		}
+		if (!rc.bgDefault) {
+			vterm_screen_convert_color_to_rgb(screen, &bg);
+			rc.br = bg.rgb.red; rc.bg = bg.rgb.green; rc.bb = bg.rgb.blue;
 		}
 	}
 
-	void unpackLine(size_t y)
+	// --- libvterm callbacks ---
+
+	void pushScrollback(int ncols, const VTermScreenCell* cells)
 	{
-		uint32_t u8state = 0, u8cp = 0;
-		std::string& s = lines[y].text;
-		unpackedLine.cells.clear();
-		for (size_t i = 0; i < s.size(); ++i) {
-			uint32_t rc = utf8decode(&u8state, &u8cp, (unsigned char)s[i]);
-			if (rc == UTF8_ACCEPT)
-				unpackedLine.cells.push_back(Cell(u8cp));
-		}
-		if (unpackedLine.cells.size() < (size_t)width)
-			unpackedLine.cells.resize(width);
-		unpackedY = y;
+		std::vector<VTermScreenCell> line(cells, cells + ncols);
+		scrollback.push_back(line);
+		while (scrollback.size() > kMaxScrollback)
+			scrollback.pop_front();
+		++updateCounter;
 	}
 
-	void ensureUnpacked(size_t y)
+	int popScrollback(int ncols, VTermScreenCell* cells)
 	{
-		if (unpackedY != y)
-		{
-			packLine();
-			unpackLine(y);
+		if (scrollback.empty())
+			return 0;
+		const std::vector<VTermScreenCell>& line = scrollback.back();
+		int n = std::min((int)line.size(), ncols);
+		for (int i = 0; i < n; ++i)
+			cells[i] = line[i];
+		// pad the remainder with blank cells
+		for (int i = n; i < ncols; ++i) {
+			VTermScreenCell blank;
+			memset(&blank, 0, sizeof(blank));
+			blank.width = 1;
+			cells[i] = blank;
 		}
+		scrollback.pop_back();
+		++updateCounter;
+		return 1;
 	}
 
-	void processC0(char ch)
+	static int damageCb(VTermRect, void* user)
 	{
-		switch (ch)
-		{
-			case 7: // BEL
-
+		((TerminalEngine*)user)->updateCounter++;
+		return 1;
+	}
+	static int moverectCb(VTermRect, VTermRect, void* user)
+	{
+		((TerminalEngine*)user)->updateCounter++;
+		return 1;
+	}
+	static int movecursorCb(VTermPos pos, VTermPos, int visible, void* user)
+	{
+		TerminalEngine* e = (TerminalEngine*)user;
+		e->cursorRow = pos.row;
+		e->cursorCol = pos.col;
+		e->cursorVisible = visible != 0;
+		e->updateCounter++;
+		return 1;
+	}
+	static int settermpropCb(VTermProp prop, VTermValue* val, void* user)
+	{
+		TerminalEngine* e = (TerminalEngine*)user;
+		if (prop == VTERM_PROP_CURSORVISIBLE)
+			e->cursorVisible = val->boolean != 0;
+		e->updateCounter++;
+		return 1;
+	}
+	static int bellCb(void* /*user*/)
+	{
 #ifndef TW_NO_HAPTICS
-				DataManager::Vibrate("tw_button_vibrate");
+		DataManager::Vibrate("tw_button_vibrate");
 #endif
-
-				break;
-			case 8: // BS
-				left();
-				break;
-			case 9: // HT
-				// TODO: this might be totally wrong
-				right();
-				while (cursorX % 8 != 0 && cursorX < width)
-					right();
-				break;
-			case 10: // LF
-			case 11: // VT
-			case 12: // FF
-				down();
-				break;
-			case 13: // CR
-				setX(0);
-				break;
-			case 24: // CAN
-			case 26: // SUB
-				state = kStateGround;
-				ctlseq.clear();
-				break;
-			case 27: // ESC
-				state = kStateEsc;
-				ctlseq.clear();
-				break;
-		}
+		return 1;
 	}
-
-	void processCodePoint(CodePoint cp)
+	static int sbPushlineCb(int ncols, const VTermScreenCell* cells, void* user)
 	{
-		++updateCounter;
-		debug_printf("codepoint: %u\n", cp);
-		if (cp == 0x9b) // CSI
-		{
-			state = kStateCsi;
-			ctlseq.clear();
-			return;
-		}
-		switch (state)
-		{
-			case kStateGround:
-				processChar(cp);
-				break;
-			case kStateEsc:
-				processEsc(cp);
-				break;
-			case kStateCsi:
-				processControlSequence(cp);
-				break;
-		}
+		((TerminalEngine*)user)->pushScrollback(ncols, cells);
+		return 1;
 	}
-
-	void processChar(CodePoint cp)
+	static int sbPoplineCb(int ncols, VTermScreenCell* cells, void* user)
 	{
-		if (linewrap) {
-			down();
-			setX(0);
-		}
-		ensureUnpacked(cursorY);
-		// extend unpackedLine if needed, write ch into cell
-		if (unpackedLine.cells.size() <= (size_t)cursorX)
-			unpackedLine.cells.resize(cursorX+1);
-		unpackedLine.cells[cursorX].cp = cp;
-
-		right(); // also bumps updateCounter
-
-		if (cursorX >= width)
-			linewrap = true;
+		return ((TerminalEngine*)user)->popScrollback(ncols, cells);
 	}
-
-	void processEsc(CodePoint cp)
+	static int sbClearCb(void* user)
 	{
-		switch (cp) {
-			case 'c': // TODO: Reset
-				break;
-			case 'D': // Line feed
-				down();
-				break;
-			case 'E': // Newline
-				setX(0);
-				down();
-				break;
-			case '[': // CSI
-				state = kStateCsi;
-				ctlseq.clear();
-				break;
-			case ']': // TODO: OSC state
-			default:
-				state = kStateGround;
-		}
+		TerminalEngine* e = (TerminalEngine*)user;
+		e->scrollback.clear();
+		e->updateCounter++;
+		return 1;
 	}
-
-	void processControlSequence(CodePoint cp)
+	static void outputCb(const char* s, size_t len, void* user)
 	{
-		if (cp >= 0x40 && cp <= 0x7e) {
-			ctlseq += cp;
-			execControlSequence(ctlseq);
-			ctlseq.clear();
-			state = kStateGround;
-			return;
-		}
-		if (isdigit(cp) || cp == ';' /* || (ch >= 0x3c && ch <= 0x3f) */) {
-			ctlseq += cp;
-			// state = kStateCsiParam;
-			return;
-		}
+		((TerminalEngine*)user)->pty.write(s, len);
 	}
 
-	static int parseArg(std::string& s, int defaultvalue)
-	{
-		if (s.empty() || !isdigit(s[0]))
-			return defaultvalue;
-		int value = atoi(s.c_str());
-		size_t pos = s.find(';');
-		s.erase(0, pos != std::string::npos ? pos+1 : std::string::npos);
-		return value;
-	}
+	static const VTermScreenCallbacks kCallbacks;
 
-	void execControlSequence(std::string ctlseq)
-	{
-		// assert(!ctlseq.empty());
-		if (ctlseq == "6n") {
-			// CPR - cursor position report
-			char answer[20];
-			sprintf(answer, "\e[%d;%dR", cursorY, cursorX);
-			pty.write(answer, strlen(answer));
-			return;
-		}
-		char f = *ctlseq.rbegin();
-		// if (f == '?') ... private mode
-		switch (f)
-		{
-			// case '@': // ICH - insert character
-			case 'A': // CUU - cursor up
-				up(parseArg(ctlseq, 1));
-				break;
-			case 'B': // CUD - cursor down
-			case 'e': // VPR - line position forward
-				down(parseArg(ctlseq, 1));
-				break;
-			case 'C': // CUF - cursor right
-			case 'a': // HPR - character position forward
-				right(parseArg(ctlseq, 1));
-				break;
-			case 'D': // CUB - cursor left
-				left(parseArg(ctlseq, 1));
-				break;
-			case 'E': // CNL - cursor next line
-				down(parseArg(ctlseq, 1));
-				setX(0);
-				break;
-			case 'F': // CPL - cursor preceding line
-				up(parseArg(ctlseq, 1));
-				setX(0);
-				break;
-			case 'G': // CHA - cursor character absolute
-				setX(parseArg(ctlseq, 1)-1);
-				break;
-			case 'H': // CUP - cursor position
-				// TODO: consider scrollback area
-				setY(parseArg(ctlseq, 1)-1);
-				setX(parseArg(ctlseq, 1)-1);
-				break;
-			case 'J': // ED - erase in page
-				{
-					int param = parseArg(ctlseq, 0);
-					ensureUnpacked(cursorY);
-					switch (param) {
-						default:
-						case 0:
-							unpackedLine.eraseFrom(cursorX);
-							if (lines.size() > (size_t)cursorY+1)
-								lines.erase(lines.begin() + cursorY+1, lines.end());
-							break;
-						case 1:
-							unpackedLine.eraseTo(cursorX);
-							if (cursorY > 0) {
-								lines.erase(lines.begin(), lines.begin() + cursorY-1);
-								cursorY = 0;
-							}
-							break;
-						case 2: // clear
-						case 3:	// clear incl scrollback
-							clear();
-							break;
-					}
-				}
-				break;
-			case 'K': // EL - erase in line
-				{
-					int param = parseArg(ctlseq, 0);
-					ensureUnpacked(cursorY);
-					switch (param) {
-						default:
-						case 0:
-							unpackedLine.eraseFrom(cursorX);
-							break;
-						case 1:
-							unpackedLine.eraseTo(cursorX);
-							break;
-						case 2:
-							unpackedLine.cells.clear();
-							break;
-					}
-				}
-				break;
-			// case 'L': // IL - insert line
-
-			default:
-				debug_printf("unknown ctlseq: '%s'\n", ctlseq.c_str());
-				break;
-		}
-	}
-
-private:
-	int cursorX, cursorY; // 0-based, char based. TODO: decide how to handle scrollback
-	bool linewrap; // true to put next character into next line
-	int width, height; // window size in chars
-	std::vector<Line> lines; // the text buffer
-	UnpackedLine unpackedLine; // current line for editing
-	size_t unpackedY; // number of current line
-	int updateCounter; // changes whenever terminal could require redraw
-
+	VTerm* vt;
+	VTermScreen* screen;
 	Pseudoterminal pty;
-	enum { kStateGround, kStateEsc, kStateCsi } state;
 
-	// for accumulating a full UTF-8 character from individual bytes
-	uint32_t utf8state;
-	uint32_t utf8codepoint;
+	std::deque<std::vector<VTermScreenCell> > scrollback;
 
-	// for accumulating a control sequence after receiving CSI
-	std::string ctlseq;
+	int rows, cols;
+	int cursorRow, cursorCol; // 0-based, relative to the live screen
+	bool cursorVisible;
+	int updateCounter; // changes whenever the terminal could require a redraw
+};
+
+const VTermScreenCallbacks TerminalEngine::kCallbacks = {
+	&TerminalEngine::damageCb,
+	&TerminalEngine::moverectCb,
+	&TerminalEngine::movecursorCb,
+	&TerminalEngine::settermpropCb,
+	&TerminalEngine::bellCb,
+	NULL, // resize: we drive sizing ourselves
+	&TerminalEngine::sbPushlineCb,
+	&TerminalEngine::sbPoplineCb,
+	&TerminalEngine::sbClearCb,
+	NULL, // sb_pushline4
 };
 
 // The one and only terminal engine for now
 TerminalEngine gEngine;
+
+namespace recovery_ui2 {
+
+void RecoveryTerminalStart(int columns, int rows, int pixel_width,
+		int pixel_height)
+{
+	gEngine.setSize(columns, rows, pixel_width, pixel_height);
+	gEngine.initPty();
+}
+
+bool RecoveryTerminalPoll()
+{
+	return gEngine.pollPty();
+}
+
+int RecoveryTerminalUpdateCounter()
+{
+	return gEngine.getUpdateCounter();
+}
+
+std::vector<std::string> RecoveryTerminalLines(size_t maximum_lines)
+{
+	std::vector<std::string> result;
+	const size_t total = gEngine.getLinesCount();
+	const size_t first = total > maximum_lines ? total - maximum_lines : 0;
+	result.reserve(total - first);
+	for (size_t row_index = first; row_index < total; ++row_index) {
+		std::vector<RenderCell> row;
+		gEngine.getRow(row_index, row);
+		std::string line;
+		for (const RenderCell& cell : row) {
+			if (cell.width == 0)
+				continue;
+			line += cell.text.empty() ? " " : cell.text;
+		}
+		while (!line.empty() && line.back() == ' ')
+			line.pop_back();
+		result.push_back(line);
+	}
+	return result;
+}
+
+void RecoveryTerminalWrite(const std::string& text)
+{
+	for (unsigned char character : text)
+		gEngine.inputChar(character);
+}
+
+void RecoveryTerminalSendKey(TerminalKey key)
+{
+	switch (key) {
+		case TerminalKey::kUp: gEngine.inputKey(KEY_UP); break;
+		case TerminalKey::kDown: gEngine.inputKey(KEY_DOWN); break;
+		case TerminalKey::kLeft: gEngine.inputKey(KEY_LEFT); break;
+		case TerminalKey::kRight: gEngine.inputKey(KEY_RIGHT); break;
+		case TerminalKey::kTab: gEngine.inputKey(KEY_TAB); break;
+		case TerminalKey::kEscape: gEngine.inputKey(KEY_ESC); break;
+		case TerminalKey::kInterrupt: gEngine.inputChar(3); break;
+	}
+}
+
+void RecoveryTerminalClear()
+{
+	gEngine.clear();
+}
+
+bool RecoveryTerminalRunning()
+{
+	return gEngine.status();
+}
+
+} // namespace recovery_ui2
 
 void terminal_pty_read()
 {
@@ -824,8 +737,9 @@ int GUITerminal::Update(void)
 
 	if (updateCounter != engine->getUpdateCounter()) {
 		// try to keep the cursor in view
-		SetVisibleListLocation(engine->getCursorY());
+		SetVisibleListLocation(engine->getCursorAbsRow());
 		updateCounter = engine->getUpdateCounter();
+		mUpdate = 1;
 	}
 
 	GUIScrollList::Update();
@@ -872,8 +786,6 @@ int GUITerminal::NotifyTouch(TOUCH_STATE state, int x, int y)
 	debug_printf("Terminal: SetInputFocus\n");
 	return GUIScrollList::NotifyTouch(state, x, y);
 	// TODO later: allow cursor positioning by touch (simulate mouse click?)
-	// http://stackoverflow.com/questions/5966903/how-to-get-mousemove-and-mouseclick-in-bash
-	// will likely not work with Busybox anyway
 }
 
 int GUITerminal::NotifyKey(int key, bool down)
@@ -901,30 +813,53 @@ size_t GUITerminal::GetItemCount() const
 
 void GUITerminal::RenderItem(size_t itemindex, int yPos, bool selected __unused)
 {
-	const TerminalEngine::Line& line = engine->getLine(itemindex);
-	
 	if (!mFont || !mFont->GetResource())
 		return;
+	void* font = mFont->GetResource();
 
-	gr_color(mFontColor.red, mFontColor.green, mFontColor.blue, mFontColor.alpha);
-	// later: handle attributes here
+	int charWidth = twrpTruetype::gr_ttf_measureEx("N", font);
+	if (charWidth <= 0)
+		charWidth = 1;
 
-	// render text
-	const char* text = line.text.c_str();
-	gr_textEx_scaleW(mRenderX, yPos, text, mFont->GetResource(), mRenderW, TOP_LEFT, 0);
+	std::vector<RenderCell> row;
+	engine->getRow(itemindex, row);
 
-	if (itemindex == (size_t) engine->getCursorY()) {
-		// render cursor
-		int cursorX = engine->getCursorX();
-		std::string leftOfCursor = line.substr(0, cursorX);
-		int x = twrpTruetype::gr_ttf_measureEx(leftOfCursor.c_str(), mFont->GetResource());
-		// note that this single character can be a UTF-8 sequence
-		std::string atCursor = (size_t)cursorX < line.length() ? line.substr(cursorX, 1) : " ";
-		int w = twrpTruetype::gr_ttf_measureEx(atCursor.c_str(), mFont->GetResource());
-		gr_color(mFontColor.red, mFontColor.green, mFontColor.blue, mFontColor.alpha);
-		gr_fill(mRenderX + x, yPos, w, actualItemHeight);
-		gr_color(mBackgroundColor.red, mBackgroundColor.green, mBackgroundColor.blue, mBackgroundColor.alpha);
-		gr_textEx_scaleW(mRenderX + x, yPos, atCursor.c_str(), mFont->GetResource(), mRenderW, TOP_LEFT, 0);
+	int cursorCol = -1;
+	if ((int)itemindex == engine->getCursorAbsRow() && engine->isCursorVisible())
+		cursorCol = engine->getCursorCol();
+
+	for (size_t col = 0; col < row.size(); ++col) {
+		RenderCell& c = row[col];
+		if (c.width == 0)
+			continue; // right half of a wide cell, already drawn
+
+		bool reverse = c.reverse;
+		if ((int)col == cursorCol)
+			reverse = !reverse; // draw the cursor as an inverted cell
+
+		// resolve effective colours, substituting theme defaults
+		COLOR fg = c.fgDefault ? mFontColor : COLOR(c.fr, c.fg, c.fb, 255);
+		COLOR bg = c.bgDefault ? mBackgroundColor : COLOR(c.br, c.bg, c.bb, 255);
+		bool bgIsDefault = c.bgDefault;
+		if (reverse) {
+			std::swap(fg, bg);
+			bgIsDefault = false; // an inverted cell always needs its background painted
+		}
+
+		int cw = charWidth * (c.width ? c.width : 1);
+		int x = mRenderX + (int)col * charWidth;
+
+		// paint background unless it is just the page background showing through
+		if (!bgIsDefault) {
+			gr_color(bg.red, bg.green, bg.blue, bg.alpha);
+			gr_fill(x, yPos, cw, actualItemHeight);
+		}
+
+		// paint glyph
+		if (!c.text.empty() && c.text != " ") {
+			gr_color(fg.red, fg.green, fg.blue, fg.alpha);
+			gr_textEx_scaleW(x, yPos, c.text.c_str(), font, mRenderW, TOP_LEFT, 0);
+		}
 	}
 }
 
@@ -951,6 +886,8 @@ void GUITerminal::InitAndResize()
 	// send window resize
 	if (mFont && mFont->GetResource()) {
 		int charWidth = twrpTruetype::gr_ttf_measureEx("N", mFont->GetResource());
+		if (charWidth <= 0)
+			charWidth = 1;
 		engine->setSize(mRenderW / charWidth, GetDisplayItemCount(), mRenderW, mRenderH);
 	}
 }
