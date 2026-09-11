@@ -1,5 +1,6 @@
 #include "wlan.hpp"
 
+#include <arpa/inet.h>
 #include <cctype>
 #include <cerrno>
 #include <cstdio>
@@ -14,15 +15,14 @@
 #include <regex>
 #include <cutils/properties.h>
 
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/sha.h>
-
 #include <iomanip>
 #include <map>
 
+#include <mutex>
+
 #include "data.hpp"
 #include "gui/gui.hpp"
+#include "gui/pages.hpp"
 #include "twcommon.h"
 #include "twrp-functions.hpp"
 
@@ -34,15 +34,19 @@
 #define LOGERR(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
+// Serializes whole high-level WLAN operations (Enable/Disable/Scan/Connect/
+// can never interleave their multi-step supplicant sequences — e.g. a background
+// scan rewriting "network 0" in the middle of a user-initiated connect. This is
+// deliberately coarser than g_supp_mutex (which only guards a single ctrl-socket
+// exchange). Recursive because Scan()/Connect()/ConnectSaved() call Enable().
+static std::recursive_mutex g_wlan_op_mutex;
+
 static const char* WLAN_TMP_DIR        = "/tmp/wlan";
 static const char* WLAN_LIST_DIR       = "/tmp/wlan/list";
 static const char* WLAN_LIST_FILE      = "/tmp/wlan/list.txt";
 static const char* WLAN_SAVED_FILE     = "/tmp/wlan/saved.txt";
 static const char* WLAN_CONNECTED_FILE = "/tmp/wlan/connected_name.txt";
 static const char* WLAN_INFO_FILE      = "/tmp/wlan/info.txt";
-
-static const char* WLAN_SAVED_SECURE_FILE = "/data/media/0/Fox/wlan/wlan_saved.enc";
-static const char* WLAN_SAVED_SECURE_DIR  = "/data/media/0/Fox/wlan";
 
 static const char* DEFAULT_WLAN_IFACE  = "wlan0";
 static const char* DEFAULT_CTRL_DIR    = "/tmp/recovery/sockets";
@@ -54,6 +58,22 @@ static const char* BIN_DHCPTOOL        = "/system/bin/dhcptool";
 
 static const char* WLAN_SUPP_SERVICE   = "wpa_supplicant";
 static const char* WLAN_SUPP_SVC_PROP  = "init.svc.wpa_supplicant";
+/* Set to "1" to fire the `on property:sys.fox.wlan.up=1` block in
+ * init.recovery.wifi.rc, which brings up the QCA6490 driver on demand and then
+ * `start`s the wpa_supplicant service. The bring-up used to live in a shell
+ * wrapper (mondrian_wlan_up.sh); it is now native init builtins. */
+static const char* WLAN_SUPP_PREP_PROP = "sys.fox.wlan.up";
+
+#ifdef OF_WLAN_AP
+static const char* WLAN_AP_DIR         = "/tmp/wlan/ap";
+static const char* WLAN_AP_LEASES      = "/tmp/wlan/ap/dnsmasq.leases";
+static const char* WLAN_AP_PIDFILE     = "/tmp/wlan/ap/dnsmasq.pid";
+static const char* DEFAULT_AP_SSID     = "OrangeFox";
+static const char* AP_IP_ADDR          = "192.168.43.1";
+static const char* AP_NETMASK          = "255.255.255.0";
+static const char* AP_DHCP_START       = "192.168.43.10";
+static const char* AP_DHCP_END         = "192.168.43.100";
+#endif
 
 static void SetWlanTestResult(const std::string& title,
                               const std::string& line1,
@@ -72,453 +92,20 @@ static void SetWlanTestResult(const std::string& title,
 }
 
 
-static std::string OF_HexEncode(const unsigned char* data, size_t len)
-{
-    static const char* hex = "0123456789abcdef";
-    std::string out;
-    out.reserve(len * 2);
-
-    for (size_t i = 0; i < len; ++i) {
-        unsigned char c = data[i];
-        out.push_back(hex[(c >> 4) & 0x0F]);
-        out.push_back(hex[c & 0x0F]);
-    }
-
-    return out;
-}
-
-static std::string OF_HexEncodeString(const std::string& in)
-{
-    return OF_HexEncode(reinterpret_cast<const unsigned char*>(in.data()), in.size());
-}
-
-static bool OF_HexDecode(const std::string& hex, std::vector<unsigned char>& out)
-{
-    if (hex.size() % 2 != 0)
-        return false;
-
-    out.clear();
-    out.reserve(hex.size() / 2);
-
-    for (size_t i = 0; i < hex.size(); i += 2) {
-        char h = hex[i];
-        char l = hex[i + 1];
-
-        int hi = -1;
-        int lo = -1;
-
-        if (h >= '0' && h <= '9') hi = h - '0';
-        else if (h >= 'a' && h <= 'f') hi = h - 'a' + 10;
-        else if (h >= 'A' && h <= 'F') hi = h - 'A' + 10;
-
-        if (l >= '0' && l <= '9') lo = l - '0';
-        else if (l >= 'a' && l <= 'f') lo = l - 'a' + 10;
-        else if (l >= 'A' && l <= 'F') lo = l - 'A' + 10;
-
-        if (hi < 0 || lo < 0)
-            return false;
-
-        out.push_back(static_cast<unsigned char>((hi << 4) | lo));
-    }
-
-    return true;
-}
-
-static bool OF_HexDecodeString(const std::string& hex, std::string& out)
-{
-    std::vector<unsigned char> decoded;
-
-    if (!OF_HexDecode(hex, decoded))
-        return false;
-
-    out.assign(reinterpret_cast<const char*>(decoded.data()), decoded.size());
-    return true;
-}
-
-static bool OF_GetWlanCryptoKey(unsigned char key[32])
-{
-    /*
-     * Practical recovery-side encryption key.
-     *
-     * This protects against casual viewing of wlan_saved.enc.
-     * It is not hardware-backed security, because recovery can still contain
-     * the derivation logic.
-     */
-    char serial[PROPERTY_VALUE_MAX] = {0};
-    char device[PROPERTY_VALUE_MAX] = {0};
-    char product[PROPERTY_VALUE_MAX] = {0};
-
-    property_get("ro.serialno", serial, "");
-    property_get("ro.product.device", device, "");
-    property_get("ro.product.name", product, "");
-
-    std::string material;
-    material += "OrangeFox-WLAN-Saved-v1|";
-    material += serial;
-    material += "|";
-    material += device;
-    material += "|";
-    material += product;
-    material += "|INFINITI-WLAN";
-
-    SHA256(reinterpret_cast<const unsigned char*>(material.data()), material.size(), key);
-    return true;
-}
-
-static bool OF_EncryptPassword(const std::string& plain, std::string& iv_hex, std::string& cipher_hex, std::string& tag_hex)
-{
-    unsigned char key[32];
-    OF_GetWlanCryptoKey(key);
-
-    unsigned char iv[12];
-    if (RAND_bytes(iv, sizeof(iv)) != 1)
-        return false;
-
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
-        return false;
-
-    bool ok = false;
-    std::vector<unsigned char> cipher;
-    cipher.resize(plain.size() + 16);
-
-    int len = 0;
-    int cipher_len = 0;
-    unsigned char tag[16];
-
-    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) != 1)
-        goto done;
-
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, sizeof(iv), NULL) != 1)
-        goto done;
-
-    if (EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv) != 1)
-        goto done;
-
-    if (!plain.empty()) {
-        if (EVP_EncryptUpdate(
-                ctx,
-                cipher.data(),
-                &len,
-                reinterpret_cast<const unsigned char*>(plain.data()),
-                plain.size()) != 1) {
-            goto done;
-        }
-
-        cipher_len = len;
-    }
-
-    if (EVP_EncryptFinal_ex(ctx, cipher.data() + cipher_len, &len) != 1)
-        goto done;
-
-    cipher_len += len;
-
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag) != 1)
-        goto done;
-
-    cipher.resize(cipher_len);
-
-    iv_hex = OF_HexEncode(iv, sizeof(iv));
-    cipher_hex = OF_HexEncode(cipher.data(), cipher.size());
-    tag_hex = OF_HexEncode(tag, sizeof(tag));
-
-    ok = true;
-
-done:
-    EVP_CIPHER_CTX_free(ctx);
-    return ok;
-}
-
-static bool OF_DecryptPassword(const std::string& iv_hex, const std::string& cipher_hex, const std::string& tag_hex, std::string& plain)
-{
-    unsigned char key[32];
-    OF_GetWlanCryptoKey(key);
-
-    std::vector<unsigned char> iv;
-    std::vector<unsigned char> cipher;
-    std::vector<unsigned char> tag;
-
-    if (!OF_HexDecode(iv_hex, iv))
-        return false;
-
-    if (!OF_HexDecode(cipher_hex, cipher))
-        return false;
-
-    if (!OF_HexDecode(tag_hex, tag))
-        return false;
-
-    if (iv.size() != 12 || tag.size() != 16)
-        return false;
-
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
-        return false;
-
-    bool ok = false;
-    std::vector<unsigned char> out;
-    out.resize(cipher.size() + 16);
-
-    int len = 0;
-    int plain_len = 0;
-
-    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) != 1)
-        goto done;
-
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, iv.size(), NULL) != 1)
-        goto done;
-
-    if (EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv.data()) != 1)
-        goto done;
-
-    if (!cipher.empty()) {
-        if (EVP_DecryptUpdate(ctx, out.data(), &len, cipher.data(), cipher.size()) != 1)
-            goto done;
-
-        plain_len = len;
-    }
-
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, tag.size(), tag.data()) != 1)
-        goto done;
-
-    if (EVP_DecryptFinal_ex(ctx, out.data() + plain_len, &len) != 1)
-        goto done;
-
-    plain_len += len;
-    out.resize(plain_len);
-
-    plain.assign(reinterpret_cast<const char*>(out.data()), out.size());
-    ok = true;
-
-done:
-    EVP_CIPHER_CTX_free(ctx);
-    return ok;
-}
-
-static std::vector<std::string> OF_SplitString(const std::string& line, char delim)
-{
-    std::vector<std::string> out;
-    std::stringstream ss(line);
-    std::string part;
-
-    while (std::getline(ss, part, delim))
-        out.push_back(part);
-
-    return out;
-}
-
-static std::string OF_TrimSavedString(const std::string& s)
-{
-    size_t start = 0;
-    while (start < s.size() &&
-           (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r')) {
-        start++;
-    }
-
-    size_t end = s.size();
-    while (end > start &&
-           (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\n' || s[end - 1] == '\r')) {
-        end--;
-    }
-
-    return s.substr(start, end - start);
-}
-
-static bool OF_ReadSecureSavedLines(std::vector<std::string>& lines)
-{
-    lines.clear();
-
-    std::ifstream ifs(WLAN_SAVED_SECURE_FILE);
-    if (!ifs.is_open())
-        return false;
-
-    std::string line;
-    while (std::getline(ifs, line)) {
-        line = OF_TrimSavedString(line);
-
-        if (!line.empty())
-            lines.push_back(line);
-    }
-
-    return true;
-}
-
-static bool OF_WriteSecureSavedLines(const std::vector<std::string>& lines)
-{
-    TWFunc::Exec_Cmd(std::string("mkdir -p ") + WLAN_SAVED_SECURE_DIR);
-
-    std::string tmp = std::string(WLAN_SAVED_SECURE_FILE) + ".tmp";
-
-    std::ofstream ofs(tmp.c_str(), std::ios::out | std::ios::trunc);
-    if (!ofs.is_open())
-        return false;
-
-    for (size_t i = 0; i < lines.size(); ++i)
-        ofs << lines[i] << "\n";
-
-    ofs.close();
-
-    chmod(tmp.c_str(), 0600);
-
-    if (rename(tmp.c_str(), WLAN_SAVED_SECURE_FILE) != 0) {
-        unlink(tmp.c_str());
-        return false;
-    }
-
-    chmod(WLAN_SAVED_SECURE_FILE, 0600);
-    return true;
-}
-
 static bool OF_SaveEncryptedNetwork(const std::string& ssid, const std::string& password, const std::string& encryption)
 {
-    if (ssid.empty())
-        return false;
-
-    std::string iv_hex;
-    std::string cipher_hex;
-    std::string tag_hex;
-
-    if (!OF_EncryptPassword(password, iv_hex, cipher_hex, tag_hex))
-        return false;
-
-    std::string ssid_hex = OF_HexEncodeString(ssid);
-    std::string enc_hex = OF_HexEncodeString(encryption);
-
-    /*
-     * Format:
-     * ssid_hex|encryption_hex|iv_hex|cipher_hex|tag_hex
-     */
-    std::string new_line = ssid_hex + "|" + enc_hex + "|" + iv_hex + "|" + cipher_hex + "|" + tag_hex;
-
-    std::vector<std::string> lines;
-    OF_ReadSecureSavedLines(lines);
-
-    std::vector<std::string> out;
-    bool replaced = false;
-
-    for (size_t i = 0; i < lines.size(); ++i) {
-        std::vector<std::string> parts = OF_SplitString(lines[i], '|');
-
-        if (parts.size() >= 5 && parts[0] == ssid_hex) {
-            if (!replaced) {
-                out.push_back(new_line);
-                replaced = true;
-            }
-        } else {
-            out.push_back(lines[i]);
-        }
-    }
-
-    if (!replaced)
-        out.push_back(new_line);
-
-    return OF_WriteSecureSavedLines(out);
 }
 
 static bool OF_LoadEncryptedNetwork(const std::string& ssid, std::string& password, std::string& encryption)
 {
-    password.clear();
-    encryption.clear();
-
-    if (ssid.empty())
-        return false;
-
-    std::string ssid_hex = OF_HexEncodeString(ssid);
-
-    std::vector<std::string> lines;
-    if (!OF_ReadSecureSavedLines(lines))
-        return false;
-
-    for (size_t i = 0; i < lines.size(); ++i) {
-        std::vector<std::string> parts = OF_SplitString(lines[i], '|');
-
-        if (parts.size() < 5)
-            continue;
-
-        if (parts[0] != ssid_hex)
-            continue;
-
-        if (!OF_HexDecodeString(parts[1], encryption))
-            encryption = "WPA2";
-
-        if (!OF_DecryptPassword(parts[2], parts[3], parts[4], password))
-            return false;
-
-        return true;
-    }
-
-    return false;
 }
 
 static bool OF_DeleteEncryptedNetwork(const std::string& ssid)
 {
-    if (ssid.empty())
-        return false;
-
-    std::string ssid_hex = OF_HexEncodeString(ssid);
-
-    std::vector<std::string> lines;
-    if (!OF_ReadSecureSavedLines(lines))
-        return true;
-
-    std::vector<std::string> out;
-    bool removed = false;
-
-    for (size_t i = 0; i < lines.size(); ++i) {
-        std::vector<std::string> parts = OF_SplitString(lines[i], '|');
-
-        if (parts.size() >= 1 && parts[0] == ssid_hex) {
-            removed = true;
-            continue;
-        }
-
-        out.push_back(lines[i]);
-    }
-
-    if (!removed)
-        return true;
-
-    if (out.empty()) {
-        unlink(WLAN_SAVED_SECURE_FILE);
-        return true;
-    }
-
-    return OF_WriteSecureSavedLines(out);
 }
 
 static bool OF_GetEncryptedSavedSsids(std::vector<std::string>& ssids)
 {
-    ssids.clear();
-
-    std::vector<std::string> lines;
-    if (!OF_ReadSecureSavedLines(lines))
-        return false;
-
-    for (size_t i = 0; i < lines.size(); ++i) {
-        std::vector<std::string> parts = OF_SplitString(lines[i], '|');
-
-        if (parts.size() < 5)
-            continue;
-
-        std::string ssid;
-        if (!OF_HexDecodeString(parts[0], ssid))
-            continue;
-
-        if (ssid.empty())
-            continue;
-
-        bool duplicate = false;
-        for (size_t j = 0; j < ssids.size(); ++j) {
-            if (ssids[j] == ssid) {
-                duplicate = true;
-                break;
-            }
-        }
-
-        if (!duplicate)
-            ssids.push_back(ssid);
-    }
-
-    return !ssids.empty();
 }
 
 bool Wlan::Init() {
@@ -532,10 +119,19 @@ bool Wlan::Init() {
     DataManager::SetValue("wlan_test_line4", "");
     DataManager::SetValue("wlan_test_line5", "");
     DataManager::SetValue("wlan_test_done", 0);
+#ifdef OF_WLAN_AP
+    DataManager::SetValue("tw_wlan_ap_enabled", 0);
+    DataManager::SetValue("tw_wlan_ap_ip", "");
+    {
+        std::string ap_ssid, ap_pass;
+        DataManager::SetValue("tw_wlan_ap_ssid", ap_ssid.empty() ? DEFAULT_AP_SSID : ap_ssid);
+    }
+#endif
     return EnsureTmpLayout();
 }
 
 bool Wlan::Enable() {
+    std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
     EnsureTmpLayout();
 
     if (!StartSupplicant()) {
@@ -552,10 +148,20 @@ bool Wlan::Enable() {
 }
 
 bool Wlan::StopSupplicant() {
+    // Drop the persistent ctrl/monitor sockets: the supplicant (and its socket)
+    // goes away here, so the next Enable must reopen fresh connections.
+    CloseSuppChannel();
     return StopInitSupplicantService();
 }
 
 bool Wlan::Disable() {
+	std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
+	Fox_Adbd::StopAll();
+#ifdef OF_WLAN_AP
+	/* Tear the hotspot down too so dnsmasq does not linger after the radio. */
+	if (ApIsEnabled())
+		ApDisable();
+#endif
 	StopDhcp();
 	StopSupplicant();
 
@@ -578,24 +184,48 @@ bool Wlan::Disable() {
 	return true;
 }
 
+bool Wlan::Disconnect() {
+    std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
+    if (!IsEnabled())
+        return true;
+
+    // Keep supplicant, scan results, and saved credentials alive. Only drop
+    // the current association so the user can immediately choose another AP.
+    const bool result = SuppCmd("DISCONNECT");
+    unlink(WLAN_CONNECTED_FILE);
+    unlink("/tmp/wlan/info.txt");
+    DataManager::SetValue("tw_wlan_connected", 0);
+    DataManager::SetValue("wlan_connected_name", "");
+    DataManager::SetValue("wlan_info_connected", "0");
+    DataManager::SetValue("wlan_info_ssid", "");
+    DataManager::SetValue("wlan_info_ip", "");
+    DataManager::SetValue("wlan_info_text", "");
+    DataManager::SetValue("wlan_connect_text", "Disconnected");
+    DataManager::SetValue("wlan_connect_done", result ? 1 : 0);
+    return result;
+}
+
 bool Wlan::IsEnabled() {
     return DataManager::GetIntValue("tw_wlan_enabled") == 1;
 }
 
 bool Wlan::Scan() {
+    std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
     if (!IsEnabled() && !Enable())
         return false;
 
-    const std::string iface = GetIface();
-    const std::string ctrl = GetCtrlDir();
-    const std::string wpacli = GetWpaCliBinary();
+    SuppCmd("SCAN");
 
-    if (wpacli.empty()) {
-        gui_print("WLAN: wpa_cli binary not found\n");
-        return false;
+    // Wait for the supplicant to report results instead of polling on a fixed
+    // sleep. Falls back to a short poll if the monitor is unavailable.
+    std::string ev;
+    if (SuppWaitEvent({"CTRL-EVENT-SCAN-RESULTS"}, 8000, ev)) {
+        if (BuildScanList()) {
+            UpdateConnectedName();
+            RefreshSaved();
+            return true;
+        }
     }
-
-    RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " scan");
 
     for (int i = 0; i < 5; ++i) {
         usleep(1000 * 1000);
@@ -611,22 +241,11 @@ bool Wlan::Scan() {
 }
 
 bool Wlan::Connect() {
+    std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
     DataManager::SetValue("wlan_connect_text", "Connecting");
     DataManager::SetValue("wlan_connect_done", 0);
 
     if (!IsEnabled() && !Enable()) {
-        DataManager::SetValue("wlan_connect_text", "Failed");
-        DataManager::SetValue("wlan_connect_done", 0);
-        DataManager::SetValue("tw_wlan_connected", 0);
-        return false;
-    }
-
-    const std::string iface = GetIface();
-    const std::string ctrl = GetCtrlDir();
-    const std::string wpacli = GetWpaCliBinary();
-
-    if (wpacli.empty()) {
-        gui_print("WLAN: wpa_cli binary not found\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
         DataManager::SetValue("tw_wlan_connected", 0);
@@ -680,7 +299,7 @@ bool Wlan::Connect() {
 
     gui_print("Remove old network config...\n");
     std::string list_out;
-    if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " list_networks", list_out)) {
+    if (SuppCmd("LIST_NETWORKS", list_out)) {
         bool has_net0 = false;
         std::istringstream lss(list_out);
         std::string lline;
@@ -703,12 +322,12 @@ bool Wlan::Connect() {
         }
 
         if (has_net0) {
-            RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " remove_network 0");
+            SuppCmd("REMOVE_NETWORK 0");
         }
     }
 
     gui_print("Add new network config...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " add_network")) {
+    if (!SuppCmd("ADD_NETWORK")) {
         gui_print("WLAN: add_network failed\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -719,7 +338,7 @@ bool Wlan::Connect() {
     std::string esc_ssid = EscapeDoubleQuotes(ssid);
 
     gui_print("Add SSID to new config...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 ssid '\"" + esc_ssid + "\"'")) {
+    if (!SuppCmd("SET_NETWORK 0 ssid \"" + esc_ssid + "\"")) {
         gui_print("WLAN: failed setting SSID\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -728,7 +347,7 @@ bool Wlan::Connect() {
     }
 
     gui_print("Add encryption to new config...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 key_mgmt " + key_mgmt)) {
+    if (!SuppCmd("SET_NETWORK 0 key_mgmt " + key_mgmt)) {
         gui_print("WLAN: failed setting key_mgmt\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -742,9 +361,9 @@ bool Wlan::Connect() {
 
         bool pass_ok = false;
         if (key_mgmt == "SAE") {
-            pass_ok = RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 sae_password '\"" + esc_pass + "\"'");
+            pass_ok = SuppCmd("SET_NETWORK 0 sae_password \"" + esc_pass + "\"");
         } else {
-            pass_ok = RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 psk '\"" + esc_pass + "\"'");
+            pass_ok = SuppCmd("SET_NETWORK 0 psk \"" + esc_pass + "\"");
         }
 
         if (!pass_ok) {
@@ -757,7 +376,7 @@ bool Wlan::Connect() {
     }
 
     gui_print("Enable new config for network...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " enable_network 0")) {
+    if (!SuppCmd("ENABLE_NETWORK 0")) {
         gui_print("WLAN: enable_network failed\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -766,7 +385,7 @@ bool Wlan::Connect() {
     }
 
     gui_print("Select new config for network...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " select_network 0")) {
+    if (!SuppCmd("SELECT_NETWORK 0")) {
         gui_print("WLAN: select_network failed\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -775,7 +394,7 @@ bool Wlan::Connect() {
     }
 
     gui_print("Reconnect...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " reconnect")) {
+    if (!SuppCmd("RECONNECT")) {
         gui_print("WLAN: reconnect failed\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -787,15 +406,20 @@ bool Wlan::Connect() {
     gui_print("Connect to network with new config...\n");
     gui_print(" \n");
 
-    int tries = 0;
-    const int max_tries = 10;
+    // Wait for association via supplicant events instead of polling STATUS on a
+    // fixed 1s cadence: each iteration blocks up to 1.5s for a relevant event,
+    // then confirms the SSID via STATUS. Bounded to ~15s worst case but returns
+    // the instant CTRL-EVENT-CONNECTED lands.
     bool completed = false;
 
-    while (tries < max_tries) {
-        usleep(1000 * 1000);
+    for (int tries = 0; tries < 12 && !completed; ++tries) {
+        std::string ev;
+        bool got_event = SuppWaitEvent({"CTRL-EVENT-CONNECTED", "CTRL-EVENT-DISCONNECTED",
+                                        "CTRL-EVENT-ASSOC-REJECT", "CTRL-EVENT-AUTH-REJECT"},
+                                       1500, ev);
 
         std::string status;
-        if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+        if (SuppCmd("STATUS", status)) {
             std::istringstream iss(status);
             std::string line;
             std::string wpa_state;
@@ -808,7 +432,7 @@ bool Wlan::Connect() {
                     current_ssid = line.substr(5);
             }
 
-            gui_print("Connection state: %s (%d/%d)\n", wpa_state.c_str(), tries, max_tries);
+            gui_print("Connection state: %s (%d/12)\n", wpa_state.c_str(), tries);
 
             if (wpa_state == "COMPLETED" && current_ssid == ssid) {
                 completed = true;
@@ -816,7 +440,8 @@ bool Wlan::Connect() {
             }
         }
 
-        tries++;
+        if (!got_event)
+            usleep(500 * 1000);
     }
 
     if (!completed) {
@@ -856,7 +481,7 @@ bool Wlan::Connect() {
         usleep(1000 * 1000);
 
         std::string status;
-        if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+        if (SuppCmd("STATUS", status)) {
             std::string wpa_state;
             ParseSupplicantStatus(status, wpa_state, connected_ssid, ip_addr);
 
@@ -944,6 +569,9 @@ bool Wlan::Connect() {
 
     DataManager::SetValue("tw_wlan_connected", 1);
     DataManager::SetValue("wlan_connected_name", ssid);
+    // Remember the last network we connected to so "connect automatically" can
+    // re-join it on the next boot (persisted via the of_* variable).
+    DataManager::SetValue("of_wlan_last_ssid", ssid);
 
     /*
      * Show the check icon and "Connected" text in the overlay before it closes.
@@ -957,22 +585,11 @@ bool Wlan::Connect() {
 }
 
 bool Wlan::ConnectSaved() {
+    std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
     DataManager::SetValue("wlan_connect_text", "Connecting");
     DataManager::SetValue("wlan_connect_done", 0);
 
     if (!IsEnabled() && !Enable()) {
-        DataManager::SetValue("wlan_connect_text", "Failed");
-        DataManager::SetValue("wlan_connect_done", 0);
-        DataManager::SetValue("tw_wlan_connected", 0);
-        return false;
-    }
-
-    const std::string iface = GetIface();
-    const std::string ctrl = GetCtrlDir();
-    const std::string wpacli = GetWpaCliBinary();
-
-    if (wpacli.empty()) {
-        gui_print("WLAN: wpa_cli binary not found\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
         DataManager::SetValue("tw_wlan_connected", 0);
@@ -1018,13 +635,13 @@ bool Wlan::ConnectSaved() {
     }
 
     gui_print("Disconnect current WLAN state...\n");
-    RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " disconnect");
+    SuppCmd("DISCONNECT");
     usleep(500 * 1000);
 
     gui_print("Remove old network config...\n");
     std::string list_out;
 
-    if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " list_networks", list_out)) {
+    if (SuppCmd("LIST_NETWORKS", list_out)) {
         std::istringstream lss(list_out);
         std::string lline;
         bool first_line = true;
@@ -1050,14 +667,14 @@ bool Wlan::ConnectSaved() {
             if (cols.size() >= 1) {
                 std::string id = Trim(cols[0]);
                 if (!id.empty()) {
-                    RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " remove_network " + id);
+                    SuppCmd("REMOVE_NETWORK " + id);
                 }
             }
         }
     }
 
     gui_print("Add saved network config...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " add_network")) {
+    if (!SuppCmd("ADD_NETWORK")) {
         gui_print("WLAN: add_network failed\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -1068,7 +685,7 @@ bool Wlan::ConnectSaved() {
     std::string esc_ssid = EscapeDoubleQuotes(ssid);
 
     gui_print("Add saved SSID to config...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 ssid '\"" + esc_ssid + "\"'")) {
+    if (!SuppCmd("SET_NETWORK 0 ssid \"" + esc_ssid + "\"")) {
         gui_print("WLAN: failed setting saved SSID\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -1077,7 +694,7 @@ bool Wlan::ConnectSaved() {
     }
 
     gui_print("Add saved encryption to config...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 key_mgmt " + key_mgmt)) {
+    if (!SuppCmd("SET_NETWORK 0 key_mgmt " + key_mgmt)) {
         gui_print("WLAN: failed setting saved key_mgmt\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -1092,9 +709,9 @@ bool Wlan::ConnectSaved() {
 
         bool pass_ok = false;
         if (key_mgmt == "SAE") {
-            pass_ok = RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 sae_password '\"" + esc_pass + "\"'");
+            pass_ok = SuppCmd("SET_NETWORK 0 sae_password \"" + esc_pass + "\"");
         } else {
-            pass_ok = RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 psk '\"" + esc_pass + "\"'");
+            pass_ok = SuppCmd("SET_NETWORK 0 psk \"" + esc_pass + "\"");
         }
 
         if (!pass_ok) {
@@ -1107,7 +724,7 @@ bool Wlan::ConnectSaved() {
     }
 
     gui_print("Enable saved config...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " enable_network 0")) {
+    if (!SuppCmd("ENABLE_NETWORK 0")) {
         gui_print("WLAN: enable saved network failed\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -1116,7 +733,7 @@ bool Wlan::ConnectSaved() {
     }
 
     gui_print("Select saved config...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " select_network 0")) {
+    if (!SuppCmd("SELECT_NETWORK 0")) {
         gui_print("WLAN: select saved network failed\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -1125,7 +742,7 @@ bool Wlan::ConnectSaved() {
     }
 
     gui_print("Reconnect saved network...\n");
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " reconnect")) {
+    if (!SuppCmd("RECONNECT")) {
         gui_print("WLAN: saved reconnect failed\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -1139,10 +756,15 @@ bool Wlan::ConnectSaved() {
     bool saw_transition = false;
 
     while (tries < max_tries) {
-        usleep(1000 * 1000);
+        std::string ev;
+        bool got_event = SuppWaitEvent({"CTRL-EVENT-CONNECTED", "CTRL-EVENT-DISCONNECTED",
+                                        "CTRL-EVENT-ASSOC-REJECT", "CTRL-EVENT-AUTH-REJECT"},
+                                       2000, ev);
+        if (!got_event)
+            usleep(1000 * 1000);
 
         std::string status;
-        if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+        if (SuppCmd("STATUS", status)) {
             std::string wpa_state;
             std::string current_ssid;
             std::string ip_addr;
@@ -1173,7 +795,7 @@ bool Wlan::ConnectSaved() {
 
     if (!saw_transition) {
         gui_print("WLAN: saved association was already completed; forcing reassociation before DHCP\n");
-        RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " reassociate");
+        SuppCmd("REASSOCIATE");
 
         completed = false;
 
@@ -1181,7 +803,7 @@ bool Wlan::ConnectSaved() {
             usleep(1000 * 1000);
 
             std::string status;
-            if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+            if (SuppCmd("STATUS", status)) {
                 std::string wpa_state;
                 std::string current_ssid;
                 std::string ip_addr;
@@ -1227,7 +849,7 @@ bool Wlan::ConnectSaved() {
         usleep(1000 * 1000);
 
         std::string status;
-        if (RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+        if (SuppCmd("STATUS", status)) {
             std::string wpa_state;
             ParseSupplicantStatus(status, wpa_state, connected_ssid, ip_addr);
 
@@ -1249,6 +871,7 @@ bool Wlan::ConnectSaved() {
 
     DataManager::SetValue("tw_wlan_connected", 1);
     DataManager::SetValue("wlan_connected_name", ssid);
+    DataManager::SetValue("of_wlan_last_ssid", ssid);
 
     /*
      * Show the check icon and "Connected" text in the overlay before it closes.
@@ -1266,22 +889,29 @@ bool Wlan::ConnectSaved() {
 
 bool Wlan::Info()
 {
-    const std::string iface = GetIface();
-    const std::string ctrl = GetCtrlDir();
-    const std::string wpacli = GetWpaCliBinary();
+    std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
+    return InfoLocked();
+}
 
+bool Wlan::RefreshInfoIfIdle()
+{
+    // Background poll: never block a foreground scan/connect. If another op holds
+    // the operation lock, skip this refresh — the next idle tick will retry.
+    std::unique_lock<std::recursive_mutex> op(g_wlan_op_mutex, std::try_to_lock);
+    if (!op.owns_lock())
+        return false;
+    return InfoLocked();
+}
+
+bool Wlan::InfoLocked()
+{
     /*
      * Do not clear cached UI state before checking status.
-     * A temporary wpa_cli failure would otherwise remove the accent row
-     * and connected info even if WLAN is still connected.
+     * A temporary control-interface failure would otherwise remove the accent
+     * row and connected info even if WLAN is still connected.
      */
-    if (wpacli.empty()) {
-        gui_print("WLAN: wpa_cli binary not found for info, keeping cached WLAN info\n");
-        return true;
-    }
-
     std::string status;
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+    if (!SuppCmd("STATUS", status)) {
         gui_print("WLAN: failed to read status for info, keeping cached WLAN info\n");
         return true;
     }
@@ -1391,6 +1021,349 @@ bool Wlan::TestConnection()
     return true;
 }
 
+#ifdef OF_WLAN_AP
+
+void Wlan::ApRemoveAllNetworks(const std::string& wpacli, const std::string& iface, const std::string& ctrl) {
+    std::string list_out;
+    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " list_networks", list_out))
+        return;
+
+    std::istringstream lss(list_out);
+    std::string lline;
+    bool first_line = true;
+
+    while (std::getline(lss, lline)) {
+        if (first_line) {
+            first_line = false;  // skip the "network id / ssid / ..." header
+            continue;
+        }
+
+        lline = Trim(lline);
+        if (lline.empty())
+            continue;
+
+        std::string id = lline.substr(0, lline.find_first_of(" \t"));
+        id = Trim(id);
+        if (!id.empty())
+            RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " remove_network " + id);
+    }
+}
+
+bool Wlan::ApIsEnabled() {
+    return DataManager::GetIntValue("tw_wlan_ap_enabled") == 1;
+}
+
+bool Wlan::ApGetConfig(std::string& ssid, std::string& password) {
+    ssid.clear();
+    password.clear();
+    if (ssid.empty())
+        ssid = DEFAULT_AP_SSID;
+    return true;
+}
+
+bool Wlan::ApSetSsid(const std::string& ssid) {
+    std::string trimmed = Trim(ssid);
+
+    if (trimmed.empty()) {
+        gui_print("WLAN AP: SSID cannot be empty\n");
+        return false;
+    }
+    if (trimmed.size() > 32) {
+        gui_print("WLAN AP: SSID too long (max 32 characters)\n");
+        return false;
+    }
+
+    std::string cur_ssid, cur_pass;
+
+        gui_print("WLAN AP: failed to save SSID\n");
+        return false;
+    }
+
+    DataManager::SetValue("tw_wlan_ap_ssid", trimmed);
+    gui_print("WLAN AP: SSID set to %s\n", trimmed.c_str());
+
+    /* Apply immediately if the hotspot is already running. */
+    if (ApIsEnabled()) {
+        gui_print("WLAN AP: restarting hotspot to apply new SSID\n");
+        return ApEnable();
+    }
+    return true;
+}
+
+bool Wlan::ApSetPassword(const std::string& password) {
+    /* Empty password => open hotspot; otherwise WPA2 requires 8..63 chars. */
+    if (!password.empty() && (password.size() < 8 || password.size() > 63)) {
+        gui_print("WLAN AP: password must be 8-63 characters (or empty for an open hotspot)\n");
+        return false;
+    }
+
+    std::string cur_ssid, cur_pass;
+    if (cur_ssid.empty())
+        cur_ssid = DEFAULT_AP_SSID;
+
+        gui_print("WLAN AP: failed to save password\n");
+        return false;
+    }
+
+    gui_print("WLAN AP: password %s\n", password.empty() ? "cleared (open hotspot)" : "updated");
+
+    if (ApIsEnabled()) {
+        gui_print("WLAN AP: restarting hotspot to apply new password\n");
+        return ApEnable();
+    }
+    return true;
+}
+
+bool Wlan::ApEnable() {
+    EnsureTmpLayout();
+    MkdirRecursive(WLAN_AP_DIR);
+
+    if (!StartSupplicant()) {
+        gui_print("WLAN AP: failed to start supplicant service\n");
+        return false;
+    }
+
+    const std::string iface  = GetIface();
+    const std::string ctrl   = GetCtrlDir();
+    const std::string wpacli = GetWpaCliBinary();
+
+    if (wpacli.empty()) {
+        gui_print("WLAN AP: wpa_cli binary not found\n");
+        return false;
+    }
+
+    std::string ssid, pass;
+    ApGetConfig(ssid, pass);
+
+    const std::string key_mgmt = pass.empty() ? "NONE" : "WPA-PSK";
+
+    gui_print("Starting WLAN hotspot...\n");
+    gui_print("SSID: %s (%s)\n", ssid.c_str(), pass.empty() ? "open" : "WPA2-PSK");
+
+    /*
+     * STA and AP are mutually exclusive on a single radio: drop any client
+     * association/DHCP lease and clear every existing network block first.
+     */
+    StopDhcp();
+    RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " disconnect");
+    ApRemoveAllNetworks(wpacli, iface, ctrl);
+
+    DataManager::SetValue("tw_wlan_connected", 0);
+    DataManager::SetValue("wlan_connected_name", "");
+
+    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " add_network")) {
+        gui_print("WLAN AP: add_network failed\n");
+        return false;
+    }
+
+    const std::string esc_ssid = EscapeDoubleQuotes(ssid);
+    bool ok = true;
+    ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 ssid '\"" + esc_ssid + "\"'");
+    ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 mode 2");
+    ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 frequency 2412");
+    ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 key_mgmt " + key_mgmt);
+
+    if (ok && key_mgmt != "NONE") {
+        const std::string esc_pass = EscapeDoubleQuotes(pass);
+        ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 psk '\"" + esc_pass + "\"'");
+        ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 proto RSN");
+        ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 pairwise CCMP");
+        ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 group CCMP");
+    }
+
+    if (!ok) {
+        gui_print("WLAN AP: failed to configure hotspot network\n");
+        ApRemoveAllNetworks(wpacli, iface, ctrl);
+        return false;
+    }
+
+    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " enable_network 0") ||
+        !RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " select_network 0")) {
+        gui_print("WLAN AP: failed to bring up hotspot network\n");
+        ApRemoveAllNetworks(wpacli, iface, ctrl);
+        return false;
+    }
+
+    bool completed = false;
+    for (int tries = 0; tries < 10; ++tries) {
+        usleep(1000 * 1000);
+
+        std::string status;
+        if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status))
+            continue;
+
+        std::string wpa_state, mode;
+        std::istringstream iss(status);
+        std::string line;
+        while (std::getline(iss, line)) {
+            line = Trim(line);
+            if (line.rfind("wpa_state=", 0) == 0)
+                wpa_state = line.substr(10);
+            else if (line.rfind("mode=", 0) == 0)
+                mode = line.substr(5);
+        }
+
+        gui_print("Hotspot state: %s mode=%s (%d/10)\n", wpa_state.c_str(), mode.c_str(), tries);
+
+        if (wpa_state == "COMPLETED" && mode == "AP") {
+            completed = true;
+            break;
+        }
+    }
+
+    if (!completed) {
+        gui_print("WLAN AP: hotspot failed to start (driver may not support AP mode)\n");
+        ApRemoveAllNetworks(wpacli, iface, ctrl);
+        return false;
+    }
+
+    /* Assign the gateway address dnsmasq hands out as router/DNS. */
+    const std::string ifc = GetIfconfigBinary();
+    if (ifc.empty()) {
+        gui_print("WLAN AP: ifconfig binary not found\n");
+        ApRemoveAllNetworks(wpacli, iface, ctrl);
+        return false;
+    }
+    if (!RunCommand(ifc + " " + iface + " " + AP_IP_ADDR + " netmask " + AP_NETMASK + " up")) {
+        gui_print("WLAN AP: failed to assign hotspot IP\n");
+        ApRemoveAllNetworks(wpacli, iface, ctrl);
+        return false;
+    }
+
+    if (!StartApDhcpServer()) {
+        gui_print("WLAN AP: failed to start DHCP server (dnsmasq)\n");
+        ApRemoveAllNetworks(wpacli, iface, ctrl);
+        RunCommand(ifc + " " + iface + " 0.0.0.0");
+        return false;
+    }
+
+    DataManager::SetValue("tw_wlan_enabled", 1);
+    DataManager::SetValue("tw_wlan_ap_enabled", 1);
+    DataManager::SetValue("tw_wlan_ap_ssid", ssid);
+    DataManager::SetValue("tw_wlan_ap_ip", AP_IP_ADDR);
+
+    gui_print("WLAN hotspot is up: %s at %s\n", ssid.c_str(), AP_IP_ADDR);
+    return true;
+}
+
+bool Wlan::ApDisable() {
+    StopApDhcpServer();
+
+    const std::string iface  = GetIface();
+    const std::string ctrl   = GetCtrlDir();
+    const std::string wpacli = GetWpaCliBinary();
+
+    if (!wpacli.empty()) {
+        ApRemoveAllNetworks(wpacli, iface, ctrl);
+        RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " disconnect");
+    }
+
+    const std::string ifc = GetIfconfigBinary();
+    if (!ifc.empty())
+        RunCommand(ifc + " " + iface + " 0.0.0.0");
+
+    DataManager::SetValue("tw_wlan_ap_enabled", 0);
+    DataManager::SetValue("tw_wlan_ap_ip", "");
+
+    gui_print("WLAN hotspot stopped\n");
+    return true;
+}
+
+bool Wlan::ApListClients(std::vector<ApClient>& clients) {
+    clients.clear();
+
+    std::string leases;
+    if (!ReadFile(WLAN_AP_LEASES, leases))
+        return true;  // no lease file yet => no clients connected
+
+    std::istringstream iss(leases);
+    std::string line;
+
+    while (std::getline(iss, line)) {
+        line = Trim(line);
+        if (line.empty())
+            continue;
+
+        /* dnsmasq lease line: "<expiry> <mac> <ip> <hostname> <clientid>" */
+        std::vector<std::string> cols;
+        std::stringstream ls(line);
+        std::string col;
+        while (ls >> col)
+            cols.push_back(col);
+
+        if (cols.size() < 3)
+            continue;
+
+        ApClient c;
+        c.mac = cols[1];
+        c.ip  = cols[2];
+        c.hostname = (cols.size() >= 4 && cols[3] != "*") ? cols[3] : "";
+        clients.push_back(c);
+    }
+
+    return true;
+}
+
+bool Wlan::StartApDhcpServer() {
+    const std::string dnsmasq = GetDnsmasqBinary();
+    if (dnsmasq.empty()) {
+        gui_print("WLAN AP: dnsmasq binary not found\n");
+        return false;
+    }
+
+    StopApDhcpServer();
+    unlink(WLAN_AP_LEASES);
+
+    std::ostringstream cmd;
+    cmd << dnsmasq
+        << " --interface=" << GetIface()
+        << " --bind-interfaces"
+        << " --except-interface=lo"
+        << " --listen-address=" << AP_IP_ADDR
+        << " --dhcp-range=" << AP_DHCP_START << "," << AP_DHCP_END << "," << AP_NETMASK << ",12h"
+        << " --dhcp-option=3," << AP_IP_ADDR
+        << " --dhcp-option=6," << AP_IP_ADDR
+        << " --dhcp-leasefile=" << WLAN_AP_LEASES
+        << " --pid-file=" << WLAN_AP_PIDFILE
+        << " --no-resolv --no-hosts --no-ping"
+        << " >" << WLAN_AP_DIR << "/dnsmasq.log 2>&1";
+
+    /* dnsmasq daemonises (forks) on startup, so this returns promptly. */
+    return RunCommand(cmd.str());
+}
+
+bool Wlan::StopApDhcpServer() {
+    std::string pid;
+    bool killed_by_pid = false;
+    if (ReadFile(WLAN_AP_PIDFILE, pid)) {
+        pid = Trim(pid);
+        if (!pid.empty() && pid.find_first_not_of("0123456789") == std::string::npos) {
+            RunCommand("kill " + pid + " >/dev/null 2>&1");
+            killed_by_pid = true;
+        }
+    }
+
+    /* Only fall back to a blanket killall when we had no usable pid — otherwise
+     * we would kill unrelated dnsmasq instances we never started. */
+    if (!killed_by_pid)
+        RunCommand("killall dnsmasq >/dev/null 2>&1");
+    unlink(WLAN_AP_PIDFILE);
+    return true;
+}
+
+std::string Wlan::GetDnsmasqBinary() {
+    return FindBinary({
+        "/system/bin/dnsmasq",
+        "/system/xbin/dnsmasq",
+        "/vendor/bin/dnsmasq",
+        "/system_ext/bin/dnsmasq",
+        "/sbin/dnsmasq",
+        "/bin/dnsmasq"
+    });
+}
+
+#endif // OF_WLAN_AP
+
 bool Wlan::RefreshSaved() {
     return BuildSavedList();
 }
@@ -1495,7 +1468,53 @@ bool Wlan::StartDhcp() {
         return false;
     }
 
-    return RunCommand(dhcptool + " " + iface + " >/tmp/dhcptool.log 2>&1");
+    if (!RunCommand(dhcptool + " " + iface + " >/tmp/dhcptool.log 2>&1"))
+        return false;
+
+    /*
+     * dhcptool publishes DNS servers as Android properties, but recovery has
+     * no netd/resolver service to turn them into /etc/resolv.conf. BusyBox,
+     * musl and other recovery tools therefore have an IP route while every
+     * hostname lookup fails with EAI_SYSTEM. Install the lease DNS directly;
+     * /etc is a ramdisk symlink to /system/etc, so this remains session-only.
+     */
+    std::vector<std::string> servers;
+    const std::string prefix = "net." + iface + ".dns";
+    for (int index = 1; index <= 4; ++index) {
+        char value[PROPERTY_VALUE_MAX] = {};
+        property_get((prefix + std::to_string(index)).c_str(), value, "");
+        in_addr address4 {};
+        in6_addr address6 {};
+        if (inet_pton(AF_INET, value, &address4) != 1 &&
+            inet_pton(AF_INET6, value, &address6) != 1)
+            continue;
+        bool duplicate = false;
+        for (const auto& server : servers)
+            duplicate = duplicate || server == value;
+        if (!duplicate)
+            servers.emplace_back(value);
+    }
+    for (const char* fallback : {"1.1.1.1", "8.8.8.8"}) {
+        bool duplicate = false;
+        for (const auto& server : servers)
+            duplicate = duplicate || server == fallback;
+        if (!duplicate)
+            servers.emplace_back(fallback);
+    }
+
+    std::ostringstream resolver;
+    for (const auto& server : servers)
+        resolver << "nameserver " << server << "\n";
+    if (!WriteFile("/system/etc/resolv.conf", resolver.str())) {
+        gui_print("WLAN: DHCP succeeded, but resolver configuration failed\n");
+        return false;
+    }
+    if (!servers.empty()) {
+        property_set("net.dns1", servers[0].c_str());
+        if (servers.size() > 1)
+            property_set("net.dns2", servers[1].c_str());
+    }
+    return true;
 }
 
 bool Wlan::StopDhcp() {
@@ -1503,20 +1522,11 @@ bool Wlan::StopDhcp() {
 }
 
 bool Wlan::BuildScanList() {
-    const std::string iface = GetIface();
-    const std::string ctrl = GetCtrlDir();
-    const std::string wpacli = GetWpaCliBinary();
-
-    if (wpacli.empty()) {
-        gui_print("WLAN: wpa_cli binary not found\n");
-        return false;
-    }
-
     RunCommand("mkdir -p /tmp/wlan/list");
     RunCommand("rm -rf /tmp/wlan/list/*");
 
     std::string output;
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " scan_results", output)) {
+    if (!SuppCmd("SCAN_RESULTS", output)) {
         gui_print("WLAN: failed to get scan_results\n");
         return false;
     }
@@ -1667,19 +1677,9 @@ bool Wlan::BuildSavedList() {
 }
 
 bool Wlan::BuildConnectedName() {
-    const std::string iface = GetIface();
-    const std::string ctrl  = GetCtrlDir();
-    const std::string wpacli = GetWpaCliBinary();
     std::string status;
 
-    if (wpacli.empty()) {
-        unlink(WLAN_CONNECTED_FILE);
-        DataManager::SetValue("wlan_connected_name", "");
-        DataManager::SetValue("tw_wlan_connected", 0);
-        return false;
-    }
-
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status)) {
+    if (!SuppCmd("STATUS", status)) {
         unlink(WLAN_CONNECTED_FILE);
         DataManager::SetValue("wlan_connected_name", "");
         DataManager::SetValue("tw_wlan_connected", 0);
@@ -1748,6 +1748,88 @@ bool Wlan::RunCommand(const std::string& cmd, std::string& output) {
 
     int rc = pclose(fp);
     return rc == 0;
+}
+
+// ---------------------------------------------------------------------------
+// wpa_supplicant control-interface transport (replaces fork+exec wpa_cli).
+//
+// One persistent command connection + one attached monitor connection, shared
+// (status). All access is serialized by g_supp_mutex.
+// ---------------------------------------------------------------------------
+namespace {
+std::mutex g_supp_mutex;
+
+// Single-quote a string for safe inclusion as ONE shell argument. The whole
+// ctrl command is passed to wpa_cli as a single argument, which wpa_cli then
+// forwards verbatim to the socket — so embedded double quotes survive.
+std::string ShellSingleQuote(const std::string& s) {
+    std::string out = "'";
+    for (char c : s) {
+        if (c == '\'')
+            out += "'\\''";
+        else
+            out += c;
+    }
+    out += "'";
+    return out;
+}
+}  // namespace
+
+bool Wlan::EnsureSuppChannel() {
+    // Caller must hold g_supp_mutex.
+    const std::string path = GetCtrlDir() + "/" + GetIface();
+            return false;
+    }
+        }
+    }
+    return true;
+}
+
+void Wlan::CloseSuppChannel() {
+    std::lock_guard<std::mutex> lk(g_supp_mutex);
+}
+
+void Wlan::RefreshWlanPageIfShown() {
+    // Re-running the page's load action re-stats /tmp/wlan/list.txt and sets
+    // of_file_to_read, which is what makes the scan list appear. Only do it when
+    // "wlan" is actually on screen so we never pull the user off another page.
+    //
+    // This is routinely called from the WLAN worker thread, so both the
+    // GetCurrentPage() read and the gui_changePage() mutation must be marshalled
+    // onto the GUI thread — touching PageManager from off-thread races Render().
+    gui_run_on_main([]() {
+        if (PageManager::GetCurrentPage() == "wlan")
+            gui_changePage("wlan");
+    });
+}
+
+bool Wlan::SuppCmd(const std::string& ctrl_cmd, std::string& out) {
+    std::lock_guard<std::mutex> lk(g_supp_mutex);
+
+        return true;
+
+    // Fallback: the control socket is unavailable — shell out to wpa_cli,
+    // passing the ctrl command as one shell-quoted argument so wpa_cli forwards
+    // it unchanged. Drop the stale connection so we retry opening it next time.
+
+    const std::string wpacli = GetWpaCliBinary();
+    if (wpacli.empty())
+        return false;
+
+    const std::string cmd = wpacli + " -i " + GetIface() + " -p " + GetCtrlDir() +
+                            " " + ShellSingleQuote(ctrl_cmd);
+    return RunCommand(cmd, out);
+}
+
+bool Wlan::SuppCmd(const std::string& ctrl_cmd) {
+    std::string out;
+    return SuppCmd(ctrl_cmd, out);
+}
+
+bool Wlan::SuppWaitEvent(const std::vector<std::string>& any_of, int timeout_ms,
+                         std::string& matched) {
+    std::lock_guard<std::mutex> lk(g_supp_mutex);
+        return false;
 }
 
 bool Wlan::WriteFile(const std::string& path, const std::string& content) {
@@ -1893,10 +1975,14 @@ bool Wlan::StartInitSupplicantService() {
         return true;
     }
 
-    LOGINFO("WLAN: starting init service %s\n", WLAN_SUPP_SERVICE);
-    property_set("ctl.start", WLAN_SUPP_SERVICE);
+    LOGINFO("WLAN: triggering supplicant bring-up (%s)\n", WLAN_SUPP_PREP_PROP);
+    /* The init block resets this to 0 when it finishes, so a plain set to 1 is a
+     * 0->1 (or ""->1) transition every time and re-fires the bring-up. The block
+     * does the driver bring-up and then `start wpa_supplicant` itself, so we
+     * still wait on init.svc.wpa_supplicant below. */
+    property_set(WLAN_SUPP_PREP_PROP, "1");
 
-    if (!WaitForProperty(WLAN_SUPP_SVC_PROP, "running", 5000)) {
+    if (!WaitForProperty(WLAN_SUPP_SVC_PROP, "running", 20000)) {
         LOGERR("WLAN: init service %s failed to enter running state\n", WLAN_SUPP_SERVICE);
         return false;
     }

@@ -911,16 +911,14 @@ ifeq ($(OF_ENABLE_WLAN),1)
         wpa_supplicant \
         android.hardware.wifi.supplicant.xml \
         wpa_cli \
-        dhcpdbg \
+        dhcptool \
         rclone_prebuilt \
         fusermount3
 
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/hw/wpa_supplicant
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/wpa_cli
-    # AOSP 16 builds libnetutils/dhcptool.c as the module "dhcpdbg" (in /system/bin),
-    # not "dhcptool" in /vendor/bin. Ship it and expose it under the name wlan.cpp expects.
-    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dhcpdbg
-    BOARD_RECOVERY_IMAGE_PREPARE += ln -sf dhcpdbg $(TARGET_RECOVERY_ROOT_OUT)/system/bin/dhcptool;
+    # AOSP 16 provides a recovery-specific dhcptool module. Requiring that
+    # module installs the real binary at the exact path wlan.cpp executes.
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_RECOVERY_ROOT_OUT)/system/bin/ttyd
 
     RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_SHARED_LIBRARIES)/libkeystore-engine-wifi-hidl.so
