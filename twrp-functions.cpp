@@ -1136,16 +1136,32 @@ int TWFunc::tw_reboot(RebootCommand command)
 	// Always force a sync before we reboot
 	sync();
 
+	// Setting sys.powerctl only queues the request for init.  Returning from
+	// recovery immediately lets init respawn the recovery service before it
+	// consumes that request, which looks like the UI merely restarted.  Keep
+	// this process alive exactly as AOSP's Reboot()/Shutdown() helpers do.
+	auto request_power_control = [](const char* value) -> int {
+		const int result = property_set(ANDROID_RB_PROPERTY, value);
+		if (result != 0)
+			return result;
+		for (;;)
+			pause();
+	};
+
 	// process the reboot command
 	switch (command) {
 		case rb_current:
 		case rb_system:
-      			if (DoDeactivate == 1) { Deactivation_Process(); } 
+			// A fastboot "reboot recovery" request can leave a boot-recovery
+			// command behind on some A/B devices. Clear it again at the final
+			// system handoff so Android cannot loop straight back into AERA.
+			Clear_Bootloader_Message();
+       			if (DoDeactivate == 1) { Deactivation_Process(); } 
 			Update_Intent_File("s");
 			sync();
 			check_and_run_script("/system/bin/rebootsystem.sh", "reboot system");
 #ifdef ANDROID_RB_PROPERTY
-			return property_set(ANDROID_RB_PROPERTY, "reboot,");
+			return request_power_control("reboot,");
 #elif defined(ANDROID_RB_RESTART)
 			return android_reboot(ANDROID_RB_RESTART, 0, 0);
 #else
@@ -1154,14 +1170,14 @@ int TWFunc::tw_reboot(RebootCommand command)
 		case rb_recovery:
       			if (DoDeactivate == 1) { Deactivation_Process(); } 
 			check_and_run_script("/system/bin/rebootrecovery.sh", "reboot recovery");
-			return property_set(ANDROID_RB_PROPERTY, "reboot,recovery");
+			return request_power_control("reboot,recovery");
 		case rb_bootloader:
 			check_and_run_script("/system/bin/rebootbootloader.sh", "reboot bootloader");
-			return property_set(ANDROID_RB_PROPERTY, "reboot,bootloader");
+			return request_power_control("reboot,bootloader");
 		case rb_poweroff:
 			check_and_run_script("/system/bin/poweroff.sh", "power off");
 #ifdef ANDROID_RB_PROPERTY
-			return property_set(ANDROID_RB_PROPERTY, "shutdown,");
+			return request_power_control("shutdown,");
 #elif defined(ANDROID_RB_POWEROFF)
 			return android_reboot(ANDROID_RB_POWEROFF, 0, 0);
 #else
@@ -1169,12 +1185,12 @@ int TWFunc::tw_reboot(RebootCommand command)
 #endif
 		case rb_download:
 			check_and_run_script("/system/bin/rebootdownload.sh", "reboot download");
-			return property_set(ANDROID_RB_PROPERTY, "reboot,download");
+			return request_power_control("reboot,download");
 		case rb_edl:
 			check_and_run_script("/system/bin/rebootedl.sh", "reboot edl");
-			return property_set(ANDROID_RB_PROPERTY, "reboot,edl");
+			return request_power_control("reboot,edl");
 		case rb_fastboot:
-			return property_set(ANDROID_RB_PROPERTY, "reboot,fastboot");
+			return request_power_control("reboot,fastboot");
 		default:
 			return -1;
 	}
