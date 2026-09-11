@@ -24,3 +24,8 @@ add_test(NAME ui_confirmation_navigation_preferences
 add_executable(display_transform_test display_transform_test.cpp)
 target_include_directories(display_transform_test PRIVATE ../include)
 add_test(NAME adaptive_display_transform COMMAND display_transform_test)
+add_executable(plugin_api_session_test plugin_api_session_test.cpp
+  ../plugin_api/session.cpp)
+target_include_directories(plugin_api_session_test PRIVATE ..)
+target_compile_options(plugin_api_session_test PRIVATE -UNDEBUG)
+add_test(NAME plugin_api_negotiation_and_limits COMMAND plugin_api_session_test)

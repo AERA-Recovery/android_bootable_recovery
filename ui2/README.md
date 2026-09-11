@@ -95,7 +95,17 @@ ctest --test-dir /tmp/aera-ui-tests --output-on-failure
 
 These cover wipe selection, exact format confirmation/re-arming, no keyboard
 auto-submit, navigation geometry, preference toggles, backup/restore selection,
-decrypt rendering, viewer lifecycle, and operation completion.
+decrypt rendering, viewer lifecycle, operation completion, and Host API 2
+protocol negotiation/resource limits.
+
+## Plugin Host API 2
+
+Arbitrary plugin IDs can use the generic Host API 2 entrypoint without a
+recovery rebuild. Plugins run as isolated workers and describe a bounded page;
+AERA owns every visible widget, touch event, permission prompt and privileged
+operation. Existing Host API 1 apps retain their built-in routing. See
+`plugin_api/README.md` for the manifest, protocol, isolation and lifecycle
+contract.
 
 ## Picture viewer
 
