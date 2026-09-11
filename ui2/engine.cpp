@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <poll.h>
 #include <string>
 #include <thread>
 #include <time.h>
@@ -247,6 +248,12 @@ public:
       return kFrameIntervalMs;
     if (suspended_)
       return 250;
+#ifndef TW_OEM_BUILD
+    if (rpc_fd >= 0) {
+      pollfd rpc{rpc_fd, POLLIN, 0};
+      if (poll(&rpc, 1, 0) > 0 && (rpc.revents & POLLIN))
+    }
+#endif
     recorder::Poll();
     if (fastboot_mode_) PollFastbootTelemetry();
     if (operation_complete_.exchange(false, std::memory_order_acq_rel)) {
@@ -302,6 +309,10 @@ public:
                            plugin_progress_.total_bytes.load());
     }
     const uint32_t next = lv_timer_handler();
+#ifndef TW_OEM_BUILD
+    // Capture only after LVGL has flushed and DRM exposes the newly presented
+    // scanout buffer. The stream uses its own FIFO, so RPC input stays free.
+#endif
     return std::clamp(next, 1U, kFrameIntervalMs);
   }
 

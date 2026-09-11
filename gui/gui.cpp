@@ -1109,6 +1109,14 @@ extern "C" int gui_startPage(const char *page_name, const int allow_commands, in
 	if (!gGuiInitialized)
 		return -1;
 
+#ifndef TW_OEM_BUILD
+	// The native AERA engine returns before the legacy XML setup block below.
+	// Bring up the USB RPC FIFOs here so native scenes can service screen mirror
+	// and remote-input requests as soon as they become interactive.
+	if (allow_commands)
+	else
+#endif
+
 	if (gUseRecoveryUi2) {
 		const bool fastboot_mode = !strcmp(page_name, "fastboot") ||
 			android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
