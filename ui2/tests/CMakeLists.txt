@@ -1,0 +1,23 @@
+cmake_minimum_required(VERSION 3.16)
+project(aera_ui_tests LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(LVGL_DIR "" CACHE PATH "Recovery's external/lvgl directory")
+if(NOT EXISTS "${LVGL_DIR}/lv_conf.h")
+  message(FATAL_ERROR "Set LVGL_DIR to the recovery tree's configured external/lvgl directory")
+endif()
+set(LV_BUILD_CONF_PATH "${LVGL_DIR}/lv_conf.h" CACHE PATH "" FORCE)
+set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
+set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
+add_subdirectory("${LVGL_DIR}" lvgl)
+find_package(PNG REQUIRED)
+find_package(Threads REQUIRED)
+add_executable(ui_check ui_check.cpp ../tool_scene.cpp ../wifi_scene.cpp ../picture_decode.cpp
+  ../picture_viewer.cpp ../operation_scene.cpp ../decrypt_scene.cpp
+  ../browser/web_scene.cpp ../browser/session.cpp ../browser/launcher.cpp)
+target_include_directories(ui_check PRIVATE .. ../include)
+target_compile_options(ui_check PRIVATE -UNDEBUG)
+target_link_libraries(ui_check PRIVATE lvgl PNG::PNG Threads::Threads)
+enable_testing()
+add_test(NAME ui_confirmation_navigation_preferences
+  COMMAND ui_check "${LVGL_DIR}/examples/libs/libpng/png_demo.png")
