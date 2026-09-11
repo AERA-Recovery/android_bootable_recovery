@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 #include <fcntl.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
@@ -36,6 +37,7 @@
 #include <sys/mount.h>
 #include <time.h>
 #include <unistd.h>
+#include <vector>
 
 extern "C"
 {
@@ -52,8 +54,12 @@ extern "C"
 #include "../twrp-functions.hpp"
 #include "../openrecoveryscript.hpp"
 #include "../orscmd/orscmd.h"
+#ifdef OF_ENABLE_WLAN
+#endif
 #include "blanktimer.hpp"
 #include "tw_atomic.hpp"
+#include <recovery_ui2/backend.hpp>
+#include <recovery_ui2/runner.hpp>
 
 // Enable to print render time of each frame to the log file
 //#define PRINT_RENDER_TIME 1
@@ -71,7 +77,7 @@ static int gGuiInitialized = 0;
 static TWAtomicInt gForceRender;
 blanktimer blankTimer;
 int ors_read_fd = -1;
-static FILE* orsout = NULL;
+static FILE* orsout = NULL;  // legacy ORS output FILE + command guard
 static float scale_theme_w = 1;
 static float scale_theme_h = 1;
 
@@ -87,6 +93,15 @@ static int gRecorder = -1;
 
 static long long g_suppress_power_toggle_until_ms = 0;
 static inline long long nowMs() { struct timeval t; gettimeofday(&t, NULL); return (long long)t.tv_sec * 1000LL + t.tv_usec / 1000; }
+
+static bool gUseRecoveryUi2 = false;
+
+static bool RecoveryUi2Requested()
+{
+	const char* value = getenv("RECOVERY_UI2");
+	return (value != nullptr && strcmp(value, "1") == 0) ||
+	       access("/system/etc/recovery-ui2.enabled", R_OK) == 0;
+}
 
 extern "C" void gr_write_frame_to_file(int fd);
 
@@ -333,7 +348,7 @@ void InputHandler::process_EV_ABS(input_event& ev)
 	x = ev.value >> 16;
 	y = ev.value & 0xFFFF;
 
-	#ifdef FOX_USE_MEIZU_TOUCH_MAPPING
+	#ifdef OF_USE_MEIZU_TOUCH_MAPPING
 	if (x > gr_fb_width() || y > gr_fb_height()) {
 		x /= 10;
 		y /= 10;
@@ -700,8 +715,11 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 			FD_SET(PartitionManager.uevent_pfd.fd, &fdset);
 		}
 #ifndef TW_OEM_BUILD
-		if (ors_read_fd > 0 && !orsout) { // orsout is non-NULL if a command is still running
+		if (ors_read_fd > 0 && !command_active) {
 			FD_SET(ors_read_fd, &fdset);
+		}
+		}
+		// Watched unconditionally -- cancellation must work while a command runs.
 		}
 #endif
 		// TODO: combine this select with the poll done by input handling
@@ -711,9 +729,18 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 				terminal_pty_read();
 			if (PartitionManager.uevent_pfd.fd > 0 && FD_ISSET(PartitionManager.uevent_pfd.fd, &fdset))
 				PartitionManager.read_uevent();
-			if (ors_read_fd > 0 && !orsout && FD_ISSET(ors_read_fd, &fdset))
+#ifndef TW_OEM_BUILD
+			if (ors_read_fd > 0 && !command_active && FD_ISSET(ors_read_fd, &fdset))
 				ors_command_read();
+					PartitionManager.Cancel_Backup();
+			}
+#endif
 		}
+		// Drain a queued remote job when the engine is idle.
+#if !defined(TW_OEM_BUILD) && defined(OF_ENABLE_WLAN)
+		if (!orsout)
+#endif
+			gForceRender.set_value(1);
 
 		if (!gForceRender.get_value())
 		{
@@ -730,6 +757,11 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 #ifndef PRINT_RENDER_TIME
 			if (ret > 1)
 				PageManager::Render();
+
+			// Capture the just-rendered complete frame before flip() repoints
+			// gr_mem_surface to the back buffer (GUI thread, no race).
+			if (ret > 1) {
+			}
 
 			if (ret > 0)
 				flip();
@@ -826,11 +858,11 @@ std::string gui_parse_text(std::string str)
 		size_t default_loc = var.find('=', 0);
 		std::string lookup;
 		if (default_loc == std::string::npos) {
-			str.insert(next, PageManager::GetResources()->FindString(var));
+			str.insert(next, gui_lookup(var, var == "mbyte" ? " MB" : var));
 		} else {
 			lookup = var.substr(0, default_loc);
 			std::string default_string = var.substr(default_loc + 1, var.size() - default_loc - 1);
-			str.insert(next, PageManager::GetResources()->FindString(lookup, default_string));
+			str.insert(next, gui_lookup(lookup, default_string));
 		}
 	}
 	pos = 0;
@@ -855,7 +887,7 @@ std::string gui_parse_text(std::string str)
 			std::string value;
 			if (var.size() > 0 && var[0] == '@') {
 				// this is a string resource ("%@string_name%")
-				value = PageManager::GetResources()->FindString(var.substr(1));
+				value = gui_lookup(var.substr(1), var.substr(1));
 				str.insert(next, value);
 			}
 			else if (DataManager::GetValue(var, value) == 0)
@@ -867,7 +899,8 @@ std::string gui_parse_text(std::string str)
 }
 
 std::string gui_lookup(const std::string& resource_name, const std::string& default_value) {
-	return PageManager::GetResources()->FindString(resource_name, default_value);
+	const auto *resources = PageManager::GetResources();
+	return resources ? resources->FindString(resource_name, default_value) : default_value;
 }
 
 void gui_switchControlMode(void)
@@ -891,12 +924,28 @@ extern "C" int gui_init(void)
 {
 	gr_init();
 	TWFunc::Set_Brightness(DataManager::GetStrValue("tw_brightness"));
+	gUseRecoveryUi2 = RecoveryUi2Requested();
+	const bool fastboot_mode =
+		android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
 
 #ifdef TW_SCREEN_BLANK_ON_BOOT
         printf("TW_SCREEN_BLANK_ON_BOOT := true\n");
         blankTimer.blank();
         blankTimer.resetTimerAndUnblank();
 #endif
+
+	if (gUseRecoveryUi2) {
+		LOGINFO("AERA Recovery Project native engine requested; skipping XML splash.\n");
+#ifdef TW_DELAY_TOUCH_INIT_MS
+		usleep(TW_DELAY_TOUCH_INIT_MS);
+#endif
+		ev_init();
+		if (!fastboot_mode)
+			recovery_ui2::StartRecoveryUi2Early();
+		else
+			LOGINFO("Fastbootd startup detected; deferring to dedicated AERA fastbootd UI.\n");
+		return 0;
+	}
 
 	// load and show splash screen
 	if (PageManager::LoadPackage("splash", TWRES "splash.xml", "splash")) {
@@ -918,12 +967,16 @@ extern "C" int gui_init(void)
 
 extern "C" int gui_loadResources(void)
 {
+	if (gUseRecoveryUi2) {
+		gGuiInitialized = 1;
+		return 0;
+	}
 #ifndef TW_OEM_BUILD
 	int check = 0;
 	DataManager::GetValue(TW_IS_ENCRYPTED, check);
 
-#ifdef FOX_ALLOW_EARLY_SETTINGS_LOAD
-#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+#ifdef OF_ALLOW_EARLY_SETTINGS_LOAD
+#ifdef OF_SETTINGS_ROOT_DIRECTORY
 	if (PartitionManager.Mount_Settings_Storage(false))
 		DataManager::ReadSettingsFile();
 #else
@@ -981,8 +1034,8 @@ extern "C" int gui_loadResources(void)
 	PageManager::SelectPackage("OrangeFox");
 
 	gGuiInitialized = 1;
-#ifdef FOX_ALLOW_EARLY_SETTINGS_LOAD
-#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+#ifdef OF_ALLOW_EARLY_SETTINGS_LOAD
+#ifdef OF_SETTINGS_ROOT_DIRECTORY
 	// Read the settings again to overwrite gui default settings that were loaded by PageManager::LoadPackage
 	if (PartitionManager.Mount_Settings_Storage(false))
 		DataManager::ReadSettingsFile();
@@ -1047,6 +1100,40 @@ extern "C" int gui_startPage(const char *page_name, const int allow_commands, in
 {
 	if (!gGuiInitialized)
 		return -1;
+
+	if (gUseRecoveryUi2) {
+		const bool fastboot_mode = !strcmp(page_name, "fastboot") ||
+			android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
+		if (!fastboot_mode) recovery_ui2::RecoveryWifiInitialize();
+		const auto result = fastboot_mode
+			? recovery_ui2::RunRecoveryUi2Fastboot()
+			: recovery_ui2::RunRecoveryUi2();
+		LOGINFO("AERA Recovery Project native engine exited (%d); dispatching the requested action.\n",
+		        static_cast<int>(result));
+		gUseRecoveryUi2 = false;
+		switch (result) {
+			case recovery_ui2::RunResult::kRebootSystem:
+				DataManager::SetValue("tw_reboot_arg", "system");
+				return 0;
+			case recovery_ui2::RunResult::kRebootRecovery:
+				DataManager::SetValue("tw_reboot_arg", "recovery");
+				return 0;
+			case recovery_ui2::RunResult::kRebootBootloader:
+				DataManager::SetValue("tw_reboot_arg", "bootloader");
+				return 0;
+			case recovery_ui2::RunResult::kRebootFastbootd:
+				DataManager::SetValue("tw_reboot_arg", "fastboot");
+				return 0;
+			case recovery_ui2::RunResult::kPowerOff:
+				DataManager::SetValue("tw_reboot_arg", "poweroff");
+				return 0;
+			default:
+				break;
+		}
+		if (gui_loadResources() != 0) return -1;
+		LOGERR("AERA native engine stopped unexpectedly; entering the emergency XML UI.\n");
+		return gui_startPage(page_name, allow_commands, stop_on_page_done);
+	}
 
 	// Set the default package
 	PageManager::SelectPackage("OrangeFox");

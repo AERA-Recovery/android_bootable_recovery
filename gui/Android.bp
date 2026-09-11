@@ -1,5 +1,4 @@
 bootstrap_go_package {
-    name: "soong-libguitwrp_defaults",
     pkgPath: "bootable/recovery/gui",
     deps: [
         "soong",
@@ -7,7 +6,6 @@ bootstrap_go_package {
         "soong-cc"
     ],
     srcs: [
-        "libguitwrp_defaults.go",
         "../soong/copy.go",
         "../soong/makevars.go",
         "../orangefox_defaults.go"
@@ -15,13 +13,10 @@ bootstrap_go_package {
     pluginFor: ["soong_build"]
 }
 
-libguitwrp_defaults {
-    name: "libguitwrp_defaults"
 }
 
+// FoxUiEngine - the OrangeFox UI engine static library (formerly libguitwrp).
 cc_library_static {
-    name: "libguitwrp",
-    defaults: ["libguitwrp_defaults", "twrp_defaults"],
     rtti: true,
     cflags: [
         "-fno-strict-aliasing", 
@@ -48,7 +43,9 @@ cc_library_static {
         "system/core/libcutils/include",
         "system/core/include",
         "external/freetype/include",
-        "external/libpng"
+        "external/libpng",
+        "external/jsoncpp/include",
+        "external/libvterm/include"
 
     ],
     srcs: [
@@ -76,6 +73,9 @@ cc_library_static {
         "partitionlist.cpp",
         "mousecursor.cpp",
         "scrolllist.cpp",
+        "scrollcontainer.cpp",
+        "toggle.cpp",
+        "card.cpp",
         "patternpassword.cpp",
         "textbox.cpp",
         "terminal.cpp",
@@ -83,7 +83,7 @@ cc_library_static {
         // OrangeFox
         "gesture.cpp",
         "battery.cpp",
-        "wlan.cpp"
+        "aera_bridge.cpp",
     ],
     shared_libs: [
         "libminuitwrp",
@@ -94,6 +94,8 @@ cc_library_static {
         "libziparchive"
     ],
     static_libs: [
+        "librecoveryui2",
+        "liblvgl_recovery",
         "libotautil",
         "libpng"
     ]

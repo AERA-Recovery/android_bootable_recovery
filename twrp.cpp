@@ -60,6 +60,7 @@ extern "C" {
 #include "variables.h"
 #include "startupArgs.hpp"
 #include "twrpAdbBuFifo.hpp"
+#include <recovery_ui2/runner.hpp>
 #ifdef TW_USE_NEW_MINADBD
 // #include "minadbd/minadbd.h"
 #else
@@ -92,14 +93,25 @@ static void Decrypt_Page(bool SkipDecryption, bool datamedia) {
 		} else if (DataManager::GetIntValue(TW_CRYPTO_PWTYPE) != 0) {
 			DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
 			LOGINFO("Is encrypted, do decrypt page first\n");
-			if (DataManager::GetIntValue(TW_IS_FBE))
+			const bool file_based = DataManager::GetIntValue(TW_IS_FBE) != 0;
+			if (file_based)
 				DataManager::SetValue("tw_crypto_user_id", "0");
-			if (gui_startPage("decrypt", 1, 1) != 0) {
-				LOGERR("Failed to start decrypt GUI page.\n");
-			} else {
+			const auto native_result = recovery_ui2::RunRecoveryUi2Decryption(
+				DataManager::GetIntValue(TW_CRYPTO_PWTYPE), file_based, 0,
+				DataManager::GetIntValue("tw_gui_pattern_grid_size"));
+			if (native_result == recovery_ui2::DecryptionResult::kUnavailable) {
+				if (gui_startPage("decrypt", 1, 1) != 0)
+					LOGERR("Failed to start decrypt GUI page.\n");
+				else {
+					DataManager::SetValue("OTA_decrypted", "1");
+					usleep(16);
+				}
+			} else if (native_result == recovery_ui2::DecryptionResult::kSuccess) {
 				// OrangeFox - make note of this decryption
 				DataManager::SetValue("OTA_decrypted", "1");
 				usleep(16);
+			} else {
+				LOGINFO("User continued without decrypting data\n");
 			}
 		}
 	} else if (datamedia) {
@@ -256,7 +268,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 	// Check for and load custom theme if present
 	TWFunc::check_selinux_support();
 	gui_loadCustomResources();
-#ifdef FOX_ALLOW_EARLY_SETTINGS_LOAD
+#ifdef OF_ALLOW_EARLY_SETTINGS_LOAD
 	// Reset Mount_Read_Only flag here to follow tw_mount_system_ro var
 	if (PartitionManager.Get_Super_Status())
 		PartitionManager.Mount_Super_Toggle(DataManager::GetStrValue("tw_mount_system_ro"));
@@ -268,7 +280,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 		TWFunc::Fixup_Time_On_Boot();
 
 	TWFunc::Update_Log_File();
-#ifndef FOX_ALLOW_EARLY_SETTINGS_LOAD
+#ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
 	DataManager::ReadSettingsFile();
 #endif
 
@@ -327,7 +339,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 				if (!created)
 					LOGERR("Unable to create log directory for TWRP\n");
 			}
-#ifndef FOX_ALLOW_EARLY_SETTINGS_LOAD
+#ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
 			DataManager::ReadSettingsFile();
 			PartitionManager.Mount_Super_Toggle(DataManager::GetStrValue("tw_mount_system_ro"));
 #endif
@@ -403,7 +415,7 @@ static bool Fox_CheckReload_Themes() {
   || TWFunc::Fox_Property_Get("orangefox.mount_to_decrypt") == "1") {
 	DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
     }
-#if defined(FOX_ALLOW_EARLY_SETTINGS_LOAD) && defined(FOX_SETTINGS_ROOT_DIRECTORY)
+#if defined(OF_ALLOW_EARLY_SETTINGS_LOAD) && defined(OF_SETTINGS_ROOT_DIRECTORY)
   return false;
 #else
   return (TWFunc::Path_Exists(FOX_THEME_PATH) || TWFunc::Path_Exists(FOX_NAVBAR_PATH));
@@ -630,7 +642,7 @@ int main(int argc, char **argv) {
 	} else {
 		process_recovery_mode(adb_bu_fifo, startup.Should_Skip_Decryption());
 	}
-#ifndef FOX_ALLOW_EARLY_SETTINGS_LOAD
+#ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
 	// Language
 	PageManager::LoadLanguage(DataManager::GetStrValue("tw_language"));
 	GUIConsole::Translate_Now();
