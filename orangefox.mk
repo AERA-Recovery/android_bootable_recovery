@@ -32,34 +32,34 @@ ifeq ($(wildcard external/libvterm/Android.bp),)
 endif
 
 # Canonical release version
-FOX_INTERNAL_RELEASE := R12.0
-LOCAL_CFLAGS += -DFOX_INTERNAL_RELEASE='"$(FOX_INTERNAL_RELEASE)"'
+AERA_INTERNAL_RELEASE := R1.0
+LOCAL_CFLAGS += -DAERA_INTERNAL_RELEASE='"$(AERA_INTERNAL_RELEASE)"'
 
-ifneq ($(FOX_MAINTAINER_PATCH_VERSION),)
-    test_res := $(shell printf -- '%d' $(FOX_MAINTAINER_PATCH_VERSION) 2>/dev/null)
-    ifneq ($(FOX_MAINTAINER_PATCH_VERSION),$(test_res))
-        $(error Only whole numbers can be used for FOX_MAINTAINER_PATCH_VERSION)
+ifneq ($(AERA_MAINTAINER_PATCH_VERSION),)
+    test_res := $(shell printf -- '%d' $(AERA_MAINTAINER_PATCH_VERSION) 2>/dev/null)
+    ifneq ($(AERA_MAINTAINER_PATCH_VERSION),$(test_res))
+        $(error Only whole numbers can be used for AERA_MAINTAINER_PATCH_VERSION)
     endif
     test_res :=
-    LOCAL_CFLAGS += -DFOX_MAINTAINER_PATCH_VERSION='"$(FOX_MAINTAINER_PATCH_VERSION)"'
-    LOCAL_CFLAGS += -DFOX_BUILD='"$(FOX_INTERNAL_RELEASE)""_""$(FOX_MAINTAINER_PATCH_VERSION)"'
+    LOCAL_CFLAGS += -DAERA_MAINTAINER_PATCH_VERSION='"$(AERA_MAINTAINER_PATCH_VERSION)"'
+    LOCAL_CFLAGS += -DAERA_BUILD='"$(AERA_INTERNAL_RELEASE)""_""$(AERA_MAINTAINER_PATCH_VERSION)"'
 else
-    LOCAL_CFLAGS += -DFOX_BUILD='"$(FOX_INTERNAL_RELEASE)"'
+    LOCAL_CFLAGS += -DAERA_BUILD='"$(AERA_INTERNAL_RELEASE)"'
 endif
 
-ifneq ($(FOX_VERSION),)
-    $(error 'FOX_VERSION' is obsolete. Look at 'FOX_MAINTAINER_PATCH_VERSION' for maintainer versioning)
+ifneq ($(AERA_VERSION),)
+    $(error 'AERA_VERSION' is obsolete. Look at 'AERA_MAINTAINER_PATCH_VERSION' for maintainer versioning)
 endif
 
-ifeq ($(FOX_VARIANT),)
-    LOCAL_CFLAGS += -DFOX_VARIANT='"default"'
+ifeq ($(AERA_VARIANT),)
+    LOCAL_CFLAGS += -DAERA_VARIANT='"default"'
 else
-    LOCAL_CFLAGS += -DFOX_VARIANT='"$(FOX_VARIANT)"'
+    LOCAL_CFLAGS += -DAERA_VARIANT='"$(AERA_VARIANT)"'
 endif
 
-ifeq ($(FOX_DEVICE_MODEL),)
+ifeq ($(AERA_DEVICE_MODEL),)
     DEVICE := $(subst twrp_,,$(TARGET_PRODUCT))
-    LOCAL_CFLAGS += -DFOX_DEVICE_MODEL='"$(DEVICE)"'
+    LOCAL_CFLAGS += -DAERA_DEVICE_MODEL='"$(DEVICE)"'
 endif
 
 OF_CURRENT_BRANCH := $(shell git -C $(call my-dir) branch --show-current 2>/dev/null)
@@ -96,23 +96,23 @@ OF_DONT_PATCH_ENCRYPTED_DEVICE := 1
 
 # virtual AB
 ifeq ($(PRODUCT_VIRTUAL_AB_OTA),true)
-    FOX_VIRTUAL_AB_DEVICE := 1
+    AERA_VIRTUAL_AB_DEVICE := 1
 endif
 
-ifeq ($(FOX_VIRTUAL_AB_DEVICE),1)
-    LOCAL_CFLAGS += -DFOX_VIRTUAL_AB_DEVICE='"1"'
-    FOX_AB_DEVICE := 1
-    FOX_VANILLA_BUILD := 1
+ifeq ($(AERA_VIRTUAL_AB_DEVICE),1)
+    LOCAL_CFLAGS += -DAERA_VIRTUAL_AB_DEVICE='"1"'
+    AERA_AB_DEVICE := 1
+    AERA_VANILLA_BUILD := 1
 endif
 
 # enable vbmeta patch in magiskboot 24+
-ifeq ($(FOX_PATCH_VBMETA_FLAG),1)
-    LOCAL_CFLAGS += -DFOX_PATCH_VBMETA_FLAG='"1"'
-    $(warning Do not use "FOX_PATCH_VBMETA_FLAG" unless you are sure that it is needed!)
+ifeq ($(AERA_PATCH_VBMETA_FLAG),1)
+    LOCAL_CFLAGS += -DAERA_PATCH_VBMETA_FLAG='"1"'
+    $(warning Do not use "AERA_PATCH_VBMETA_FLAG" unless you are sure that it is needed!)
 endif
 
-ifeq ($(FOX_VANILLA_BUILD),1)
-    LOCAL_CFLAGS += -DFOX_VANILLA_BUILD='"1"'
+ifeq ($(AERA_VANILLA_BUILD),1)
+    LOCAL_CFLAGS += -DAERA_VANILLA_BUILD='"1"'
     OF_SKIP_ORANGEFOX_PROCESS := 1
     OF_DISABLE_MIUI_SPECIFIC_FEATURES := 1
     OF_DISABLE_OTA_MENU := 1
@@ -148,10 +148,10 @@ ifeq ($(OF_DONT_PATCH_ON_FRESH_INSTALLATION),1)
     LOCAL_CFLAGS += -DOF_DONT_PATCH_ON_FRESH_INSTALLATION='"1"'
 endif
 
-ifneq ($(FOX_BUILD_TYPE),)
-    LOCAL_CFLAGS += -DFOX_BUILD_TYPE='"$(FOX_BUILD_TYPE)"'
+ifneq ($(AERA_BUILD_TYPE),)
+    LOCAL_CFLAGS += -DAERA_BUILD_TYPE='"$(AERA_BUILD_TYPE)"'
 else
-    LOCAL_CFLAGS += -DFOX_BUILD_TYPE='"Unofficial"'
+    LOCAL_CFLAGS += -DAERA_BUILD_TYPE='"Unofficial"'
 endif
 
 ifeq ($(OF_NO_MIUI_PATCH_WARNING),1)
@@ -159,24 +159,24 @@ ifeq ($(OF_NO_MIUI_PATCH_WARNING),1)
 endif
 
 # stable builds - enable advanced security
-ifeq ($(FOX_BUILD_TYPE),Stable)
+ifeq ($(AERA_BUILD_TYPE),Stable)
     OF_ADVANCED_SECURITY := 1
 endif
 
 ifeq ($(AB_OTA_UPDATER),true)
-    FOX_AB_DEVICE := 1
+    AERA_AB_DEVICE := 1
 endif
 
 ifeq ($(OF_AB_DEVICE_WITH_RECOVERY_PARTITION),1)
-    FOX_AB_DEVICE := 1
+    AERA_AB_DEVICE := 1
     LOCAL_CFLAGS += -DOF_AB_DEVICE_WITH_RECOVERY_PARTITION='"1"'
     ifeq ($(OF_RECOVERY_AB_FULL_REFLASH_RAMDISK),1)
        LOCAL_CFLAGS += -DOF_RECOVERY_AB_FULL_REFLASH_RAMDISK
     endif
 endif
 
-ifeq ($(FOX_AB_DEVICE),1)
-    LOCAL_CFLAGS += -DFOX_AB_DEVICE='"1"'
+ifeq ($(AERA_AB_DEVICE),1)
+    LOCAL_CFLAGS += -DAERA_AB_DEVICE='"1"'
     ifneq ($(AB_OTA_UPDATER),true)
     	LOCAL_CFLAGS += -DAB_OTA_UPDATER=1
     	LOCAL_SHARED_LIBRARIES += libhardware android.hardware.boot@1.0
@@ -187,12 +187,12 @@ ifeq ($(FOX_AB_DEVICE),1)
 endif
 
 # vendor_boot recovery
-ifeq ($(FOX_VENDOR_BOOT_RECOVERY),1)
-    $(warning 'FOX_VENDOR_BOOT_RECOVERY' is experimental. Exercise great caution if you use it!)
-    LOCAL_CFLAGS += -DFOX_VENDOR_BOOT_RECOVERY='"1"'
-    FOX_AB_DEVICE := 1
+ifeq ($(AERA_VENDOR_BOOT_RECOVERY),1)
+    $(warning 'AERA_VENDOR_BOOT_RECOVERY' is experimental. Exercise great caution if you use it!)
+    LOCAL_CFLAGS += -DAERA_VENDOR_BOOT_RECOVERY='"1"'
+    AERA_AB_DEVICE := 1
     OF_NO_SPLASH_CHANGE := 1
-    FOX_VANILLA_BUILD := 1
+    AERA_VANILLA_BUILD := 1
     ifeq ($(BOARD_BOOT_HEADER_VERSION),3)
  	$(warning For a proper vendor_boot recovery build, use 'BOARD_BOOT_HEADER_VERSION := 4' and 'BOARD_INCLUDE_RECOVERY_RAMDISK_IN_VENDOR_BOOT := true')
         OF_NO_REFLASH_CURRENT_ORANGEFOX := 1
@@ -206,7 +206,7 @@ ifeq ($(FOX_VENDOR_BOOT_RECOVERY),1)
 endif
 
 ifeq ($(OF_VENDOR_BOOT_RECOVERY),1)
-   $(error "OF_VENDOR_BOOT_RECOVERY" is obsolete. Use "export FOX_VENDOR_BOOT_RECOVERY=1" instead)
+   $(error "OF_VENDOR_BOOT_RECOVERY" is obsolete. Use "export AERA_VENDOR_BOOT_RECOVERY=1" instead)
 endif
 #
 
@@ -236,10 +236,10 @@ ifeq ($(OF_ADVANCED_SECURITY),1)
     LOCAL_CFLAGS += -DOF_ADVANCED_SECURITY='"1"'
 endif
 
-ifneq ($(FOX_CURRENT_DEV_STR),)
-    LOCAL_CFLAGS += -DFOX_CURRENT_DEV_STR='"$(FOX_CURRENT_DEV_STR)"'
+ifneq ($(AERA_CURRENT_DEV_STR),)
+    LOCAL_CFLAGS += -DAERA_CURRENT_DEV_STR='"$(AERA_CURRENT_DEV_STR)"'
 else
-    LOCAL_CFLAGS += -DFOX_CURRENT_DEV_STR='"latest"'
+    LOCAL_CFLAGS += -DAERA_CURRENT_DEV_STR='"latest"'
 endif
 
 ifneq ($(OF_SCREEN_H),)
@@ -318,13 +318,13 @@ ifeq ($(OF_SUPPORT_OZIP_DECRYPTION),1)
 endif
 
 ifneq ($(TARGET_OTA_ASSERT_DEVICE),)
-ifeq ($(FOX_TARGET_DEVICES),)
-    FOX_TARGET_DEVICES := $(TARGET_OTA_ASSERT_DEVICE)
+ifeq ($(AERA_TARGET_DEVICES),)
+    AERA_TARGET_DEVICES := $(TARGET_OTA_ASSERT_DEVICE)
 endif
 endif
 
-ifneq ($(FOX_TARGET_DEVICES),)
-    LOCAL_CFLAGS += -DFOX_TARGET_DEVICES='"$(FOX_TARGET_DEVICES)"'
+ifneq ($(AERA_TARGET_DEVICES),)
+    LOCAL_CFLAGS += -DAERA_TARGET_DEVICES='"$(AERA_TARGET_DEVICES)"'
 endif
 
 ifeq ($(OF_CHECK_OVERWRITE_ATTEMPTS),1)
@@ -413,9 +413,9 @@ ifeq ($(OF_OTA_RES_CHECK_MICROSD),1)
 endif
 
 # samsung dynamic issues
-ifeq ($(FOX_DYNAMIC_SAMSUNG_FIX),1)
-    FOX_BUILD_BASH := 0
-    FOX_EXCLUDE_NANO_EDITOR := 1
+ifeq ($(AERA_DYNAMIC_SAMSUNG_FIX),1)
+    AERA_BUILD_BASH := 0
+    AERA_EXCLUDE_NANO_EDITOR := 1
 endif
 
 # samsung haptics
@@ -424,7 +424,7 @@ ifeq ($(OF_USE_SAMSUNG_HAPTICS),1)
 endif
 
 # nano
-ifeq ($(FOX_EXCLUDE_NANO_EDITOR),1)
+ifeq ($(AERA_EXCLUDE_NANO_EDITOR),1)
     TW_EXCLUDE_NANO := true
 endif
 
@@ -446,7 +446,7 @@ ifneq ($(TW_EXCLUDE_NANO), true)
 endif
 
 # bash
-ifeq ($(FOX_BUILD_BASH),1)
+ifeq ($(AERA_BUILD_BASH),1)
   ifeq ($(wildcard external/bash/Android.bp),)
         $(warning Bash sources not found! You need to clone the sources.)
         $(warning Please run: "git clone --depth=1 https://github.com/LineageOS/android_external_bash -b lineage-21.0 external/bash")
@@ -477,20 +477,20 @@ ifeq ($(OF_DISABLE_EXTRA_ABOUT_PAGE),1)
     LOCAL_CFLAGS += -DOF_DISABLE_EXTRA_ABOUT_PAGE='"1"'
 endif
 
-ifeq ($(FOX_ENABLE_APP_MANAGER),1)
-    LOCAL_CFLAGS += -DFOX_ENABLE_APP_MANAGER='"1"'
+ifeq ($(AERA_ENABLE_APP_MANAGER),1)
+    LOCAL_CFLAGS += -DAERA_ENABLE_APP_MANAGER='"1"'
 endif
 
 ifeq ($(OF_NO_SPLASH_CHANGE),1)
     LOCAL_CFLAGS += -DOF_NO_SPLASH_CHANGE='"1"'
 endif
 
-ifeq ($(FOX_DELETE_MAGISK_ADDON),1)
-    LOCAL_CFLAGS += -DFOX_DELETE_MAGISK_ADDON='"1"'
+ifeq ($(AERA_DELETE_MAGISK_ADDON),1)
+    LOCAL_CFLAGS += -DAERA_DELETE_MAGISK_ADDON='"1"'
 endif
 
-ifeq ($(FOX_MOVE_MAGISK_INSTALLER_TO_RAMDISK),1)
-    LOCAL_CFLAGS += -DFOX_MOVE_MAGISK_INSTALLER_TO_RAMDISK='"1"'
+ifeq ($(AERA_MOVE_MAGISK_INSTALLER_TO_RAMDISK),1)
+    LOCAL_CFLAGS += -DAERA_MOVE_MAGISK_INSTALLER_TO_RAMDISK='"1"'
 endif
 
 ifeq ($(OF_USE_GREEN_LED),0)
@@ -601,35 +601,35 @@ endif
 
 # renamed build vars - throw up errors:
 ifeq ($(OF_VIRTUAL_AB_DEVICE),1)
-   $(error "OF_VIRTUAL_AB_DEVICE" is obsolete. Use "export FOX_VIRTUAL_AB_DEVICE=1" instead)
+   $(error "OF_VIRTUAL_AB_DEVICE" is obsolete. Use "export AERA_VIRTUAL_AB_DEVICE=1" instead)
 endif
 
 ifeq ($(OF_AB_DEVICE),1)
-   $(error "OF_AB_DEVICE" is obsolete. Use "export FOX_AB_DEVICE=1" instead)
+   $(error "OF_AB_DEVICE" is obsolete. Use "export AERA_AB_DEVICE=1" instead)
 endif
 
 ifeq ($(OF_PATCH_VBMETA_FLAG),1)
-   $(error "OF_PATCH_VBMETA_FLAG" is obsolete. Use "export FOX_PATCH_VBMETA_FLAG=1" instead)
+   $(error "OF_PATCH_VBMETA_FLAG" is obsolete. Use "export AERA_PATCH_VBMETA_FLAG=1" instead)
 endif
 
 ifeq ($(OF_VANILLA_BUILD),1)
-   $(error "OF_VANILLA_BUILD" is obsolete. Use "export FOX_VANILLA_BUILD=1" instead)
+   $(error "OF_VANILLA_BUILD" is obsolete. Use "export AERA_VANILLA_BUILD=1" instead)
 endif
 
 ifneq ($(OF_TARGET_DEVICES),)
-   $(error "OF_TARGET_DEVICES" is obsolete. Use "FOX_TARGET_DEVICES" instead)
+   $(error "OF_TARGET_DEVICES" is obsolete. Use "AERA_TARGET_DEVICES" instead)
 endif
 
-ifeq ($(FOX_USE_LZMA_COMPRESSION),1)
-   $(error "FOX_USE_LZMA_COMPRESSION" is obsolete. Use "export OF_USE_LZMA_COMPRESSION=1" instead)
+ifeq ($(AERA_USE_LZMA_COMPRESSION),1)
+   $(error "AERA_USE_LZMA_COMPRESSION" is obsolete. Use "export OF_USE_LZMA_COMPRESSION=1" instead)
 endif
 
-ifeq ($(FOX_ADVANCED_SECURITY),1)
-   $(error "FOX_ADVANCED_SECURITY" is obsolete. Use "export OF_ADVANCED_SECURITY=1" instead)
+ifeq ($(AERA_ADVANCED_SECURITY),1)
+   $(error "AERA_ADVANCED_SECURITY" is obsolete. Use "export OF_ADVANCED_SECURITY=1" instead)
 endif
 
-ifeq ($(FOX_USE_LZ4_COMPRESSION),1)
-   $(error "FOX_USE_LZ4_COMPRESSION" is obsolete. Use "export OF_USE_LZ4_COMPRESSION=1" instead)
+ifeq ($(AERA_USE_LZ4_COMPRESSION),1)
+   $(error "AERA_USE_LZ4_COMPRESSION" is obsolete. Use "export OF_USE_LZ4_COMPRESSION=1" instead)
 endif
 
 # whether to display debug information about the target partition when formatting data
@@ -637,8 +637,8 @@ ifeq ($(OF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO),1)
     LOCAL_CFLAGS += -DOF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO
 endif
 
-ifneq ($(FOX_BUGGED_AOSP_ARB_WORKAROUND),)
-    LOCAL_CFLAGS += -DFOX_BUGGED_AOSP_ARB_WORKAROUND='"$(FOX_BUGGED_AOSP_ARB_WORKAROUND)"'
+ifneq ($(AERA_BUGGED_AOSP_ARB_WORKAROUND),)
+    LOCAL_CFLAGS += -DAERA_BUGGED_AOSP_ARB_WORKAROUND='"$(AERA_BUGGED_AOSP_ARB_WORKAROUND)"'
 endif
 
 # some mtk devices will need this, consequent upon recent build system commits
@@ -750,18 +750,18 @@ ifeq ($(OF_UNMOUNT_SDCARDS_BEFORE_REBOOT),1)
 endif
 
 # whether to use the updated magiskboot
-ifeq ($(FOX_USE_UPDATED_MAGISKBOOT),1)
-    LOCAL_CFLAGS += -DFOX_USE_UPDATED_MAGISKBOOT
+ifeq ($(AERA_USE_UPDATED_MAGISKBOOT),1)
+    LOCAL_CFLAGS += -DAERA_USE_UPDATED_MAGISKBOOT
 endif
 
 # whether to skip building Infozip zip from source
-ifeq ($(FOX_EXCLUDE_ZIP),1)
-    LOCAL_CFLAGS += -DFOX_EXCLUDE_ZIP
+ifeq ($(AERA_EXCLUDE_ZIP),1)
+    LOCAL_CFLAGS += -DAERA_EXCLUDE_ZIP
     TW_EXCLUDE_ZIP := true
 endif
 
 # if using the prebuilt LZ4 binary, ensure that liblz4.so is included
-ifeq ($(FOX_USE_LZ4_BINARY),1)
+ifeq ($(AERA_USE_LZ4_BINARY),1)
     RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/liblz4.so
 endif
 
@@ -807,21 +807,21 @@ ifneq ($(TW_LOAD_VENDOR_MODULES),)
     endif
 endif
 
-ifeq ($(FOX_USE_DMSETUP),1)
+ifeq ($(AERA_USE_DMSETUP),1)
   ifeq ($(OF_USE_DMCTL),1)
-    $(error You cannot use both 'FOX_USE_DMSETUP' and 'OF_USE_DMCTL' at the same time)
+    $(error You cannot use both 'AERA_USE_DMSETUP' and 'OF_USE_DMCTL' at the same time)
   else
-    LOCAL_CFLAGS += -DFOX_USE_DMSETUP='"1"'
+    LOCAL_CFLAGS += -DAERA_USE_DMSETUP='"1"'
   endif
 endif
 
-ifeq ($(FOX_USE_DMCTL),1)
-  $(error 'FOX_USE_DMCTL' is obsolete. Use 'OF_USE_DMCTL' instead)
+ifeq ($(AERA_USE_DMCTL),1)
+  $(error 'AERA_USE_DMCTL' is obsolete. Use 'OF_USE_DMCTL' instead)
 endif
 
 ifeq ($(OF_USE_DMCTL),1)
-  ifeq ($(FOX_USE_DMSETUP),1)
-    $(error You cannot use both 'FOX_USE_DMSETUP' and 'OF_USE_DMCTL' at the same time)
+  ifeq ($(AERA_USE_DMSETUP),1)
+    $(error You cannot use both 'AERA_USE_DMSETUP' and 'OF_USE_DMCTL' at the same time)
   else
     LOCAL_CFLAGS += -DOF_USE_DMCTL='"1"'
     TW_USE_DMCTL := true
@@ -836,23 +836,23 @@ ifeq ($(OF_WORKAROUND_BACKUP_BUG),1)
 endif
 
 # ksu and variants
-ifeq ($(FOX_ENABLE_KERNELSU_SUPPORT),1)
-    ifneq ($(FOX_VIRTUAL_AB_DEVICE),1)
-     $(error FOX_ENABLE_KERNELSU_SUPPORT is only valid for Virtual_AB devices with a GKI 5.x or 6.x kernel)
+ifeq ($(AERA_ENABLE_KERNELSU_SUPPORT),1)
+    ifneq ($(AERA_VIRTUAL_AB_DEVICE),1)
+     $(error AERA_ENABLE_KERNELSU_SUPPORT is only valid for Virtual_AB devices with a GKI 5.x or 6.x kernel)
     endif
-    LOCAL_CFLAGS += -DFOX_ENABLE_KERNELSU_SUPPORT
+    LOCAL_CFLAGS += -DAERA_ENABLE_KERNELSU_SUPPORT
 endif
-ifeq ($(FOX_ENABLE_KERNELSU_NEXT_SUPPORT),1)
-    ifneq ($(FOX_VIRTUAL_AB_DEVICE),1)
-     $(error FOX_ENABLE_KERNELSU_NEXT_SUPPORT is only valid for Virtual_AB devices with a GKI 5.x or 6.x kernel)
+ifeq ($(AERA_ENABLE_KERNELSU_NEXT_SUPPORT),1)
+    ifneq ($(AERA_VIRTUAL_AB_DEVICE),1)
+     $(error AERA_ENABLE_KERNELSU_NEXT_SUPPORT is only valid for Virtual_AB devices with a GKI 5.x or 6.x kernel)
     endif
-    LOCAL_CFLAGS += -DFOX_ENABLE_KERNELSU_NEXT_SUPPORT
+    LOCAL_CFLAGS += -DAERA_ENABLE_KERNELSU_NEXT_SUPPORT
 endif
-ifeq ($(FOX_ENABLE_SUKISU_SUPPORT),1)
-    ifneq ($(FOX_VIRTUAL_AB_DEVICE),1)
-     $(error FOX_ENABLE_SUKISU_SUPPORT is only valid for Virtual_AB devices with a GKI 5.x or 6.x kernel)
+ifeq ($(AERA_ENABLE_SUKISU_SUPPORT),1)
+    ifneq ($(AERA_VIRTUAL_AB_DEVICE),1)
+     $(error AERA_ENABLE_SUKISU_SUPPORT is only valid for Virtual_AB devices with a GKI 5.x or 6.x kernel)
     endif
-    LOCAL_CFLAGS += -DFOX_ENABLE_SUKISU_SUPPORT
+    LOCAL_CFLAGS += -DAERA_ENABLE_SUKISU_SUPPORT
 endif
 
 # mask read errors on Get_Folder_Size?
@@ -884,8 +884,8 @@ ifeq ($(OF_NO_REBOOT_FASTBOOT),1)
 endif
 
 # initd
-ifneq ($(FOX_DELETE_INITD_ADDON),0)
-    LOCAL_CFLAGS += -DFOX_DELETE_INITD_ADDON
+ifneq ($(AERA_DELETE_INITD_ADDON),0)
+    LOCAL_CFLAGS += -DAERA_DELETE_INITD_ADDON
 endif
 
 # enable WLAN
@@ -969,27 +969,27 @@ endif
 # this block additionally packs a prebuilt web bundle onto the ramdisk so the
 # server can serve a dashboard at "/".
 #
-#   FOX_REMOTE_DASHBOARD := 1       enable packing the dashboard bundle
-#   FOX_DASHBOARD_DIR    := <path>  source web dir to pack (defaults to the
+#   AERA_REMOTE_DASHBOARD := 1       enable packing the dashboard bundle
+#   AERA_DASHBOARD_DIR    := <path>  source web dir to pack (defaults to the
 #                                   point this at a built React dist/ instead)
-ifeq ($(FOX_REMOTE_DASHBOARD),1)
+ifeq ($(AERA_REMOTE_DASHBOARD),1)
     ifeq ($(OF_ENABLE_WLAN),1)
-    FOX_DASHBOARD_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/fox/dashboard
-    FOX_DASHBOARD_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/fox/.dashboard.stamp
+    AERA_DASHBOARD_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/fox/dashboard
+    AERA_DASHBOARD_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/fox/.dashboard.stamp
 
 ifndef OF_DASHBOARD_RULE_DEFINED
 OF_DASHBOARD_RULE_DEFINED := true
 
 # Track a stamp FILE (not the directory) as the build output; kati/ninja reject
 # directory outputs. The dashboard bundle is populated as a side effect.
-$(FOX_DASHBOARD_STAMP): $(FOX_DASHBOARD_DIR)
+$(AERA_DASHBOARD_STAMP): $(AERA_DASHBOARD_DIR)
 	@echo "Packing OrangeFox remote dashboard from $<"
-	@rm -rf $(FOX_DASHBOARD_OUT) && mkdir -p $(FOX_DASHBOARD_OUT) && cp -a $</. $(FOX_DASHBOARD_OUT)/ && touch $@
+	@rm -rf $(AERA_DASHBOARD_OUT) && mkdir -p $(AERA_DASHBOARD_OUT) && cp -a $</. $(AERA_DASHBOARD_OUT)/ && touch $@
 
-ALL_DEFAULT_INSTALLED_MODULES += $(FOX_DASHBOARD_STAMP)
+ALL_DEFAULT_INSTALLED_MODULES += $(AERA_DASHBOARD_STAMP)
 endif
     else
-        $(warning FOX_REMOTE_DASHBOARD is enabled without OF_ENABLE_WLAN; skipping packaged dashboard because the HTTP server is not built.)
+        $(warning AERA_REMOTE_DASHBOARD is enabled without OF_ENABLE_WLAN; skipping packaged dashboard because the HTTP server is not built.)
     endif
 endif
 
@@ -1000,8 +1000,8 @@ endif
 
 # whether to format (instead of just wiping) data in response to OpenRecovery "--wipe-data" instructions (virtual A/B only)
 ifeq ($(OF_VAB_ORS_WIPE_DATA_IS_FORMAT),1)
-    ifneq ($(FOX_VIRTUAL_AB_DEVICE),1)
-     $(error Enable 'FOX_VIRTUAL_AB_DEVICE' before you can use 'OF_VAB_ORS_WIPE_DATA_IS_FORMAT')
+    ifneq ($(AERA_VIRTUAL_AB_DEVICE),1)
+     $(error Enable 'AERA_VIRTUAL_AB_DEVICE' before you can use 'OF_VAB_ORS_WIPE_DATA_IS_FORMAT')
     endif
     LOCAL_CFLAGS += -DOF_VAB_ORS_WIPE_DATA_IS_FORMAT
 endif

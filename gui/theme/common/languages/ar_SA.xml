@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">التحقق من توقيع OTA التدريجي</string>
 		<string name="fox_dmverity_chk">تعطيل DM-Verity</string>
 		<string name="fox_forced_encryption_chk">تعطيل التشفير الإجباري</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">منع إعادة التشغيل التلقائي بعد تثبيت OTA</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">منع إعادة التشغيل التلقائي بعد تثبيت OTA</string>
 		<string name="of_ota_reboot_disabled">اكتمل تحديث OTA. لقد عطلت إعادة التشغيل التلقائي. إعادة التحكم إليك.</string>
 
 		<!-- Wipe format moved -->

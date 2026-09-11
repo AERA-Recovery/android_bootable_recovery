@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">ইনক্রিমেন্টাল OTA স্বাক্ষর যাচাইকরণ</string>
 		<string name="fox_dmverity_chk">DM-Verity নিষ্ক্রিয় করুন</string>
 		<string name="fox_forced_encryption_chk">বাধ্যতামূলক এনক্রিপশন নিষ্ক্রিয় করুন</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">OTA ইনস্টল করার পরে স্বয়ংক্রিয় পুনরায় বুট রোধ করুন</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">OTA ইনস্টল করার পরে স্বয়ংক্রিয় পুনরায় বুট রোধ করুন</string>
 		<string name="of_ota_reboot_disabled">OTA আপডেট সম্পন্ন হয়েছে। আপনি স্বয়ংক্রিয় পুনরায় বুট নিষ্ক্রিয় করেছেন। আপনার নিয়ন্ত্রণে ফিরে আসা।</string>
 
 		<!-- Wipe format moved -->

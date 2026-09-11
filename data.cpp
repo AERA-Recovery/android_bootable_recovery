@@ -292,10 +292,10 @@ int DataManager::LoadValues(const string & filename)
 // Executed when /persist is mounted
 int DataManager::FindPasswordBackup(void) {
   #ifndef OF_DEVICE_WITHOUT_PERSIST
-  if (TWFunc::Path_Exists(FOX_PASS_IN_PERSIST)) {
-    bPassEnabled = TWFunc::File_Property_Get(FOX_PASS_IN_PERSIST, "fox_use_pass");
-    bPassPass = TWFunc::File_Property_Get(FOX_PASS_IN_PERSIST, "fox_pass_true");
-    bPassType = TWFunc::File_Property_Get(FOX_PASS_IN_PERSIST, "fox_pass_type");
+  if (TWFunc::Path_Exists(AERA_PASS_IN_PERSIST)) {
+    bPassEnabled = TWFunc::File_Property_Get(AERA_PASS_IN_PERSIST, "fox_use_pass");
+    bPassPass = TWFunc::File_Property_Get(AERA_PASS_IN_PERSIST, "fox_pass_true");
+    bPassType = TWFunc::File_Property_Get(AERA_PASS_IN_PERSIST, "fox_pass_type");
 		LOGINFO("PassBak: Found backup\n");
   }
   #endif
@@ -381,7 +381,7 @@ int DataManager::SaveValues()
 
       ofstream file;
 
-      file.open(FOX_PASS_IN_PERSIST, std::ofstream::out | std::ofstream::trunc);
+      file.open(AERA_PASS_IN_PERSIST, std::ofstream::out | std::ofstream::trunc);
       if (file.is_open()) {
         file << "fox_use_pass="    + DataManager::GetStrValue("fox_use_pass") +
                 "\nfox_pass_true=" + DataManager::GetStrValue("fox_pass_true") +
@@ -749,10 +749,10 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("true", "1");
   mConst.SetValue("false", "0");
 
-  mConst.SetValue(TW_VERSION_VAR, FOX_BUILD);
+  mConst.SetValue(TW_VERSION_VAR, AERA_BUILD);
   mConst.SetValue(OF_MAINTAINER_STR, OF_MAINTAINER);
-  mConst.SetValue(BUILD_TYPE_STR, FOX_BUILD_TYPE);
-  mConst.SetValue("fox_branch", FOX_BRANCH);
+  mConst.SetValue(BUILD_TYPE_STR, AERA_BUILD_TYPE);
+  mConst.SetValue("fox_branch", AERA_BRANCH);
 
 #ifdef OF_ENABLE_FRP_ADDON
   if (TWFunc::Path_Exists("/dev/block/bootdevice/by-name/frp") || TWFunc::Fox_Property_Get("ro.frp.pst") != "") {
@@ -760,29 +760,29 @@ void DataManager::SetDefaultValues()
   }
 #endif
 
-#ifdef FOX_MOVE_MAGISK_INSTALLER_TO_RAMDISK
+#ifdef AERA_MOVE_MAGISK_INSTALLER_TO_RAMDISK
   mConst.SetValue("fox_magisk_path", FFiles_dir + "/OF_Magisk");
 #else
   mConst.SetValue("fox_magisk_path", Fox_Home_Files);
 #endif
-  mConst.SetValue("fox_magisk_zip_installer", FOX_MAGISK_ZIP_INSTALLER);
-  mConst.SetValue("fox_magisk_uninstaller", FOX_MAGISK_UNINSTALLER);
+  mConst.SetValue("fox_magisk_zip_installer", AERA_MAGISK_ZIP_INSTALLER);
+  mConst.SetValue("fox_magisk_uninstaller", AERA_MAGISK_UNINSTALLER);
 
   // override any hard-coded value in ui.xml
-  mConst.SetValue("fox_theme_version", FOX_THEME_VERSION);
+  mConst.SetValue("fox_theme_version", AERA_THEME_VERSION);
   //
 
   // variables used in the XML gui
   mConst.SetValue("fox_home_path", Fox_Home);
   mConst.SetValue("fox_settings_path", Fox_Settings_Path);
   mConst.SetValue("fox_home_files", Fox_Home_Files);
-  mConst.SetValue("fox_theme_path", FOX_THEME_PATH);
-  mConst.SetValue("fox_media_rw", FOX_MEDIA_RW);
-  mConst.SetValue("fox_media_rw_data_file", FOX_MEDIA_RW_DATA_FILE);
-  mConst.SetValue("fox_navbar_path", FOX_NAVBAR_PATH);
-  mConst.SetValue("fox_ota_path", FOX_OTA_PATH);
+  mConst.SetValue("fox_theme_path", AERA_THEME_PATH);
+  mConst.SetValue("fox_media_rw", AERA_MEDIA_RW);
+  mConst.SetValue("fox_media_rw_data_file", AERA_MEDIA_RW_DATA_FILE);
+  mConst.SetValue("fox_navbar_path", AERA_NAVBAR_PATH);
+  mConst.SetValue("fox_ota_path", AERA_OTA_PATH);
   mConst.SetValue("aroma_fm_zip", Fox_Home_Files + "/AromaFM/AromaFM.zip");
-  #ifndef FOX_DELETE_INITD_ADDON
+  #ifndef AERA_DELETE_INITD_ADDON
   mConst.SetValue("of_initd_zip", Fox_Home_Files + "/OF_initd.zip");
   #endif
   //
@@ -799,7 +799,7 @@ void DataManager::SetDefaultValues()
   #endif
 
   // magiskboot 24+ whether to force-patch vbmebta
-  #if defined(FOX_PATCH_VBMETA_FLAG)
+  #if defined(AERA_PATCH_VBMETA_FLAG)
   setenv("PATCHVBMETAFLAG", "true", 1);
   #else
   setenv("PATCHVBMETAFLAG", "false", 1);
@@ -848,7 +848,7 @@ void DataManager::SetDefaultValues()
 	// restrict the permissible range to something sensible
 	const int min_h = 4;
 	const int max_h =
-	#ifdef FOX_AB_DEVICE
+	#ifdef AERA_AB_DEVICE
 	9;
 	#else
 	12;
@@ -885,7 +885,7 @@ void DataManager::SetDefaultValues()
     }
   #endif
 
-  mConst.SetValue("fox_build_type1", FOX_BUILD_TYPE);
+  mConst.SetValue("fox_build_type1", AERA_BUILD_TYPE);
 
   // dispense with the "Create Digest" button (it is only for the 9.0 branch)
   mConst.SetValue("fox_show_digest_btn", "0");
@@ -902,7 +902,7 @@ void DataManager::SetDefaultValues()
     mConst.SetValue("fox_disable_reflash_current", "0");
   #endif
 
-  #if defined(FOX_AB_DEVICE) || defined(AB_OTA_UPDATER)
+  #if defined(AERA_AB_DEVICE) || defined(AB_OTA_UPDATER)
     mData.SetValue("of_ab_device", "1");
   #else
     mData.SetValue("of_ab_device", "0");
@@ -926,7 +926,7 @@ void DataManager::SetDefaultValues()
 	mConst.SetValue("tw_is_vendor_boot", "0");
 #endif
 
-#ifdef FOX_ENABLE_APP_MANAGER
+#ifdef AERA_ENABLE_APP_MANAGER
     mConst.SetValue("enable_app_manager", "1");
 #endif
 
@@ -937,13 +937,13 @@ void DataManager::SetDefaultValues()
 #ifdef OF_DISABLE_OTA_MENU
     mConst.SetValue("of_no_ota_menu", "1");
     #ifdef OF_DISABLE_ORS_AUTO_REBOOT
-    mConst.SetValue(FOX_DISABLE_OTA_AUTO_REBOOT, "1");
+    mConst.SetValue(AERA_DISABLE_OTA_AUTO_REBOOT, "1");
     #else
-    mConst.SetValue(FOX_DISABLE_OTA_AUTO_REBOOT, "0");
+    mConst.SetValue(AERA_DISABLE_OTA_AUTO_REBOOT, "0");
     #endif
 #else
     mConst.SetValue("of_no_ota_menu", "0");
-    mPersist.SetValue(FOX_DISABLE_OTA_AUTO_REBOOT, "0");
+    mPersist.SetValue(AERA_DISABLE_OTA_AUTO_REBOOT, "0");
 #endif
 
 #ifdef OF_NO_SPLASH_CHANGE
@@ -952,7 +952,7 @@ void DataManager::SetDefaultValues()
     mConst.SetValue("no_splash_change", "0");
 #endif
 
-#ifdef FOX_DELETE_MAGISK_ADDON
+#ifdef AERA_DELETE_MAGISK_ADDON
     mConst.SetValue("no_magisk", "1");
 #endif
 
@@ -1151,12 +1151,12 @@ void DataManager::SetDefaultValues()
 	TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
 #endif
 
-#ifdef FOX_VENDOR_BOOT_RECOVERY
+#ifdef AERA_VENDOR_BOOT_RECOVERY
   	TWFunc::Fox_Property_Set("orangefox.vendor_boot.recovery", "true");
   	mConst.SetValue("vendor_boot_recovery", "1");
 #endif
 
-#if defined(FOX_ENABLE_KERNELSU_SUPPORT) || defined(FOX_ENABLE_KERNELSU_NEXT_SUPPORT) || defined(FOX_ENABLE_SUKISU_SUPPORT)
+#if defined(AERA_ENABLE_KERNELSU_SUPPORT) || defined(AERA_ENABLE_KERNELSU_NEXT_SUPPORT) || defined(AERA_ENABLE_SUKISU_SUPPORT)
 	TWFunc::Fox_Property_Set("orangefox.support_kernelsu", "true");
 	mConst.SetValue("fox_support_ksu", "1");
 #else
@@ -1183,30 +1183,30 @@ void DataManager::SetDefaultValues()
   mData.SetValue(TW_BACKUP_NAME, "(Auto Generate)");
 
   // Start of the OrangeFox variables
-  mData.SetValue(FOX_INSTALL_PREBUILT_ZIP, "0");
-  mData.SetValue(FOX_CALL_DEACTIVATION, "0");
-  mData.SetValue(FOX_GOVERNOR_STABLE, TWFunc::Get_Balanced_Governor());
-  mData.SetValue(FOX_RUN_SURVIVAL_BACKUP, "0");
-  mData.SetValue(FOX_METADATA_PRE_BUILD, "0");
-  mData.SetValue(FOX_INCREMENTAL_OTA_FAIL, "0");
-  mData.SetValue(FOX_LOADED_FINGERPRINT, "0");
-  mData.SetValue(FOX_MIUI_ZIP_TMP, "0");
-  mData.SetValue(FOX_FLASHLIGHT_VAR, "0");
+  mData.SetValue(AERA_INSTALL_PREBUILT_ZIP, "0");
+  mData.SetValue(AERA_CALL_DEACTIVATION, "0");
+  mData.SetValue(AERA_GOVERNOR_STABLE, TWFunc::Get_Balanced_Governor());
+  mData.SetValue(AERA_RUN_SURVIVAL_BACKUP, "0");
+  mData.SetValue(AERA_METADATA_PRE_BUILD, "0");
+  mData.SetValue(AERA_INCREMENTAL_OTA_FAIL, "0");
+  mData.SetValue(AERA_LOADED_FINGERPRINT, "0");
+  mData.SetValue(AERA_MIUI_ZIP_TMP, "0");
+  mData.SetValue(AERA_FLASHLIGHT_VAR, "0");
 
-  mPersist.SetValue(FOX_DISABLE_BOOT_CHK, "0");
-  mPersist.SetValue(FOX_DISABLE_SECURE_BOOT, "0");
-  mPersist.SetValue(FOX_DISABLE_MOCK_LOCATION, "0");
-  mPersist.SetValue(FOX_ENABLE_MOCK_LOCATION, "0");
-  mPersist.SetValue(FOX_DISABLE_ADB_RO, "0");
-  mPersist.SetValue(FOX_ENABLE_ADB_RO, "0");
-  mPersist.SetValue(FOX_ENABLE_SECURE_RO, "0");
-  mPersist.SetValue(FOX_DISABLE_SECURE_RO, "0");
-  mPersist.SetValue(FOX_DONT_REPLACE_STOCK, "0");
-  mPersist.SetValue(FOX_ADVANCED_WARN_CHK, "0");
-  mPersist.SetValue(FOX_SAVE_LOAD_AROMAFM, "0");
-  mPersist.SetValue(FOX_DISABLE_DEBUGGING, "0");
-  mPersist.SetValue(FOX_ENABLE_DEBUGGING, "1");
-  mData.SetValue(FOX_ENCRYPTED_DEVICE, "0"); //assume that the device is not encrypted
+  mPersist.SetValue(AERA_DISABLE_BOOT_CHK, "0");
+  mPersist.SetValue(AERA_DISABLE_SECURE_BOOT, "0");
+  mPersist.SetValue(AERA_DISABLE_MOCK_LOCATION, "0");
+  mPersist.SetValue(AERA_ENABLE_MOCK_LOCATION, "0");
+  mPersist.SetValue(AERA_DISABLE_ADB_RO, "0");
+  mPersist.SetValue(AERA_ENABLE_ADB_RO, "0");
+  mPersist.SetValue(AERA_ENABLE_SECURE_RO, "0");
+  mPersist.SetValue(AERA_DISABLE_SECURE_RO, "0");
+  mPersist.SetValue(AERA_DONT_REPLACE_STOCK, "0");
+  mPersist.SetValue(AERA_ADVANCED_WARN_CHK, "0");
+  mPersist.SetValue(AERA_SAVE_LOAD_AROMAFM, "0");
+  mPersist.SetValue(AERA_DISABLE_DEBUGGING, "0");
+  mPersist.SetValue(AERA_ENABLE_DEBUGGING, "1");
+  mData.SetValue(AERA_ENCRYPTED_DEVICE, "0"); //assume that the device is not encrypted
   mPersist.SetValue("of_themes_version", "0"); // uninitialised theme version
 
   // { MIUI
@@ -1216,38 +1216,38 @@ void DataManager::SetDefaultValues()
   #endif  
 
   mPersist.SetValue("fox_verify_incremental_ota_signature", incremental_ota);  // set to 1 to support incremental ota
-  mPersist.SetValue(FOX_INCREMENTAL_PACKAGE, incremental_ota); 		// set to 1 to support incremental ota
-  mPersist.SetValue(FOX_DO_SYSTEM_ON_OTA, incremental_ota);
+  mPersist.SetValue(AERA_INCREMENTAL_PACKAGE, incremental_ota); 		// set to 1 to support incremental ota
+  mPersist.SetValue(AERA_DO_SYSTEM_ON_OTA, incremental_ota);
 
   // DJ9 - turn these off by default until further notice, else there might be 
   // issues in new Xiaomi devices or new ROMs; DJ9 //
   string dm_verity_switch = "0"; 
   string fEncrypt_switch = "0";
-  mPersist.SetValue(FOX_DISABLE_FORCED_ENCRYPTION, fEncrypt_switch);
-  mPersist.SetValue(FOX_DISABLE_DM_VERITY, dm_verity_switch);
-  #ifdef FOX_VANILLA_BUILD
-  mPersist.SetValue(FOX_ADVANCED_STOCK_REPLACE, "0");
+  mPersist.SetValue(AERA_DISABLE_FORCED_ENCRYPTION, fEncrypt_switch);
+  mPersist.SetValue(AERA_DISABLE_DM_VERITY, dm_verity_switch);
+  #ifdef AERA_VANILLA_BUILD
+  mPersist.SetValue(AERA_ADVANCED_STOCK_REPLACE, "0");
   #else
-  mPersist.SetValue(FOX_ADVANCED_STOCK_REPLACE, "1");
+  mPersist.SetValue(AERA_ADVANCED_STOCK_REPLACE, "1");
   #endif
   //  MIUI }
 
-  mPersist.SetValue(FOX_FORCE_DEACTIVATE_PROCESS, "0");
-  mPersist.SetValue(FOX_ZIP_INSTALLER_CODE, "0");
-  mPersist.SetValue(FOX_ZIP_INSTALLER_TREBLE, "0");
+  mPersist.SetValue(AERA_FORCE_DEACTIVATE_PROCESS, "0");
+  mPersist.SetValue(AERA_ZIP_INSTALLER_CODE, "0");
+  mPersist.SetValue(AERA_ZIP_INSTALLER_TREBLE, "0");
 
-  mPersist.SetValue(FOX_REBOOT_AFTER_RESTORE, "0");
-  mPersist.SetValue(FOX_NO_OS_SEARCH_ENGINE, "1");
-  mPersist.SetValue(FOX_STATUSBAR_ON_LOCK, "1");
-  mPersist.SetValue(FOX_LED_COLOR, "0");
-  mPersist.SetValue(FOX_FSYNC_CHECK, "0");
-  mPersist.SetValue(FOX_T2W_CHECK, "0");
-  mPersist.SetValue(FOX_MAIN_SURVIVAL_TRIGGER, "META-INF/com/miui/miui_update");
+  mPersist.SetValue(AERA_REBOOT_AFTER_RESTORE, "0");
+  mPersist.SetValue(AERA_NO_OS_SEARCH_ENGINE, "1");
+  mPersist.SetValue(AERA_STATUSBAR_ON_LOCK, "1");
+  mPersist.SetValue(AERA_LED_COLOR, "0");
+  mPersist.SetValue(AERA_FSYNC_CHECK, "0");
+  mPersist.SetValue(AERA_T2W_CHECK, "0");
+  mPersist.SetValue(AERA_MAIN_SURVIVAL_TRIGGER, "META-INF/com/miui/miui_update");
 
-  mPersist.SetValue(FOX_FORCE_FAST_CHARGE_CHECK, "0");
-  mPersist.SetValue(FOX_POWERSAVE_CHECK, "0");
-  mPersist.SetValue(FOX_PERFORMANCE_CHECK, "0");
-  mPersist.SetValue(FOX_BALANCE_CHECK, "1");
+  mPersist.SetValue(AERA_FORCE_FAST_CHARGE_CHECK, "0");
+  mPersist.SetValue(AERA_POWERSAVE_CHECK, "0");
+  mPersist.SetValue(AERA_PERFORMANCE_CHECK, "0");
+  mPersist.SetValue(AERA_BALANCE_CHECK, "1");
 
 #ifdef OF_USE_LOCKSCREEN_BUTTON
   mPersist.SetValue("lock_btn", "1");
@@ -1255,10 +1255,10 @@ void DataManager::SetDefaultValues()
   mPersist.SetValue("lock_btn", "0");
 #endif
 
-  mConst.SetValue(FOX_SURVIVAL_FOLDER_VAR, FOX_SURVIVAL_FOLDER);
-  mConst.SetValue(FOX_SURVIVAL_BACKUP_NAME, FOX_SURVIVAL_BACKUP);
-  mConst.SetValue(FOX_ACTUAL_BUILD_VAR, FOX_BUILD);
-  mConst.SetValue(FOX_TMP_SCRIPT_DIR, Fox_tmp_dir);
+  mConst.SetValue(AERA_SURVIVAL_FOLDER_VAR, AERA_SURVIVAL_FOLDER);
+  mConst.SetValue(AERA_SURVIVAL_BACKUP_NAME, AERA_SURVIVAL_BACKUP);
+  mConst.SetValue(AERA_ACTUAL_BUILD_VAR, AERA_BUILD);
+  mConst.SetValue(AERA_TMP_SCRIPT_DIR, Fox_tmp_dir);
   mData.SetValue("found_fox_overwriting_rom", 0);
 
   // whether we are processing any asserts
@@ -1269,7 +1269,7 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("fox_product_device", str);
 
   // let the device name in the "About" menu show the canonical value, rather than the one determined at build time
-  mData.SetValue(FOX_COMPATIBILITY_DEVICE, str.c_str());
+  mData.SetValue(AERA_COMPATIBILITY_DEVICE, str.c_str());
 
   // End of the OrangeFox variables
 

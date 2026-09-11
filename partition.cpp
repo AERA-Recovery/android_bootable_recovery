@@ -720,10 +720,10 @@ void TWPartition::Setup_Data_Partition(bool Display_Error) {
 			Setup_Data_Media();
 		#endif
 		DataManager::SetValue(TW_IS_ENCRYPTED, 0);
-		DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
+		DataManager::SetValue(AERA_ENCRYPTED_DEVICE, "1");
 	} else if (!Mount(false)) {
 		/*if (Is_Present) {
-			DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
+			DataManager::SetValue(AERA_ENCRYPTED_DEVICE, "1");
 			if (Key_Directory.empty()) {
 				set_partition_data(Use_Original_Path ? Original_Path.c_str() : Actual_Block_Device.c_str(), Crypto_Key_Location.c_str());
 				if (cryptfs_check_footer() == 0) {
@@ -2208,7 +2208,7 @@ bool TWPartition::Backup(PartitionSettings *part_settings, pid_t *tar_fork_pid) 
 }
 
 bool TWPartition::Restore(PartitionSettings *part_settings) {
-  	if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1) {
+	if (DataManager::GetIntValue(AERA_RUN_SURVIVAL_BACKUP) != 1) {
 	    TWFunc::GUI_Operation_Text(TW_RESTORE_TEXT, Display_Name, gui_parse_text("{@restoring_hdr}"));
 	    LOGINFO("Restore filename is: %s/%s\n", part_settings->Backup_Folder.c_str(), Backup_FileName.c_str());
 	}
@@ -2318,7 +2318,7 @@ bool TWPartition::Wipe_Encryption() {
 		gui_msg("format_data_msg=You may need to reboot recovery to be able to use /data again.");
 #endif
 		if (Is_FBE) {
-		    if (DataManager::GetIntValue(FOX_DISABLE_FORCED_ENCRYPTION) != 1) {
+		    if (DataManager::GetIntValue(AERA_DISABLE_FORCED_ENCRYPTION) != 1) {
 			gui_msg(Msg(msg::kWarning, "data_media_fbe_msg=OrangeFox will not recreate /data/media on an FBE device. Please reboot into your rom to create /data/media."));
 		    }
 		} else {
@@ -2740,7 +2740,7 @@ bool TWPartition::Wipe_F2FS() {
 		TWFunc::Exec_Cmd("dmctl delete userdata", false);
 		usleep(32768);
 	}
-	#elif defined(FOX_USE_DMSETUP)
+	#elif defined(AERA_USE_DMSETUP)
 	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
 		LOGINFO("OrangeFox: running dmsetup before formatting...\n");
 		TWFunc::Exec_Cmd("dmsetup remove -f userdata", false);
@@ -2901,7 +2901,7 @@ bool TWPartition::Backup_Tar(PartitionSettings *part_settings, pid_t *tar_fork_p
 	if (!Mount(true))
 		return false;
 
-  	if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1) {
+	if (DataManager::GetIntValue(AERA_RUN_SURVIVAL_BACKUP) != 1) {
       	   TWFunc::GUI_Operation_Text(TW_BACKUP_TEXT, Backup_Display_Name, gui_parse_text("{@backing}"));
 	   gui_msg(Msg("backing_up=Backing up {1}...")(Backup_Display_Name));
 	}
@@ -2963,7 +2963,7 @@ bool TWPartition::Backup_Tar(PartitionSettings *part_settings, pid_t *tar_fork_p
 bool TWPartition::Backup_Image(PartitionSettings *part_settings) {
 	string Full_FileName, adb_file_name;
 
-  	if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1) {
+	if (DataManager::GetIntValue(AERA_RUN_SURVIVAL_BACKUP) != 1) {
 	   TWFunc::GUI_Operation_Text(TW_BACKUP_TEXT, Display_Name, gui_parse_text("{@backing}"));
 	    gui_msg(Msg("backing_up=Backing up {1}...")(Backup_Display_Name));
 	}
@@ -3098,7 +3098,7 @@ exit:
 bool TWPartition::Backup_Dump_Image(PartitionSettings *part_settings) {
 	string Full_FileName, Command;
 
-  	if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1) {
+	if (DataManager::GetIntValue(AERA_RUN_SURVIVAL_BACKUP) != 1) {
 	   TWFunc::GUI_Operation_Text(TW_BACKUP_TEXT, Display_Name, gui_parse_text("{@backing}"));
 	   gui_msg(Msg("backing_up=Backing up {1}...")(Backup_Display_Name));
 	}
@@ -3175,7 +3175,7 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
 		if (!Wipe_AndSec())
 			return false;
 	} else {
-		if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1 && !keep_internal_storage_data) {
+		if (DataManager::GetIntValue(AERA_RUN_SURVIVAL_BACKUP) != 1 && !keep_internal_storage_data) {
 		   gui_msg(Msg("wiping=Wiping {1}")(Backup_Display_Name));
 		}
 		if (Has_Data_Media && Mount_Point == "/data" && Restore_File_System != Current_File_System) {
@@ -3192,7 +3192,7 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
 			}
 		}
 	}
-	if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1) {
+	if (DataManager::GetIntValue(AERA_RUN_SURVIVAL_BACKUP) != 1) {
 	   TWFunc::GUI_Operation_Text(TW_RESTORE_TEXT, Backup_Display_Name, gui_parse_text("{@restoring_hdr}"));
 	   gui_msg(Msg("restoring=Restoring {1}...")(Backup_Display_Name));
 	}
@@ -3250,7 +3250,7 @@ bool TWPartition::Restore_Image(PartitionSettings *part_settings) {
 	string Full_FileName;
 	string Restore_File_System = Get_Restore_File_System(part_settings);
 
-  	if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1) {
+	if (DataManager::GetIntValue(AERA_RUN_SURVIVAL_BACKUP) != 1) {
 	   TWFunc::GUI_Operation_Text(TW_RESTORE_TEXT, Backup_Display_Name, gui_parse_text("{@restoring_hdr}"));
 	   gui_msg(Msg("restoring=Restoring {1}...")(Backup_Display_Name));
 	}

@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">増分OTA署名検証</string>
 		<string name="fox_dmverity_chk">DM-Verityを無効にする</string>
 		<string name="fox_forced_encryption_chk">強制暗号化を無効にする</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">OTAインストール後の自動再起動を防ぐ</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">OTAインストール後の自動再起動を防ぐ</string>
 		<string name="of_ota_reboot_disabled">OTA更新が完了しました。 自動再起動を無効にしました。 制御を返します。</string>
 
 		<!-- Wipe format moved -->

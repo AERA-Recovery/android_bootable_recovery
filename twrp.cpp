@@ -91,7 +91,7 @@ static void Decrypt_Page(bool SkipDecryption, bool datamedia) {
 			LOGINFO("Skipping decryption\n");
 			PartitionManager.Update_System_Details();
 		} else if (DataManager::GetIntValue(TW_CRYPTO_PWTYPE) != 0) {
-			DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
+			DataManager::SetValue(AERA_ENCRYPTED_DEVICE, "1");
 			LOGINFO("Is encrypted, do decrypt page first\n");
 			const bool file_based = DataManager::GetIntValue(TW_IS_FBE) != 0;
 			if (file_based)
@@ -169,8 +169,8 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decrypti
 #if defined(TW_INCLUDE_LIBRESETPROP)
 	std::vector<std::string> build_date_props = {"ro.build.date.utc", "ro.bootimage.build.date.utc", "ro.vendor.build.date.utc", "ro.system.build.date.utc", "ro.system_ext.build.date.utc", "ro.product.build.date.utc", "ro.odm.build.date.utc"};
 	std::string val = "0";
-	#ifdef FOX_BUGGED_AOSP_ARB_WORKAROUND
-	val = FOX_BUGGED_AOSP_ARB_WORKAROUND;
+	#ifdef AERA_BUGGED_AOSP_ARB_WORKAROUND
+	val = AERA_BUGGED_AOSP_ARB_WORKAROUND;
 	#endif
 	for (auto prop : build_date_props) {
 		TWFunc::Property_Override(prop, val);
@@ -413,18 +413,18 @@ static bool Fox_CheckReload_Themes() {
   if (DataManager::GetStrValue("data_decrypted") == "1" 
   || DataManager::GetIntValue(TW_IS_FBE) == 1 
   || TWFunc::Fox_Property_Get("orangefox.mount_to_decrypt") == "1") {
-	DataManager::SetValue(FOX_ENCRYPTED_DEVICE, "1");
+	DataManager::SetValue(AERA_ENCRYPTED_DEVICE, "1");
     }
 #if defined(OF_ALLOW_EARLY_SETTINGS_LOAD) && defined(OF_SETTINGS_ROOT_DIRECTORY)
   return false;
 #else
-  return (TWFunc::Path_Exists(FOX_THEME_PATH) || TWFunc::Path_Exists(FOX_NAVBAR_PATH));
+  return (TWFunc::Path_Exists(AERA_THEME_PATH) || TWFunc::Path_Exists(AERA_NAVBAR_PATH));
 #endif
 }
 
 // remove a problem file injected into vAB recovery ramdisk by some QPR2 ROMs
 static void Fox_Remove_Problematic_File() {
-#ifdef FOX_VIRTUAL_AB_DEVICE
+#ifdef AERA_VIRTUAL_AB_DEVICE
 	std::string f = "/system/etc/vintf/manifest/boot-service.qti.xml";
 	android::base::RemoveFileIfExists(f);
 #endif
@@ -468,14 +468,14 @@ int main(int argc, char **argv) {
 	// Fox stuff
 	TWFunc::Set_Sbin_Dir_Executable_Flags();
   	property_set("ro.orangefox.boot", "1");
-  	property_set("ro.orangefox.type", FOX_BUILD_TYPE);
-  	property_set("ro.orangefox.variant", FOX_VARIANT);
+	property_set("ro.orangefox.type", AERA_BUILD_TYPE);
+	property_set("ro.orangefox.variant", AERA_VARIANT);
   	property_set("ro.orangefox.build", "orangefox");
-	property_set("ro.orangefox.release.version", FOX_BUILD);
+	property_set("ro.orangefox.release.version", AERA_BUILD);
   	TWFunc::Fox_Property_Set("ro.orangefox.boot.header.version", std::to_string(BOARD_BOOT_HEADER_VERSION));
 
-  	#ifdef FOX_TARGET_DEVICES
-	property_set("ro.twrp.target.devices", FOX_TARGET_DEVICES);
+	#ifdef AERA_TARGET_DEVICES
+	property_set("ro.twrp.target.devices", AERA_TARGET_DEVICES);
   	#endif
 
 	#ifdef OF_DYNAMIC_FULL_SIZE
@@ -490,11 +490,11 @@ int main(int argc, char **argv) {
 	android::base::SetProperty(TW_KEYMASTER_VERSION_PROP, OF_DEFAULT_KEYMASTER_VERSION);
 	#endif
 
-	#ifdef FOX_VIRTUAL_AB_DEVICE
+	#ifdef AERA_VIRTUAL_AB_DEVICE
 	property_set("ro.orangefox.virtual_ab", "1");
 	#endif
 
-	#ifdef FOX_VANILLA_BUILD
+	#ifdef AERA_VANILLA_BUILD
 	property_set("ro.orangefox.vanilla", "1");
 	#endif
 
@@ -513,7 +513,7 @@ int main(int argc, char **argv) {
     	string fox_cfg = Fox_Cfg;
     	if (!TWFunc::Path_Exists(fox_cfg))
     	    fox_cfg = "/system" + Fox_Cfg;
-  	string fox_build_date = TWFunc::File_Property_Get (fox_cfg, "FOX_BUILD_DATE");
+	string fox_build_date = TWFunc::File_Property_Get (fox_cfg, "AERA_BUILD_DATE");
   	if (fox_build_date == "") {
         	fox_build_date = TWFunc::File_Property_Get ("/default.prop", "ro.bootimage.build.date");
         	if (fox_build_date == "") {
@@ -523,14 +523,14 @@ int main(int argc, char **argv) {
          	}
      	}
 		 
-  	DataManager::SetValue("FOX_BUILD_DATE_REAL", fox_build_date);
+	DataManager::SetValue("AERA_BUILD_DATE_REAL", fox_build_date);
 
   	// Set the start date to the recovery's build date
   	TWFunc::Reset_Clock();
 
-  	DataManager::GetValue(FOX_COMPATIBILITY_DEVICE, Fox_Current_Device);
+	DataManager::GetValue(AERA_COMPATIBILITY_DEVICE, Fox_Current_Device);
 	printf("Starting OrangeFox Recovery %s [%s, core: %s] (built on %s for %s [dev_ver: %s (branch: %s)]; pid %d)\n",
-		FOX_BUILD, FOX_VARIANT, FOX_MAIN_VERSION_STR, fox_build_date.c_str(), Fox_Current_Device.c_str(), FOX_CURRENT_DEV_STR, OF_CURRENT_BRANCH, getpid());
+		AERA_BUILD, AERA_VARIANT, AERA_MAIN_VERSION_STR, fox_build_date.c_str(), Fox_Current_Device.c_str(), AERA_CURRENT_DEV_STR, OF_CURRENT_BRANCH, getpid());
 
 	// refresh the specific device codename if we have a generic unified codename
 	TWFunc::Fox_Set_Current_Device_CodeName();

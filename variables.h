@@ -21,14 +21,14 @@
 #ifndef _VARIABLES_HEADER_
 #define _VARIABLES_HEADER_
 
-#define FOX_RECOVERY_NAME	"OrangeFox"
-#define FOX_MAIN_VERSION_STR    FOX_INTERNAL_RELEASE // defined in orangefox.mk
-#define FOX_BRANCH		"12"
-#define TW_VERSION_STR 		FOX_MAIN_VERSION_STR
-#define BUILD_TYPE_STR 		FOX_BUILD_TYPE
+#define AERA_RECOVERY_NAME	"AERA"
+#define AERA_MAIN_VERSION_STR    AERA_INTERNAL_RELEASE // defined in orangefox.mk
+#define AERA_BRANCH		"1"
+#define TW_VERSION_STR 		AERA_MAIN_VERSION_STR
+#define BUILD_TYPE_STR 		AERA_BUILD_TYPE
 
 // OrangeFox - Values
-#define FOX_DEVICE              FOX_DEVICE_MODEL
+#define AERA_DEVICE              AERA_DEVICE_MODEL
 #define OF_MAINTAINER_STR	"of_maintainer"
 #define OF_FLASHLIGHT_ENABLE_STR "of_flashlight_enable"
 
@@ -82,25 +82,25 @@ static const std::string Fox_Bin_Dir = "/system/bin";
 static const std::string Fox_Tmp = "/tmp";
 
 static const std::string Fox_Home =
-#ifdef FOX_MISCELLANEOUS_ROOT_DIRECTORY
-FOX_MISCELLANEOUS_ROOT_DIRECTORY"/Fox";
+#ifdef OF_MISCELLANEOUS_ROOT_DIRECTORY
+OF_MISCELLANEOUS_ROOT_DIRECTORY"/Fox";
 #else
 OF_STORAGE_PATH;
 #endif
 
 static const std::string Fox_Settings_Path =
-#ifdef FOX_SETTINGS_ROOT_DIRECTORY
-FOX_SETTINGS_ROOT_DIRECTORY"/Fox";
+#ifdef OF_SETTINGS_ROOT_DIRECTORY
+OF_SETTINGS_ROOT_DIRECTORY"/Fox";
 #else
 OF_STORAGE_PATH;
 #endif
 
 static const std::string Fox_ResetProp_Bin = "/system/bin/resetprop";
-static const std::string FOX_THEME_PATH = Fox_Settings_Path + "/.theme";
-static const std::string FOX_NAVBAR_PATH =  Fox_Settings_Path + "/.navbar";
+static const std::string AERA_THEME_PATH = Fox_Settings_Path + "/.theme";
+static const std::string AERA_NAVBAR_PATH =  Fox_Settings_Path + "/.navbar";
 static const std::string Fox_Home_Files = Fox_Home + "/FoxFiles";
 static const std::string Fox_Logs_Dir = Fox_Home + "/logs";
-static const std::string FOX_OTA_PATH =  Fox_Home + "/OTA";
+static const std::string AERA_OTA_PATH =  Fox_Home + "/OTA";
 static const std::string Fox_sdcard_aroma_cfg = Fox_Home + "/aromafm.cfg";
 static const std::string Fox_aroma_cfg = Fox_Home_Files + "/AromaFM/AromaFM.zip.cfg";
 static const std::string FFiles_dir = "/FFiles";
@@ -119,84 +119,84 @@ static int Fox_AutoDeactivate_OnReboot = 0;   // call the deactivation process a
 static int Fox_Force_Deactivate_Process = 0;  // for a call to Deactivate_Process()
 static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI ROM?
 
-#define FOX_SURVIVAL_FOLDER		Fox_Home.c_str()
-//#define FOX_UPDATE_BINARY		"META-INF/com/google/android/update-binary" // all zip installers must have this
-#define FOX_MIUI_UPDATE_PATH 		"META-INF/com/miui/miui_update" 	// standard MIUI ROMs have this
-#define FOX_MIUI_UPDATE_PATH_EU 	"META-INF/com/xiaomieu/xiaomieu.sh"  // Xiaomi.EU MIUI ROMs have this
-#define FOX_FORCE_DEACTIVATE_PROCESS 	"fox_force_deactivate_process"
-#define FOX_ZIP_INSTALLER_CODE 		"fox_zip_installer_code"
-#define FOX_ZIP_INSTALLER_TREBLE 	"fox_zip_installer_treble"
-#define FOX_DISABLE_OTA_AUTO_REBOOT 	"fox_disable_ota_auto_reboot_check"
-#define FOX_STARTUP_SCRIPT 		"/sbin/foxstart.sh"
-#define FOX_PS_BIN 			"/FFiles/ps"
-#define FOX_NEW_MAGISKBOOT 		"/FFiles/magiskboot_new"
-#define FOX_MAGISK_ZIP_INSTALLER 	"Magisk.zip"
-#define FOX_MAGISK_UNINSTALLER 		"uninstall.zip"
+#define AERA_SURVIVAL_FOLDER		Fox_Home.c_str()
+//#define AERA_UPDATE_BINARY		"META-INF/com/google/android/update-binary" // all zip installers must have this
+#define AERA_MIUI_UPDATE_PATH 		"META-INF/com/miui/miui_update" 	// standard MIUI ROMs have this
+#define AERA_MIUI_UPDATE_PATH_EU 	"META-INF/com/xiaomieu/xiaomieu.sh"  // Xiaomi.EU MIUI ROMs have this
+#define AERA_FORCE_DEACTIVATE_PROCESS 	"fox_force_deactivate_process"
+#define AERA_ZIP_INSTALLER_CODE 		"fox_zip_installer_code"
+#define AERA_ZIP_INSTALLER_TREBLE 	"fox_zip_installer_treble"
+#define AERA_DISABLE_OTA_AUTO_REBOOT 	"fox_disable_ota_auto_reboot_check"
+#define AERA_STARTUP_SCRIPT 		"/sbin/foxstart.sh"
+#define AERA_PS_BIN 			"/FFiles/ps"
+#define AERA_NEW_MAGISKBOOT 		"/FFiles/magiskboot_new"
+#define AERA_MAGISK_ZIP_INSTALLER 	"Magisk.zip"
+#define AERA_MAGISK_UNINSTALLER 		"uninstall.zip"
 
-#define FOX_THEME_VERSION 		"2.0"
-#define FOX_PASS_IN_PERSIST 		"/persist/.fsec"
-#define FOX_PRE_ROM_FLASH_SCRIPT  	"/system/bin/pre_rom_flash.sh"
-#define FOX_POST_ROM_FLASH_SCRIPT 	"/system/bin/post_rom_flash.sh"
-#define FOX_BEFORE_REBOOT_SCRIPT 	"/system/bin/beforereboot.sh"
-#define FOX_AFTER_ROM_FLASH_SCRIPT	"/sbin/afterromflash.sh"
-#define FOX_POST_DATA_FORMAT_SCRIPT 	"/sbin/postformatdata.sh"
+#define AERA_THEME_VERSION 		"2.0"
+#define AERA_PASS_IN_PERSIST 		"/persist/.fsec"
+#define AERA_PRE_ROM_FLASH_SCRIPT  	"/system/bin/pre_rom_flash.sh"
+#define AERA_POST_ROM_FLASH_SCRIPT 	"/system/bin/post_rom_flash.sh"
+#define AERA_BEFORE_REBOOT_SCRIPT 	"/system/bin/beforereboot.sh"
+#define AERA_AFTER_ROM_FLASH_SCRIPT	"/sbin/afterromflash.sh"
+#define AERA_POST_DATA_FORMAT_SCRIPT 	"/sbin/postformatdata.sh"
 #define TW_FORMAT_DATA_SCRIPT 		"/system/bin/formatdata.sh"
 
 // **** //
 
-#define FOX_SURVIVAL_FOLDER_VAR      	"fox_survival_backup_folder_path"
-#define FOX_SURVIVAL_BACKUP_NAME       	"fox_survival_backup_folder_name"
-#define FOX_SURVIVAL_BACKUP       	"OTA"
-#define FOX_FILES_BACKUPS_FOLDER_VAR    "fox_files_backup_folder_var"
-#define FOX_DISABLE_BOOT_CHK       	"fox_disable_boot_check"
-#define FOX_DO_SYSTEM_ON_OTA       	"fox_include_system_survival"
-#define FOX_INSTALL_PREBUILT_ZIP       	"fox_install_built_in_zip"
-#define FOX_DONT_REPLACE_STOCK       	"fox_reboot_dont_disable_stock_recovery"
-#define FOX_ACTUAL_BUILD_VAR            "fox_actual_build"
-#define FOX_INCREMENTAL_PACKAGE         "fox_support_miui_ota"
-#define FOX_ENABLE_SECURE_RO            "fox_reboot_enable_secure_ro"
-#define FOX_DISABLE_SECURE_RO           "fox_reboot_disable_secure_ro"
-#define FOX_ENABLE_ADB_RO             	"fox_reboot_enable_adb_ro"
-#define FOX_DISABLE_ADB_RO             	"fox_reboot_disable_adb_ro"
-#define FOX_ADVANCED_WARN_CHK           "fox_advanced_warning_checkbox"
-#define FOX_DISABLE_MOCK_LOCATION       "fox_reboot_disable_mock_location"
-#define FOX_ENABLE_MOCK_LOCATION        "fox_reboot_enable_mock_location"
-#define FOX_DISABLE_SECURE_BOOT         "fox_reboot_disable_secure_boot"
-#define FOX_ADVANCED_STOCK_REPLACE      "fox_reboot_advanced_stock_recovery_check"
-#define FOX_SAVE_LOAD_AROMAFM           "fox_reboot_saveload_aromafm_check"
-#define FOX_DISABLE_DEBUGGING           "fox_reboot_disable_debugging_check"
-#define FOX_ENABLE_DEBUGGING           	"fox_reboot_forced_debugging_check"
-#define FOX_DISABLE_FORCED_ENCRYPTION   "fox_reboot_forced_encryption_check"
-#define FOX_DISABLE_DM_VERITY           "fox_reboot_dm_verity_check"
-#define FOX_REBOOT_AFTER_RESTORE        "fox_reboot_after_restore"
-#define FOX_COMPATIBILITY_DEVICE        "fox_compatibility_fox_device"
-#define FOX_MAIN_SURVIVAL_TRIGGER       "fox_main_survival_trigger"
-#define FOX_NO_OS_SEARCH_ENGINE         "fox_noos_engine"
-#define FOX_TMP_SCRIPT_DIR       	"fox_tmp_script_directory"
-#define FOX_STATUSBAR_ON_LOCK       	"fox_statusbar_on_lockpass"
-#define FOX_LED_COLOR       		"fox_led_color"
-#define FOX_BALANCE_CHECK       	"fox_boot_balance_check"
-#define FOX_NOTIFY_AFTER_RESTORE       	"fox_inject_after_restore"
-#define FOX_NOTIFY_AFTER_BACKUP       	"fox_inject_after_backup"
-#define FOX_FLASHLIGHT_VAR     		"flashlight"
-#define FOX_FSYNC_CHECK       		"fox_boot_fsync_check"
-#define FOX_FORCE_FAST_CHARGE_CHECK     "fox_boot_fastcharge_check"
-#define FOX_T2W_CHECK       		"fox_boot_t2w_check"
-#define FOX_PERFORMANCE_CHECK       	"fox_boot_performance_check"
-#define FOX_POWERSAVE_CHECK       	"fox_boot_powersave_check"
-#define FOX_CALL_DEACTIVATION         	"fox_call_deactivation_process"
-#define FOX_GOVERNOR_STABLE         	"governor_stable"
+#define AERA_SURVIVAL_FOLDER_VAR      	"fox_survival_backup_folder_path"
+#define AERA_SURVIVAL_BACKUP_NAME       	"fox_survival_backup_folder_name"
+#define AERA_SURVIVAL_BACKUP       	"OTA"
+#define AERA_FILES_BACKUPS_FOLDER_VAR    "fox_files_backup_folder_var"
+#define AERA_DISABLE_BOOT_CHK       	"fox_disable_boot_check"
+#define AERA_DO_SYSTEM_ON_OTA       	"fox_include_system_survival"
+#define AERA_INSTALL_PREBUILT_ZIP       	"fox_install_built_in_zip"
+#define AERA_DONT_REPLACE_STOCK       	"fox_reboot_dont_disable_stock_recovery"
+#define AERA_ACTUAL_BUILD_VAR            "fox_actual_build"
+#define AERA_INCREMENTAL_PACKAGE         "fox_support_miui_ota"
+#define AERA_ENABLE_SECURE_RO            "fox_reboot_enable_secure_ro"
+#define AERA_DISABLE_SECURE_RO           "fox_reboot_disable_secure_ro"
+#define AERA_ENABLE_ADB_RO             	"fox_reboot_enable_adb_ro"
+#define AERA_DISABLE_ADB_RO             	"fox_reboot_disable_adb_ro"
+#define AERA_ADVANCED_WARN_CHK           "fox_advanced_warning_checkbox"
+#define AERA_DISABLE_MOCK_LOCATION       "fox_reboot_disable_mock_location"
+#define AERA_ENABLE_MOCK_LOCATION        "fox_reboot_enable_mock_location"
+#define AERA_DISABLE_SECURE_BOOT         "fox_reboot_disable_secure_boot"
+#define AERA_ADVANCED_STOCK_REPLACE      "fox_reboot_advanced_stock_recovery_check"
+#define AERA_SAVE_LOAD_AROMAFM           "fox_reboot_saveload_aromafm_check"
+#define AERA_DISABLE_DEBUGGING           "fox_reboot_disable_debugging_check"
+#define AERA_ENABLE_DEBUGGING           	"fox_reboot_forced_debugging_check"
+#define AERA_DISABLE_FORCED_ENCRYPTION   "fox_reboot_forced_encryption_check"
+#define AERA_DISABLE_DM_VERITY           "fox_reboot_dm_verity_check"
+#define AERA_REBOOT_AFTER_RESTORE        "fox_reboot_after_restore"
+#define AERA_COMPATIBILITY_DEVICE        "fox_compatibility_fox_device"
+#define AERA_MAIN_SURVIVAL_TRIGGER       "fox_main_survival_trigger"
+#define AERA_NO_OS_SEARCH_ENGINE         "fox_noos_engine"
+#define AERA_TMP_SCRIPT_DIR       	"fox_tmp_script_directory"
+#define AERA_STATUSBAR_ON_LOCK       	"fox_statusbar_on_lockpass"
+#define AERA_LED_COLOR       		"fox_led_color"
+#define AERA_BALANCE_CHECK       	"fox_boot_balance_check"
+#define AERA_NOTIFY_AFTER_RESTORE       	"fox_inject_after_restore"
+#define AERA_NOTIFY_AFTER_BACKUP       	"fox_inject_after_backup"
+#define AERA_FLASHLIGHT_VAR     		"flashlight"
+#define AERA_FSYNC_CHECK       		"fox_boot_fsync_check"
+#define AERA_FORCE_FAST_CHARGE_CHECK     "fox_boot_fastcharge_check"
+#define AERA_T2W_CHECK       		"fox_boot_t2w_check"
+#define AERA_PERFORMANCE_CHECK       	"fox_boot_performance_check"
+#define AERA_POWERSAVE_CHECK       	"fox_boot_powersave_check"
+#define AERA_CALL_DEACTIVATION         	"fox_call_deactivation_process"
+#define AERA_GOVERNOR_STABLE         	"governor_stable"
 
-#define FOX_MIUI_ZIP_TMP                "fox_miui_zip_tmp"
-#define FOX_LOADED_FINGERPRINT          "fox_loaded_signature"
-#define FOX_MIN_EXPECTED_FP_SIZE 30
+#define AERA_MIUI_ZIP_TMP                "fox_miui_zip_tmp"
+#define AERA_LOADED_FINGERPRINT          "fox_loaded_signature"
+#define AERA_MIN_EXPECTED_FP_SIZE 30
 
-#define FOX_INCREMENTAL_OTA_FAIL        "fox_ota_fail"
-#define FOX_RUN_SURVIVAL_BACKUP         "fox_run_survival_backup"
-#define FOX_METADATA_PRE_BUILD          "fox_pre_build"
-#define FOX_ENCRYPTED_DEVICE		"fox_encrypted_device"
-#define FOX_MEDIA_RW			"media_rw:media_rw"
-#define FOX_MEDIA_RW_DATA_FILE		"u:object_r:media_rw_data_file:s0"
+#define AERA_INCREMENTAL_OTA_FAIL        "fox_ota_fail"
+#define AERA_RUN_SURVIVAL_BACKUP         "fox_run_survival_backup"
+#define AERA_METADATA_PRE_BUILD          "fox_pre_build"
+#define AERA_ENCRYPTED_DEVICE		"fox_encrypted_device"
+#define AERA_MEDIA_RW			"media_rw:media_rw"
+#define AERA_MEDIA_RW_DATA_FILE		"u:object_r:media_rw_data_file:s0"
 
 //
 #define TW_USE_COMPRESSION_VAR      	"tw_use_compression"

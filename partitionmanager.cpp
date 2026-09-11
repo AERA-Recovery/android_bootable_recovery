@@ -2184,7 +2184,7 @@ void TWPartitionManager::Update_System_Details(void) {
   	bool reporter = false;
   	#endif
 
-  	if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1)
+	if (DataManager::GetIntValue(AERA_RUN_SURVIVAL_BACKUP) != 1)
 		gui_msg("update_part_details=Updating partition details...");
 	for (iter = Partitions.begin(); iter != Partitions.end(); iter++) {
 		(*iter)->Update_Size(reporter);
@@ -2245,7 +2245,7 @@ void TWPartitionManager::Update_System_Details(void) {
 			}
 		}
 	}
-  	if (DataManager::GetIntValue(FOX_RUN_SURVIVAL_BACKUP) != 1)
+	if (DataManager::GetIntValue(AERA_RUN_SURVIVAL_BACKUP) != 1)
 		gui_msg("update_part_details_done=...done");
 	DataManager::SetValue(TW_BACKUP_DATA_SIZE, data_size);
 	string current_storage_path = DataManager::GetCurrentStoragePath();
@@ -3128,7 +3128,7 @@ void TWPartitionManager::Get_Partition_List(string ListType,
 
 		if (DataManager::GetIntValue("tw_has_repack_tools") != 0 && DataManager::GetIntValue("tw_has_boot_slots") != 0 && DataManager::GetIntValue("tw_include_install_recovery_ramdisk") != 0) {
 			std::string dest_partition = "/boot";
-			#if defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT) || defined(FOX_VENDOR_BOOT_RECOVERY)
+			#if defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT) || defined(AERA_VENDOR_BOOT_RECOVERY)
 				dest_partition = "/vendor_boot";
 			#elif defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION)
 				dest_partition = "/recovery";
@@ -4042,7 +4042,7 @@ void TWPartitionManager::Coldboot() {
 
 int TWPartitionManager::Run_OTA_Survival_Backup(bool adbbackup)
 {
-#ifdef FOX_VANILLA_BUILD
+#ifdef AERA_VANILLA_BUILD
    LOGINFO("- OrangeFox: DEBUG: skipping the OTA_BAK process...\n");
    return 0;
 #endif
@@ -4067,7 +4067,7 @@ int TWPartitionManager::Run_OTA_Survival_Backup(bool adbbackup)
   part_settings.img_bytes = 0;
   part_settings.file_bytes = 0;
   part_settings.PM_Method = PM_BACKUP;
-  bool DoSystemOnOTA = (DataManager::GetIntValue(FOX_DO_SYSTEM_ON_OTA) != 0);
+  bool DoSystemOnOTA = (DataManager::GetIntValue(AERA_DO_SYSTEM_ON_OTA) != 0);
 
   TWPartition *orangefox = Get_Default_Storage_Partition();
   if (orangefox)
@@ -4093,8 +4093,8 @@ int TWPartitionManager::Run_OTA_Survival_Backup(bool adbbackup)
   else
     part_settings.generate_digest = false;
 
-  DataManager::GetValue(FOX_SURVIVAL_FOLDER_VAR, part_settings.Backup_Folder);
-  DataManager::GetValue(FOX_SURVIVAL_BACKUP_NAME, Backup_Name);
+  DataManager::GetValue(AERA_SURVIVAL_FOLDER_VAR, part_settings.Backup_Folder);
+  DataManager::GetValue(AERA_SURVIVAL_BACKUP_NAME, Backup_Name);
 
   part_settings.Backup_Folder =
     part_settings.Backup_Folder + "/" + Backup_Name;
@@ -4419,7 +4419,7 @@ bool TWPartitionManager::Flash_Repacked_Image(string & path,
 
 int TWPartitionManager::Run_OTA_Survival_Restore(const string & Restore_Name)
 {
-#ifdef FOX_VANILLA_BUILD
+#ifdef AERA_VANILLA_BUILD
    LOGINFO("- OrangeFox: DEBUG: skipping the OTA_RES process...\n");
    return 0;
 #endif
@@ -4703,7 +4703,7 @@ bool TWPartitionManager::Storage_Is_Encrypted(void)
  	return true;
 
   // Generic
-  if (DataManager::GetIntValue(FOX_ENCRYPTED_DEVICE) == 1)
+  if (DataManager::GetIntValue(AERA_ENCRYPTED_DEVICE) == 1)
  	return true;
 
   if (DataManager::GetIntValue(TW_IS_ENCRYPTED) == 1 && DataManager::GetIntValue(TW_IS_DECRYPTED) == 1)

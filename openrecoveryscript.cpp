@@ -484,7 +484,7 @@ int OpenRecoveryScript::run_script_file(void) {
 		gui_msg("done_ors=Done processing script file");
 		tmp_tmp = ret_val;
 		//* DJ9 - disable auto-reboot after incremental OTA updates? *//
-		if (DataManager::GetIntValue(FOX_DISABLE_OTA_AUTO_REBOOT) == 1) 
+		if (DataManager::GetIntValue(AERA_DISABLE_OTA_AUTO_REBOOT) == 1)
 		  {
 		     ret_val = 3; // forces booting to the home page - also runs DM-Verity patch
 		  }
@@ -861,11 +861,11 @@ int OpenRecoveryScript::remountrw(void)
 
 void OpenRecoveryScript::Run_Fox_Process_After_ORS(int result)
 {
-#ifdef FOX_VANILLA_BUILD
+#ifdef AERA_VANILLA_BUILD
    LOGINFO("- OrangeFox: DEBUG: skipping the Run_Fox_Process_After_ORS process...\n");
 #else
    if (TWFunc::JustInstalledMiui())
-   	DataManager::SetValue(FOX_FORCE_DEACTIVATE_PROCESS, 1);
+	DataManager::SetValue(AERA_FORCE_DEACTIVATE_PROCESS, 1);
    Fox_Post_Zip_Install(result);
 #endif
 }

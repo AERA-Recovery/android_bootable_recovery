@@ -28,7 +28,7 @@
 #define OTA_ERROR "INSTALL_ERROR"
 #define OTA_VERIFY_FAIL "INSTALL_VERIFY_FAILURE"
 #define OTA_SUCCESS "INSTALL_SUCCESS"
-#define FOX_TMP_PATH "/foxtmpfile"
+#define AERA_TMP_PATH "/foxtmpfile"
 
 // global variables
 static bool zip_is_for_specific_build = false;

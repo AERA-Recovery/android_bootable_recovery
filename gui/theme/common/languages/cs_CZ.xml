@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">Přírůstkové OTA ověření podpisu</string>
 		<string name="fox_dmverity_chk">Zakázat DM-Verity</string>
 		<string name="fox_forced_encryption_chk">Zakázat nucené šifrování</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">Zabránit automatickému restartování po instalaci OTA</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">Zabránit automatickému restartování po instalaci OTA</string>
 		<string name="of_ota_reboot_disabled">Aktualizace OTA dokončena. Automatický restart byl zakázán. Vše máte pod kontrolou.</string>
 
 		<!-- Wipe format moved -->

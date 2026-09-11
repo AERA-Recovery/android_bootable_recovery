@@ -1066,7 +1066,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">वृद्धिशील ओटीए हस्ताक्षर सत्यापन</string>
 		<string name="fox_dmverity_chk">डीएम-वेरिटी अक्षम करें</string>
 		<string name="fox_forced_encryption_chk">जबरन एन्क्रिप्शन अक्षम करें</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">ओटीए स्थापित करने के बाद ऑटो रीबूट को रोकें</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">ओटीए स्थापित करने के बाद ऑटो रीबूट को रोकें</string>
 		<string name="of_ota_reboot_disabled">OTA अपडेट पूरा हो गया। आपने स्वचालित पुनरारंभ अक्षम कर दिया है। नियंत्रण आपको लौटाया जा रहा है।</string>
 
 		<!-- Wipe format moved -->

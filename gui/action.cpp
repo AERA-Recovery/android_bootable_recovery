@@ -578,11 +578,11 @@ int GUIAction::flash_zip(std::string filename, int *wipe_cache)
 	}
 
       //* DJ9
-      Fox_Zip_Installer_Code = DataManager::GetIntValue(FOX_ZIP_INSTALLER_CODE);
+      Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
       usleep(32);
       if (Fox_Zip_Installer_Code == 0) // this is a standard zip installer (not a ROM)
         {
-           if (DataManager::GetIntValue(FOX_INSTALL_PREBUILT_ZIP) == 1)
+           if (DataManager::GetIntValue(AERA_INSTALL_PREBUILT_ZIP) == 1)
               {
           	 LOGINFO("OrangeFox: processed internal zip: %s\n",filename.c_str());
               }
@@ -593,7 +593,7 @@ int GUIAction::flash_zip(std::string filename, int *wipe_cache)
         {
 		LOGINFO("OrangeFox: installed ROM: %s\n",filename.c_str());
         }
-       LOGINFO ("flash_zip: installer code = %i\n", DataManager::GetIntValue(FOX_ZIP_INSTALLER_CODE));
+       LOGINFO ("flash_zip: installer code = %i\n", DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE));
       //* DJ9
     }
 
@@ -875,7 +875,7 @@ int GUIAction::check_and_reload(std::string arg __unused)
     }
   }
   
-  if (TWFunc::Path_Exists(FOX_THEME_PATH) || TWFunc::Path_Exists(FOX_NAVBAR_PATH)) {
+  if (TWFunc::Path_Exists(AERA_THEME_PATH) || TWFunc::Path_Exists(AERA_NAVBAR_PATH)) {
     PageManager::RequestReload();
     gui_changePage("reapply_settings");
   } else {
@@ -1246,7 +1246,7 @@ int GUIAction::queuezip(std::string arg __unused)
 void GUIAction::find_magisk(){ //[f/d]
   int found = 0;
   for (int i = 0; i < zip_queue_index; i++)
-    if (zip_queue[i] == DataManager::GetStrValue("fox_magisk_path") + "/" + FOX_MAGISK_ZIP_INSTALLER)
+    if (zip_queue[i] == DataManager::GetStrValue("fox_magisk_path") + "/" + AERA_MAGISK_ZIP_INSTALLER)
       found = 1;
   DataManager::SetValue("of_magisk_in_queue", found);
 }
@@ -1278,7 +1278,7 @@ int GUIAction::queueclear(std::string arg __unused)
 {
   zip_queue_index = 0;
   DataManager::SetValue(TW_ZIP_QUEUE_COUNT, zip_queue_index);
-  DataManager::SetValue(FOX_INSTALL_PREBUILT_ZIP, "0");
+  DataManager::SetValue(AERA_INSTALL_PREBUILT_ZIP, "0");
   return 0;
 }
 
@@ -1474,7 +1474,7 @@ int GUIAction::screenshotImpl(std::string arg __unused)
 			return 0;
 	}
 	//if (android::base::GetProperty("ro.orangefox.substitute_permissions", "") == "1")
-	//	setfilecon(path, FOX_MEDIA_RW_DATA_FILE);
+	//	setfilecon(path, AERA_MEDIA_RW_DATA_FILE);
 
 	tm = time(NULL);
 	path_len = strlen(path);
@@ -1487,7 +1487,7 @@ int GUIAction::screenshotImpl(std::string arg __unused)
 		chmod(path, 0666);
 		chown(path, uid, gid);
 		//if (android::base::GetProperty("ro.orangefox.substitute_permissions", "") == "1")
-		//	setfilecon(path, FOX_MEDIA_RW_DATA_FILE);
+		//	setfilecon(path, AERA_MEDIA_RW_DATA_FILE);
 
 		gui_msg(Msg("screenshot_saved=Screenshot was saved to {1}")(path));
 
@@ -1633,7 +1633,7 @@ int GUIAction::flash(std::string arg)
    reinject_after_flash(); // ** redundant code
    PartitionManager.Update_System_Details();
    operation_end(ret_val);
-   DataManager::SetValue(FOX_INSTALL_PREBUILT_ZIP, 0); // if we have installed an internal zip, turn off the flag
+   DataManager::SetValue(AERA_INSTALL_PREBUILT_ZIP, 0); // if we have installed an internal zip, turn off the flag
 
    // This needs to be after the operation_end call so we change pages before we change variables that we display on the screen
    DataManager::SetValue(TW_ZIP_QUEUE_COUNT, zip_queue_index);
@@ -2779,9 +2779,9 @@ int GUIAction::calldeactivateprocess(std::string arg __unused)
     }
   else
     {
-  	DataManager::SetValue(FOX_FORCE_DEACTIVATE_PROCESS, 1);
+	DataManager::SetValue(AERA_FORCE_DEACTIVATE_PROCESS, 1);
   	usleep(1024);
-  	DataManager::GetValue(FOX_FORCE_DEACTIVATE_PROCESS, Fox_Force_Deactivate_Process);
+	DataManager::GetValue(AERA_FORCE_DEACTIVATE_PROCESS, Fox_Force_Deactivate_Process);
   	TWFunc::Deactivation_Process();
     }
   operation_end(0);

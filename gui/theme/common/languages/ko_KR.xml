@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">증분 OTA 서명 확인</string>
 		<string name="fox_dmverity_chk">DM-Verity 사용 안 함</string>
 		<string name="fox_forced_encryption_chk">강제 암호화 사용 안 함</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">OTA 설치 후 자동 재시작을 방지</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">OTA 설치 후 자동 재시작을 방지</string>
 		<string name="of_ota_reboot_disabled">OTA 업데이트가 완료됐습니다. 자동 재시작이 꺼져 있으니 직접 재시작하시기 바랍니다.</string>
 
 		<!-- Wipe format moved -->

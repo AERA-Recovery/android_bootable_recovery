@@ -128,6 +128,102 @@ extern "C" void gui_set_FILE(FILE* f)
 	ors_file = f;
 }
 
+// ---- FOX CLI progress mirroring --------------------------------------------
+// While a "fox" CLI command runs, progress is mirrored to the foxout stream as
+// "AERA_PROGRESS\t<field>=<n>\n" lines. The fox client consumes these to drive
+// its progress bars and strips them from the streamed log. Two fields are
+// emitted: "percent" is the overall operation progress, "item" is the current
+// partition/file progress (multi-partition backups/restores). Each field is
+// tracked independently and duplicate values are suppressed so a long operation
+// does not flood the FIFO.
+static bool fox_progress_active = false;
+static int  fox_last_overall = -1;
+static int  fox_last_item = -1;
+
+static int fox_clamp_percent(int percent)
+{
+	if (percent < 0)
+		return 0;
+	if (percent > 100)
+		return 100;
+	return percent;
+}
+
+static std::string fox_progress_field(const char* value)
+{
+	std::string out = value ? value : "";
+	for (char& c : out)
+		if (c == '\t' || c == '\n' || c == '\r')
+			c = ' ';
+	return out;
+}
+
+extern "C" void gui_fox_progress_begin()
+{
+	pthread_mutex_lock(&console_lock);
+	fox_progress_active = true;
+	fox_last_overall = -1;
+	fox_last_item = -1;
+	pthread_mutex_unlock(&console_lock);
+}
+
+extern "C" void gui_fox_progress_end()
+{
+	pthread_mutex_lock(&console_lock);
+	fox_progress_active = false;
+	fox_last_overall = -1;
+	fox_last_item = -1;
+	pthread_mutex_unlock(&console_lock);
+}
+
+extern "C" void gui_fox_progress_overall(const int percent)
+{
+	int clamped = fox_clamp_percent(percent);
+	pthread_mutex_lock(&console_lock);
+	if (fox_progress_active && ors_file && clamped != fox_last_overall) {
+		fox_last_overall = clamped;
+		fprintf(ors_file, "AERA_PROGRESS\tpercent=%d\n", clamped);
+		fflush(ors_file);
+	}
+	pthread_mutex_unlock(&console_lock);
+}
+
+extern "C" void gui_fox_progress_item(const int percent)
+{
+	int clamped = fox_clamp_percent(percent);
+	pthread_mutex_lock(&console_lock);
+	if (fox_progress_active && ors_file && clamped != fox_last_item) {
+		fox_last_item = clamped;
+		fprintf(ors_file, "AERA_PROGRESS\titem=%d\n", clamped);
+		fflush(ors_file);
+	}
+	pthread_mutex_unlock(&console_lock);
+}
+
+extern "C" void gui_fox_progress_detail(const char* phase, const int percent, const char* label,
+                                        unsigned long long current_bytes, unsigned long long total_bytes,
+                                        unsigned long long bytes_per_second, unsigned long long eta_seconds,
+                                        unsigned long long current_files, unsigned long long total_files,
+                                        const char* size_text, const char* file_text)
+{
+	int clamped = fox_clamp_percent(percent);
+	pthread_mutex_lock(&console_lock);
+	if (fox_progress_active && ors_file) {
+		std::string clean_phase = fox_progress_field(phase ? phase : "overall");
+		std::string clean_label = fox_progress_field(label);
+		std::string clean_size = fox_progress_field(size_text);
+		std::string clean_file = fox_progress_field(file_text);
+		fprintf(ors_file,
+		        "AERA_PROGRESS\tphase=%s\tpercent=%d\tlabel=%s\tcurrent_bytes=%llu\ttotal_bytes=%llu\tbytes_per_second=%llu\teta_seconds=%llu\tcurrent_files=%llu\ttotal_files=%llu\tsize_text=%s\tfile_text=%s\n",
+		        clean_phase.c_str(), clamped, clean_label.c_str(),
+		        current_bytes, total_bytes, bytes_per_second, eta_seconds,
+		        current_files, total_files, clean_size.c_str(),
+		        clean_file.c_str());
+		fflush(ors_file);
+	}
+	pthread_mutex_unlock(&console_lock);
+}
+
 void gui_msg(const char* text)
 {
 	if (text) {

@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">การตรวจสอบลายเซ็น OTA แบบเพิ่มหน่วย</string>
 		<string name="fox_dmverity_chk">ปิดใช้งานการตรวจสอบ DM</string>
 		<string name="fox_forced_encryption_chk">ปิดใช้งานการเข้ารหัสที่จำเป็น</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">ป้องกันการรีสตาร์ทอัตโนมัติหลังจากติดตั้ง OTA</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">ป้องกันการรีสตาร์ทอัตโนมัติหลังจากติดตั้ง OTA</string>
 		<string name="of_ota_reboot_disabled">การอัปเดต OTA เสร็จสมบูรณ์ คุณปิดใช้งานการรีบูตอัตโนมัติ คืนการควบคุมให้กับคุณ</string>
 
 		<!-- Wipe format moved -->

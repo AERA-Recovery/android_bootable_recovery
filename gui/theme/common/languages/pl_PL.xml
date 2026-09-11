@@ -1066,7 +1066,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">Weryf. podpisu przyrostowej aktualizacji OTA</string>
 		<string name="fox_dmverity_chk">Wyłącz DM-Verity</string>
 		<string name="fox_forced_encryption_chk">Wyłącz Forced Encryption</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">Zapobiegaj automatycznemu restartowi po instalacji OTA</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">Zapobiegaj automatycznemu restartowi po instalacji OTA</string>
 		<string name="of_ota_reboot_disabled">Aktualizacja OTA powiodła się. Automatyczny restart jest wyłączony. Kontrola wraca do Ciebie.</string>
 
 		<!-- Wipe format moved -->

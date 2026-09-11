@@ -1093,7 +1093,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">Az OTA aláírásának ellenőrzése</string>
 		<string name="fox_dmverity_chk">A DM-Verity kikapcsolása</string>
 		<string name="fox_forced_encryption_chk">Erőltetett titkosítás kikapcsolása</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">OTA utáni automatikus újraindulás megakadályozása</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">OTA utáni automatikus újraindulás megakadályozása</string>
 		<string name="of_ota_reboot_disabled">OTA frissítés sikeres. Ön letiltotta az automatikus újraindítást. Az irányítás visszatér Önhöz.</string>
 
 		<!-- Wipe format moved -->

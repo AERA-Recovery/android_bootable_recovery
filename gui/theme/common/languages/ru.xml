@@ -1067,7 +1067,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">Проверка подписи MIUI OTA</string>
 		<string name="fox_dmverity_chk">Отключить DM-Verity</string>
 		<string name="fox_forced_encryption_chk">Отключить принудительное шифрование</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">Отключить автоперезагрузку после OTA</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">Отключить автоперезагрузку после OTA</string>
 		<string name="of_ota_reboot_disabled">Обновление OTA завершено. Вы отключили авто-перезагрузку. Возвращаем контроль вам...</string>
 
 		<!-- Wipe format moved -->

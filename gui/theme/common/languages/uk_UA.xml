@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">Підпис інкриментального оновленя OTA</string>
 		<string name="fox_dmverity_chk">Вимкнути DM-Verity</string>
 		<string name="fox_forced_encryption_chk">Вимкнути примусове шифрування</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">Заборонити автоматичну перезавантаження після встановлення OTA</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">Заборонити автоматичну перезавантаження після встановлення OTA</string>
 		<string name="of_ota_reboot_disabled">OTA оновлення завершено. Ви вимкнули автоперезавантаження. Повернення контролю до вас.</string>
 
 		<!-- Wipe format moved -->

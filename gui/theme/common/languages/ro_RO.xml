@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">Verificarea semnăturii OTA incremental</string>
 		<string name="fox_dmverity_chk">Dezactivare DM-Verity</string>
 		<string name="fox_forced_encryption_chk">Dezactivare criptare forțată</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">Împiedicați repornirea automată după instalarea OTA</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">Împiedicați repornirea automată după instalarea OTA</string>
 		<string name="of_ota_reboot_disabled">Actualizare OTA finalizată. Ați dezactivat repornirea automată. Reîntoarcere control către dvs.</string>
 
 		<!-- Wipe format moved -->

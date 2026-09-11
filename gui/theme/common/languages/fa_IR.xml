@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">تأیید افزایشی امضای OTA</string>
 		<string name="fox_dmverity_chk">غیر فعال کردن DM-Verity</string>
 		<string name="fox_forced_encryption_chk">غیر فعال کردن رمزگذاری اجباری</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">پس از نصب OTA از راه اندازی مجدد خودکار جلوگیری کنید</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">پس از نصب OTA از راه اندازی مجدد خودکار جلوگیری کنید</string>
 		<string name="of_ota_reboot_disabled">بروز رسانی OTA تکمیل شد. راه اندازی مجدد خودکار را غیرفعال کردید. بازگشت کنترل به شما.</string>
 
 		<!-- Wipe format moved -->

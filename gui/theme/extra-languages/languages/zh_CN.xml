@@ -1031,7 +1031,7 @@
         <string name="fox_verify_incremental_ota_signature_chk">增量OTA签名验证</string>
         <string name="fox_dmverity_chk">禁用 DM 检验</string>
         <string name="fox_forced_encryption_chk">禁用强制加密</string>
-        <string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">OTA 更新完成后阻止自动重启</string>
+        <string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">OTA 更新完成后阻止自动重启</string>
         <string name="of_ota_reboot_disabled">OTA 更新完成。 根据您的设置， 已阻止自动重启。</string>
         <!-- Wipe format moved -->
         <string name="wipe_format_moved_info1">注意: 格式化 Data 分区移动到</string>

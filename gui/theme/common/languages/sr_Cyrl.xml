@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">Спријечите провјеру потписа у ОТА-и</string>
 		<string name="fox_dmverity_chk">Угасите DM-Verity</string>
 		<string name="fox_forced_encryption_chk">Угасите Форсирану Енкрипцију</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">Спријечите аутоматско поновно покретање послије инсталирања ажурирања</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">Спријечите аутоматско поновно покретање послије инсталирања ажурирања</string>
 		<string name="of_ota_reboot_disabled">Ажурирање завршено. Угасили сте опцију за аутоматско поновно покретање. Враћање контроле вама.</string>
 
 		<!-- Wipe format moved -->

@@ -296,10 +296,10 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
       return INSTALL_CORRUPT;
     }
 
-  if (DataManager::GetIntValue(FOX_INSTALL_PREBUILT_ZIP) == 1)
+  if (DataManager::GetIntValue(AERA_INSTALL_PREBUILT_ZIP) == 1)
      {
-         DataManager::SetValue(FOX_ZIP_INSTALLER_CODE, 0); // internal zip = standard zip installer
-         DataManager::SetValue(FOX_ZIP_INSTALLER_TREBLE, 0);
+         DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 0); // internal zip = standard zip installer
+         DataManager::SetValue(AERA_ZIP_INSTALLER_TREBLE, 0);
      }    
   else   
     {
@@ -412,11 +412,11 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 			ret_val = Prepare_Update_Binary(path, Zip);
 			if (ret_val == INSTALL_SUCCESS) {
 				usleep(32);
-				run_rom_scripts = ((DataManager::GetIntValue(FOX_ZIP_INSTALLER_CODE) != 0) // only run after flashing a ROM
-	  			&& (DataManager::GetIntValue(FOX_INSTALL_PREBUILT_ZIP) != 1)); // don't run for built-in zips
+				run_rom_scripts = ((DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE) != 0) // only run after flashing a ROM
+				&& (DataManager::GetIntValue(AERA_INSTALL_PREBUILT_ZIP) != 1)); // don't run for built-in zips
 
-				if (run_rom_scripts && TWFunc::Path_Exists(FOX_PRE_ROM_FLASH_SCRIPT)) {
-					TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT, path);
+				if (run_rom_scripts && TWFunc::Path_Exists(AERA_PRE_ROM_FLASH_SCRIPT)) {
+					TWFunc::RunFoxScript(AERA_PRE_ROM_FLASH_SCRIPT, path);
 	  			}
 
 				ret_val = Run_Update_Binary(path, wipe_cache, UPDATE_BINARY_ZIP_TYPE);
@@ -445,15 +445,15 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 			run_rom_scripts = true;
 			usleep(32);
 
-			if (run_rom_scripts && TWFunc::Path_Exists(FOX_PRE_ROM_FLASH_SCRIPT)) {
-				TWFunc::RunFoxScript(FOX_PRE_ROM_FLASH_SCRIPT, path);
+			if (run_rom_scripts && TWFunc::Path_Exists(AERA_PRE_ROM_FLASH_SCRIPT)) {
+				TWFunc::RunFoxScript(AERA_PRE_ROM_FLASH_SCRIPT, path);
 			}
 
 			TWFunc::IsRecoveryOverwritten(true);
 
 			ret_val = Run_Update_Binary(path, wipe_cache, AB_OTA_ZIP_TYPE);
 
-			DataManager::SetValue(FOX_ZIP_INSTALLER_CODE, 1); // mark as custom ROM install
+			DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 1); // mark as custom ROM install
 
 			umount("/system/bin/sh");
 			unlink("/tmp/sh");
@@ -500,9 +500,9 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
          //LOGINFO("OrangeFox: not running the incremental OTA backup (OTA_BAK).\n");
      }  
      else // else let us proceed with the OTA stuff
-     if (DataManager::GetIntValue(FOX_INCREMENTAL_OTA_FAIL) != 1)
+     if (DataManager::GetIntValue(AERA_INCREMENTAL_OTA_FAIL) != 1)
      {
-      	if (DataManager::GetIntValue(FOX_INCREMENTAL_PACKAGE) == 1 && DataManager::GetIntValue(FOX_ZIP_INSTALLER_CODE) != 0)
+	if (DataManager::GetIntValue(AERA_INCREMENTAL_PACKAGE) == 1 && DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE) != 0)
       	  {
       	    if (TWinstall_Run_OTA_BAK (true)) // true, because the value of Fox_Zip_Installer_Code to be set
       	      {
@@ -512,7 +512,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 	      		string ota_folder = DataManager::GetStrValue("ota_bak_folder");
 	      		usleep(2048);
 	      		if (ota_folder.empty())
-	      		   ota_folder = FOX_OTA_PATH;
+			   ota_folder = AERA_OTA_PATH;
 			string ota_bootimg = ota_folder + "/boot.img";
 			if (TWFunc::Path_Exists(boot_bak_img)) {
 			   if (TWFunc::copy_file(boot_bak_img, ota_bootimg, 0644) == 0) {
@@ -524,11 +524,11 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
       	      }
       	  }
 
-      	DataManager::SetValue(FOX_METADATA_PRE_BUILD, 0);
-      	DataManager::SetValue(FOX_MIUI_ZIP_TMP, 0);
-      	DataManager::SetValue(FOX_INCREMENTAL_OTA_FAIL, 0);
-      	DataManager::SetValue(FOX_LOADED_FINGERPRINT, 0);
-      	DataManager::SetValue(FOX_RUN_SURVIVAL_BACKUP, 0);
+	DataManager::SetValue(AERA_METADATA_PRE_BUILD, 0);
+	DataManager::SetValue(AERA_MIUI_ZIP_TMP, 0);
+	DataManager::SetValue(AERA_INCREMENTAL_OTA_FAIL, 0);
+	DataManager::SetValue(AERA_LOADED_FINGERPRINT, 0);
+	DataManager::SetValue(AERA_RUN_SURVIVAL_BACKUP, 0);
       
      } // end of OTA stuff
     LOGINFO("Install took %i second(s).\n", total_time);
@@ -538,15 +538,15 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
       set_miui_install_status(OTA_SUCCESS, false);
 
    usleep(32);
-   if (DataManager::GetIntValue(FOX_ZIP_INSTALLER_CODE) != 0) // just flashed a ROM
+   if (DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE) != 0) // just flashed a ROM
    {
       usleep(16);
       TWFunc::Check_OrangeFox_Overwrite_FromROM(false, path);
    }
 
-   if (run_rom_scripts && TWFunc::Path_Exists(FOX_POST_ROM_FLASH_SCRIPT)) {
+   if (run_rom_scripts && TWFunc::Path_Exists(AERA_POST_ROM_FLASH_SCRIPT)) {
    	usleep(2048);
-   	TWFunc::RunFoxScript(FOX_POST_ROM_FLASH_SCRIPT, path);
+	TWFunc::RunFoxScript(AERA_POST_ROM_FLASH_SCRIPT, path);
    	sleep(1);
    	DataManager::SetValue("found_fox_overwriting_rom", "0");
    	TWFunc::Fox_Property_Set("found_fox_overwriting_rom", "");

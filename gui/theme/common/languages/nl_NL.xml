@@ -1065,7 +1065,7 @@
 		<string name="fox_verify_incremental_ota_signature_chk">Incrementele OTA handtekeningverificatie</string>
 		<string name="fox_dmverity_chk">DM-Verity Uitschakelen</string>
 		<string name="fox_forced_encryption_chk">Geforceerde encryptie uitschakelen</string>
-		<string name="FOX_DISABLE_OTA_AUTO_REBOOT_chk">Voorkom automatisch herstarten na het installeren van OTA</string>
+		<string name="AERA_DISABLE_OTA_AUTO_REBOOT_chk">Voorkom automatisch herstarten na het installeren van OTA</string>
 		<string name="of_ota_reboot_disabled">OTA update voltooid. Je hebt automatisch herstarten uitgeschakeld. De controle terug naar u.</string>
 
 		<!-- Wipe format moved -->

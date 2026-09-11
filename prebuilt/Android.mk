@@ -607,7 +607,7 @@ LOCAL_POST_INSTALL_CMD += \
 include $(BUILD_PHONY_PACKAGE)
 endif
 
-ifeq ($(FOX_BUILD_BASH),1)
+ifeq ($(AERA_BUILD_BASH),1)
 	include $(CLEAR_VARS)
 	LOCAL_MODULE := bash_fox
 	LOCAL_MODULE_TAGS := optional
