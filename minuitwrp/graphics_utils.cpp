@@ -28,9 +28,13 @@ extern GGLSurface gr_mem_surface;
 extern GRSurface* gr_draw;
 extern unsigned int gr_rotation;
 
-int gr_save_screenshot(const char *dest)
+static int gr_save_screenshot_internal(const char *dest,
+                                       unsigned int max_width,
+                                       bool fast)
 {
     uint32_t y;
+    uint32_t output_width = 0;
+    uint32_t output_height = 0;
     volatile int res = -1;
     uint8_t * volatile png_row = NULL;
     FILE * volatile fp = NULL;
@@ -56,11 +60,18 @@ int gr_save_screenshot(const char *dest)
         capture_source.height == 0 || capture_source.stride == 0)
         goto exit;
 
+    output_width = max_width > 0 && capture_source.width > max_width
+        ? max_width : capture_source.width;
+    output_height = output_width == capture_source.width
+        ? capture_source.height
+        : (uint32_t)(((uint64_t)capture_source.height * output_width +
+                      capture_source.width / 2) / capture_source.width);
+
     fp = fopen(dest, "wb");
     if(!fp)
         goto exit;
 
-    png_row = (uint8_t *)malloc((size_t)capture_source.width * 3);
+    png_row = (uint8_t *)malloc((size_t)output_width * 3);
     if (!png_row) {
         printf("gr_save_screenshot failed to allocate PNG row\n");
         goto exit;
@@ -78,7 +89,11 @@ int gr_save_screenshot(const char *dest)
         goto exit;
 
     png_init_io(png_ptr, fp);
-    png_set_IHDR(png_ptr, info_ptr, capture_source.width, capture_source.height,
+    if (fast) {
+        png_set_compression_level(png_ptr, 1);
+        png_set_filter(png_ptr, PNG_FILTER_TYPE_BASE, PNG_FILTER_NONE);
+    }
+    png_set_IHDR(png_ptr, info_ptr, output_width, output_height,
          8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
          PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
     png_write_info(png_ptr, info_ptr);
@@ -87,30 +102,33 @@ int gr_save_screenshot(const char *dest)
     // directly avoids Pixelflinger, whose GGL context is not valid while the
     // LVGL/Adreno UI owns direct scanout. The old GGL path either returned an
     // empty image or dereferenced a null legacy draw surface.
-    for (y = 0; y < capture_source.height; ++y) {
-        const uint8_t *src = capture_source.data +
-            (size_t)y * capture_source.stride *
-            ((capture_source.format == GGL_PIXEL_FORMAT_RGB_565) ? 2 : 4);
+    for (y = 0; y < output_height; ++y) {
+        const uint32_t source_y = (uint32_t)((uint64_t)y * capture_source.height /
+                                              output_height);
+        const uint32_t pixel_bytes =
+            capture_source.format == GGL_PIXEL_FORMAT_RGB_565 ? 2 : 4;
+        const uint8_t *source_row = capture_source.data +
+            (size_t)source_y * capture_source.stride * pixel_bytes;
         uint8_t *dst = (uint8_t *)png_row;
 
-        for (uint32_t x = 0; x < capture_source.width; ++x) {
+        for (uint32_t x = 0; x < output_width; ++x) {
+            const uint32_t source_x = (uint32_t)((uint64_t)x * capture_source.width /
+                                                  output_width);
+            const uint8_t *src = source_row + (size_t)source_x * pixel_bytes;
             if (capture_source.format == GGL_PIXEL_FORMAT_BGRA_8888) {
                 dst[0] = src[2];
                 dst[1] = src[1];
                 dst[2] = src[0];
-                src += 4;
             } else if (capture_source.format == GGL_PIXEL_FORMAT_RGBA_8888 ||
                        capture_source.format == GGL_PIXEL_FORMAT_RGBX_8888) {
                 dst[0] = src[0];
                 dst[1] = src[1];
                 dst[2] = src[2];
-                src += 4;
             } else if (capture_source.format == GGL_PIXEL_FORMAT_RGB_565) {
                 const uint16_t pixel = src[0] | ((uint16_t)src[1] << 8);
                 dst[0] = (uint8_t)(((pixel >> 11) & 0x1f) * 255 / 31);
                 dst[1] = (uint8_t)(((pixel >> 5) & 0x3f) * 255 / 63);
                 dst[2] = (uint8_t)((pixel & 0x1f) * 255 / 31);
-                src += 2;
             } else {
                 printf("gr_save_screenshot unsupported pixel format %d\n",
                        capture_source.format);
@@ -136,6 +154,16 @@ exit:
     if (res != 0)
         remove(dest);
     return res;
+}
+
+int gr_save_screenshot(const char *dest)
+{
+    return gr_save_screenshot_internal(dest, 0, false);
+}
+
+int gr_save_screenshot_scaled_fast(const char *dest, unsigned int max_width)
+{
+    return gr_save_screenshot_internal(dest, max_width, true);
 }
 
 int ROTATION_X_DISP(int x, int y, int w) {
