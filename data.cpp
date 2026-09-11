@@ -48,6 +48,7 @@ extern "C"
 #include "twcommon.h"
 #include "gui/pages.h"
   void gui_notifyVarChange(const char *name, const char *value);
+  void gui_fox_progress_overall(const int percent);
 }
 #include "minuitwrp/minui.h"
 
@@ -316,7 +317,7 @@ int DataManager::RestorePasswordBackup(void) {
 
 int DataManager::LoadPersistValues(void)
 {
-#if defined(OF_DEVICE_WITHOUT_PERSIST) || defined(FOX_SETTINGS_ROOT_DIRECTORY)
+#if defined(OF_DEVICE_WITHOUT_PERSIST) || defined(OF_SETTINGS_ROOT_DIRECTORY)
 	//LOGINFO("OF_DEVICE_WITHOUT_PERSIST is set - avoiding /persist...\n");
 	return -1;
 #endif
@@ -369,7 +370,7 @@ int DataManager::SaveValues()
   #ifndef OF_DEVICE_WITHOUT_PERSIST
   if (PartitionManager.Mount_By_Path("/persist", false))
     {
-      #ifndef FOX_SETTINGS_ROOT_DIRECTORY
+      #ifndef OF_SETTINGS_ROOT_DIRECTORY
       mPersist.SetFile(PERSIST_SETTINGS_FILE);
       mPersist.SetFileVersion(FILE_VERSION);
       pthread_mutex_lock(&m_valuesLock);
@@ -400,8 +401,12 @@ int DataManager::SaveValues()
   mPersist.SetFile(mBackingFile);
   mPersist.SetFileVersion(FILE_VERSION);
   pthread_mutex_lock(&m_valuesLock);
-  mPersist.SaveValues();
+  const int save_result = mPersist.SaveValues();
   pthread_mutex_unlock(&m_valuesLock);
+  if (save_result != 0) {
+    LOGERR("Unable to save settings to '%s'\n", mBackingFile.c_str());
+    return save_result;
+  }
 
   tw_set_default_metadata(mBackingFile.c_str());
   LOGINFO("Saved settings file values to '%s'\n", mBackingFile.c_str());
@@ -418,13 +423,19 @@ int DataManager::GetValue(const string & varName, string & value)
   if (localStr.length() > 2 && localStr[0] == '%'
       && localStr[localStr.length() - 1] == '%')
     {
-      std::regex pattern(R"(%([^%]+)%)");
-      std::smatch match;
+      // Expand each %name% reference. Equivalent to the regex %([^%]+)%, but a
+      // manual scan: std::regex (libstdc++) recurses per character and blows the
+      // stack on long values, and re-compiling the pattern every lookup is slow.
       string retVal;
-      while (std::regex_search(localStr, match, pattern))
+      size_t start;
+      while ((start = localStr.find('%')) != string::npos)
         {
-          ret = GetValue(match[1].str(), retVal) ? 1 : ret ? 1 : 0;
-          localStr.replace(match.position(0), match.length(0), retVal);
+          size_t end = localStr.find('%', start + 1);
+          if (end == string::npos || end == start + 1)
+            break; // no closing %, or empty %% (regex needs 1+ inner char)
+          string inner = localStr.substr(start + 1, end - start - 1);
+          ret = GetValue(inner, retVal) ? 1 : ret ? 1 : 0;
+          localStr.replace(start, end - start + 1, retVal);
         }
       value = localStr;
       return ret;
@@ -624,8 +635,15 @@ int DataManager::_SetProgress(float Fraction) {
 		Fraction = 0;
 	if (Fraction > 1.0)
 		Fraction = 1;
-	if (SetValue("ui_progress", (float) ((Portion_Start + (Portion_Size * Fraction)) * 100.0)) != 0)
+	float percent = (Portion_Start + (Portion_Size * Fraction)) * 100.0;
+	if (SetValue("ui_progress", percent) != 0)
 		return -1;
+	// Mirror the overall progress to a running fox CLI client (no-op unless a
+	// fox command is active). Emitting here -- rather than on every ui_progress
+	// SetValue -- avoids the transient 0 that SetProgress() writes via its
+	// ShowProgress(1, 0) reset just before this real value lands. Per-item
+	// progress is emitted separately from ProgressTracking::UpdateDisplayDetails.
+	gui_fox_progress_overall((int)percent);
 	return (SetValue("ui_progress_portion", 0) != 0);
 }
 
@@ -796,7 +814,7 @@ void DataManager::SetDefaultValues()
   mPersist.SetValue("of_keep_storage_data", "1");
 
   //[f/d] UI Vars
-  #ifdef FOX_USE_NANO_EDITOR
+  #ifdef OF_USE_NANO_EDITOR
   	mConst.SetValue("fox_use_nano_editor", "1");
   #else
     	mConst.SetValue("fox_use_nano_editor", "0");
@@ -1637,7 +1655,7 @@ void DataManager::ReadSettingsFile(void)
 #ifndef TW_OEM_BUILD
   // Load up the values for TWRP - Sleep to let the card be ready
   char mkdir_path[255], settings_file[255];
-#ifndef FOX_SETTINGS_ROOT_DIRECTORY
+#ifndef OF_SETTINGS_ROOT_DIRECTORY
   int is_enc, has_data_media;
 
   GetValue(TW_IS_ENCRYPTED, is_enc);
@@ -1658,7 +1676,7 @@ void DataManager::ReadSettingsFile(void)
 	}
   }
 
-#endif // FOX_SETTINGS_ROOT_DIRECTORY
+#endif // OF_SETTINGS_ROOT_DIRECTORY
   memset(mkdir_path, 0, sizeof(mkdir_path));
   memset(settings_file, 0, sizeof(settings_file));
   sprintf(mkdir_path, "%s", GetSettingsStoragePath().c_str());
@@ -1698,7 +1716,7 @@ string DataManager::GetCurrentPartPath(void)
 
 string DataManager::GetSettingsStoragePath(void)
 {
-#ifdef FOX_SETTINGS_ROOT_DIRECTORY
+#ifdef OF_SETTINGS_ROOT_DIRECTORY
   return Fox_Settings_Path;
 #else
   return GetStrValue("tw_settings_path");
@@ -1843,4 +1861,3 @@ void DataManager::Leds(bool enable)
     }
 }
 #endif
-

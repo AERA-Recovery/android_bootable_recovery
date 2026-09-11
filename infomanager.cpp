@@ -168,7 +168,13 @@ int InfoManager::SaveValues(void) {
 		fwrite(&length, 1, sizeof(unsigned short), out);
 		fwrite(iter->second.c_str(), 1, length, out);
 	}
-	fclose(out);
+	// Report short writes and delayed filesystem errors to the AERA settings UI.
+	const bool write_failed = ferror(out) != 0;
+	const int close_result = fclose(out);
+	if (write_failed || close_result != 0) {
+		twPersistUnMount();
+		return -1;
+	}
 	tw_set_default_metadata(File.c_str());
 	twPersistUnMount();
 	return 0;
