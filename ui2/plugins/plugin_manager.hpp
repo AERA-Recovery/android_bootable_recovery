@@ -19,10 +19,17 @@ enum class Location {
   kMemory,
 };
 
+enum class Trust {
+  kOfficial = 0,
+  kUnofficial,
+};
+
 enum class Job {
   kRefresh = 0,
   kInstallStorage,
   kInstallMemory,
+  kInstallLocalStorage,
+  kInstallLocalMemory,
   kRemove,
 };
 
@@ -35,6 +42,9 @@ struct Plugin {
   std::string entry;
   std::string manifest_url;
   std::string signature_url;
+  std::string package_url;
+  std::string package_sha256;
+  uint64_t package_size = 0;
   std::string payload_url;
   std::string payload_name;
   std::string payload_sha256;
@@ -44,11 +54,14 @@ struct Plugin {
   uint32_t member_count = 0;
   uint32_t min_host_api = 0;
   Location location = Location::kNone;
+  Trust trust = Trust::kOfficial;
 };
 
 struct Request {
   Job job = Job::kRefresh;
   std::string id;
+  std::string path;
+  bool allow_unofficial = false;
 };
 
 struct Progress {
@@ -64,6 +77,9 @@ std::vector<Plugin> Catalog();
 std::vector<Plugin> Installed();
 bool FindInstalled(const std::string &id, Plugin &plugin);
 bool Run(const Request &request, Progress &progress);
+bool InspectLocalPackage(const std::string &path, Plugin &plugin,
+                         std::string &error);
+bool IsPackageFile(const std::string &name);
 
 // Revalidates the signed manifest and returns the payload path. The large
 // payload hash is checked by its consumer immediately before extraction/use.
@@ -71,5 +87,6 @@ bool ResolvePayload(const std::string &id, Plugin &plugin, std::string &path,
                     std::string &error);
 
 const char *LocationLabel(Location location);
+const char *TrustLabel(Trust trust);
 
 }  // namespace recovery_ui2::plugins

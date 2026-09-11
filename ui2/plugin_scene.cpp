@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <iterator>
 #include <mutex>
 #include <string>
 
@@ -51,7 +52,10 @@ void Request(State *state, plugins::Job job, const std::string &id) {
   // plainly offline. Besides giving immediate feedback, this keeps Back,
   // navigation and the rest of AERA responsive instead of appearing frozen
   // while wget waits for DNS/network timeouts.
-  if (job != plugins::Job::kRemove && !RecoveryWifiConnection().connected) {
+  const bool network_job = job == plugins::Job::kRefresh ||
+      job == plugins::Job::kInstallStorage ||
+      job == plugins::Job::kInstallMemory;
+  if (network_job && !RecoveryWifiConnection().connected) {
     lv_label_set_text(state->scene.status,
                       "Offline — connect to Wi-Fi before refreshing the store.");
     Sheet(state->screen, "Plugin Store is offline",
@@ -77,8 +81,12 @@ void Render(State *state) {
   const int card_width = std::max(600, static_cast<int>(
       lv_obj_get_width(state->scene.list)));
   int y = 0;
+  auto *official_heading = Kicker(state->scene.list, "OFFICIAL APPS", kGreen);
+  lv_obj_set_pos(official_heading, 8, y + 8);
+  y += 64;
   for (const auto &plugin : catalog) {
     const auto *local = InstalledVersion(installed, plugin.id);
+    if (local && local->trust != plugins::Trust::kOfficial) local = nullptr;
     auto *card = lv_obj_create(state->scene.list);
     Panel(card, 42, kMainPanel);
     lv_obj_set_pos(card, 0, y);
@@ -163,6 +171,66 @@ void Render(State *state) {
     AnimateEnter(card, 30 + static_cast<uint32_t>(y / 12), 12);
     y += 394;
   }
+  std::vector<plugins::Plugin> unofficial;
+  std::copy_if(installed.begin(), installed.end(),
+               std::back_inserter(unofficial), [](const plugins::Plugin &plugin) {
+    return plugin.trust == plugins::Trust::kUnofficial;
+  });
+  if (!unofficial.empty()) {
+    y += 36;
+    auto *heading = Kicker(state->scene.list, "UNOFFICIAL APPS", kAmber);
+    lv_obj_set_pos(heading, 8, y + 8);
+    y += 64;
+    for (const auto &plugin : unofficial) {
+      auto *card = lv_obj_create(state->scene.list);
+      Panel(card, 42, kMainPanel);
+      lv_obj_set_pos(card, 0, y);
+      lv_obj_set_size(card, card_width, 370);
+      lv_obj_set_style_border_width(card, 1, 0);
+      lv_obj_set_style_border_color(card, kAmber, 0);
+      lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
+      const char *symbol = plugin.entry == "browser" ? LV_SYMBOL_GPS :
+          plugin.entry == "gallery" ? LV_SYMBOL_IMAGE :
+          plugin.entry == "media" ? LV_SYMBOL_PLAY : LV_SYMBOL_SETTINGS;
+      auto *plate = plugin.entry == "retroarch"
+          ? RetroArchIconPlate(card, kText, 92)
+          : IconPlate(card, symbol, kAmber, kMainSheet, 92);
+      lv_obj_set_pos(plate, 34, 36);
+      auto *name = Label(card, plugin.name.c_str(), &lv_font_montserrat_48, kText);
+      lv_obj_set_pos(name, 154, 32);
+      auto *description = Label(card, plugin.description.c_str(),
+                                &lv_font_montserrat_24, kMuted);
+      lv_obj_set_pos(description, 154, 94);
+      lv_obj_set_width(description, card_width - 230);
+      const std::string version = "Version " + plugin.version +
+          "  /  Installed from a local package";
+      auto *version_label = Label(card, version.c_str(),
+                                  &lv_font_montserrat_18, kDim);
+      lv_obj_set_pos(version_label, 154, 156);
+      auto *badge = Kicker(card, "UNVERIFIED", kAmber);
+      lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -34, 40);
+
+      Action action = Action::kNone;
+      if (plugin.entry == "browser") action = Action::kWeb;
+      else if (plugin.entry == "retroarch") action = Action::kRetroArch;
+      else if (plugin.entry == "telegram") action = Action::kTelegram;
+      else if (plugin.entry == "gallery") action = Action::kGallery;
+      else if (plugin.entry == "media") action = Action::kMedia;
+      else if (plugin.entry == "recorder") action = Action::kRecorder;
+      else if (plugin.entry == "appvault") action = Action::kAppVault;
+      const int gap = 24;
+      const int half = (card_width - 68 - gap) / 2;
+      AddButton(card, "Open", 34, half, [state, action] {
+        if (action != Action::kNone) state->callback(action, state->context);
+      });
+      AddButton(card, "Remove", 34 + half + gap, half,
+                [state, id = plugin.id] {
+        Request(state, plugins::Job::kRemove, id);
+      });
+      AnimateEnter(card, 30 + static_cast<uint32_t>(y / 12), 12);
+      y += 394;
+    }
+  }
   if (catalog.empty()) {
     auto *empty = Label(state->scene.list,
         "No plugins are currently published in the signed catalog.",
@@ -176,6 +244,10 @@ void Render(State *state) {
 plugins::Request GetPluginRequest() {
   std::lock_guard<std::mutex> lock(gRequestMutex);
   return gRequest;
+}
+
+void SetPluginRequest(const plugins::Request &request) {
+  Select(request);
 }
 
 PluginScene BuildPluginScene(lv_obj_t *screen, ActionCallback callback,
@@ -231,6 +303,8 @@ void SetPluginBusy(const PluginScene &scene, const plugins::Request &request) {
   lv_bar_set_value(scene.progress, 8, LV_ANIM_ON);
   const char *text = request.job == plugins::Job::kRefresh ? "Refreshing signed store..." :
       request.job == plugins::Job::kRemove ? "Removing plugin..." :
+      request.job == plugins::Job::kInstallLocalMemory ? "Loading local plugin into RAM..." :
+      request.job == plugins::Job::kInstallLocalStorage ? "Installing local plugin..." :
       request.job == plugins::Job::kInstallMemory ? "Loading plugin into RAM..." :
       "Installing plugin on storage...";
   lv_label_set_text(scene.status, text);

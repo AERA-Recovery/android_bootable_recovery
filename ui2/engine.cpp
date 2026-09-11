@@ -872,6 +872,17 @@ private:
       return;
     }
 
+    if (action == Action::kInstallLocalPlugin) {
+      self->TrackScene(Action::kPlugins);
+      self->on_home_ = false;
+      self->current_tool_ = Action::kPlugins;
+      lv_obj_t *screen = lv_obj_create(nullptr);
+      self->plugin_scene_ = BuildPluginScene(screen, HandleSceneAction, self);
+      lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
+      self->StartPlugin(GetPluginRequest());
+      return;
+    }
+
     if (action == Action::kNas) {
       self->TrackScene(action);
       self->on_home_ = false;

@@ -33,6 +33,9 @@ bool Zip(const std::string &name) {
   for (char &c : suffix) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
   return suffix == ".zip";
 }
+bool Package(const std::string &name) {
+  return Zip(name) || plugins::IsPackageFile(name);
+}
 std::string Parent(std::string path) {
   while (path.size() > 1 && path.back() == '/') path.pop_back();
   const auto slash = path.find_last_of('/');
@@ -49,6 +52,42 @@ void OpenFile(Files *state, const Entry &entry) {
   }
   if (IsPicture(entry.name)) {
     OpenPicture(state->screen, entry.path);
+  } else if (plugins::IsPackageFile(entry.name)) {
+    plugins::Plugin plugin;
+    std::string error;
+    if (!plugins::InspectLocalPackage(entry.path, plugin, error)) {
+      Sheet(state->screen, "Cannot open plugin",
+            error.empty() ? "This .aerap package is invalid." : error);
+      return;
+    }
+    auto install = [state, entry, plugin](bool allow_unofficial) {
+      plugins::Request request;
+      request.job = plugins::Job::kInstallLocalStorage;
+      request.id = plugin.id;
+      request.path = entry.path;
+      request.allow_unofficial = allow_unofficial;
+      SetPluginRequest(request);
+      state->callback(Action::kInstallLocalPlugin, state->context);
+    };
+    const std::string details = plugin.name + "\nVersion " + plugin.version +
+        "\n\n" + plugin.description + "\n\nPackage: " +
+        Size(entry.bytes) + "\nID: " + plugin.id;
+    if (plugin.trust == plugins::Trust::kOfficial) {
+      Sheet(state->screen, "Install official AERA app?",
+            "OFFICIAL / SIGNATURE VERIFIED\n\n" + details,
+            [install] { install(false); });
+    } else {
+      Sheet(state->screen, "Unofficial app warning",
+            "This package is not signed by AERA. Its code will run with "
+            "recovery privileges and may read, change, or erase device data.\n\n" +
+            details + "\n\nOnly continue if you trust where this file came from.",
+            [state, details, install] {
+        Sheet(state->screen, "Install unofficial app?",
+              "UNVERIFIED PUBLISHER\n\n" + details +
+              "\n\nAERA cannot verify the developer or guarantee this package is safe.",
+              [install] { install(true); });
+      });
+    }
   } else if (Zip(entry.name)) {
     JobRequest request;
     request.job = Job::kInstall;
@@ -65,7 +104,8 @@ void OpenFile(Files *state, const Entry &entry) {
   } else {
     Sheet(state->screen, entry.name,
           entry.path + "\n\nSize: " + Size(entry.bytes) +
-          "\n\nOpen PNG/JPEG images or install ZIP packages. This file type has no preview.");
+          "\n\nOpen images, install ZIP packages, or install .aerap plugins. "
+          "This file type has no preview.");
   }
 }
 
@@ -86,7 +126,9 @@ void RenderEntries(Files *state) {
     Row(state->list, y, entry.directory ? LV_SYMBOL_DIRECTORY :
         IsPicture(entry.name) ? LV_SYMBOL_IMAGE : LV_SYMBOL_FILE,
         entry.name, entry.directory ? "Folder" :
-          Size(entry.bytes) + (Zip(entry.name) ? "  /  ZIP package" :
+          Size(entry.bytes) + (plugins::IsPackageFile(entry.name) ?
+                              "  /  AERA plugin package" :
+                              Zip(entry.name) ? "  /  ZIP package" :
                               IsPicture(entry.name) ? "  /  Image preview" : "  /  File"),
         [state, entry] { OpenFile(state, entry); });
     y += 180;
@@ -113,7 +155,7 @@ void Populate(Files *state) {
       if (stat(path.c_str(), &info) != 0) continue;
       const bool folder = S_ISDIR(info.st_mode);
       if (!folder && !S_ISREG(info.st_mode)) continue;
-      if (!folder && gPackagesOnly && !Zip(item->d_name)) continue;
+      if (!folder && gPackagesOnly && !Package(item->d_name)) continue;
       state->entries.push_back({item->d_name, path, folder, static_cast<uint64_t>(info.st_size)});
     }
     closedir(directory);
@@ -154,7 +196,7 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     if (gFiles == s) gFiles = nullptr;
     delete s;
   }, LV_EVENT_DELETE, state);
-  Header(screen, "Files", "Browse storage, preview pictures or install a ZIP.", callback, context);
+  Header(screen, "Files", "Browse storage, preview pictures or install packages.", callback, context);
   const bool landscape = Landscape(screen);
   state->storage_label = Label(screen, "", &lv_font_montserrat_24, kAccent);
   lv_obj_set_pos(state->storage_label, 80, landscape ? 306 : 420);
@@ -176,7 +218,7 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   auto *root = Button(screen, "Root", [state] { gDirectory = "/"; Populate(state); });
   lv_obj_set_pos(root, 492, landscape ? 350 : 496);
   lv_obj_set_size(root, 220, 120);
-  auto *filter = Button(screen, gPackagesOnly ? "ZIP only" : "All files", [state] {
+  auto *filter = Button(screen, gPackagesOnly ? "Packages only" : "All files", [state] {
     gPackagesOnly = !gPackagesOnly;
     state->callback(Action::kInstall, state->context);
   });

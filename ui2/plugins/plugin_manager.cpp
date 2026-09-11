@@ -22,6 +22,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <ziparchive/zip_archive.h>
 
 namespace recovery_ui2::plugins {
 namespace {
@@ -37,6 +38,7 @@ constexpr uint64_t kMaxCatalog = 1024 * 1024;
 constexpr uint64_t kMaxManifest = 64 * 1024;
 constexpr uint64_t kMaxSignature = 4096;
 constexpr uint64_t kMaxPayload = 512ULL * 1024 * 1024;
+constexpr uint64_t kMaxPackage = kMaxPayload + 1024 * 1024;
 constexpr std::array<uint8_t, 32> kSigningKey{{
     0x16, 0xee, 0x36, 0x7d, 0xd2, 0xd7, 0xae, 0x19,
     0xa0, 0xd1, 0x62, 0xfb, 0x71, 0x66, 0xe0, 0xf7,
@@ -147,7 +149,8 @@ bool ParseJson(const std::string &text, Json::Value &value) {
   return Json::parseFromStream(builder, stream, &value, &errors);
 }
 
-bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error) {
+bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
+                 bool local_payload = false) {
   Json::Value root;
   if (!ParseJson(text, root) || !root.isObject() || root["schema"].asUInt() != 1) {
     error = "Unsupported or malformed plugin manifest."; return false;
@@ -192,7 +195,8 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error) {
       plugin.version.empty() || plugin.version.size() > 32 ||
       plugin.description.size() > 320 || plugin.type.empty() ||
       plugin.entry.empty() || plugin.payload_name != "runtime.xz" ||
-      !OfficialUrl(plugin.payload_url) || !hash_ok || !expanded_hash_ok ||
+      (!local_payload && !OfficialUrl(plugin.payload_url)) ||
+      !hash_ok || !expanded_hash_ok ||
       plugin.payload_size == 0 || plugin.payload_size > kMaxPayload ||
       plugin.min_host_api == 0 || plugin.min_host_api > kHostApi ||
       !supported_entry) {
@@ -223,8 +227,19 @@ bool ParseCatalog(const std::string &text, std::vector<Plugin> &plugins,
     plugin.description = item["description"].asString();
     plugin.manifest_url = item["manifest_url"].asString();
     plugin.signature_url = item["signature_url"].asString();
+    plugin.package_url = item.get("package_url", "").asString();
+    plugin.package_size = item.get("package_size", 0).asUInt64();
+    plugin.package_sha256 = item.get("package_sha256", "").asString();
+    const bool package_hash_ok = plugin.package_sha256.size() == 64 &&
+        std::all_of(plugin.package_sha256.begin(), plugin.package_sha256.end(),
+                    [](unsigned char c) { return std::isxdigit(c); });
+    const bool package_complete = plugin.package_url.empty()
+        ? plugin.package_size == 0 && plugin.package_sha256.empty()
+        : OfficialUrl(plugin.package_url) && plugin.package_size > 0 &&
+              plugin.package_size <= kMaxPackage && package_hash_ok;
     if (!SafeId(plugin.id) || plugin.name.empty() || plugin.version.empty() ||
-        !OfficialUrl(plugin.manifest_url) || !OfficialUrl(plugin.signature_url)) {
+        !OfficialUrl(plugin.manifest_url) || !OfficialUrl(plugin.signature_url) ||
+        !package_complete) {
       error = "The signed catalog contains an invalid entry."; return false;
     }
     parsed.push_back(std::move(plugin));
@@ -396,15 +411,18 @@ bool RemoveTree(const std::string &path) {
   return rmdir(path.c_str()) == 0 && ok;
 }
 
-bool SignedPluginAt(const std::string &directory, Location location,
-                    Plugin &plugin, std::string &error) {
+bool PluginAt(const std::string &directory, Location location,
+              Plugin &plugin, std::string &error) {
   std::string manifest, signature;
   if (!ReadBounded(directory + "/plugin.json", kMaxManifest, manifest) ||
-      !ReadBounded(directory + "/plugin.json.sig", kMaxSignature, signature) ||
-      !Verify(manifest, signature) || !ParsePlugin(manifest, plugin, error)) {
-    if (error.empty()) error = "Plugin signature verification failed.";
+      !ParsePlugin(manifest, plugin, error, true)) {
+    if (error.empty()) error = "The installed plugin manifest is invalid.";
     return false;
   }
+  plugin.trust = ReadBounded(directory + "/plugin.json.sig", kMaxSignature,
+                             signature) && Verify(manifest, signature)
+                     ? Trust::kOfficial
+                     : Trust::kUnofficial;
   plugin.location = location;
   struct stat payload{};
   const std::string path = directory + "/" + plugin.payload_name;
@@ -423,11 +441,211 @@ std::vector<Plugin> ScanRoot(const char *root, Location location) {
     const std::string id = entry->d_name;
     if (!SafeId(id)) continue;
     Plugin plugin; std::string error;
-    if (SignedPluginAt(std::string(root) + "/" + id, location, plugin, error) &&
+    if (PluginAt(std::string(root) + "/" + id, location, plugin, error) &&
         plugin.id == id) result.push_back(std::move(plugin));
   }
   closedir(directory);
   return result;
+}
+
+struct LocalBundle {
+  ZipArchiveHandle archive = nullptr;
+  ZipEntry64 manifest_entry{};
+  ZipEntry64 signature_entry{};
+  ZipEntry64 payload_entry{};
+  std::string manifest;
+  std::string signature;
+  Plugin plugin;
+  bool has_signature = false;
+
+  ~LocalBundle() {
+    if (archive != nullptr) CloseArchive(archive);
+  }
+};
+
+bool ExtractText(ZipArchiveHandle archive, const ZipEntry64 &entry,
+                 uint64_t maximum, std::string &text) {
+  if (entry.uncompressed_length > maximum ||
+      entry.uncompressed_length > SIZE_MAX) return false;
+  text.assign(static_cast<size_t>(entry.uncompressed_length), '\0');
+  return ExtractToMemory(archive, &entry,
+                         reinterpret_cast<uint8_t *>(text.data()),
+                         text.size()) == 0;
+}
+
+bool OpenLocalBundle(const std::string &path, LocalBundle &bundle,
+                     std::string &error) {
+  if (!IsPackageFile(path)) {
+    error = "AERA plugin packages must use the .aerap extension.";
+    return false;
+  }
+  int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  struct stat info{};
+  if (fd < 0 || fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) ||
+      info.st_size <= 0 || static_cast<uint64_t>(info.st_size) > kMaxPackage) {
+    if (fd >= 0) close(fd);
+    error = "The selected plugin package is missing or too large.";
+    return false;
+  }
+  const int result = OpenArchiveFd(fd, path.c_str(), &bundle.archive, true);
+  if (result != 0) {
+    close(fd);
+    error = "The selected .aerap file is not a valid package.";
+    return false;
+  }
+
+  const auto archive_info = GetArchiveInfo(bundle.archive);
+  if (archive_info.entry_count < 2 || archive_info.entry_count > 3) {
+    error = "The plugin package contains unsupported files.";
+    return false;
+  }
+  bool manifest_found = false;
+  bool payload_found = false;
+  void *cookie = nullptr;
+  if (StartIteration(bundle.archive, &cookie) != 0) {
+    error = "The plugin package directory could not be read.";
+    return false;
+  }
+  bool entries_ok = true;
+  ZipEntry64 entry;
+  std::string name;
+  while (Next(cookie, &entry, &name) == 0) {
+    if (name == "plugin.json" && !manifest_found) {
+      bundle.manifest_entry = entry;
+      manifest_found = true;
+    } else if (name == "plugin.json.sig" && !bundle.has_signature) {
+      bundle.signature_entry = entry;
+      bundle.has_signature = true;
+    } else if (name == "runtime.xz" && !payload_found) {
+      bundle.payload_entry = entry;
+      payload_found = true;
+    } else {
+      entries_ok = false;
+      break;
+    }
+  }
+  EndIteration(cookie);
+  if (!entries_ok || !manifest_found || !payload_found ||
+      !ExtractText(bundle.archive, bundle.manifest_entry, kMaxManifest,
+                   bundle.manifest) ||
+      (bundle.has_signature &&
+       !ExtractText(bundle.archive, bundle.signature_entry, kMaxSignature,
+                    bundle.signature)) ||
+      !ParsePlugin(bundle.manifest, bundle.plugin, error, true) ||
+      bundle.payload_entry.uncompressed_length != bundle.plugin.payload_size) {
+    if (error.empty()) error = "The plugin package metadata is invalid.";
+    return false;
+  }
+  bundle.plugin.trust = bundle.has_signature &&
+                                Verify(bundle.manifest, bundle.signature)
+                            ? Trust::kOfficial
+                            : Trust::kUnofficial;
+  return true;
+}
+
+bool WriteFile(const std::string &path, const std::string &content) {
+  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW |
+                              O_CLOEXEC, 0600);
+  if (fd < 0) return false;
+  size_t offset = 0;
+  while (offset < content.size()) {
+    const ssize_t count = write(fd, content.data() + offset,
+                                content.size() - offset);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) { close(fd); return false; }
+    offset += static_cast<size_t>(count);
+  }
+  const bool ok = fsync(fd) == 0;
+  close(fd);
+  return ok;
+}
+
+bool ExtractPayload(LocalBundle &bundle, const std::string &path) {
+  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW |
+                              O_CLOEXEC, 0600);
+  if (fd < 0) return false;
+  const bool ok = ExtractEntryToFile(bundle.archive, &bundle.payload_entry,
+                                     fd) == 0 && fsync(fd) == 0;
+  close(fd);
+  return ok;
+}
+
+bool InstallLocal(const Request &request, Location location,
+                  Progress &progress, unsigned extract_progress = 18,
+                  unsigned verify_start = 55, unsigned verify_end = 94) {
+  LocalBundle bundle;
+  std::string error;
+  if (!OpenLocalBundle(request.path, bundle, error)) {
+    progress.error = error;
+    return false;
+  }
+  if (bundle.plugin.trust == Trust::kUnofficial &&
+      !request.allow_unofficial) {
+    progress.error = "Unofficial plugin installation was not confirmed.";
+    return false;
+  }
+  if (!request.id.empty() && request.id != bundle.plugin.id) {
+    progress.error = "The selected plugin identity changed before installation.";
+    return false;
+  }
+  const char *root = location == Location::kMemory ? kMemoryRoot : kStorageRoot;
+  if (!EnsureDirectory(root)) {
+    progress.error = location == Location::kMemory
+        ? "Could not create the RAM plugin store."
+        : "Persistent storage is locked or unavailable.";
+    return false;
+  }
+  const std::string staging = std::string(root) + "/.install-" +
+      bundle.plugin.id + "-" + std::to_string(static_cast<long long>(getpid()));
+  RemoveTree(staging);
+  if (mkdir(staging.c_str(), 0700) != 0) {
+    progress.error = "Could not create a staging directory.";
+    return false;
+  }
+
+  progress.status = "Reading " + bundle.plugin.name;
+  progress.value.store(extract_progress);
+  const std::string manifest_path = staging + "/plugin.json";
+  const std::string signature_path = staging + "/plugin.json.sig";
+  const std::string payload_path = staging + "/runtime.xz";
+  if (!WriteFile(manifest_path, bundle.manifest) ||
+      (bundle.has_signature && !WriteFile(signature_path, bundle.signature)) ||
+      !ExtractPayload(bundle, payload_path)) {
+    RemoveTree(staging);
+    progress.error = "Could not extract the plugin package.";
+    return false;
+  }
+  progress.status = "Verifying payload";
+  progress.value.store(verify_start);
+  if (!HashFile(payload_path, bundle.plugin.payload_size,
+                bundle.plugin.payload_sha256, &progress, verify_start,
+                verify_end)) {
+    RemoveTree(staging);
+    progress.error = "Plugin payload integrity check failed.";
+    return false;
+  }
+  chmod(manifest_path.c_str(), 0444);
+  if (bundle.has_signature) chmod(signature_path.c_str(), 0444);
+  chmod(payload_path.c_str(), 0444);
+
+  const std::string final = std::string(root) + "/" + bundle.plugin.id;
+  const std::string previous = final + ".previous";
+  RemoveTree(previous);
+  const bool had_previous = access(final.c_str(), F_OK) == 0;
+  if ((had_previous && rename(final.c_str(), previous.c_str()) != 0) ||
+      rename(staging.c_str(), final.c_str()) != 0) {
+    if (had_previous) rename(previous.c_str(), final.c_str());
+    RemoveTree(staging);
+    progress.error = "Could not publish the verified plugin.";
+    return false;
+  }
+  RemoveTree(previous);
+  progress.status = bundle.plugin.name +
+      (bundle.plugin.trust == Trust::kOfficial
+           ? " installed"
+           : " installed as an unofficial app");
+  progress.value.store(100);
+  return true;
 }
 
 bool Refresh(Progress &progress) {
@@ -477,6 +695,37 @@ Plugin CatalogEntry(const std::string &id) {
 bool Install(const std::string &id, Location location, Progress &progress) {
   const Plugin source = CatalogEntry(id);
   if (source.id.empty()) { progress.error = "Plugin is not in the signed store."; return false; }
+  if (!source.package_url.empty()) {
+    if (!EnsureDirectory(kCacheRoot)) {
+      progress.error = "Could not create the temporary store cache.";
+      return false;
+    }
+    const std::string package = std::string(kCacheRoot) + "/" + id + ".aerap";
+    progress.status = "Downloading " + source.name;
+    progress.value.store(5);
+    if (!Download(source.package_url, package, source.package_size, &progress,
+                  5, 68, source.package_size)) {
+      unlink(package.c_str());
+      progress.error = "Plugin package download failed.";
+      return false;
+    }
+    progress.status = "Verifying package";
+    if (!HashFile(package, source.package_size, source.package_sha256,
+                  &progress, 68, 78)) {
+      unlink(package.c_str());
+      progress.error = "Plugin package integrity check failed.";
+      return false;
+    }
+    Request request;
+    request.job = location == Location::kMemory ? Job::kInstallLocalMemory
+                                                 : Job::kInstallLocalStorage;
+    request.id = id;
+    request.path = package;
+    request.allow_unofficial = false;
+    const bool installed = InstallLocal(request, location, progress, 80, 84, 98);
+    unlink(package.c_str());
+    return installed;
+  }
   const char *root = location == Location::kMemory ? kMemoryRoot : kStorageRoot;
   if (!EnsureDirectory(root)) {
     progress.error = location == Location::kMemory
@@ -579,6 +828,25 @@ bool FindInstalled(const std::string &id, Plugin &plugin) {
   return false;
 }
 
+bool IsPackageFile(const std::string &name) {
+  constexpr char suffix[] = ".aerap";
+  if (name.size() < sizeof(suffix) - 1) return false;
+  const size_t offset = name.size() - (sizeof(suffix) - 1);
+  for (size_t i = 0; i < sizeof(suffix) - 1; ++i) {
+    if (std::tolower(static_cast<unsigned char>(name[offset + i])) !=
+        suffix[i]) return false;
+  }
+  return true;
+}
+
+bool InspectLocalPackage(const std::string &path, Plugin &plugin,
+                         std::string &error) {
+  LocalBundle bundle;
+  if (!OpenLocalBundle(path, bundle, error)) return false;
+  plugin = bundle.plugin;
+  return true;
+}
+
 bool Run(const Request &request, Progress &progress) {
   progress.value.store(0); progress.error.clear(); progress.status.clear();
   switch (request.job) {
@@ -587,6 +855,10 @@ bool Run(const Request &request, Progress &progress) {
       return Install(request.id, Location::kStorage, progress);
     case Job::kInstallMemory:
       return Install(request.id, Location::kMemory, progress);
+    case Job::kInstallLocalStorage:
+      return InstallLocal(request, Location::kStorage, progress);
+    case Job::kInstallLocalMemory:
+      return InstallLocal(request, Location::kMemory, progress);
     case Job::kRemove: return Remove(request.id, progress);
   }
   progress.error = "Unsupported plugin operation."; return false;
@@ -613,6 +885,10 @@ const char *LocationLabel(Location location) {
     case Location::kMemory: return "RAM only";
     default: return "Not installed";
   }
+}
+
+const char *TrustLabel(Trust trust) {
+  return trust == Trust::kOfficial ? "Official" : "Unofficial";
 }
 
 }  // namespace recovery_ui2::plugins
