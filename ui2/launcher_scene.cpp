@@ -62,7 +62,8 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
 
     int index = 0;
     auto add = [&](const char *icon, const char *name, const char *description,
-                   lv_color_t accent, Action action, bool retro_icon = false) {
+                   lv_color_t accent, Action action, bool retro_icon = false,
+                   const std::string &plugin_id = std::string()) {
       if (index >= 8) return;
       constexpr int kWidth = 736;
       constexpr int kGap = 16;
@@ -71,7 +72,11 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       const int x = 64 + column * (kWidth + kGap);
       const int y = 356 + row * 378;
       auto *card = AppCard(screen, x, y, kWidth, icon, name, description,
-                           accent, [=] { callback(action, context); },
+                           accent, [=] {
+                             if (!plugin_id.empty())
+                               SetSelectedPluginId(plugin_id);
+                             callback(action, context);
+                           },
                            retro_icon);
       AnimateEnter(card, 20 + index * 22, 12);
       ++index;
@@ -108,6 +113,10 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       else if (plugin.entry == "appvault")
         add(LV_SYMBOL_SAVE, plugin.name.c_str(), plugin.description.c_str(),
             kCyan, Action::kAppVault);
+      else if (plugins::IsGeneric(plugin))
+        add(LV_SYMBOL_SETTINGS, plugin.name.c_str(),
+            plugin.description.c_str(), kAccent, Action::kPluginApp, false,
+            plugin.id);
     }
     Navigation(screen, Action::kBackHome, callback, context);
     return;
@@ -167,12 +176,20 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       action = Action::kAppVault;
       icon = LV_SYMBOL_SAVE;
       accent = kCyan;
+    } else if (plugins::IsGeneric(plugin)) {
+      action = Action::kPluginApp;
+      icon = LV_SYMBOL_SETTINGS;
+      accent = kAccent;
     } else {
       continue;
     }
     auto *card = AppCard(screen, x, y, 636, icon, plugin.name.c_str(),
                          plugin.description.c_str(), accent,
-                         [=] { callback(action, context); },
+                         [=] {
+                           if (action == Action::kPluginApp)
+                             SetSelectedPluginId(plugin.id);
+                           callback(action, context);
+                         },
                          plugin.entry == "retroarch");
     auto *location = Kicker(card, plugins::LocationLabel(plugin.location), kGreen);
     lv_obj_align(location, LV_ALIGN_TOP_RIGHT, -82, 72);

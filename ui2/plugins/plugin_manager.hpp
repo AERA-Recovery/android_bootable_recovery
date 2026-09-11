@@ -11,7 +11,7 @@
 
 namespace recovery_ui2::plugins {
 
-constexpr uint32_t kHostApi = 1;
+constexpr uint32_t kHostApi = 2;
 
 enum class Location {
   kNone = 0,
@@ -53,6 +53,10 @@ struct Plugin {
   std::string expanded_sha256;
   uint32_t member_count = 0;
   uint32_t min_host_api = 0;
+  uint32_t protocol_version = 1;
+  std::string executable;
+  std::string icon;
+  std::vector<std::string> permissions;
   Location location = Location::kNone;
   Trust trust = Trust::kOfficial;
 };
@@ -85,6 +89,8 @@ bool IsPackageFile(const std::string &name);
 // payload hash is checked by its consumer immediately before extraction/use.
 bool ResolvePayload(const std::string &id, Plugin &plugin, std::string &path,
                     std::string &error);
+bool IsGeneric(const Plugin &plugin);
+bool HasPermission(const Plugin &plugin, const std::string &permission);
 
 const char *LocationLabel(Location location);
 const char *TrustLabel(Trust trust);

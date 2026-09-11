@@ -968,6 +968,17 @@ private:
       return;
     }
 
+    if (action == Action::kPluginApp) {
+      self->TrackScene(action);
+      self->on_home_ = false;
+      self->current_tool_ = action;
+      lv_obj_t *screen = lv_obj_create(nullptr);
+      BuildGenericPluginScene(screen, GetSelectedPluginId(), HandleSceneAction,
+                              self);
+      lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
+      return;
+    }
+
     if (action == Action::kRootManager) {
       self->TrackScene(action);
       self->on_home_ = false;

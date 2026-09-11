@@ -122,17 +122,21 @@ void Render(State *state) {
       if (local->entry == "browser" || local->entry == "retroarch" ||
           local->entry == "telegram" || local->entry == "gallery" ||
           local->entry == "media" || local->entry == "recorder" ||
-          local->entry == "appvault") {
+          local->entry == "appvault" || plugins::IsGeneric(*local)) {
         const auto action = local->entry == "browser" ? Action::kWeb :
             local->entry == "retroarch" ? Action::kRetroArch :
             local->entry == "telegram" ? Action::kTelegram :
             local->entry == "gallery" ? Action::kGallery :
             local->entry == "media" ? Action::kMedia :
-            local->entry == "recorder" ? Action::kRecorder : Action::kAppVault;
+            local->entry == "recorder" ? Action::kRecorder :
+            local->entry == "appvault" ? Action::kAppVault : Action::kPluginApp;
         const int gap = 24;
         const int third = (card_width - 68 - gap * 2) / 3;
         AddButton(card, "Open", 34, third,
-                  [state, action] { state->callback(action, state->context); }, true);
+                  [state, action, id = local->id] {
+                    if (action == Action::kPluginApp) SetSelectedPluginId(id);
+                    state->callback(action, state->context);
+                  }, true);
         const bool update = local->version != plugin.version;
         AddButton(card, update ? "Update on storage" : "Reinstall",
                   34 + third + gap, third,
@@ -218,9 +222,11 @@ void Render(State *state) {
       else if (plugin.entry == "media") action = Action::kMedia;
       else if (plugin.entry == "recorder") action = Action::kRecorder;
       else if (plugin.entry == "appvault") action = Action::kAppVault;
+      else if (plugins::IsGeneric(plugin)) action = Action::kPluginApp;
       const int gap = 24;
       const int half = (card_width - 68 - gap) / 2;
-      AddButton(card, "Open", 34, half, [state, action] {
+      AddButton(card, "Open", 34, half, [state, action, id = plugin.id] {
+        if (action == Action::kPluginApp) SetSelectedPluginId(id);
         if (action != Action::kNone) state->callback(action, state->context);
       });
       AddButton(card, "Remove", 34 + half + gap, half,

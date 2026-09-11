@@ -99,6 +99,10 @@ void BuildRecorderScene(lv_obj_t *screen, ActionCallback callback,
                         void *context);
 void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
                         void *context);
+void SetSelectedPluginId(const std::string &id);
+std::string GetSelectedPluginId();
+void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
+                             ActionCallback callback, void *context);
 void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback,
                            void *context);
 void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,

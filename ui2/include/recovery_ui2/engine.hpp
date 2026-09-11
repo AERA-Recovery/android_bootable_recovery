@@ -50,6 +50,7 @@ enum class Action {
     kPlugins,
     kRunPluginOperation,
     kInstallLocalPlugin,
+    kPluginApp,
     kUnlock,
     kQuickWifiToggle,
     kToggleRotation,

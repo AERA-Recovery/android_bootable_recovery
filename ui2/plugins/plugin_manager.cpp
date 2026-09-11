@@ -169,6 +169,28 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
   plugin.expanded_sha256 = root.get("expanded_sha256", "").asString();
   plugin.member_count = root.get("member_count", 0).asUInt();
   plugin.min_host_api = root["min_host_api"].asUInt();
+  plugin.protocol_version = root.get("protocol_version", 1).asUInt();
+  plugin.executable = root.get("executable", "").asString();
+  plugin.icon = root.get("icon", "plugin").asString();
+  plugin.permissions.clear();
+  const Json::Value permissions =
+      root.get("permissions", Json::Value(Json::arrayValue));
+  if (!permissions.isArray() || permissions.size() > 16) {
+    error = "Plugin permissions are malformed.";
+    return false;
+  }
+  for (const auto &permission : permissions) {
+    const std::string name = permission.asString();
+    if (!permission.isString() || name.empty() || name.size() > 40 ||
+        !std::all_of(name.begin(), name.end(),
+                     [](unsigned char c) {
+                       return std::islower(c) || std::isdigit(c) || c == '-';
+                     })) {
+      error = "Plugin permissions are malformed.";
+      return false;
+    }
+    plugin.permissions.push_back(name);
+  }
   const bool hash_ok = plugin.payload_sha256.size() == 64 &&
       std::all_of(plugin.payload_sha256.begin(), plugin.payload_sha256.end(),
                   [](unsigned char c) { return std::isxdigit(c); });
@@ -176,7 +198,7 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
       (plugin.expanded_sha256.size() == 64 &&
        std::all_of(plugin.expanded_sha256.begin(), plugin.expanded_sha256.end(),
                    [](unsigned char c) { return std::isxdigit(c); }));
-  const bool supported_entry =
+  const bool legacy_entry =
       (plugin.id == "browser" && plugin.type == "browser-runtime" &&
        plugin.entry == "browser") ||
       (plugin.id == "retroarch" && plugin.type == "app-runtime" &&
@@ -191,6 +213,24 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
        plugin.entry == "recorder") ||
       (plugin.id == "appvault" && plugin.type == "app-runtime" &&
        plugin.entry == "appvault");
+  const bool generic_entry = plugin.type == "ui-runtime" &&
+      plugin.entry == "main" && plugin.protocol_version == 2 &&
+      plugin.min_host_api == 2 &&
+      plugin.executable == "usr/bin/aera-plugin" &&
+      plugin.icon.size() <= 24;
+  const auto has_permission = [&](const char *name) {
+    return std::find(plugin.permissions.begin(), plugin.permissions.end(), name) !=
+           plugin.permissions.end();
+  };
+  const bool permissions_ok = !generic_entry ||
+      (has_permission("display") && has_permission("touch-input") &&
+       std::all_of(plugin.permissions.begin(), plugin.permissions.end(),
+                   [](const std::string &permission) {
+                     return permission == "display" ||
+                            permission == "touch-input" ||
+                            permission == "settings-backup" ||
+                            permission == "settings-restore";
+                   }));
   if (!SafeId(plugin.id) || plugin.name.empty() || plugin.name.size() > 80 ||
       plugin.version.empty() || plugin.version.size() > 32 ||
       plugin.description.size() > 320 || plugin.type.empty() ||
@@ -199,10 +239,11 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
       !hash_ok || !expanded_hash_ok ||
       plugin.payload_size == 0 || plugin.payload_size > kMaxPayload ||
       plugin.min_host_api == 0 || plugin.min_host_api > kHostApi ||
-      !supported_entry) {
+      (!legacy_entry && !generic_entry) || !permissions_ok) {
     error = "Plugin manifest violates the AERA host policy."; return false;
   }
-  if ((plugin.type == "browser-runtime" || plugin.type == "app-runtime") &&
+  if ((plugin.type == "browser-runtime" || plugin.type == "app-runtime" ||
+       generic_entry) &&
       (!plugin.expanded_size || plugin.expanded_size > kMaxPayload ||
        !plugin.member_count || plugin.member_count > 4096 ||
        plugin.expanded_sha256.empty())) {
@@ -877,6 +918,17 @@ bool ResolvePayload(const std::string &id, Plugin &plugin, std::string &path,
     error = "Installed plugin payload is incomplete."; return false;
   }
   return true;
+}
+
+bool IsGeneric(const Plugin &plugin) {
+  return plugin.type == "ui-runtime" && plugin.entry == "main" &&
+         plugin.protocol_version == 2 &&
+         plugin.executable == "usr/bin/aera-plugin";
+}
+
+bool HasPermission(const Plugin &plugin, const std::string &permission) {
+  return std::find(plugin.permissions.begin(), plugin.permissions.end(),
+                   permission) != plugin.permissions.end();
 }
 
 const char *LocationLabel(Location location) {

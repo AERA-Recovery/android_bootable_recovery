@@ -225,7 +225,9 @@ void RemoveRuntime(const std::string &directory) {
   const bool media = leaf.size() == 17 && leaf.compare(0, 11, "aera-media-") == 0;
   const bool recorder = leaf.size() == 15 && leaf.compare(0, 9, "aera-rec-") == 0;
   const bool appvault = leaf.size() == 17 && leaf.compare(0, 11, "aera-vault-") == 0;
-  if (!browser && !retroarch && !telegram && !media && !recorder && !appvault) return;
+  const bool plugin_v2 = leaf.size() == 14 && leaf.compare(0, 8, "aera-p2-") == 0;
+  if (!browser && !retroarch && !telegram && !media && !recorder && !appvault &&
+      !plugin_v2) return;
   FD root(open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
   if (root.value < 0) return;
   ClearDirectory(root.value);
@@ -250,28 +252,30 @@ void PreparePluginRuntime(Preparation &state, const char *id,
       !strcmp(type, "app-runtime") && !strcmp(entry, "recorder");
   const bool appvault = id && type && entry && !strcmp(id, "appvault") &&
       !strcmp(type, "app-runtime") && !strcmp(entry, "appvault");
-  const char *name = telegram ? "Telegram" : media ? "Media" :
-      recorder ? "Recorder" : appvault ? "App Backup Vault" : "RetroArch";
-  if (!retroarch && !telegram && !media && !recorder && !appvault) {
+  const bool plugin_v2 = id && type && entry &&
+      !strcmp(type, "ui-runtime") && !strcmp(entry, "main");
+  if (!retroarch && !telegram && !media && !recorder && !appvault &&
+      !plugin_v2) {
     state.error = "AERA rejected an unsupported plugin entry point.";
     return;
   }
   plugins::Plugin plugin;
   std::string selected, error;
   if (!plugins::ResolvePayload(id, plugin, selected, error) ||
-      plugin.type != type || plugin.entry != entry) {
+      plugin.type != type || plugin.entry != entry ||
+      (plugin_v2 && !plugins::IsGeneric(plugin))) {
     state.error = error.empty()
-        ? std::string("Install AERA ") + name +
-              " from Plugin Manager first." : error;
+        ? "Install the plugin from Plugin Manager first." : error;
     return;
   }
+  const std::string name = plugin.name;
   const RuntimeSpec spec = {plugin.payload_size, plugin.expanded_size,
       plugin.member_count, plugin.payload_sha256, plugin.expanded_sha256};
   FD file(open(selected.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
   struct stat info{};
   if (file.value < 0 || fstat(file.value, &info) || !S_ISREG(info.st_mode) ||
       static_cast<uint64_t>(info.st_size) != spec.compressed_bytes) {
-    state.error = std::string(name) +
+    state.error = name +
         " payload is missing or has an unexpected size.";
     return;
   }
@@ -280,7 +284,7 @@ void PreparePluginRuntime(Preparation &state, const char *id,
   if (ram.value < 0 || fstatfs(ram.value, &filesystem) ||
       (static_cast<unsigned long>(filesystem.f_type) != kTmpfs &&
        static_cast<unsigned long>(filesystem.f_type) != kRamfs)) {
-    state.error = std::string(name) +
+    state.error = name +
         " expansion requires RAM-backed temporary storage.";
     return;
   }
@@ -303,7 +307,7 @@ void PreparePluginRuntime(Preparation &state, const char *id,
   Hash compressed;
   for (uint64_t pos = 0; pos < spec.compressed_bytes; pos += 65536) {
     if (state.cancel.load()) {
-      state.error = std::string(name) +
+      state.error = name +
           " preparation cancelled.";
       return;
     }
@@ -311,13 +315,14 @@ void PreparePluginRuntime(Preparation &state, const char *id,
         std::min<uint64_t>(65536, spec.compressed_bytes - pos));
   }
   if (!compressed.Matches(spec.compressed_hash.c_str())) {
-    state.error = std::string(name) +
+    state.error = name +
         " payload integrity check failed.";
     return;
   }
   std::string temporary = std::string(parent) +
       (telegram ? "/aera-tg-XXXXXX" : media ? "/aera-media-XXXXXX" :
        recorder ? "/aera-rec-XXXXXX" : appvault ? "/aera-vault-XXXXXX" :
+       plugin_v2 ? "/aera-p2-XXXXXX" :
        "/aera-ra-XXXXXX");
   if (!mkdtemp(temporary.data())) return;
   FD root(open(temporary.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
@@ -327,8 +332,8 @@ void PreparePluginRuntime(Preparation &state, const char *id,
       state.cancel.load()) {
     RemoveRuntime(temporary);
     state.error = state.cancel.load()
-        ? std::string(name) + " preparation cancelled."
-        : std::string(name) +
+        ? name + " preparation cancelled."
+        : name +
               " runtime validation or extraction failed.";
     return;
   }
