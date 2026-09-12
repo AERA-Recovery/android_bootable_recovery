@@ -36,7 +36,11 @@ support code and is not selected during normal AERA startup.
 ## Main interface
 
 Files, Backup, Wipe and Menu are the persistent navigation destinations. Menu
-opens Restore, Mounts, Recovery log, Preferences and Reboot. The file browser
+opens Restore, Mounts, Recovery log, Android Users, Preferences and Reboot.
+Only Android user 0 participates in startup decryption. Additional FBE users
+remain locked until explicitly selected on the Android Users page; a secondary
+unlock never repeats the startup handoff or changes the active recovery page.
+The file browser
 requires a review and a swipe before installing a ZIP; selecting a file alone
 never starts installation. Partition operations also require an exact-target
 review and a swipe, except Format Data's explicit typed confirmation below.
@@ -95,8 +99,8 @@ ctest --test-dir /tmp/aera-ui-tests --output-on-failure
 
 These cover wipe selection, exact format confirmation/re-arming, no keyboard
 auto-submit, navigation geometry, preference toggles, backup/restore selection,
-decrypt rendering, viewer lifecycle, operation completion, and Host API 2
-protocol negotiation/resource limits.
+secondary-user selection, decrypt rendering, viewer lifecycle, operation
+completion, and Host API 2 protocol negotiation/resource limits.
 
 ## Plugin Host API 2
 

@@ -47,6 +47,10 @@ struct DecryptScene {
   void *state = nullptr;
 };
 
+struct UserDecryptRequest {
+  AndroidUser user;
+};
+
 struct WifiScene {
   lv_obj_t *status = nullptr;
   lv_obj_t *detail = nullptr;
@@ -81,6 +85,8 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback,
                     void *context);
+void SetUserDecryptRequest(const UserDecryptRequest &request);
+UserDecryptRequest GetUserDecryptRequest();
 void BuildBrowserScene(lv_obj_t *screen, ActionCallback callback, void *context);
 // Optional FDs are owned channels supplied only by a trusted isolated launcher.
 // Engine currently uses the defaults: it cannot launch a browser.
@@ -122,7 +128,8 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
 DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
                                bool file_based, int user_id,
                                int pattern_grid_size,
-                               ActionCallback callback, void *context);
+                               ActionCallback callback, void *context,
+                               const std::string &user_name = {});
 std::string GetDecryptCredential(const DecryptScene &scene);
 void SetDecryptBusy(const DecryptScene &scene);
 void CompleteDecryptAttempt(const DecryptScene &scene, bool success);

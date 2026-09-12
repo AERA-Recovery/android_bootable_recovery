@@ -11,6 +11,7 @@
 namespace recovery_ui2 {
 namespace {
 using namespace widgets;
+UserDecryptRequest selected_user_decrypt;
 struct Tools {
   lv_obj_t *screen = nullptr, *list = nullptr, *summary = nullptr;
   lv_obj_t *selection_detail = nullptr, *review = nullptr;
@@ -1065,21 +1066,83 @@ void BuildLogs(Tools *state) {
   lv_obj_set_size(refresh, landscape ? 560 : 1280, 120);
 }
 
+const char *CredentialName(int type) {
+  if (type == 2) return "Pattern";
+  if (type == 3) return "PIN";
+  if (type == 0) return "No credential";
+  return "Password";
+}
+
+void BuildUsers(Tools *state) {
+  Header(state->screen, "Android Users",
+         "Unlock additional Android users only when you need them.",
+         state->callback, state->context);
+  const bool landscape = Landscape(state->screen);
+  state->list = Scroll(state->screen, landscape ? 340 : 452,
+                       landscape ? 930 : 2290);
+  const auto users = RecoveryAndroidUsers();
+  lv_obj_update_layout(state->list);
+  const int row_width =
+      std::max(600, static_cast<int>(lv_obj_get_width(state->list)));
+  for (size_t i = 0; i < users.size(); ++i) {
+    const auto user = users[i];
+    auto *row = Button(state->list, "", [] {});
+    lv_obj_set_pos(row, 0, static_cast<int>(i) * 170);
+    lv_obj_set_size(row, row_width, 154);
+    lv_obj_set_style_radius(row, 24, 0);
+    auto *name = Label(row, user.name.c_str(), &lv_font_montserrat_36, kText);
+    lv_obj_set_pos(name, 28, 20);
+    lv_obj_set_width(name, row_width - 330);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    const std::string detail = "User " + std::to_string(user.id) + " / " +
+                               CredentialName(user.credential_type);
+    auto *credential =
+        Label(row, detail.c_str(), &lv_font_montserrat_24, kMuted);
+    lv_obj_set_pos(credential, 30, 82);
+    lv_obj_set_width(credential, row_width - 330);
+    auto *status = Label(row, user.decrypted ? "Unlocked" : "Unlock",
+                         &lv_font_montserrat_24,
+                         user.decrypted ? kGreen : kAccent);
+    lv_obj_align(status, LV_ALIGN_RIGHT_MID, -68, 0);
+    if (user.decrypted) {
+      lv_obj_add_state(row, LV_STATE_DISABLED);
+      lv_obj_set_style_opa(row, LV_OPA_80, LV_STATE_DISABLED);
+    } else {
+      auto *arrow =
+          Label(row, LV_SYMBOL_RIGHT, &lv_font_montserrat_32, kAccent);
+      lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -22, 0);
+      OnClick(row, [state, user] {
+        SetUserDecryptRequest({user});
+        Open(state, Action::kDecryptUser);
+      });
+    }
+  }
+  if (users.empty()) {
+    auto *empty = Label(
+        state->list,
+        "No Android users were found. Unlock /data first, then try again.",
+        &lv_font_montserrat_32, kMuted);
+    lv_obj_set_width(empty, row_width - 40);
+    lv_obj_set_pos(empty, 20, 80);
+  }
+}
+
 void BuildMenu(Tools *state) {
   Header(state->screen, "Menu", "Tools for your recovery session.",
          state->callback, state->context);
-  // Only the six utility cards scroll. Reboot is pinned above Navigation so
+  // Utility cards scroll. Reboot is pinned above Navigation so
   // it always reads as the final action on the page.
   const bool landscape = Landscape(state->screen);
   state->list = Scroll(state->screen, landscape ? 340 : 452,
                        landscape ? 610 : 2130);
   struct Item { const char *icon, *title, *detail; Action action; };
-  const std::array<Item, 8> items{{
+  const std::array<Item, 9> items{{
     {LV_SYMBOL_DRIVE, "Mounts", "Mount or unmount recovery volumes", Action::kMounts},
     {LV_SYMBOL_LIST, "Recovery log", "Read output and troubleshoot operations", Action::kLogs},
     {LV_SYMBOL_WIFI, "Wi-Fi", "Networks, saved credentials and connection test", Action::kWifi},
     {LV_SYMBOL_SHUFFLE, "Network Storage", "Connect and mount SFTP or SMB storage", Action::kNas},
     {LV_SYMBOL_SETTINGS, "Root Manager", "Patch init_boot and manage KernelSU modules", Action::kRootManager},
+    {LV_SYMBOL_KEYBOARD, "Android Users", "Unlock additional users on demand", Action::kUsers},
     {LV_SYMBOL_TINT, "Theme Engine", "Global accent colors and interface appearance", Action::kTheme},
     {LV_SYMBOL_SETTINGS, "Preferences", "Display, files, backups, time and USB", Action::kPreferences},
     {LV_SYMBOL_POWER, "Reboot", "Android, recovery, bootloader or power off", Action::kOpenReboot}}};
@@ -1133,6 +1196,14 @@ void BuildMenu(Tools *state) {
 }
 }  // namespace
 
+void SetUserDecryptRequest(const UserDecryptRequest &request) {
+  selected_user_decrypt = request;
+}
+
+UserDecryptRequest GetUserDecryptRequest() {
+  return selected_user_decrypt;
+}
+
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void *context) {
   auto *state = new Tools;
   state->screen = screen;
@@ -1150,6 +1221,7 @@ void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void
   else if (tool == Action::kPreferences) BuildPreferences(state);
   else if (tool == Action::kTheme) BuildTheme(state);
   else if (tool == Action::kLogs) BuildLogs(state);
+  else if (tool == Action::kUsers) BuildUsers(state);
   else BuildMenu(state);
   Navigation(screen, tool == Action::kBackup || tool == Action::kRestore ? Action::kBackup :
                      tool == Action::kWipe || tool == Action::kFormatData ? Action::kWipe : Action::kSettings,

@@ -101,6 +101,9 @@ bool RecoverySetActiveSlot(const std::string &slot) {
   return true;
 }
 bool RecoveryDataLocked() { return false; }
+std::vector<AndroidUser> RecoveryAndroidUsers() {
+  return {{0, "Owner", 3, true}, {10, "Work profile", 2, false}};
+}
 bool RecoverySetStorage(const std::string &) { return true; }
 int RecoveryBrightness() { return 50; }
 void RecoverySetBrightness(int) {}
@@ -308,6 +311,16 @@ int main(int argc,char **argv) {
   lv_obj_send_event(Find(prefs,"Save preferences"),LV_EVENT_CLICKED,nullptr);
   assert(Find(prefs,"Could not save preferences")); assert(widgets::DismissModal(prefs)); Tick();
   lv_screen_load(screen); lv_obj_delete(prefs);
+  auto *users=lv_obj_create(nullptr);
+  BuildToolScene(users,Action::kUsers,RecordAction,nullptr);
+  lv_screen_load(users); Tick();
+  assert(Find(users,"Owner") && Find(users,"Unlocked"));
+  auto *work_user=Find(users,"Work profile"); assert(work_user);
+  lv_obj_send_event(work_user,LV_EVENT_CLICKED,nullptr);
+  assert(last_action==Action::kDecryptUser);
+  const auto user_request=GetUserDecryptRequest();
+  assert(user_request.user.id==10 && user_request.user.credential_type==2);
+  lv_screen_load(screen); lv_obj_delete(users);
   BuildToolScene(screen,Action::kBackup,[](Action,void*){},nullptr);
   assert(!lv_obj_get_style_bg_image_tiled(screen,LV_PART_MAIN));
   assert(lv_obj_get_style_bg_grad_dir(screen,LV_PART_MAIN)==LV_GRAD_DIR_NONE);
@@ -353,6 +366,6 @@ int main(int argc,char **argv) {
   auto *reboot_options=Find(format_job,"Reboot options"); assert(reboot_options);
   lv_obj_send_event(reboot_options,LV_EVENT_CLICKED,nullptr); assert(last_action==Action::kOpenReboot);
   lv_screen_load(screen); lv_obj_delete(format_job);
-  puts("Headless UI checks passed: wipe selection, format confirmation guard, keyboard no auto-submit, bottom navigation geometry, preference toggles, backup/restore, unlock, viewer, operation completion. No destructive backend is linked.");
+  puts("Headless UI checks passed: wipe selection, format confirmation guard, keyboard no auto-submit, bottom navigation geometry, preference toggles, backup/restore, Android users, unlock, viewer, operation completion. No destructive backend is linked.");
   lv_deinit();
 }

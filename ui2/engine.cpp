@@ -231,6 +231,7 @@ public:
     nas_running_ = false;
     plugin_running_ = false;
     decryption_active_ = false;
+    secondary_decryption_ = false;
     navigation_history_.clear();
     current_scene_ = Action::kBackHome;
     navigating_back_ = false;
@@ -278,8 +279,13 @@ public:
       decrypt_running_ = false;
       if (success) {
         decryption_active_ = false;
-        decryption_completion_ = DecryptionCompletion::kSuccess;
-        ShowPreparing(true);
+        if (secondary_decryption_) {
+          secondary_decryption_ = false;
+          HandleSceneAction(Action::kUsers, this);
+        } else {
+          decryption_completion_ = DecryptionCompletion::kSuccess;
+          ShowPreparing(true);
+        }
       }
     }
     if (wifi_complete_.exchange(false, std::memory_order_acq_rel)) {
@@ -379,6 +385,7 @@ public:
     if (interactive_ready_ || backend_ready_) return;
     interactive_ready_ = true;
     decryption_active_ = true;
+    secondary_decryption_ = false;
     credential_type_ = credential_type;
     crypto_user_id_ = user_id;
     lv_obj_t *boot_screen = lv_screen_active();
@@ -778,8 +785,13 @@ private:
         self->StartDecryption();
       } else if (action == Action::kDecryptSkip && !self->decrypt_running_) {
         self->decryption_active_ = false;
-        self->decryption_completion_ = DecryptionCompletion::kSkipped;
-        self->ShowPreparing(false);
+        if (self->secondary_decryption_) {
+          self->secondary_decryption_ = false;
+          HandleSceneAction(Action::kUsers, self);
+        } else {
+          self->decryption_completion_ = DecryptionCompletion::kSkipped;
+          self->ShowPreparing(false);
+        }
       }
       return;
     }
@@ -869,6 +881,28 @@ private:
 
     if (action == Action::kRunPluginOperation) {
       self->StartPlugin(GetPluginRequest());
+      return;
+    }
+
+    if (action == Action::kDecryptUser) {
+      const auto request = GetUserDecryptRequest();
+      if (request.user.decrypted) {
+        HandleSceneAction(Action::kUsers, self);
+        return;
+      }
+      self->credential_type_ = request.user.credential_type;
+      self->crypto_user_id_ = request.user.id;
+      self->secondary_decryption_ = true;
+      self->decryption_active_ = true;
+      self->on_home_ = false;
+      self->current_tool_ = Action::kUsers;
+      lv_obj_t *screen = lv_obj_create(nullptr);
+      self->decrypt_scene_ = BuildDecryptScene(
+          screen, request.user.credential_type, true, request.user.id, 3,
+          HandleSceneAction, self, request.user.name);
+      lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
+      if (request.user.credential_type == 0)
+        self->StartDecryption("!");
       return;
     }
 
@@ -1035,7 +1069,7 @@ private:
         action == Action::kSettings ||
         action == Action::kMounts || action == Action::kLogs ||
         action == Action::kPreferences || action == Action::kTheme ||
-        action == Action::kWifi;
+        action == Action::kWifi || action == Action::kUsers;
     if (action == Action::kOpenReboot || action == Action::kBackHome ||
         action == Action::kInstall || opens_tool) {
       self->TrackScene(action == Action::kInstall ? Action::kBackHome : action);
@@ -1102,9 +1136,11 @@ private:
     lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 260, 0, true);
   }
 
-  void StartDecryption() {
+  void StartDecryption(const std::string &supplied_credential = {}) {
     if (!decryption_active_ || decrypt_running_) return;
-    const std::string credential = GetDecryptCredential(decrypt_scene_);
+    const std::string credential = supplied_credential.empty()
+                                       ? GetDecryptCredential(decrypt_scene_)
+                                       : supplied_credential;
     const size_t minimum = credential_type_ == 2 ? 4U : 1U;
     if (credential.size() < minimum) {
       CompleteDecryptAttempt(decrypt_scene_, false);
@@ -1485,6 +1521,7 @@ private:
   bool nas_running_ = false;
   bool plugin_running_ = false;
   bool decryption_active_ = false;
+  bool secondary_decryption_ = false;
   bool interactive_ready_ = false;
   bool navigating_back_ = false;
   bool swipe_active_ = false;

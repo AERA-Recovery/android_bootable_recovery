@@ -35,7 +35,6 @@
 
 #include "android_icon.hpp"
 #include "browser/runtime.hpp"
-#include "phone_keyboard.hpp"
 #include "ui_components.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
 
@@ -48,13 +47,20 @@ constexpr char kPluginId[] = "appvault";
 constexpr char kPluginType[] = "app-runtime";
 constexpr char kPluginEntry[] = "appvault";
 constexpr char kDefaultRepository[] = "/sdcard/AERA/AppBackupVault";
+constexpr char kInternalPassword[] = "AERA-App-Backup-Vault-Internal-v1";
 constexpr char kTag[] = "aera-appvault";
 constexpr uint32_t kLabelAttribute = 0x01010001;
 constexpr uint32_t kIconAttribute = 0x01010002;
 constexpr uint32_t kRoundIconAttribute = 0x0101052c;
 constexpr uint32_t kIconPixels = 76;
 
-enum class Work { kNone, kInitialize, kBackup, kRefresh, kRestore };
+enum class Work {
+  kNone,
+  kBackup,
+  kRefresh,
+  kRestore,
+  kDiscover
+};
 
 struct AppIcon {
   std::vector<uint8_t> pixels;
@@ -91,14 +97,13 @@ struct State {
   void *context = nullptr;
   lv_obj_t *status = nullptr;
   lv_obj_t *detail = nullptr;
-  lv_obj_t *repository_label = nullptr;
-  lv_obj_t *password = nullptr;
   lv_obj_t *selected = nullptr;
   lv_obj_t *system_filter_label = nullptr;
   lv_obj_t *select_all_label = nullptr;
+  lv_obj_t *user_button = nullptr;
+  lv_obj_t *user_label = nullptr;
   lv_obj_t *list = nullptr;
   lv_obj_t *progress = nullptr;
-  lv_obj_t *initialize = nullptr;
   lv_obj_t *backup = nullptr;
   lv_obj_t *refresh_button = nullptr;
   lv_obj_t *restore = nullptr;
@@ -117,7 +122,6 @@ struct State {
   std::mutex result_mutex;
   std::string runtime;
   std::string repository = kDefaultRepository;
-  std::string password_value;
   std::string result;
   std::string latest_id;
   std::string latest_time;
@@ -125,7 +129,9 @@ struct State {
   unsigned snapshots = 0;
   bool browse_after_refresh = false;
   bool show_system = false;
+  int user_id = 0;
   Work work = Work::kNone;
+  std::vector<AndroidUser> users;
   std::vector<App> apps;
   std::vector<Snapshot> snapshot_items;
 };
@@ -311,26 +317,41 @@ void ReadAppMetadata(App &app) {
   }
 }
 
-std::vector<App> DiscoverApps(const std::atomic<bool> &cancel) {
+std::vector<App> DiscoverApps(const std::atomic<bool> &cancel, int user_id) {
   std::vector<App> apps;
-  DIR *directory = opendir("/data/user/0");
-  if (!directory) return apps;
+  const std::string id = std::to_string(user_id);
+  const std::vector<std::string> roots = {
+      "/data/user/" + id,
+      "/data/user_de/" + id,
+      "/data/media/" + id + "/Android/data",
+      "/data/media/" + id + "/Android/obb",
+      "/data/media/" + id + "/Android/media"};
+  std::set<std::string> packages;
+  for (const auto &root : roots) {
+    DIR *directory = opendir(root.c_str());
+    if (!directory) continue;
+    while (const dirent *entry = readdir(directory)) {
+      if (SafePackage(entry->d_name) &&
+          Directory(root + "/" + entry->d_name))
+        packages.insert(entry->d_name);
+    }
+    closedir(directory);
+  }
   const auto user_packages = UserPackages();
   const auto code_paths = DataAppCodePaths();
-  while (const dirent *entry = readdir(directory)) {
-    if (!SafePackage(entry->d_name)) continue;
+  for (const auto &package : packages) {
     App app;
-    app.package = entry->d_name;
+    app.package = package;
     app.name = FriendlyPackageName(app.package);
     const auto code = code_paths.find(app.package);
     app.system = user_packages.count(app.package) == 0;
     app.selected = !app.system;
     const std::vector<std::string> candidates = {
-        "/data/user/0/" + app.package,
-        "/data/user_de/0/" + app.package,
-        "/data/media/0/Android/data/" + app.package,
-        "/data/media/0/Android/obb/" + app.package,
-        "/data/media/0/Android/media/" + app.package};
+        roots[0] + "/" + app.package,
+        roots[1] + "/" + app.package,
+        roots[2] + "/" + app.package,
+        roots[3] + "/" + app.package,
+        roots[4] + "/" + app.package};
     for (const auto &path : candidates)
       if (Directory(path)) app.paths.push_back(path);
     if (code != code_paths.end()) {
@@ -339,7 +360,6 @@ std::vector<App> DiscoverApps(const std::atomic<bool> &cancel) {
     }
     if (!app.paths.empty()) apps.push_back(std::move(app));
   }
-  closedir(directory);
   for (auto &app : apps) {
     if (cancel.load(std::memory_order_relaxed)) break;
     ReadAppMetadata(app);
@@ -433,7 +453,7 @@ int RunRestic(State *state, const std::vector<std::string> &arguments,
   char password_path[] = "/tmp/aera-vault-password-XXXXXX";
   const int password_fd = mkstemp(password_path);
   if (password_fd < 0 || fchmod(password_fd, 0600) ||
-      !WriteAll(password_fd, state->password_value + "\n")) {
+      !WriteAll(password_fd, std::string(kInternalPassword) + "\n")) {
     if (password_fd >= 0) close(password_fd);
     unlink(password_path);
     output = "Could not create a private password channel.";
@@ -493,16 +513,18 @@ int RunRestic(State *state, const std::vector<std::string> &arguments,
   return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
-std::string PackageFromBackupPath(std::string path) {
+std::string PackageFromBackupPath(std::string path, int user_id) {
   if (path.empty()) return {};
   if (path[0] != '/') path.insert(path.begin(), '/');
-  static constexpr const char *prefixes[] = {
-      "/data/user/0/", "/data/user_de/0/",
-      "/data/media/0/Android/data/", "/data/media/0/Android/obb/",
-      "/data/media/0/Android/media/"};
-  for (const char *prefix : prefixes) {
-    if (path.compare(0, strlen(prefix), prefix)) continue;
-    std::string package = path.substr(strlen(prefix));
+  const std::string id = std::to_string(user_id);
+  const std::vector<std::string> prefixes = {
+      "/data/user/" + id + "/", "/data/user_de/" + id + "/",
+      "/data/media/" + id + "/Android/data/",
+      "/data/media/" + id + "/Android/obb/",
+      "/data/media/" + id + "/Android/media/"};
+  for (const auto &prefix : prefixes) {
+    if (path.compare(0, prefix.size(), prefix)) continue;
+    std::string package = path.substr(prefix.size());
     const size_t slash = package.find('/');
     if (slash != std::string::npos) package.resize(slash);
     return SafePackage(package.c_str()) ? package : std::string();
@@ -570,7 +592,7 @@ void ParseSnapshots(State *state, const std::string &output) {
     std::map<std::string, std::vector<std::string>> app_paths;
     for (const auto &entry : snapshot["paths"]) {
       const std::string path = entry.asString();
-      const std::string package = PackageFromBackupPath(path);
+      const std::string package = PackageFromBackupPath(path, state->user_id);
       if (!package.empty()) app_paths[package].push_back(path);
     }
     for (auto &[package, paths] : app_paths) {
@@ -599,22 +621,31 @@ void ParseSnapshots(State *state, const std::string &output) {
       });
 }
 
-void Worker(State *state, Work work, std::vector<std::string> paths) {
+std::string UserTag(int user_id) {
+  return "aera-user-" + std::to_string(user_id);
+}
+
+void Worker(State *state, Work work, std::vector<std::string> paths,
+            int user_id) {
+  if (work == Work::kDiscover) {
+    auto apps = DiscoverApps(state->cancel, user_id);
+    {
+      std::lock_guard<std::mutex> lock(state->result_mutex);
+      state->apps = std::move(apps);
+      state->result = "Apps loaded.";
+    }
+    state->work_success.store(!state->cancel.load());
+    state->work_progress.store(100);
+    state->done.store(true, std::memory_order_release);
+    return;
+  }
   std::string output;
   std::vector<std::string> arguments;
-  if (work == Work::kInitialize) {
-    if (!MakeDirectories(state->repository)) {
-      std::lock_guard<std::mutex> lock(state->result_mutex);
-      state->result = "Could not create the vault repository.";
-      state->done.store(true);
-      return;
-    }
-    arguments = {"init"};
-  } else if (work == Work::kBackup) {
+  if (work == Work::kBackup) {
     if (access((state->repository + "/config").c_str(), R_OK) != 0) {
       if (!MakeDirectories(state->repository)) {
         std::lock_guard<std::mutex> lock(state->result_mutex);
-        state->result = "Could not create the vault repository.";
+        state->result = "Could not create the backup folder.";
         state->work_success.store(false);
         state->done.store(true);
         return;
@@ -630,27 +661,41 @@ void Worker(State *state, Work work, std::vector<std::string> paths) {
       output.clear();
       state->work_progress.store(8);
     }
-    arguments = {"backup", "--json", "--tag", kTag, "--host", "aera-recovery"};
+    arguments = {"backup", "--json", "--tag", kTag, "--tag",
+                 UserTag(user_id), "--host", "aera-recovery"};
     arguments.insert(arguments.end(), paths.begin(), paths.end());
   } else if (work == Work::kRestore) {
-    arguments = {"restore", state->restore_snapshot, "--tag", kTag, "--target", "/",
+    arguments = {"restore", state->restore_snapshot, "--tag",
+                 std::string(kTag) + "," + UserTag(user_id), "--target", "/",
                  "--exclude-xattr", "security.selinux"};
     for (const auto &path : paths) {
       arguments.push_back("--include");
       arguments.push_back(path);
     }
   } else {
-    arguments = {"snapshots", "--json", "--tag", kTag};
+    if (access((state->repository + "/config").c_str(), R_OK) != 0) {
+      std::lock_guard<std::mutex> lock(state->result_mutex);
+      state->snapshots = 0;
+      state->latest_id.clear();
+      state->latest_time.clear();
+      state->snapshot_items.clear();
+      state->result = "No backups yet.";
+      state->work_success.store(true);
+      state->work_progress.store(100);
+      state->done.store(true, std::memory_order_release);
+      return;
+    }
+    arguments = {"snapshots", "--json", "--tag",
+                 std::string(kTag) + "," + UserTag(user_id)};
   }
   const int result = RunRestic(state, arguments, output);
   if (!result && work == Work::kRefresh) ParseSnapshots(state, output);
   {
     std::lock_guard<std::mutex> lock(state->result_mutex);
     if (!result) {
-      state->result = work == Work::kInitialize ? "Encrypted vault created." :
-          work == Work::kBackup ? "App backup completed successfully." :
+      state->result = work == Work::kBackup ? "App backup completed successfully." :
           work == Work::kRestore ? "Latest app backup restored." :
-          "Vault snapshots refreshed.";
+          "Backups refreshed.";
     } else {
       state->result = LastUsefulLine(output);
     }
@@ -676,6 +721,26 @@ void UpdateSelected(State *state) {
   if (state->select_all_label)
     lv_label_set_text(state->select_all_label,
                       total && count == total ? "Clear all" : "Select all");
+}
+
+std::string UserName(const State *state, int user_id) {
+  const auto found = std::find_if(
+      state->users.begin(), state->users.end(),
+      [user_id](const AndroidUser &user) { return user.id == user_id; });
+  return found == state->users.end()
+             ? "Android user " + std::to_string(user_id)
+             : found->name;
+}
+
+void UpdateAppSummary(State *state) {
+  const size_t user_apps = std::count_if(
+      state->apps.begin(), state->apps.end(),
+      [](const App &app) { return !app.system; });
+  const size_t system_apps = state->apps.size() - user_apps;
+  const std::string detail =
+      UserName(state, state->user_id) + " / " + std::to_string(user_apps) +
+      " user apps / " + std::to_string(system_apps) + " system apps hidden";
+  lv_label_set_text(state->detail, detail.c_str());
 }
 
 void RenderApps(State *state) {
@@ -767,26 +832,50 @@ void RenderApps(State *state) {
 }
 
 void SetActions(State *state, bool enabled) {
-  for (auto *button : {state->initialize, state->backup,
-                       state->refresh_button, state->restore}) {
+  for (auto *button : {state->backup, state->refresh_button, state->restore}) {
     if (!button) continue;
     if (enabled) lv_obj_remove_state(button, LV_STATE_DISABLED);
     else lv_obj_add_state(button, LV_STATE_DISABLED);
   }
+  if (state->user_button) {
+    if (enabled && state->users.size() > 1)
+      lv_obj_remove_state(state->user_button, LV_STATE_DISABLED);
+    else
+      lv_obj_add_state(state->user_button, LV_STATE_DISABLED);
+  }
+}
+
+void StartDiscovery(State *state) {
+  if (!state || state->busy.load()) return;
+  if (state->worker.joinable()) state->worker.join();
+  lv_obj_clean(state->list);
+  for (const auto &app : state->apps)
+    if (app.icon) lv_image_cache_drop(&app.icon->descriptor);
+  state->apps.clear();
+  state->snapshot_items.clear();
+  state->snapshots = 0;
+  state->latest_id.clear();
+  state->latest_time.clear();
+  state->work = Work::kDiscover;
+  state->done.store(false);
+  state->work_success.store(false);
+  state->cancel.store(false);
+  state->busy.store(true);
+  state->work_progress.store(8);
+  SetActions(state, false);
+  lv_obj_remove_flag(state->progress, LV_OBJ_FLAG_HIDDEN);
+  lv_bar_set_value(state->progress, 8, LV_ANIM_OFF);
+  const std::string title =
+      "Loading " + UserName(state, state->user_id) + " apps...";
+  lv_label_set_text(state->status, title.c_str());
+  lv_label_set_text(state->selected, "Discovering apps...");
+  state->worker =
+      std::thread(Worker, state, Work::kDiscover,
+                  std::vector<std::string>{}, state->user_id);
 }
 
 void StartWork(State *state, Work work) {
   if (!state || state->busy.load() || state->runtime.empty()) return;
-  if (!ValidRepository(state->repository)) {
-    Sheet(state->screen, "Invalid repository",
-          "Choose a folder inside /sdcard, /data/media/0 or mounted /mnt/nas.");
-    return;
-  }
-  if (state->password_value.size() < 8) {
-    Sheet(state->screen, "Vault password required",
-          "Set a password of at least 8 characters. AERA never stores it.");
-    return;
-  }
   std::vector<std::string> paths;
   if (work == Work::kBackup) {
     for (const auto &app : state->apps)
@@ -823,84 +912,74 @@ void StartWork(State *state, Work work) {
   SetActions(state, false);
   lv_obj_remove_flag(state->progress, LV_OBJ_FLAG_HIDDEN);
   lv_bar_set_value(state->progress, 4, LV_ANIM_OFF);
-  const char *title = work == Work::kInitialize ? "Creating encrypted vault…" :
-      work == Work::kBackup ? "Backing up selected apps…" :
+  const char *title = work == Work::kBackup ? "Backing up selected apps…" :
       work == Work::kRestore ? "Restoring latest snapshot…" :
-      "Reading vault snapshots…";
+      "Reading backups…";
   lv_label_set_text(state->status, title);
-  state->worker = std::thread(Worker, state, work, std::move(paths));
+  state->worker =
+      std::thread(Worker, state, work, std::move(paths), state->user_id);
 }
 
-void EditValue(State *state, bool password) {
-  if (!state || state->busy.load()) return;
+void ShowSnapshotChooser(State *state);
+
+void ShowUserChooser(State *state) {
+  if (!state || state->busy.load() || state->users.size() < 2) return;
   auto *overlay = lv_obj_create(state->screen);
   lv_obj_set_user_data(overlay, &kModalMarker);
   Clear(overlay);
   lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_70, 0);
+  const bool landscape = Landscape(state->screen);
+  const int sheet_width = landscape ? 1600 : 1312;
+  const int sheet_height =
+      std::min(2200, 280 + static_cast<int>(state->users.size()) * 150);
   auto *sheet = lv_obj_create(overlay);
   Panel(sheet, 48, kMainSheet);
-  const bool landscape = Landscape(state->screen);
-  lv_obj_set_size(sheet, landscape ? 1900 : 1312, landscape ? 1180 : 1260);
-  lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -40);
-  lv_obj_set_style_pad_all(sheet, 48, 0);
-  auto *title = Label(sheet, password ? "Vault password" : "Repository folder",
-                      &lv_font_montserrat_48, kText);
-  auto *hint = Label(sheet, password ?
-      "Used only for this recovery session. AERA never saves the password." :
-      "Use internal storage or a mounted NAS folder.",
-      &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(hint, 0, 76);
-  auto *input = lv_textarea_create(sheet);
-  lv_obj_set_pos(input, 0, 150);
-  lv_obj_set_size(input, landscape ? 1804 : 1216, 126);
-  lv_textarea_set_one_line(input, true);
-  lv_textarea_set_max_length(input, 1024);
-  lv_textarea_set_password_mode(input, password);
-  lv_textarea_set_password_show_time(input, 0);
-  lv_textarea_set_text(input, password ? "" : state->repository.c_str());
-  lv_textarea_set_placeholder_text(input, password ? "Password" : kDefaultRepository);
-  lv_obj_set_style_text_font(input, UiFont(&lv_font_montserrat_32), 0);
-  lv_obj_set_style_text_color(input, kText, 0);
-  lv_obj_set_style_bg_color(input, kMainPanel, 0);
-  lv_obj_set_style_border_color(input, kAccent, LV_STATE_FOCUSED);
-  lv_obj_set_style_border_width(input, 2, LV_STATE_FOCUSED);
-  lv_obj_set_style_radius(input, 24, 0);
-  auto *keyboard = lv_keyboard_create(sheet);
-  phone_keyboard::Apply(keyboard);
-  lv_obj_set_align(keyboard, LV_ALIGN_TOP_LEFT);
-  lv_obj_set_pos(keyboard, 0, 306);
-  lv_obj_set_size(keyboard, landscape ? 1804 : 1216, landscape ? 570 : 630);
-  lv_keyboard_set_textarea(keyboard, input);
-  const int button_y = landscape ? 920 : 986;
-  const int total_width = landscape ? 1804 : 1216;
-  const int button_width = (total_width - 56) / 2;
-  auto *cancel = Button(sheet, "Cancel", [overlay] { lv_obj_delete_async(overlay); });
-  lv_obj_set_pos(cancel, 0, button_y);
-  lv_obj_set_size(cancel, button_width, 116);
-  auto *save = Button(sheet, "Save", [state, password, input, overlay] {
-    const std::string value = lv_textarea_get_text(input);
-    if (password) {
-      state->password_value = value;
-      lv_label_set_text(state->password, value.empty() ? "Not set" : "Set for this session");
-    } else if (ValidRepository(value)) {
-      state->repository = value;
-      lv_label_set_text(state->repository_label, value.c_str());
-    } else {
-      Sheet(state->screen, "Invalid repository",
-            "Choose a folder inside /sdcard, /data/media/0 or mounted /mnt/nas.");
-      return;
+  lv_obj_set_size(sheet, sheet_width, sheet_height);
+  lv_obj_align(sheet, LV_ALIGN_CENTER, 0, 40);
+  auto *title =
+      Label(sheet, "Choose Android user", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 40, 34);
+  auto *close = Button(sheet, LV_SYMBOL_CLOSE,
+                       [overlay] { lv_obj_delete_async(overlay); });
+  lv_obj_align(close, LV_ALIGN_TOP_RIGHT, -36, 30);
+  lv_obj_set_size(close, 112, 92);
+  auto *list = lv_obj_create(sheet);
+  Clear(list);
+  lv_obj_set_pos(list, 28, 150);
+  lv_obj_set_size(list, sheet_width - 56, sheet_height - 178);
+  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  for (size_t index = 0; index < state->users.size(); ++index) {
+    const auto user = state->users[index];
+    auto *row = Button(list, "", [state, user, overlay] {
+      lv_obj_delete_async(overlay);
+      if (state->user_id == user.id) return;
+      state->user_id = user.id;
+      const std::string label = "Android user: " + user.name;
+      lv_label_set_text(state->user_label, label.c_str());
+      StartDiscovery(state);
+    }, user.id == state->user_id);
+    lv_obj_set_pos(row, 0, static_cast<int>(index) * 142);
+    lv_obj_set_size(row, sheet_width - 80, 126);
+    lv_obj_set_style_radius(row, 24, 0);
+    auto *name = Label(row, user.name.c_str(), &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(name, 28, 18);
+    lv_obj_set_width(name, sheet_width - 310);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    const std::string detail =
+        "User " + std::to_string(user.id) + " / Unlocked";
+    auto *status = Label(row, detail.c_str(), &lv_font_montserrat_20, kMuted);
+    lv_obj_set_pos(status, 30, 72);
+    if (user.id == state->user_id) {
+      auto *mark =
+          Label(row, LV_SYMBOL_OK, &lv_font_montserrat_32, kOnAccent);
+      lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -32, 0);
     }
-    lv_obj_delete_async(overlay);
-  }, true);
-  lv_obj_set_pos(save, button_width + 56, button_y);
-  lv_obj_set_size(save, button_width, 116);
-  lv_obj_send_event(input, LV_EVENT_CLICKED, nullptr);
-  AnimateEnter(sheet, 0, 38);
+  }
+  AnimateEnter(sheet, 0, 28);
 }
-
-void ShowSnapshotChooser(State *state);
 
 void UpdateSnapshotCount(const Snapshot &snapshot, lv_obj_t *label) {
   const size_t selected = std::count_if(
@@ -1109,7 +1188,7 @@ void ShowSnapshotChooser(State *state) {
     y += 190;
   }
   if (state->snapshot_items.empty()) {
-    auto *empty = Label(list, "No app backups found in this vault.",
+    auto *empty = Label(list, "No app backups found.",
                         &lv_font_montserrat_32, kMuted);
     lv_obj_align(empty, LV_ALIGN_TOP_MID, 0, 140);
   }
@@ -1131,6 +1210,7 @@ void Poll(State *state) {
       const std::string detail = std::to_string(user_apps) +
           " user apps • " + std::to_string(system_apps) + " system apps hidden";
       lv_label_set_text(state->detail, detail.c_str());
+      UpdateAppSummary(state);
       RenderApps(state);
       SetActions(state, !RecoveryDataLocked());
     } else {
@@ -1154,12 +1234,18 @@ void Poll(State *state) {
     if (state->work_success.load()) {
       lv_label_set_text(state->status, result.c_str());
     } else {
-      const char *failure = state->work == Work::kInitialize ? "Could not create vault" :
-          state->work == Work::kBackup ? "App backup failed" :
+      const char *failure = state->work == Work::kBackup ? "App backup failed" :
           state->work == Work::kRestore ? "App restore failed" :
+          state->work == Work::kDiscover ? "Could not read user apps" :
           "Could not read snapshots";
       lv_label_set_text(state->status, failure);
       lv_label_set_text(state->detail, result.c_str());
+    }
+    if (state->work_success.load() && state->work == Work::kDiscover) {
+      lv_label_set_text(state->status, "Ready");
+      UpdateAppSummary(state);
+      RenderApps(state);
+      lv_obj_add_flag(state->progress, LV_OBJ_FLAG_HIDDEN);
     }
     if (state->work_success.load() && state->work == Work::kRefresh) {
       std::string detail = std::to_string(state->snapshots) + " app backups";
@@ -1185,7 +1271,6 @@ void Destroy(State *state) {
   for (const auto &app : state->apps)
     if (app.icon) lv_image_cache_drop(&app.icon->descriptor);
   web::RemoveRuntime(state->runtime.empty() ? state->preparation.directory : state->runtime);
-  std::fill(state->password_value.begin(), state->password_value.end(), '\0');
   delete state;
 }
 
@@ -1193,13 +1278,22 @@ void Destroy(State *state) {
 
 void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
                         void *context) {
-  Header(screen, "App Backup Vault",
-         "Encrypted per-app backups on internal or network storage.",
+  Header(screen, "App Backup",
+         "Per-app backups stored in AERA storage.",
          callback, context);
   auto *state = new State;
   state->screen = screen;
   state->callback = callback;
   state->context = context;
+  for (const auto &user : RecoveryAndroidUsers())
+    if (user.decrypted) state->users.push_back(user);
+  const auto owner = std::find_if(
+      state->users.begin(), state->users.end(),
+      [](const AndroidUser &user) { return user.id == 0; });
+  if (owner != state->users.end())
+    state->user_id = owner->id;
+  else if (!state->users.empty())
+    state->user_id = state->users.front().id;
   lv_obj_add_event_cb(screen, [](lv_event_t *event) {
     Destroy(static_cast<State *>(lv_event_get_user_data(event)));
   }, LV_EVENT_DELETE, state);
@@ -1211,41 +1305,31 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_size(hero, landscape ? 900 : 1312, landscape ? 780 : 600);
   auto *plate = IconPlate(hero, LV_SYMBOL_SAVE, kCyan, kMainPanel, 116);
   lv_obj_set_pos(plate, 38, 38);
-  state->status = Label(hero, "Preparing secure engine…",
+  state->status = Label(hero, "Preparing backup engine…",
                         &lv_font_montserrat_48, kText);
   lv_obj_set_pos(state->status, 184, 44);
   lv_obj_set_width(state->status, landscape ? 650 : 1040);
   lv_label_set_long_mode(state->status, LV_LABEL_LONG_DOT);
-  state->detail = Label(hero, "The plugin is verified and expanded only in RAM.",
+  state->detail = Label(hero, "Loading installed apps.",
                         &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(state->detail, 184, 104);
   lv_obj_set_width(state->detail, landscape ? 650 : 1040);
   lv_label_set_long_mode(state->detail, LV_LABEL_LONG_WRAP);
 
-  auto *repo_row = Button(hero, "", [state] { EditValue(state, false); });
-  lv_obj_set_pos(repo_row, 36, 196);
-  lv_obj_set_size(repo_row, landscape ? 828 : 1240, 134);
-  lv_obj_set_style_radius(repo_row, 30, 0);
-  auto *repo_title = Label(repo_row, "Repository", &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(repo_title, 28, 18);
-  state->repository_label = Label(repo_row, state->repository.c_str(),
-                                  &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(state->repository_label, 28, 62);
-  lv_obj_set_width(state->repository_label, landscape ? 700 : 1100);
-  lv_label_set_long_mode(state->repository_label, LV_LABEL_LONG_DOT);
-
-  auto *password_row = Button(hero, "", [state] { EditValue(state, true); });
-  lv_obj_set_pos(password_row, 36, 350);
-  lv_obj_set_size(password_row, landscape ? 828 : 1240, 134);
-  lv_obj_set_style_radius(password_row, 30, 0);
-  auto *password_title = Label(password_row, "Vault password",
-                               &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(password_title, 28, 18);
-  state->password = Label(password_row, "Not set", &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(state->password, 28, 62);
+  auto *location_title =
+      Label(hero, "Backup location", &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(location_title, 40, 218);
+  auto *location =
+      Label(hero, kDefaultRepository, &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(location, 40, 266);
+  lv_obj_set_width(location, landscape ? 820 : 1210);
+  lv_label_set_long_mode(location, LV_LABEL_LONG_DOT);
+  auto *protection =
+      Label(hero, "Encrypted recovery snapshots", &lv_font_montserrat_24, kGreen);
+  lv_obj_set_pos(protection, 40, 334);
 
   state->progress = lv_bar_create(hero);
-  lv_obj_set_pos(state->progress, 38, landscape ? 548 : 522);
+  lv_obj_set_pos(state->progress, 38, landscape ? 430 : 430);
   lv_obj_set_size(state->progress, landscape ? 824 : 1236, 12);
   lv_bar_set_range(state->progress, 0, 100);
   lv_obj_set_style_bg_color(state->progress, kMainPanel, LV_PART_MAIN);
@@ -1286,11 +1370,23 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   state->system_filter_label = lv_obj_get_child(system_filter, 0);
   lv_obj_set_style_text_font(state->system_filter_label,
                              UiFont(&lv_font_montserrat_24), 0);
+  state->user_button = Button(apps_panel, "", [state] {
+    ShowUserChooser(state);
+  });
+  lv_obj_set_pos(state->user_button, 24, 130);
+  lv_obj_set_size(state->user_button, landscape ? 680 : 600, 82);
+  lv_obj_set_style_radius(state->user_button, 24, 0);
+  state->user_label = lv_obj_get_child(state->user_button, 0);
+  const std::string user_label =
+      "Android user: " + UserName(state, state->user_id);
+  lv_label_set_text(state->user_label, user_label.c_str());
+  lv_obj_set_style_text_font(state->user_label,
+                             UiFont(&lv_font_montserrat_24), 0);
   state->list = lv_obj_create(apps_panel);
   Clear(state->list);
-  lv_obj_set_pos(state->list, 24, 132);
+  lv_obj_set_pos(state->list, 24, 226);
   lv_obj_set_size(state->list, landscape ? 2062 : 1264,
-                  landscape ? 610 : 1168);
+                  landscape ? 516 : 1074);
   lv_obj_add_flag(state->list, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(state->list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_ACTIVE);
@@ -1301,7 +1397,7 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_pos(actions, 64, landscape ? 1124 : 2450);
   lv_obj_set_size(actions, landscape ? 3040 : 1312, landscape ? 118 : 330);
   const int gap = 20;
-  const int columns = landscape ? 4 : 2;
+  const int columns = 3;
   const int width = ((landscape ? 3040 : 1312) - gap * (columns - 1)) / columns;
   auto add = [&](lv_obj_t **target, const char *text, int index,
                  Handler action, bool primary = false) {
@@ -1311,15 +1407,13 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
     lv_obj_set_pos(*target, column * (width + gap), row * 146);
     lv_obj_set_size(*target, width, 116);
   };
-  add(&state->initialize, "Create vault", 0,
-      [state] { StartWork(state, Work::kInitialize); });
-  add(&state->backup, "Back up selected", 1,
+  add(&state->backup, "Back up selected", 0,
       [state] { StartWork(state, Work::kBackup); }, true);
-  add(&state->refresh_button, "Refresh backups", 2, [state] {
+  add(&state->refresh_button, "Refresh backups", 1, [state] {
     state->browse_after_refresh = false;
     StartWork(state, Work::kRefresh);
   });
-  add(&state->restore, "Restore apps", 3, [state] {
+  add(&state->restore, "Restore apps", 2, [state] {
     state->browse_after_refresh = true;
     StartWork(state, Work::kRefresh);
   });
@@ -1332,7 +1426,7 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
     web::PreparePluginRuntime(state->preparation, kPluginId, kPluginType,
                               kPluginEntry);
     if (state->preparation.verified)
-      state->apps = DiscoverApps(state->preparation.cancel);
+      state->apps = DiscoverApps(state->preparation.cancel, state->user_id);
     state->metadata_done.store(true, std::memory_order_release);
   });
   state->timer = lv_timer_create([](lv_timer_t *timer) {

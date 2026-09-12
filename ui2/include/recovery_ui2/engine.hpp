@@ -57,6 +57,8 @@ enum class Action {
     kNas,
     kRunNasOperation,
     kToggleRecording,
+    kUsers,
+    kDecryptUser,
 };
 
 enum class DecryptionCompletion {

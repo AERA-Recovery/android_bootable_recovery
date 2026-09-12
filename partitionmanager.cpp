@@ -2481,25 +2481,8 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 		if (android::keystore::Decrypt_User(user_id, Password)) {
 			gui_msg(Msg("decrypt_user_success_fbe=User {1} Decrypted Successfully")(user_id));
 			Mark_User_Decrypted(user_id);
-			if (user_id == 0) {
-				// When decrypting user 0 also try all other users
-				std::vector<users_struct>::iterator iter;
-				for (iter = Users_List.begin(); iter != Users_List.end(); iter++) {
-					if ((*iter).userId == "0" || (*iter).isDecrypted)
-						continue;
-
-					int tmp_user_id = atoi((*iter).userId.c_str());
-					gui_msg(Msg("decrypting_user_fbe=Attempting to decrypt FBE for user {1}...")(tmp_user_id));
-					if (android::keystore::Decrypt_User(tmp_user_id, Password) ||
-					(Password != "!" && android::keystore::Decrypt_User(tmp_user_id, "!"))) { // "!" means default password
-						gui_msg(Msg("decrypt_user_success_fbe=User {1} Decrypted Successfully")(tmp_user_id));
-						Mark_User_Decrypted(tmp_user_id);
-					} else {
-						gui_msg(Msg("decrypt_user_fail_fbe=Failed to decrypt user {1}")(tmp_user_id));
-					}
-				}
+			if (user_id == 0)
 				Post_Decrypt("");
-			}
 
 			return 0;
 		} else {

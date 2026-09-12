@@ -80,6 +80,30 @@ void LoadAeraPreferencesIfAvailable();
 bool SaveAeraPreferences();
 }
 
+std::vector<AndroidUser> RecoveryAndroidUsers() {
+  std::vector<AndroidUser> result;
+  const auto *users = PartitionManager.Get_Users_List();
+  if (users != nullptr) {
+    for (const auto &user : *users) {
+      char *end = nullptr;
+      const long id = strtol(user.userId.c_str(), &end, 10);
+      if (end == user.userId.c_str() || *end != '\0' || id < 0 ||
+          id > INT32_MAX)
+        continue;
+      std::string name = user.userName;
+      if (name.empty() || name == user.userId)
+        name = id == 0 ? "Owner" : "Android user " + std::to_string(id);
+      result.push_back({static_cast<int>(id), std::move(name), user.type,
+                        user.isDecrypted});
+    }
+  }
+  std::sort(result.begin(), result.end(),
+            [](const AndroidUser &left, const AndroidUser &right) {
+              return left.id < right.id;
+            });
+  return result;
+}
+
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
   std::vector<PartitionList> source;
   PartitionManager.Get_Partition_List(kind, &source);

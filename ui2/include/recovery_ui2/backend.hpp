@@ -22,6 +22,12 @@ struct Volume {
   uint64_t bytes = 0;
   bool selected = false;
 };
+struct AndroidUser {
+  int id = 0;
+  std::string name;
+  int credential_type = 0;
+  bool decrypted = false;
+};
 struct JobRequest {
   Job job = Job::kInstall;
   std::string title;
@@ -44,6 +50,7 @@ std::string RecoveryBackupRoot();
 std::string RecoverySlot();
 bool RecoverySetActiveSlot(const std::string &slot);
 bool RecoveryDataLocked();
+std::vector<AndroidUser> RecoveryAndroidUsers();
 bool RecoverySetStorage(const std::string &path);
 int RecoveryRunJob(const JobRequest &request);
 int RecoveryProgress();

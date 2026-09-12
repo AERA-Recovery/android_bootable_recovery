@@ -43,6 +43,7 @@ struct DecryptState {
   int sequence_length = 0;
   bool tracking = false;
   bool busy = false;
+  bool secondary = false;
 };
 
 void DeleteState(lv_event_t *event) {
@@ -346,18 +347,19 @@ void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
 DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
                                bool file_based, int user_id,
                                int pattern_grid_size,
-                               ActionCallback callback, void *context) {
+                               ActionCallback callback, void *context,
+                               const std::string &user_name) {
   auto *state = new DecryptState;
   state->callback = callback;
   state->context = context;
   state->credential_type = credential_type;
   state->grid_size = std::clamp(pattern_grid_size, 3, 6);
+  state->secondary = user_id != 0;
   lv_obj_add_event_cb(screen, DeleteState, LV_EVENT_DELETE, state);
   MainBackground(screen);
   AttachStatusBar(screen, callback, context, StatusBarAction::kNone, true);
 
   (void)file_based;
-  (void)user_id;
   const bool pin = credential_type == 3;
 
   // A small native lock illustration keeps startup lightweight.
@@ -383,7 +385,15 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   lv_obj_set_size(keyhole, 12, 28);
   lv_obj_center(keyhole);
 
-  lv_obj_t *title = Label(screen, "Unlock your storage", &lv_font_montserrat_48, kText);
+  const std::string title_text = state->secondary
+      ? "Unlock " + (user_name.empty()
+                         ? "Android user " + std::to_string(user_id)
+                         : user_name)
+      : "Unlock your storage";
+  lv_obj_t *title =
+      Label(screen, title_text.c_str(), &lv_font_montserrat_48, kText);
+  lv_obj_set_width(title, 1280);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 584);
   lv_obj_t *subtitle = Label(
       screen,
@@ -412,7 +422,10 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   else
     MakeKeyboard(state, panel, credential_type == 3);
 
-  state->submit = MakeButton(panel, "Unlock storage   " LV_SYMBOL_RIGHT, kAccent, kCanvas);
+  state->submit = MakeButton(
+      panel, state->secondary ? "Unlock user   " LV_SYMBOL_RIGHT
+                              : "Unlock storage   " LV_SYMBOL_RIGHT,
+      kAccent, kCanvas);
   lv_obj_set_pos(state->submit, 86, pin ? 1510 : 1818);
   lv_obj_set_size(state->submit, 1012, 142);
   lv_obj_set_style_radius(state->submit, 71, 0);
@@ -428,7 +441,8 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
 
   lv_obj_t *hint = Label(
       screen,
-      "Skipping keeps internal storage locked.",
+      state->secondary ? "This user remains locked until you unlock it."
+                       : "Skipping keeps internal storage locked.",
       &lv_font_montserrat_24, kDim);
   lv_obj_set_width(hint, 1184);
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
@@ -456,7 +470,9 @@ void SetDecryptBusy(const DecryptScene &scene) {
   auto *state = static_cast<DecryptState *>(scene.state);
   if (state == nullptr) return;
   state->busy = true;
-  lv_label_set_text(state->status, "Unlocking and preparing /data...");
+  lv_label_set_text(state->status, state->secondary
+                                       ? "Unlocking Android user..."
+                                       : "Unlocking and preparing /data...");
   lv_label_set_text(state->submit_label, "Unlocking...");
   lv_obj_add_state(state->submit, LV_STATE_DISABLED);
   if (state->keyboard != nullptr) lv_obj_add_state(state->keyboard, LV_STATE_DISABLED);
@@ -466,13 +482,17 @@ void CompleteDecryptAttempt(const DecryptScene &scene, bool success) {
   auto *state = static_cast<DecryptState *>(scene.state);
   if (state == nullptr) return;
   if (success) {
-    lv_label_set_text(state->status, "Data unlocked successfully");
+    lv_label_set_text(state->status, state->secondary
+                                         ? "Android user unlocked"
+                                         : "Data unlocked successfully");
     lv_obj_set_style_text_color(state->status, kGreen, 0);
     return;
   }
   state->busy = false;
   lv_label_set_text(state->status,
-                    "That credential did not unlock data. Please try again.");
+                    state->secondary
+                        ? "That credential did not unlock this user. Please try again."
+                        : "That credential did not unlock data. Please try again.");
   lv_obj_set_style_text_color(state->status, kRed, 0);
   lv_label_set_text(state->submit_label, "Try again");
   lv_obj_remove_state(state->submit, LV_STATE_DISABLED);
