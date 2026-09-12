@@ -273,24 +273,6 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
                   landscape ? 720 : 760);
   if (landscape) lv_obj_align(s->keyboard, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
   else lv_obj_align(s->keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_text_font(s->keyboard, UiFont(&lv_font_montserrat_48),
-                             LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(s->keyboard, kMainBottom, 0);
-  lv_obj_set_style_bg_opa(s->keyboard, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(s->keyboard, 18, 0);
-  lv_obj_set_style_pad_row(s->keyboard, 12, 0);
-  lv_obj_set_style_pad_column(s->keyboard, 8, 0);
-  lv_obj_set_style_bg_color(s->keyboard, kMainPanel, LV_PART_ITEMS);
-  lv_obj_set_style_bg_opa(s->keyboard, LV_OPA_COVER, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(s->keyboard, kMainSelected,
-                            LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_text_color(s->keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_radius(s->keyboard, 22, LV_PART_ITEMS);
-  lv_obj_set_style_border_width(s->keyboard, 1, LV_PART_ITEMS);
-  lv_obj_set_style_border_color(s->keyboard, kMainLine, LV_PART_ITEMS);
-  lv_obj_set_style_border_width(s->keyboard, 1, 0);
-  lv_obj_set_style_border_side(s->keyboard, LV_BORDER_SIDE_TOP, 0);
-  lv_obj_set_style_border_color(s->keyboard, kMainLine, 0);
   lv_obj_add_flag(s->keyboard, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_event_cb(s->address, [](lv_event_t *e) {
     auto *s = static_cast<WebScene *>(lv_event_get_user_data(e));

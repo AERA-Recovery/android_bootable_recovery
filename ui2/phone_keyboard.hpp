@@ -2,7 +2,10 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 
+#include <cstring>
+
 #include "lvgl.h"
+#include "design.hpp"
 #include "recovery_ui2/backend.hpp"
 
 namespace recovery_ui2::phone_keyboard {
@@ -54,6 +57,71 @@ inline constexpr lv_buttonmatrix_ctrl_t kSpecialControls[] = {
     Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(2, kUtility),
     Key(2, kUtility), Key(1), Key(8), Key(1), Key(2, kUtility)};
 
+inline bool SameKey(const char *key, const char *expected) {
+  return key != nullptr && std::strcmp(key, expected) == 0;
+}
+
+inline bool IsActionKey(const char *key) {
+  return SameKey(key, LV_SYMBOL_OK) || SameKey(key, LV_SYMBOL_NEW_LINE);
+}
+
+inline bool IsModifierKey(const char *key) {
+  return SameKey(key, LV_SYMBOL_UP) || SameKey(key, LV_SYMBOL_BACKSPACE) ||
+         SameKey(key, "?123") || SameKey(key, "ABC");
+}
+
+inline void DrawKey(lv_event_t *event) {
+  auto *keyboard = lv_event_get_target_obj(event);
+  auto *task = lv_event_get_draw_task(event);
+  if (keyboard == nullptr || task == nullptr) return;
+  auto *base = static_cast<lv_draw_dsc_base_t *>(
+      lv_draw_task_get_draw_dsc(task));
+  if (base == nullptr || base->part != LV_PART_ITEMS) return;
+
+  const char *key = lv_buttonmatrix_get_button_text(keyboard, base->id1);
+  if (key == nullptr) return;
+  const bool pressed =
+      lv_keyboard_get_selected_button(keyboard) == base->id1 &&
+      lv_obj_has_state(keyboard, LV_STATE_PRESSED);
+  const bool action = IsActionKey(key);
+  const bool modifier = IsModifierKey(key);
+
+  if (auto *fill = lv_draw_task_get_fill_dsc(task)) {
+    fill->color = action ? (pressed ? design::kAccentPressed : design::kAccent)
+                  : modifier ? (pressed ? design::kMainSelected
+                                        : design::kAccentSoft)
+                  : pressed ? design::kMainSelected : design::kMainPanel;
+  }
+  if (auto *label = lv_draw_task_get_label_dsc(task)) {
+    label->color = action ? design::kOnAccent
+                   : modifier ? design::kAccent : design::kText;
+  }
+}
+
+inline void Style(lv_obj_t *keyboard) {
+  lv_obj_set_style_bg_color(keyboard, design::kMainBottom, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(keyboard, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(keyboard, 30, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(keyboard, 18, LV_PART_MAIN);
+  lv_obj_set_style_pad_row(keyboard, 18, LV_PART_MAIN);
+  lv_obj_set_style_pad_column(keyboard, 10, LV_PART_MAIN);
+
+  lv_obj_set_style_text_font(
+      keyboard, design::UiFont(&lv_font_montserrat_48), LV_PART_ITEMS);
+  lv_obj_set_style_text_color(keyboard, design::kText, LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(keyboard, design::kMainPanel, LV_PART_ITEMS);
+  lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(keyboard, design::kMainSelected,
+                            LV_PART_ITEMS | LV_STATE_PRESSED);
+  lv_obj_set_style_radius(keyboard, 24, LV_PART_ITEMS);
+  lv_obj_set_style_border_width(keyboard, 0, LV_PART_ITEMS);
+  lv_obj_set_style_shadow_width(keyboard, 0, LV_PART_ITEMS);
+
+  lv_obj_add_event_cb(keyboard, DrawKey, LV_EVENT_DRAW_TASK_ADDED, nullptr);
+  lv_obj_add_flag(keyboard, LV_OBJ_FLAG_SEND_DRAW_TASK_EVENTS);
+}
+
 inline void Apply(lv_obj_t *keyboard) {
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER,
                       kLower, kTextControls);
@@ -63,6 +131,7 @@ inline void Apply(lv_obj_t *keyboard) {
                       kSpecial, kSpecialControls);
   lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
   lv_keyboard_set_popovers(keyboard, true);
+  Style(keyboard);
   lv_obj_add_event_cb(keyboard, [](lv_event_t *event) {
     if (lv_event_get_code(event) == LV_EVENT_VALUE_CHANGED)
       RecoveryVibrate(Haptic::kKeyboard);

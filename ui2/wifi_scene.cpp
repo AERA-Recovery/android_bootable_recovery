@@ -254,25 +254,6 @@ void PasswordDialog(WifiUi *state, const WifiNetwork &network) {
   lv_obj_set_pos(keyboard, 0, 286);
   lv_obj_set_size(keyboard, 1216, 650);
   lv_keyboard_set_textarea(keyboard, input);
-  lv_obj_set_style_bg_color(keyboard, kMainBottom, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(keyboard, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_color(keyboard, kMainLine, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(keyboard, 14, LV_PART_MAIN);
-  lv_obj_set_style_pad_row(keyboard, 12, LV_PART_MAIN);
-  lv_obj_set_style_pad_column(keyboard, 8, LV_PART_MAIN);
-  lv_obj_set_style_text_font(keyboard, UiFont(&lv_font_montserrat_48), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_text_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, Color(0x484c54), LV_PART_ITEMS);
-  lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, kAccent,
-                            LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_border_width(keyboard, 1, LV_PART_ITEMS);
-  lv_obj_set_style_border_color(keyboard, Color(0x747b85), LV_PART_ITEMS);
-  lv_obj_set_style_border_opa(keyboard, LV_OPA_70, LV_PART_ITEMS);
-  lv_obj_set_style_radius(keyboard, 18, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(keyboard, 0, LV_PART_ITEMS);
 
   auto *cancel = Button(sheet, "Cancel", [overlay] { CloseOverlay(overlay); });
   lv_obj_set_pos(cancel, 0, 996);

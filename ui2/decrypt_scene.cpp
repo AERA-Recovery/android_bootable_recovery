@@ -339,23 +339,6 @@ void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
                        pin ? LV_KEYBOARD_MODE_NUMBER
                            : LV_KEYBOARD_MODE_TEXT_LOWER);
   lv_keyboard_set_textarea(state->keyboard, state->input);
-  lv_obj_set_style_bg_color(state->keyboard, kMainBottom, 0);
-  lv_obj_set_style_bg_opa(state->keyboard, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(state->keyboard, 0, 0);
-  lv_obj_set_style_pad_all(state->keyboard, 16, 0);
-  lv_obj_set_style_pad_row(state->keyboard, 14, 0);
-  lv_obj_set_style_pad_column(state->keyboard, 10, 0);
-  lv_obj_set_style_bg_color(state->keyboard, kMainPanel, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(state->keyboard, kAccentSoft,
-                            LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_text_color(state->keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_text_font(state->keyboard, UiFont(&lv_font_montserrat_24),
-                             LV_PART_ITEMS);
-  lv_obj_set_style_radius(state->keyboard, 20, LV_PART_ITEMS);
-  lv_obj_set_style_border_width(state->keyboard, 1, LV_PART_ITEMS);
-  lv_obj_set_style_border_color(state->keyboard, kLine, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(state->keyboard, 0, LV_PART_ITEMS);
-  lv_obj_set_style_pad_all(state->keyboard, 20, LV_PART_ITEMS);
 }
 
 }  // namespace

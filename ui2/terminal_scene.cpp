@@ -243,24 +243,6 @@ void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_size(state->keyboard, state->landscape ? 1768 : 1440,
                   state->landscape ? 628 : 898);
   lv_keyboard_set_textarea(state->keyboard, state->command);
-  lv_obj_set_style_bg_color(state->keyboard, kMainBottom, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(state->keyboard, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(state->keyboard, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_color(state->keyboard, kMainLine, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(state->keyboard, 18, LV_PART_MAIN);
-  lv_obj_set_style_pad_row(state->keyboard, 14, LV_PART_MAIN);
-  lv_obj_set_style_pad_column(state->keyboard, 10, LV_PART_MAIN);
-  lv_obj_set_style_text_font(state->keyboard, UiFont(&lv_font_montserrat_48),
-                             LV_PART_ITEMS);
-  lv_obj_set_style_text_color(state->keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(state->keyboard, kMainPanel, LV_PART_ITEMS);
-  lv_obj_set_style_bg_opa(state->keyboard, LV_OPA_COVER, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(state->keyboard, kAccent,
-                            LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_border_width(state->keyboard, 1, LV_PART_ITEMS);
-  lv_obj_set_style_border_color(state->keyboard, kMainLine, LV_PART_ITEMS);
-  lv_obj_set_style_radius(state->keyboard, 18, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(state->keyboard, 0, LV_PART_ITEMS);
   lv_obj_add_flag(state->keyboard, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_add_event_cb(state->command, [](lv_event_t *event) {

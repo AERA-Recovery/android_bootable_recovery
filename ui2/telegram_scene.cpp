@@ -107,23 +107,6 @@ void StyleKeyboard(lv_obj_t *keyboard) {
   phone_keyboard::Apply(keyboard);
   lv_obj_set_align(keyboard, LV_ALIGN_TOP_LEFT);
   lv_obj_set_size(keyboard, 1228, 850);
-  lv_obj_set_style_bg_color(keyboard, kMainBottom, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(keyboard, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_color(keyboard, kMainLine, LV_PART_MAIN);
-  lv_obj_set_style_radius(keyboard, 28, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(keyboard, 14, LV_PART_MAIN);
-  lv_obj_set_style_pad_row(keyboard, 12, LV_PART_MAIN);
-  lv_obj_set_style_pad_column(keyboard, 8, LV_PART_MAIN);
-  lv_obj_set_style_text_font(keyboard, UiFont(&lv_font_montserrat_48), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, kMainPanel, LV_PART_ITEMS);
-  lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, kCyan,
-                            LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_border_width(keyboard, 1, LV_PART_ITEMS);
-  lv_obj_set_style_border_color(keyboard, kLineBright, LV_PART_ITEMS);
-  lv_obj_set_style_radius(keyboard, 18, LV_PART_ITEMS);
 }
 
 void ShowStatus(TelegramScene *scene, const char *title, const char *detail) {
@@ -262,7 +245,7 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
     auto *hint = Label(vault_card,
         new_vault
             ? "This is not your Telegram account password. Use at least 8 characters and keep it safe."
-            : "Encrypted locally — your password never leaves this device.",
+            : "Encrypted locally. Your password never leaves this device.",
         &lv_font_montserrat_24, kMutedStrong);
     lv_obj_set_pos(hint, 42, 32);
     lv_obj_set_width(hint, card_width - 84);
@@ -319,10 +302,11 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
                      (lv_obj_get_height(scene->surface) - 900) / 2);
       lv_obj_set_size(keyboard, 1564, 900);
     } else {
-      constexpr int keyboard_height = 760;
-      lv_obj_set_pos(keyboard, 64,
-                     lv_obj_get_height(scene->surface) - keyboard_height - 32);
-      lv_obj_set_size(keyboard, 1312, keyboard_height);
+      constexpr int keyboard_height = 790;
+      lv_obj_set_pos(keyboard, 0,
+                     lv_obj_get_height(scene->surface) - keyboard_height);
+      lv_obj_set_size(keyboard, lv_obj_get_width(scene->surface),
+                      keyboard_height);
     }
     BindKeyboard(first, keyboard);
     if (confirmation) BindKeyboard(confirmation, keyboard);
@@ -369,9 +353,16 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
 
   auto *keyboard = lv_keyboard_create(scene->surface);
   StyleKeyboard(keyboard);
-  lv_obj_set_pos(keyboard, scene->landscape ? 1600 : 42,
-                 scene->landscape ? 300 : configure ? 1320 : 950);
-  if (scene->landscape) lv_obj_set_size(keyboard, 1500, 850);
+  if (scene->landscape) {
+    lv_obj_set_pos(keyboard, 1600, 300);
+    lv_obj_set_size(keyboard, 1500, 850);
+  } else {
+    constexpr int keyboard_height = 850;
+    lv_obj_set_pos(keyboard, 0,
+                   lv_obj_get_height(scene->surface) - keyboard_height);
+    lv_obj_set_size(keyboard, lv_obj_get_width(scene->surface),
+                    keyboard_height);
+  }
   BindKeyboard(first, keyboard);
   if (second) BindKeyboard(second, keyboard);
   if (third) BindKeyboard(third, keyboard);
@@ -616,10 +607,16 @@ void OpenChat(TelegramScene *scene, int64_t id, const std::string &title) {
 
   scene->keyboard = lv_keyboard_create(scene->surface);
   StyleKeyboard(scene->keyboard);
-  lv_obj_set_pos(scene->keyboard, scene->landscape ? 1600 : 16,
-                 scene->landscape ? 330 : 2160);
-  lv_obj_set_size(scene->keyboard, scene->landscape ? 1552 : 1408,
-                  scene->landscape ? 900 : 800);
+  if (scene->landscape) {
+    lv_obj_set_pos(scene->keyboard, 1600, 330);
+    lv_obj_set_size(scene->keyboard, 1552, 900);
+  } else {
+    constexpr int keyboard_height = 800;
+    lv_obj_set_pos(scene->keyboard, 0,
+                   lv_obj_get_height(scene->surface) - keyboard_height);
+    lv_obj_set_size(scene->keyboard, lv_obj_get_width(scene->surface),
+                    keyboard_height);
+  }
   lv_keyboard_set_textarea(scene->keyboard, scene->composer);
   lv_obj_add_flag(scene->keyboard, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_event_cb(scene->composer, [](lv_event_t *event) {

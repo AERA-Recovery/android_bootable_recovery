@@ -190,22 +190,6 @@ void EditField(NasUi *state, Field field) {
                                      ? LV_KEYBOARD_MODE_NUMBER
                                      : LV_KEYBOARD_MODE_TEXT_LOWER);
   lv_keyboard_set_textarea(keyboard, input);
-  lv_obj_set_style_bg_color(keyboard, kMainBottom, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(keyboard, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_color(keyboard, kMainLine, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(keyboard, 14, LV_PART_MAIN);
-  lv_obj_set_style_pad_row(keyboard, 12, LV_PART_MAIN);
-  lv_obj_set_style_pad_column(keyboard, 8, LV_PART_MAIN);
-  lv_obj_set_style_text_font(keyboard, UiFont(&lv_font_montserrat_48), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, Color(0x484c54), LV_PART_ITEMS);
-  lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, kAccent,
-                            LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_border_width(keyboard, 1, LV_PART_ITEMS);
-  lv_obj_set_style_border_color(keyboard, Color(0x747b85), LV_PART_ITEMS);
-  lv_obj_set_style_radius(keyboard, 18, LV_PART_ITEMS);
 
   auto *cancel = Button(sheet, "Cancel", [overlay] { Close(overlay); });
   lv_obj_set_pos(cancel, 0, 986);

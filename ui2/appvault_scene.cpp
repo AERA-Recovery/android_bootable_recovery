@@ -873,12 +873,6 @@ void EditValue(State *state, bool password) {
   lv_obj_set_pos(keyboard, 0, 306);
   lv_obj_set_size(keyboard, landscape ? 1804 : 1216, landscape ? 570 : 630);
   lv_keyboard_set_textarea(keyboard, input);
-  lv_obj_set_style_bg_color(keyboard, kMainBottom, LV_PART_MAIN);
-  lv_obj_set_style_text_font(keyboard, UiFont(&lv_font_montserrat_48), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, Color(0x484c54), LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, kAccent, LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_radius(keyboard, 18, LV_PART_ITEMS);
   const int button_y = landscape ? 920 : 986;
   const int total_width = landscape ? 1804 : 1216;
   const int button_width = (total_width - 56) / 2;

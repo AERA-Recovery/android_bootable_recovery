@@ -318,18 +318,6 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
                   landscape ? 850 : 780);
   lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
   lv_keyboard_set_textarea(keyboard, state->format_input);
-  lv_obj_set_style_bg_opa(keyboard, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_text_font(keyboard, UiFont(&lv_font_montserrat_32), LV_PART_ITEMS);
-  lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, kMainPanel, LV_PART_ITEMS);
-  lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, kMainSelected, LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_radius(keyboard, 18, LV_PART_ITEMS);
-  lv_obj_set_style_border_width(keyboard, 0, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(keyboard, 0, LV_PART_ITEMS);
-  lv_obj_set_style_pad_all(keyboard, 16, 0);
-  lv_obj_set_style_pad_row(keyboard, 18, 0);
-  lv_obj_set_style_pad_column(keyboard, 10, 0);
 
   state->format_submit = Button(state->screen, "Format data now", [state] {
     JobRequest request;
