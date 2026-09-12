@@ -161,9 +161,7 @@ public:
      * averaging in lv_indev prevents the old slingshot acceleration. */
     lv_indev_set_scroll_throw(pointer_device_, 4);
 
-    design::ApplySurfaceMode(RecoveryLightMode());
-    design::ApplyAccent(RecoveryAccentColor());
-    design::ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
+    ApplyStoredAppearance();
     if (fastboot_mode) {
       backend_ready_ = true;
       interactive_ready_ = true;
@@ -396,6 +394,9 @@ public:
   void SetBackendReady() {
     if (backend_ready_)
       return;
+    // Shared-storage preferences may not be readable during the early boot
+    // renderer. Reload them before constructing the first interactive scene.
+    ApplyStoredAppearance();
     backend_ready_ = true;
     if (interactive_ready_) {
       ShowHome();
@@ -731,6 +732,12 @@ public:
   }
 
 private:
+  void ApplyStoredAppearance() {
+    design::ApplySurfaceMode(RecoveryLightMode());
+    design::ApplyAccent(RecoveryAccentColor());
+    design::ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
+  }
+
   void ShowFastboot() {
     current_tool_ = Action::kNone;
     on_home_ = false;
