@@ -60,6 +60,7 @@ cc_library_static {
         "terminal_scene.cpp",
         "tool_scene.cpp",
         "wifi_scene.cpp",
+        "webkit_icon.cpp",
         "runner.cpp",
         "status_bar.cpp",
     ],

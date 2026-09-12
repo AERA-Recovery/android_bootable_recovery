@@ -13,6 +13,7 @@
 #include "plugins/plugin_manager.hpp"
 #include "retroarch_icon.hpp"
 #include "ui_components.hpp"
+#include "webkit_icon.hpp"
 
 namespace recovery_ui2 {
 namespace {
@@ -105,12 +106,16 @@ void AddTerminalEngraving(lv_obj_t *card, int width, lv_color_t accent) {
 lv_obj_t *AppIconPlate(lv_obj_t *parent, const char *symbol,
                        lv_color_t accent, int size,
                        bool retroarch_icon = false,
-                       bool terminal_icon = false) {
+                       bool terminal_icon = false,
+                       bool webkit_icon = false) {
   auto *plate = lv_obj_create(parent);
   Clear(plate);
   lv_obj_set_size(plate, size, size);
   if (terminal_icon) {
     auto *mark = MaterialTerminalIcon(plate, accent, size);
+    lv_obj_center(mark);
+  } else if (webkit_icon) {
+    auto *mark = WebKitIconPlate(plate, accent, 112);
     lv_obj_center(mark);
   } else if (retroarch_icon) {
     auto *mark = RetroArchIconPlate(plate, accent, size - 14);
@@ -134,7 +139,8 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
                   const char *icon, const char *name, const char *description,
                   lv_color_t accent, Handler action,
                   bool retroarch_icon = false,
-                  bool terminal_engraving = false) {
+                  bool terminal_engraving = false,
+                  bool webkit_icon = false) {
   auto *card = lv_button_create(screen);
   Panel(card, 44, kMainPanel);
   Interactive(card, kMainSelected);
@@ -149,7 +155,7 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
     AddTerminalEngraving(card, width, kAccent);
   }
   auto *plate = AppIconPlate(card, icon, accent, 144, retroarch_icon,
-                             terminal_engraving);
+                             terminal_engraving, webkit_icon);
   lv_obj_set_pos(plate, 28, 22);
   auto *title = Label(card, name, &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, 36, 188);
@@ -173,9 +179,11 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
-  auto *plate = AppIconPlate(card, icon, accent, 154, retroarch_icon);
+  const bool webkit_icon = plugin.entry == "browser";
+  auto *plate = AppIconPlate(card, icon, accent, 154, retroarch_icon, false,
+                             webkit_icon);
   lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 18);
-  if (!retroarch_icon) {
+  if (!retroarch_icon && !webkit_icon) {
     auto *mark = lv_obj_get_child(plate, 0);
     lv_obj_set_style_transform_scale(mark, 384, 0);
   }
@@ -239,7 +247,8 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     int index = 0;
     auto add = [&](const char *icon, const char *name, const char *description,
                    lv_color_t accent, Action action, bool retro_icon = false,
-                   const std::string &plugin_id = std::string()) {
+                   const std::string &plugin_id = std::string(),
+                   bool webkit_icon = false) {
       if (index >= 8) return;
       constexpr int kWidth = 736;
       constexpr int kGap = 16;
@@ -253,7 +262,8 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
                                SetSelectedPluginId(plugin_id);
                              callback(action, context);
                            },
-                           retro_icon, action == Action::kTerminal);
+                           retro_icon, action == Action::kTerminal,
+                           webkit_icon);
       AnimateEnter(card, 20 + index * 22, 12);
       ++index;
     };
@@ -270,13 +280,13 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       if (index >= 8) break;
       if (plugin.entry == "browser")
         add(LV_SYMBOL_GPS, plugin.name.c_str(), plugin.description.c_str(),
-            kCyan, Action::kWeb);
+            kAccent, Action::kWeb, false, std::string(), true);
       else if (plugin.entry == "retroarch")
         add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
             kAccent, Action::kRetroArch, true);
       else if (plugin.entry == "telegram")
-        add(LV_SYMBOL_ENVELOPE, plugin.name.c_str(), plugin.description.c_str(),
-            kCyan, Action::kTelegram);
+        add(LV_SYMBOL_GPS, plugin.name.c_str(), plugin.description.c_str(),
+            kAccent, Action::kTelegram);
       else if (plugin.entry == "gallery")
         add(LV_SYMBOL_IMAGE, plugin.name.c_str(), plugin.description.c_str(),
             kAccent, Action::kGallery);
@@ -348,14 +358,15 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_color_t accent = kCyan;
     if (plugin.entry == "browser") {
       action = Action::kWeb;
+      accent = kAccent;
     } else if (plugin.entry == "retroarch") {
       action = Action::kRetroArch;
       icon = LV_SYMBOL_PLAY;
       accent = kAccent;
     } else if (plugin.entry == "telegram") {
       action = Action::kTelegram;
-      icon = LV_SYMBOL_ENVELOPE;
-      accent = kCyan;
+      icon = LV_SYMBOL_GPS;
+      accent = kAccent;
     } else if (plugin.entry == "gallery") {
       action = Action::kGallery;
       icon = LV_SYMBOL_IMAGE;
