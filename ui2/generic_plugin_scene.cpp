@@ -89,6 +89,65 @@ bool ModalVisible(lv_obj_t *screen) {
   return false;
 }
 
+const char *ActionIcon(const ButtonModel &model) {
+  if (model.title.find("Wi-Fi") != std::string::npos)
+    return LV_SYMBOL_WIFI;
+  if (model.title.find("USB") != std::string::npos)
+    return LV_SYMBOL_USB;
+  if (model.title.find("Stop") != std::string::npos)
+    return LV_SYMBOL_CLOSE;
+  if (model.title.find("another") != std::string::npos ||
+      model.title.find("Return") != std::string::npos)
+    return LV_SYMBOL_LEFT;
+  if (model.title.find("Start") != std::string::npos ||
+      model.title.find("Restart") != std::string::npos)
+    return LV_SYMBOL_PLAY;
+  return LV_SYMBOL_RIGHT;
+}
+
+lv_obj_t *ActionCard(GenericScene *scene, const ButtonModel &model, int width,
+                     int y, size_t index) {
+  const bool primary = (model.flags & plugin_api::kPrimary) != 0;
+  const bool destructive = (model.flags & plugin_api::kDestructive) != 0;
+  const bool disabled = (model.flags & plugin_api::kDisabled) != 0;
+  auto *card = lv_button_create(scene->content);
+  Panel(card, 34, primary ? kAccentSoft : kMainSheet);
+  Interactive(card, primary ? kMainSelected : kMainPanel);
+  lv_obj_set_pos(card, 36, y);
+  lv_obj_set_size(card, width, model.detail.empty() ? 116 : 148);
+  lv_obj_set_style_border_width(card, primary ? 2 : 1, 0);
+  lv_obj_set_style_border_color(card,
+      destructive ? kRed : primary ? kAccent : kMainLine, 0);
+  lv_obj_set_style_border_opa(card,
+      primary ? LV_OPA_60 : destructive ? LV_OPA_40 : LV_OPA_30, 0);
+  lv_obj_set_style_transform_scale(card, 254, LV_STATE_PRESSED);
+  auto *plate = IconPlate(card, ActionIcon(model),
+                          destructive ? kRed : primary ? kAccent : kText,
+                          primary ? kMainPanel : kMainCanvas, 76);
+  lv_obj_align(plate, LV_ALIGN_LEFT_MID, 24, 0);
+  auto *title = Label(card, model.title.c_str(), &lv_font_montserrat_32,
+                      destructive ? kRed : kText);
+  lv_obj_set_pos(title, 124, model.detail.empty() ? 38 : 28);
+  lv_obj_set_width(title, width - 210);
+  if (!model.detail.empty()) {
+    auto *detail = Label(card, model.detail.c_str(),
+                         &lv_font_montserrat_24, kMuted);
+    lv_obj_set_pos(detail, 124, 78);
+    lv_obj_set_width(detail, width - 210);
+    lv_label_set_long_mode(detail, LV_LABEL_LONG_DOT);
+  }
+  auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_24,
+                      primary ? kAccent : kDim);
+  lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -28, 0);
+  OnClick(card, [scene, id = model.id, disabled] {
+    if (!disabled && scene->session.Connected())
+      scene->session.Send(plugin_api::Kind::kAction, id);
+  });
+  if (disabled) lv_obj_add_state(card, LV_STATE_DISABLED);
+  AnimateEnter(card, 25 + static_cast<uint32_t>(index) * 26, 10);
+  return card;
+}
+
 void RenderPage(GenericScene *scene) {
   lv_obj_clean(scene->content);
   // LVGL defers coordinate resolution until a layout pass. Generic plugin
@@ -96,39 +155,80 @@ void RenderPage(GenericScene *scene) {
   // content size before using it for child widths.
   lv_obj_update_layout(scene->content);
   const int content_width = lv_obj_get_width(scene->content);
+  const bool mirror = scene->plugin.id == "mirror";
   auto *title = Label(scene->content,
                       scene->page_title.empty() ? scene->plugin.name.c_str()
                                                 : scene->page_title.c_str(),
                       &lv_font_montserrat_48, kText);
-  lv_obj_set_pos(title, 36, 30);
+  lv_obj_set_pos(title, 36, 28);
   lv_obj_set_width(title, std::max(400, content_width - 72));
-  auto *body = Label(scene->content, scene->page_body.c_str(),
+  auto *body_panel = lv_obj_create(scene->content);
+  Panel(body_panel, 36, mirror ? kAccentSoft : kMainSheet);
+  lv_obj_set_pos(body_panel, 36, 108);
+  lv_obj_set_width(body_panel, std::max(400, content_width - 72));
+  lv_obj_set_style_border_width(body_panel, 1, 0);
+  lv_obj_set_style_border_color(body_panel, mirror ? kAccent : kMainLine, 0);
+  lv_obj_set_style_border_opa(body_panel, mirror ? LV_OPA_40 : LV_OPA_30, 0);
+  auto *body_icon = IconPlate(body_panel,
+      mirror ? LV_SYMBOL_VIDEO : LV_SYMBOL_SETTINGS,
+      mirror ? kAccent : kText, kMainPanel, 88);
+  lv_obj_set_pos(body_icon, 30, 32);
+  auto *eyebrow = Label(body_panel,
+      mirror ? "PRIVATE RECOVERY MIRROR" : "PLUGIN SESSION",
+      &lv_font_montserrat_18, mirror ? kAccent : kMuted);
+  lv_obj_set_pos(eyebrow, 146, 30);
+  lv_obj_set_style_text_letter_space(eyebrow, 3, 0);
+  if (mirror) {
+    const bool live = plugin_api::ActiveMirrorMode() !=
+                      plugin_api::MirrorMode::kOff;
+    auto *state = Label(body_panel, live ? "●  LIVE" : "READY",
+                        &lv_font_montserrat_18, live ? kGreen : kAccent);
+    lv_obj_align(state, LV_ALIGN_TOP_RIGHT, -30, 30);
+    lv_obj_set_style_text_letter_space(state, 2, 0);
+  }
+  std::string body_copy = scene->page_body;
+  std::string address;
+  if (mirror) {
+    const size_t url = body_copy.find("http://");
+    if (url != std::string::npos) {
+      const size_t end = body_copy.find('\n', url);
+      address = body_copy.substr(url, end == std::string::npos
+                                         ? std::string::npos : end - url);
+      const size_t line_start = body_copy.rfind('\n', url);
+      body_copy.erase(line_start == std::string::npos ? 0 : line_start + 1,
+                      end == std::string::npos
+                          ? std::string::npos
+                          : end - (line_start == std::string::npos
+                                       ? 0 : line_start + 1) + 1);
+    }
+  }
+  const int body_y = address.empty() ? 70 : 154;
+  if (!address.empty()) {
+    auto *address_plate = lv_obj_create(body_panel);
+    Panel(address_plate, 22, kMainPanel);
+    lv_obj_set_pos(address_plate, 146, 70);
+    lv_obj_set_size(address_plate, std::max(250, content_width - 316), 64);
+    auto *address_label = Label(address_plate, address.c_str(),
+                                &lv_font_montserrat_32, kAccent);
+    lv_obj_align(address_label, LV_ALIGN_LEFT_MID, 20, 0);
+    lv_obj_set_width(address_label, std::max(200, content_width - 356));
+    lv_label_set_long_mode(address_label, LV_LABEL_LONG_DOT);
+  }
+  auto *body = Label(body_panel, body_copy.c_str(),
                      &lv_font_montserrat_32, kMutedStrong);
-  lv_obj_set_pos(body, 36, 112);
-  lv_obj_set_width(body, std::max(400, content_width - 72));
+  lv_obj_set_pos(body, 146, body_y);
+  lv_obj_set_width(body, std::max(280, content_width - 270));
   lv_obj_set_style_text_line_space(body, 14, 0);
   lv_obj_update_layout(body);
-  int y = 148 + std::max(80, static_cast<int>(lv_obj_get_height(body)));
-  for (const auto &model : scene->buttons) {
-    const bool disabled = (model.flags & plugin_api::kDisabled) != 0;
-    auto action = [scene, id = model.id, disabled] {
-      if (!disabled && scene->session.Connected())
-        scene->session.Send(plugin_api::Kind::kAction, id);
-    };
-    auto *button = Button(scene->content, model.title.c_str(), action,
-                          (model.flags & plugin_api::kPrimary) != 0);
-    lv_obj_set_pos(button, 36, y);
-    lv_obj_set_size(button, std::max(400, content_width - 72),
-                    model.detail.empty() ? 112 : 146);
-    if (disabled) lv_obj_add_state(button, LV_STATE_DISABLED);
-    if (!model.detail.empty()) {
-      auto *detail = Label(button, model.detail.c_str(),
-                           &lv_font_montserrat_24,
-                           (model.flags & plugin_api::kPrimary) ? kOnAccent
-                                                                : kMuted);
-      lv_obj_align(detail, LV_ALIGN_BOTTOM_MID, 0, -18);
-    }
-    y += model.detail.empty() ? 136 : 170;
+  const int panel_height = std::max(170,
+      body_y + 48 + static_cast<int>(lv_obj_get_height(body)));
+  lv_obj_set_height(body_panel, panel_height);
+  AnimateEnter(body_panel, 10, 10);
+  int y = 134 + panel_height;
+  for (size_t index = 0; index < scene->buttons.size(); ++index) {
+    const auto &model = scene->buttons[index];
+    ActionCard(scene, model, std::max(400, content_width - 72), y, index);
+    y += model.detail.empty() ? 136 : 168;
   }
   (void)y;
 }

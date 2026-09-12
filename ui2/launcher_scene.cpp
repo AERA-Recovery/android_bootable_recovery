@@ -4,6 +4,7 @@
  */
 #include "scene.hpp"
 
+#include <algorithm>
 #include <string>
 
 #include <lvgl.h>
@@ -43,6 +44,66 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
   auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_32, kDim);
   lv_obj_align(arrow, LV_ALIGN_TOP_RIGHT, -38, 74);
   return card;
+}
+
+lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
+                     const char *icon, const plugins::Plugin &plugin,
+                     lv_color_t accent, Handler action,
+                     bool retroarch_icon = false) {
+  auto *card = lv_button_create(parent);
+  Panel(card, 34, kMainSheet);
+  Interactive(card, kMainSelected);
+  lv_obj_set_pos(card, x, y);
+  lv_obj_set_size(card, width, height);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_border_color(card, kMainLine, 0);
+  lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
+  auto *plate = retroarch_icon
+      ? RetroArchIconPlate(card, kText, 84)
+      : IconPlate(card, icon, accent, kMainPanel, 84);
+  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 30);
+  auto *title = Label(card, plugin.name.c_str(), &lv_font_montserrat_32, kText);
+  lv_obj_set_width(title, width - 40);
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 132);
+  auto *location = Kicker(card, plugins::LocationLabel(plugin.location), kGreen);
+  lv_obj_align(location, LV_ALIGN_BOTTOM_MID, 0, -28);
+  OnClick(card, std::move(action));
+  return card;
+}
+
+struct PluginPagerState {
+  lv_obj_t *view = nullptr;
+  lv_obj_t *dots = nullptr;
+  int pages = 0;
+  int page_width = 0;
+};
+
+void UpdatePluginPageDots(PluginPagerState *state) {
+  if (state == nullptr || state->view == nullptr || state->dots == nullptr)
+    return;
+  const int scroll_x = lv_obj_get_scroll_x(state->view);
+  const int offset = scroll_x < 0 ? -scroll_x : scroll_x;
+  const int selected = std::clamp(
+      (offset + state->page_width / 2) / state->page_width,
+      0, state->pages - 1);
+  std::string dots;
+  for (int page = 0; page < state->pages; ++page) {
+    if (page != 0) dots += "   ";
+    dots += page == selected ? "●" : "○";
+  }
+  lv_label_set_text(state->dots, dots.c_str());
+}
+
+void PluginPagerEvent(lv_event_t *event) {
+  auto *state = static_cast<PluginPagerState *>(lv_event_get_user_data(event));
+  if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+    delete state;
+    return;
+  }
+  if (lv_event_get_code(event) == LV_EVENT_SCROLL_END)
+    UpdatePluginPageDots(state);
 }
 
 }  // namespace
@@ -144,8 +205,27 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   auto *extensions = Label(screen, "INSTALLED PLUGINS", &lv_font_montserrat_18, kMuted);
   lv_obj_set_style_text_letter_space(extensions, 3, 0);
   lv_obj_set_pos(extensions, 80, 1410);
-  int x = 64;
-  int y = 1468;
+  constexpr int kGridWidth = 1312;
+  constexpr int kGridHeight = 1050;
+  constexpr int kTileWidth = 416;
+  constexpr int kTileHeight = 318;
+  constexpr int kGapX = 32;
+  constexpr int kGapY = 30;
+  auto *pager = lv_obj_create(screen);
+  lv_obj_set_pos(pager, 64, 1468);
+  lv_obj_set_size(pager, kGridWidth, kGridHeight);
+  lv_obj_set_style_bg_opa(pager, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(pager, 0, 0);
+  lv_obj_set_style_pad_all(pager, 0, 0);
+  lv_obj_set_scrollbar_mode(pager, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_scroll_dir(pager, LV_DIR_HOR);
+  lv_obj_set_scroll_snap_x(pager, LV_SCROLL_SNAP_CENTER);
+  lv_obj_add_flag(pager, LV_OBJ_FLAG_SCROLL_ONE);
+  lv_obj_add_flag(pager, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  lv_obj_remove_flag(pager, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
+  const int page_count = std::max(1, static_cast<int>((installed.size() + 8) / 9));
+  int visible_index = 0;
+  lv_obj_t *page = nullptr;
   for (const auto &plugin : installed) {
     Action action = Action::kNone;
     const char *icon = LV_SYMBOL_GPS;
@@ -183,21 +263,30 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     } else {
       continue;
     }
-    auto *card = AppCard(screen, x, y, 636, icon, plugin.name.c_str(),
-                         plugin.description.c_str(), accent,
-                         [=] {
-                           if (action == Action::kPluginApp)
-                             SetSelectedPluginId(plugin.id);
-                           callback(action, context);
-                         },
-                         plugin.entry == "retroarch");
-    auto *location = Kicker(card, plugins::LocationLabel(plugin.location), kGreen);
-    lv_obj_align(location, LV_ALIGN_TOP_RIGHT, -82, 72);
-    AnimateEnter(card, 90, 14);
-    x = x == 64 ? 740 : 64;
-    if (x == 64) y += 400;
+    const int page_index = visible_index / 9;
+    const int slot = visible_index % 9;
+    if (slot == 0) {
+      page = lv_obj_create(pager);
+      Clear(page);
+      lv_obj_set_pos(page, page_index * kGridWidth, 0);
+      lv_obj_set_size(page, kGridWidth, kGridHeight);
+      lv_obj_add_flag(page, LV_OBJ_FLAG_SNAPPABLE);
+    }
+    const int column = slot % 3;
+    const int row = slot / 3;
+    auto *card = PluginTile(page, column * (kTileWidth + kGapX),
+                            row * (kTileHeight + kGapY),
+                            kTileWidth, kTileHeight, icon, plugin, accent,
+                            [=] {
+                              if (action == Action::kPluginApp)
+                                SetSelectedPluginId(plugin.id);
+                              callback(action, context);
+                            }, plugin.entry == "retroarch");
+    AnimateEnter(card, 90 + slot * 18, 10);
+    ++visible_index;
   }
   if (installed.empty()) {
+    lv_obj_add_flag(pager, LV_OBJ_FLAG_HIDDEN);
     auto *empty = lv_obj_create(screen);
     Panel(empty, 40, kMainSheet);
     lv_obj_set_pos(empty, 64, 1468);
@@ -216,6 +305,15 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_set_size(open, 540, 92);
     lv_obj_set_style_radius(open, 28, 0);
     AnimateEnter(empty, 90, 14);
+  } else if (page_count > 1) {
+    auto *dots = Label(screen, "", &lv_font_montserrat_24, kAccent);
+    lv_obj_set_width(dots, 600);
+    lv_obj_set_style_text_align(dots, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(dots, 420, 2540);
+    auto *pager_state =
+        new PluginPagerState{pager, dots, page_count, kGridWidth};
+    lv_obj_add_event_cb(pager, PluginPagerEvent, LV_EVENT_ALL, pager_state);
+    UpdatePluginPageDots(pager_state);
   }
   Navigation(screen, Action::kBackHome, callback, context);
 }

@@ -15,6 +15,7 @@
 #include <lvgl.h>
 
 #include "design.hpp"
+#include "plugin_api/operations.hpp"
 #include "recorder/service.hpp"
 #include "recovery_ui2/backend.hpp"
 
@@ -504,9 +505,18 @@ void Refresh(StatusState *state, bool refresh_battery) {
 
   const auto connection = RecoveryWifiConnection();
   if (connection.connected) {
-    const std::string text = std::string(LV_SYMBOL_WIFI) + "  " +
+    const auto mirror = plugin_api::ActiveMirrorMode();
+    const std::string mirror_prefix =
+        mirror == plugin_api::MirrorMode::kWifi
+            ? std::string(LV_SYMBOL_VIDEO) + "  Wi-Fi Mirror   •   "
+            : mirror == plugin_api::MirrorMode::kUsb
+                  ? std::string(LV_SYMBOL_USB) + "  USB Mirror   •   "
+                  : std::string();
+    const std::string text = mirror_prefix + LV_SYMBOL_WIFI + "  " +
         (connection.ssid.empty() ? "Connected" : connection.ssid);
     lv_label_set_text(state->wifi, text.c_str());
+    lv_obj_set_style_text_color(state->wifi,
+        mirror == plugin_api::MirrorMode::kOff ? kMutedStrong : kAccent, 0);
     lv_obj_remove_flag(state->wifi, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(state->wifi, LV_OBJ_FLAG_HIDDEN);

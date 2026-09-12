@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
@@ -17,6 +18,7 @@
 
 namespace recovery_ui2::plugin_api {
 namespace {
+std::atomic<MirrorMode> gMirrorMode{MirrorMode::kOff};
 constexpr char kAeraDirectory[] = "/data/media/0/AERA";
 constexpr char kBackupDirectory[] = "SettingsBackups";
 constexpr char kAndroidBackupDirectory[] = "AndroidSettings";
@@ -414,6 +416,19 @@ bool RestoreAndroidSettings(int system_directory, int backup_directory) {
 }
 }  // namespace
 
+MirrorMode ActiveMirrorMode() {
+  const auto mode = gMirrorMode.load(std::memory_order_acquire);
+    gMirrorMode.store(MirrorMode::kOff, std::memory_order_release);
+    return MirrorMode::kOff;
+  }
+#ifdef OF_ENABLE_WLAN
+    gMirrorMode.store(MirrorMode::kOff, std::memory_order_release);
+    return MirrorMode::kOff;
+  }
+#endif
+  return mode;
+}
+
 bool OperationAllowed(const plugins::Plugin& plugin, Operation operation) {
   if (!plugins::IsGeneric(plugin)) return false;
   switch (operation) {
@@ -443,6 +458,8 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
     // The same embedded page is available through an ADB port forward, so the
     // forthcoming one-click desktop launcher needs no bundled UI/runtime.
     const bool success = stream_ready && browser_ready;
+    if (success)
+      gMirrorMode.store(MirrorMode::kUsb, std::memory_order_release);
     result = success
                  ? "USB mirror ready. Open it with the AERA Mirror desktop launcher."
                  : stream_ready
@@ -450,6 +467,8 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
                        : "Could not start the AERA USB mirror.";
 #else
     const bool success = stream_ready;
+    if (success)
+      gMirrorMode.store(MirrorMode::kUsb, std::memory_order_release);
     result = success
                  ? "USB mirror ready at 30 FPS. Open the AERA Mirror desktop client."
                  : "Could not start the AERA USB mirror.";
@@ -462,6 +481,8 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
       result = "Connect AERA to Wi-Fi first, then return here and start the mirror.";
       return false;
     }
+    if (success)
+      gMirrorMode.store(MirrorMode::kWifi, std::memory_order_release);
     result = success ? "Wi-Fi mirror ready: http://" + address + "/"
                      : "Could not start the AERA Wi-Fi mirror.";
     return success;
@@ -471,6 +492,7 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
 #endif
   }
   if (operation == Operation::kStopMirror) {
+    gMirrorMode.store(MirrorMode::kOff, std::memory_order_release);
 #ifdef OF_ENABLE_WLAN
 #endif
     result = "AERA Mirror stopped.";
