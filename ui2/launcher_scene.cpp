@@ -91,29 +91,44 @@ void AddTerminalEngraving(lv_obj_t *card, int width, lv_color_t accent) {
       static_cast<int>(sizeof(kStreams) / sizeof(kStreams[0]));
 
   const int column_count = std::clamp(width / 46, 14, 30);
-  const int spacing = (width - 112) / (column_count - 1);
-  for (int column = 0; column < column_count; ++column) {
-    const int x = 56 + column * spacing;
-    const int y = 4 + (column % 3) * 3;
-    const lv_opa_t depth = static_cast<lv_opa_t>(108 + (column % 3) * 18);
-
-    const char *stream = kStreams[column % kStreamCount];
-    auto *impression = Label(card, stream,
-                             &lv_font_montserrat_18, kMainCanvas);
-    lv_obj_set_pos(impression, x, y);
-    lv_obj_set_style_text_align(impression, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_line_space(impression, 8, 0);
-    lv_obj_set_style_text_opa(impression, depth, 0);
-
-    auto *edge = Label(card, stream, &lv_font_montserrat_18,
-                       column % 4 == 2 ? accent : kText);
-    lv_obj_set_pos(edge, x + 1, y + 2);
-    lv_obj_set_style_text_align(edge, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_line_space(edge, 8, 0);
-    lv_obj_set_style_text_opa(
-        edge, static_cast<lv_opa_t>(column % 4 == 2 ? 78 : 54), 0);
+  std::string fields[3];
+  for (int row = 0; row < 13; ++row) {
+    for (int group = 0; group < 3; ++group) {
+      for (int column = 0; column < column_count; ++column) {
+        const char *stream = kStreams[column % kStreamCount];
+        fields[group].push_back(column % 3 == group ? stream[row * 2] : ' ');
+      }
+      if (row != 12) fields[group].push_back('\n');
+    }
   }
 
+  // Three interleaved text fields preserve the staggered Matrix depth while
+  // reducing the decoration from as many as 60 live labels to only six.  This
+  // remains on LVGL's normal, proven render path and is cheap to composite when
+  // Quick Settings moves over the Terminal card.
+  const int letter_space =
+      std::max(10, (width - 36) / (column_count - 1) - 7);
+  auto add_field = [&](int group, lv_color_t color, lv_opa_t opacity,
+                       int x_offset, int y_offset) {
+    auto *field = Label(card, fields[group].c_str(),
+                        &lv_font_montserrat_18, color);
+    lv_obj_set_pos(field, 10 + x_offset, 4 + group * 3 + y_offset);
+    lv_obj_set_size(field, width - 20, 356);
+    lv_obj_set_style_text_align(field, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_letter_space(field, letter_space, 0);
+    lv_obj_set_style_text_line_space(field, 8, 0);
+    lv_obj_set_style_text_opa(field, opacity, 0);
+    MakeDecorationPassThrough(field);
+  };
+
+  for (int group = 0; group < 3; ++group) {
+    const lv_opa_t depth = static_cast<lv_opa_t>(108 + group * 18);
+    add_field(group, kMainCanvas, depth, 0, 0);
+  }
+  for (int group = 0; group < 3; ++group) {
+    add_field(group, group == 2 ? accent : kText,
+              static_cast<lv_opa_t>(group == 2 ? 78 : 54), 1, 2);
+  }
 }
 
 lv_obj_t *AppIconPlate(lv_obj_t *parent, const char *symbol,
@@ -301,12 +316,8 @@ void PluginPagerEvent(lv_event_t *event) {
 void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   Header(screen, "Home", "Your recovery apps, files and extensions.", callback, context);
   const auto installed = plugins::Installed();
-  const std::string summary = std::to_string(installed.size()) +
-      (installed.size() == 1 ? " plugin installed" : " plugins installed");
   const bool landscape = lv_obj_get_width(screen) > lv_obj_get_height(screen);
   if (landscape) {
-    auto *status = Kicker(screen, summary.c_str(), installed.empty() ? kMuted : kGreen);
-    lv_obj_align(status, LV_ALIGN_TOP_RIGHT, -80, 306);
     auto *apps = Label(screen, "AERA APPS", &lv_font_montserrat_18, kMuted);
     lv_obj_set_style_text_letter_space(apps, 3, 0);
     lv_obj_set_pos(apps, 80, 306);
@@ -374,20 +385,17 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     Navigation(screen, Action::kBackHome, callback, context);
     return;
   }
-  auto *status = Kicker(screen, summary.c_str(), installed.empty() ? kMuted : kGreen);
-  lv_obj_set_pos(status, 80, 426);
-
   auto *apps = Label(screen, "SYSTEM APPS", &lv_font_montserrat_18, kMuted);
   lv_obj_set_style_text_letter_space(apps, 3, 0);
-  lv_obj_set_pos(apps, 80, 516);
-  auto *files = AppCard(screen, 64, 574, 636, LV_SYMBOL_DIRECTORY, "Files",
+  lv_obj_set_pos(apps, 80, 426);
+  auto *files = AppCard(screen, 64, 484, 636, LV_SYMBOL_DIRECTORY, "Files",
                         "Browse storage, preview images and install ZIPs.",
                         kAccent, [=] { callback(Action::kFiles, context); });
-  auto *store = AppCard(screen, 740, 574, 636, LV_SYMBOL_DOWNLOAD,
+  auto *store = AppCard(screen, 740, 484, 636, LV_SYMBOL_DOWNLOAD,
                         "Plugin Manager",
                         "Discover signed apps and install them to storage or RAM.",
                         kCyan, [=] { callback(Action::kPlugins, context); });
-  auto *terminal = AppCard(screen, 64, 974, 1312, LV_SYMBOL_EDIT, "Terminal",
+  auto *terminal = AppCard(screen, 64, 884, 1312, LV_SYMBOL_EDIT, "Terminal",
                            "Run recovery commands in the built-in AERA shell.",
                            kAccent, [=] { callback(Action::kTerminal, context); },
                            false, true);
@@ -397,7 +405,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
 
   auto *extensions = Label(screen, "INSTALLED PLUGINS", &lv_font_montserrat_18, kMuted);
   lv_obj_set_style_text_letter_space(extensions, 3, 0);
-  lv_obj_set_pos(extensions, 80, 1410);
+  lv_obj_set_pos(extensions, 80, 1320);
   constexpr int kGridWidth = 1312;
   constexpr int kGridHeight = 1050;
   constexpr int kTileHeight = 318;
@@ -407,7 +415,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   const int tile_width = grid_columns == 2 ? 636 : 416;
   const int gap_x = grid_columns == 2 ? 40 : 32;
   auto *pager = lv_obj_create(screen);
-  lv_obj_set_pos(pager, 64, 1468);
+  lv_obj_set_pos(pager, 64, 1378);
   lv_obj_set_size(pager, kGridWidth, kGridHeight);
   lv_obj_set_style_bg_opa(pager, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(pager, 0, 0);
@@ -487,7 +495,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_add_flag(pager, LV_OBJ_FLAG_HIDDEN);
     auto *empty = lv_obj_create(screen);
     Panel(empty, 40, kMainSheet);
-    lv_obj_set_pos(empty, 64, 1468);
+    lv_obj_set_pos(empty, 64, 1378);
     lv_obj_set_size(empty, 1312, 310);
     auto *title = Label(empty, "Build AERA your way", &lv_font_montserrat_48, kText);
     lv_obj_set_pos(title, 42, 48);
@@ -506,7 +514,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   } else if (page_count > 1) {
     auto *dots = lv_obj_create(screen);
     Clear(dots);
-    lv_obj_set_pos(dots, 570, 2540);
+    lv_obj_set_pos(dots, 570, 2450);
     lv_obj_set_size(dots, 300, 42);
     lv_obj_set_flex_flow(dots, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(dots, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,

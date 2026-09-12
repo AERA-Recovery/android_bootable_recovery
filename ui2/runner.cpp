@@ -386,7 +386,7 @@ RunResult RunLoop(bool fastboot_mode = false,
             performance.Boost();
         if (hardware.power_down && !hardware.power_long_press &&
             !hardware.screenshot_chord && hardware.power_pressed_at_ms != 0 &&
-            MonotonicMilliseconds() - hardware.power_pressed_at_ms >= 3000) {
+            MonotonicMilliseconds() - hardware.power_pressed_at_ms >= 2000) {
             hardware.power_long_press = true;
             engine.ShowPowerMenu();
             performance.Boost();

@@ -83,11 +83,6 @@ void SetShadeVisible(StatusState *state, int visible) {
     return;
   state->shade_visible = std::clamp(visible, 0, state->shade_height);
   lv_obj_set_y(state->sheet, state->shade_visible - state->shade_height);
-  lv_obj_set_style_bg_opa(
-      state->shade,
-      static_cast<lv_opa_t>(state->shade_visible * LV_OPA_50 /
-                            state->shade_height),
-      0);
 }
 
 void AnimateShade(StatusState *state, bool open) {
@@ -106,7 +101,6 @@ void AnimateShade(StatusState *state, bool open) {
       lv_obj_set_y(static_cast<lv_obj_t *>(target), value);
     });
     lv_anim_start(&slide);
-    lv_obj_fade_out(closing, 210, 0);
     state->shade = nullptr;
     state->sheet = nullptr;
     state->shade_wifi = nullptr;
@@ -266,7 +260,11 @@ void BuildShade(StatusState *state) {
   lv_obj_set_size(state->shade, screen_width, screen_height);
   lv_obj_set_style_radius(state->shade, 0, 0);
   lv_obj_set_style_bg_color(state->shade, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(state->shade, LV_OPA_TRANSP, 0);
+  // Keep the backdrop at its final opacity while the opaque sheet moves.
+  // Animating this full-screen alpha forced every Home object underneath it
+  // to be recomposited for every drag sample, which made the pull-down lag on
+  // object-rich scenes such as the Terminal Matrix card.
+  lv_obj_set_style_bg_opa(state->shade, LV_OPA_50, 0);
   lv_obj_set_style_border_width(state->shade, 0, 0);
   lv_obj_set_style_pad_all(state->shade, 0, 0);
   lv_obj_add_event_cb(state->shade, CloseShade, LV_EVENT_CLICKED, state);
