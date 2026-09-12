@@ -322,6 +322,9 @@ int main(int argc, char **argv) {
     const_cast<char *>("LIBGL_DRIVERS_PATH=/usr/lib/dri"),
     const_cast<char *>("EGL_PLATFORM=surfaceless"),
     const_cast<char *>("ZINK_DESCRIPTORS=lazy"),
+    // Keep WebKit's independently updated video and page layers ordered on
+    // Turnip, and finish SHM readback before publishing the composed frame.
+    const_cast<char *>("ZINK_DEBUG=sync,flushsync"),
     const_cast<char *>("MESA_SHADER_CACHE_DISABLE=true"),
     // Keep multimedia discovery completely inside the extracted runtime. The
     // registry belongs in the private writable tmpfs; the runtime itself and

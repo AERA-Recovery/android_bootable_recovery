@@ -84,8 +84,8 @@ bool Session::Poll() {
       }
       sequence_ = message.sequence;
       // The sequence selects one of two fixed, sealed slots. LVGL consumes this
-      // immutable slot before the next tick acknowledges it; the worker can
-      // then only write the other slot. No engine-controlled descriptor,
+      // immutable slot before the completed display refresh acknowledges it;
+      // the worker can then only write the other slot. No engine-controlled descriptor,
       // allocation size or process address crosses the boundary.
       frame_pending_ = true; changed = true;
     } else if (message.kind == Kind::kStatus) {

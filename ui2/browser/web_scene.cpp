@@ -17,8 +17,12 @@ constexpr int kBrowserViewportWidth = 1392;
 constexpr int kBrowserViewportHeight = 2708;
 constexpr int kBrowserImageScale =
     (kBrowserViewportWidth * 256 + web::kWidth / 2) / web::kWidth;
+struct WebScene;
+void BrowserRefreshReady(lv_event_t *event);
+
 struct WebScene {
   lv_obj_t *screen = nullptr, *address = nullptr, *keyboard = nullptr;
+  lv_display_t *display = nullptr;
   lv_obj_t *navigation = nullptr;
   lv_obj_t *title = nullptr, *detail = nullptr, *progress = nullptr, *prepare = nullptr;
   lv_obj_t *area = nullptr, *viewport = nullptr, *image = nullptr;
@@ -34,11 +38,15 @@ struct WebScene {
   web::Preparation state;
   std::thread worker;
   bool started = false, finished = false, auto_launch = true;
+  bool frame_waiting_for_refresh = false;
   int view_left = 24, view_top = 460;
   int view_width = kBrowserViewportWidth;
   int view_height = kBrowserViewportHeight;
   ~WebScene() {
     if (timer) lv_timer_delete(timer);
+    if (display)
+      lv_display_remove_event_cb_with_user_data(
+          display, BrowserRefreshReady, this);
     state.cancel.store(true);
     if (worker.joinable()) worker.join();
     if (image) {
@@ -51,6 +59,14 @@ struct WebScene {
     web::RemoveRuntime(state.directory);
   }
 };
+
+void BrowserRefreshReady(lv_event_t *event) {
+  auto *s = static_cast<WebScene *>(lv_event_get_user_data(event));
+  if (!s->frame_waiting_for_refresh) return;
+  s->frame_waiting_for_refresh = false;
+  if (s->session.Connected()) s->session.AcknowledgeFrame();
+}
+
 void HideKeyboard(WebScene *s) {
   lv_obj_add_flag(s->keyboard, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(s->keyboard, nullptr);
@@ -91,6 +107,9 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   auto *s = new WebScene;
   s->auto_launch = auto_launch;
   s->screen = screen;
+  s->display = lv_obj_get_display(screen);
+  lv_display_add_event_cb(
+      s->display, BrowserRefreshReady, LV_EVENT_REFR_READY, s);
   if (frame_fd >= 0 || control_fd >= 0) s->session.Adopt(frame_fd, control_fd);
   lv_obj_add_event_cb(screen, [](lv_event_t *e) {
     delete static_cast<WebScene *>(lv_event_get_user_data(e));
@@ -293,10 +312,6 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   s->timer = lv_timer_create([](lv_timer_t *timer) {
     auto *s = static_cast<WebScene *>(lv_timer_get_user_data(timer));
     if (s->session.Connected() || s->showing_web) {
-      // A frame published on the previous 8 ms tick has now been consumed by
-      // LVGL's GPU upload. Releasing it here lets the worker fill the alternate
-      // sealed slot without a second 9 MiB recovery-side memcpy.
-      if (s->session.Connected()) s->session.AcknowledgeFrame();
       const bool new_frame = s->session.Poll();
       uint32_t keyboard_purpose = 0;
       const auto keyboard_request = s->session.TakeKeyboardRequest(&keyboard_purpose);
@@ -308,6 +323,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
         s->descriptor.data = s->session.Pixels();
         lv_image_cache_drop(&s->descriptor);
         lv_image_set_src(s->image, &s->descriptor);
+        s->frame_waiting_for_refresh = true;
         lv_obj_invalidate(s->image);
         lv_obj_add_flag(s->area, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);

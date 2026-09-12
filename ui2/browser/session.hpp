@@ -18,7 +18,7 @@ class Session {
   bool Connected() const { return control_ >= 0; }
   bool Send(Kind kind, int x = 0, int y = 0, uint32_t value = 0, const char *text = "");
   bool Poll(); // Nonblocking, at most eight messages; true if pixels changed.
-  // Called by the scene on the tick after LVGL consumed the current slot.
+  // Called after LVGL finishes rendering and flushing the current slot.
   bool AcknowledgeFrame();
   const uint8_t *Pixels() const {
     return shared_ ? shared_ + FrameSlot(sequence_) * kFrameBytes : nullptr;
