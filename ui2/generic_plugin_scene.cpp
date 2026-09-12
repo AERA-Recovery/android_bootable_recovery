@@ -111,7 +111,7 @@ lv_obj_t *ActionCard(GenericScene *scene, const ButtonModel &model, int width,
   const bool destructive = (model.flags & plugin_api::kDestructive) != 0;
   const bool disabled = (model.flags & plugin_api::kDisabled) != 0;
   auto *card = lv_button_create(scene->content);
-  Panel(card, 34, primary ? kAccentSoft : kMainSheet);
+  Panel(card, 34, kMainSheet);
   Interactive(card, primary ? kMainSelected : kMainPanel);
   lv_obj_set_pos(card, 36, y);
   lv_obj_set_size(card, width, model.detail.empty() ? 116 : 148);
@@ -163,12 +163,12 @@ void RenderPage(GenericScene *scene) {
   lv_obj_set_pos(title, 36, 28);
   lv_obj_set_width(title, std::max(400, content_width - 72));
   auto *body_panel = lv_obj_create(scene->content);
-  Panel(body_panel, 36, mirror ? kAccentSoft : kMainSheet);
+  Panel(body_panel, 36, kMainSheet);
   lv_obj_set_pos(body_panel, 36, 108);
   lv_obj_set_width(body_panel, std::max(400, content_width - 72));
   lv_obj_set_style_border_width(body_panel, 1, 0);
-  lv_obj_set_style_border_color(body_panel, mirror ? kAccent : kMainLine, 0);
-  lv_obj_set_style_border_opa(body_panel, mirror ? LV_OPA_40 : LV_OPA_30, 0);
+  lv_obj_set_style_border_color(body_panel, kMainLine, 0);
+  lv_obj_set_style_border_opa(body_panel, LV_OPA_30, 0);
   auto *body_icon = IconPlate(body_panel,
       mirror ? LV_SYMBOL_VIDEO : LV_SYMBOL_SETTINGS,
       mirror ? kAccent : kText, kMainPanel, 88);

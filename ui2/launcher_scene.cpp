@@ -19,6 +19,32 @@ namespace {
 using namespace design;
 using namespace widgets;
 
+lv_obj_t *AppIconPlate(lv_obj_t *parent, const char *symbol,
+                       lv_color_t accent, lv_color_t fill, int size,
+                       bool retroarch_icon = false) {
+  auto *plate = lv_obj_create(parent);
+  Panel(plate, size / 3, fill);
+  lv_obj_set_size(plate, size, size);
+  lv_obj_set_style_border_width(plate, 1, 0);
+  lv_obj_set_style_border_color(plate, accent, 0);
+  lv_obj_set_style_border_opa(plate, LV_OPA_30, 0);
+  if (retroarch_icon) {
+    auto *mark = RetroArchIconPlate(plate, accent, size - 22);
+    lv_obj_center(mark);
+  } else {
+    auto *mark = Label(plate, symbol, &lv_font_montserrat_48, accent);
+    lv_obj_center(mark);
+  }
+  return plate;
+}
+
+const char *GenericPluginIcon(const plugins::Plugin &plugin) {
+  if (plugin.id == "mirror") return LV_SYMBOL_VIDEO;
+  if (plugin.id.find("settings") != std::string::npos)
+    return LV_SYMBOL_SAVE;
+  return LV_SYMBOL_SETTINGS;
+}
+
 lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
                   const char *icon, const char *name, const char *description,
                   lv_color_t accent, Handler action,
@@ -32,9 +58,8 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_40, 0);
   OnClick(card, std::move(action));
-  auto *plate = retroarch_icon
-      ? RetroArchIconPlate(card, kText, 104)
-      : IconPlate(card, icon, accent, kMainSheet, 104);
+  auto *plate = AppIconPlate(card, icon, accent, kMainSheet, 112,
+                             retroarch_icon);
   lv_obj_set_pos(plate, 36, 38);
   auto *title = Label(card, name, &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, 36, 178);
@@ -58,15 +83,14 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
-  auto *plate = retroarch_icon
-      ? RetroArchIconPlate(card, kText, 84)
-      : IconPlate(card, icon, accent, kMainPanel, 84);
-  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 30);
+  auto *plate = AppIconPlate(card, icon, accent, kMainPanel, 112,
+                             retroarch_icon);
+  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 22);
   auto *title = Label(card, plugin.name.c_str(), &lv_font_montserrat_32, kText);
   lv_obj_set_width(title, width - 40);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 132);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 150);
   auto *location = Kicker(card, plugins::LocationLabel(plugin.location), kGreen);
   lv_obj_align(location, LV_ALIGN_BOTTOM_MID, 0, -28);
   OnClick(card, std::move(action));
@@ -149,7 +173,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
         "Discover and install signed AERA extensions.", kCyan,
         Action::kPlugins);
     add(LV_SYMBOL_EDIT, "Terminal",
-        "A real recovery shell powered by OrangeFox libvterm.", kAccent,
+        "A real recovery shell built into AERA.", kAccent,
         Action::kTerminal);
     for (const auto &plugin : installed) {
       if (index >= 8) break;
@@ -175,7 +199,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
         add(LV_SYMBOL_SAVE, plugin.name.c_str(), plugin.description.c_str(),
             kCyan, Action::kAppVault);
       else if (plugins::IsGeneric(plugin))
-        add(LV_SYMBOL_SETTINGS, plugin.name.c_str(),
+        add(GenericPluginIcon(plugin), plugin.name.c_str(),
             plugin.description.c_str(), kAccent, Action::kPluginApp, false,
             plugin.id);
     }
@@ -196,7 +220,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
                         "Discover signed apps and install them to storage or RAM.",
                         kCyan, [=] { callback(Action::kPlugins, context); });
   auto *terminal = AppCard(screen, 64, 974, 1312, LV_SYMBOL_EDIT, "Terminal",
-                           "Run recovery commands in the built-in OrangeFox shell.",
+                           "Run recovery commands in the built-in AERA shell.",
                            kGreen, [=] { callback(Action::kTerminal, context); });
   AnimateEnter(files, 20, 14);
   AnimateEnter(store, 55, 14);
@@ -258,7 +282,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       accent = kCyan;
     } else if (plugins::IsGeneric(plugin)) {
       action = Action::kPluginApp;
-      icon = LV_SYMBOL_SETTINGS;
+      icon = GenericPluginIcon(plugin);
       accent = kAccent;
     } else {
       continue;
