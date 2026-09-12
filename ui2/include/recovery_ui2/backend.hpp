@@ -6,7 +6,16 @@
 #include <vector>
 
 namespace recovery_ui2 {
-enum class Job { kInstall, kBackup, kRestore, kWipe, kMount, kUnmount, kFormatData };
+enum class Job {
+  kInstall,
+  kFlashImage,
+  kBackup,
+  kRestore,
+  kWipe,
+  kMount,
+  kUnmount,
+  kFormatData
+};
 struct Volume {
   std::string name;
   std::string path;
@@ -19,6 +28,7 @@ struct JobRequest {
   std::string path;
   std::vector<std::string> partitions;
   bool compression = true;
+  bool both_slots = false;
   std::string confirmation;
 };
 inline bool FormatDataAuthorized(const JobRequest &request) {
@@ -27,6 +37,7 @@ inline bool FormatDataAuthorized(const JobRequest &request) {
 }
 // Implemented beside the stock GUI bridge, using the same recovery backend.
 std::vector<Volume> RecoveryVolumes(const std::string &kind);
+std::vector<Volume> RecoveryImageVolumes();
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder);
 std::string RecoveryStorage();
 std::string RecoveryBackupRoot();

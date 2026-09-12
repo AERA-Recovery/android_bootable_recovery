@@ -64,6 +64,7 @@ std::string CleanMetric(std::string value) {
 
 const char *InitialTitle(Job job) {
   switch (job) {
+    case Job::kFlashImage: return "Preparing image flash";
     case Job::kBackup: return "Preparing your backup";
     case Job::kRestore: return "Preparing to restore";
     case Job::kWipe: return "Preparing to wipe";
@@ -76,6 +77,7 @@ const char *InitialTitle(Job job) {
 
 const char *OperationSymbol(Job job) {
   switch (job) {
+    case Job::kFlashImage: return LV_SYMBOL_UPLOAD;
     case Job::kBackup: return LV_SYMBOL_SAVE;
     case Job::kRestore: return LV_SYMBOL_REFRESH;
     case Job::kWipe:
@@ -139,6 +141,13 @@ FriendlyProgress Explain(const std::string &raw, Job job, int progress) {
     value.title = "Wiping " + subject;
     value.explanation = "AERA is clearing the selected partition safely.";
     value.activity = "Cleaning " + subject + " and preparing it for use.";
+    value.step = progress > 1 ? 1 : 0;
+  } else if (job == Job::kFlashImage) {
+    value.title = progress > 1 ? "Flashing partition image" :
+                                 "Preparing image flash";
+    value.explanation = "AERA is writing the selected image directly to " +
+                        subject + ".";
+    value.activity = "Do not reboot or disconnect the device while the image is being written.";
     value.step = progress > 1 ? 1 : 0;
   } else if (job == Job::kInstall) {
     value.title = progress > 1 ? "Installing package" : "Preparing installation";

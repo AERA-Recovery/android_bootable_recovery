@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstring>
 #include <dirent.h>
+#include <memory>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <vector>
@@ -33,15 +34,292 @@ bool Zip(const std::string &name) {
   for (char &c : suffix) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
   return suffix == ".zip";
 }
-bool Package(const std::string &name) {
-  return Zip(name) || plugins::IsPackageFile(name);
+bool Image(const std::string &name) {
+  if (name.size() < 4) return false;
+  std::string suffix = name.substr(name.size() - 4);
+  for (char &c : suffix)
+    c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+  return suffix == ".img";
 }
+bool Package(const std::string &name) {
+  return Zip(name) || Image(name) || plugins::IsPackageFile(name);
+}
+
+std::string Lower(std::string value) {
+  for (char &character : value)
+    character = static_cast<char>(tolower(static_cast<unsigned char>(character)));
+  return value;
+}
+
+std::string SuggestedImageTarget(const std::string &name) {
+  const std::string lower = Lower(name);
+  if (lower.find("init_boot") != std::string::npos) return "/init_boot";
+  if (lower.find("vendor_boot") != std::string::npos) return "/vendor_boot";
+  if (lower.find("abl") != std::string::npos) return "/abl";
+  if (lower.find("dtbo") != std::string::npos) return "/dtbo";
+  if (lower.find("recovery") != std::string::npos ||
+      lower.find("twrp") != std::string::npos ||
+      lower.find("orangefox") != std::string::npos ||
+      lower.find("aera") != std::string::npos) return "/recovery";
+  if (lower.find("boot") != std::string::npos) return "/boot";
+  return {};
+}
+
+const char *ImageTargetDescription(const std::string &path) {
+  if (path == "/init_boot") return "Early Android ramdisk and root patches";
+  if (path == "/boot") return "Kernel and Android boot ramdisk";
+  if (path == "/vendor_boot") return "Vendor ramdisk and device boot components";
+  if (path == "/dtbo") return "Device-tree overlays used by the kernel";
+  if (path == "/recovery") return "AERA or another compatible recovery image";
+  if (path == "/abl") return "Android bootloader image — device-specific and high risk";
+  return "Raw flashable partition";
+}
+
 std::string Parent(std::string path) {
   while (path.size() > 1 && path.back() == '/') path.pop_back();
   const auto slash = path.find_last_of('/');
   return slash == 0 || slash == std::string::npos ? "/" : path.substr(0, slash);
 }
 void Populate(Files *state);
+
+void OpenImageTargetPicker(Files *state, const Entry &entry) {
+  const auto targets = RecoveryImageVolumes();
+  if (targets.empty()) {
+    Sheet(state->screen, "No flashable partitions",
+          "This device tree did not expose any partitions that safely accept raw images.");
+    return;
+  }
+
+  auto *overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+
+  const bool landscape = Landscape(state->screen);
+  const int sheet_width = landscape
+      ? std::min(2200, static_cast<int>(lv_obj_get_width(state->screen)) - 128)
+      : 1312;
+  const int sheet_height = landscape
+      ? std::min(1280, static_cast<int>(lv_obj_get_height(state->screen)) - 80)
+      : 2200;
+  auto *sheet = lv_obj_create(overlay);
+  Panel(sheet, 48, kMainSheet);
+  lv_obj_set_size(sheet, sheet_width, sheet_height);
+  lv_obj_align(sheet, landscape ? LV_ALIGN_CENTER : LV_ALIGN_BOTTOM_MID,
+               0, landscape ? 0 : -40);
+  lv_obj_set_style_border_width(sheet, 1, 0);
+  lv_obj_set_style_border_color(sheet, kMainLine, 0);
+  lv_obj_set_style_border_opa(sheet, LV_OPA_20, 0);
+
+  auto *grabber = lv_obj_create(sheet);
+  Clear(grabber);
+  lv_obj_set_size(grabber, 112, 8);
+  lv_obj_align(grabber, LV_ALIGN_TOP_MID, 0, 20);
+  lv_obj_set_style_radius(grabber, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(grabber, kMutedStrong, 0);
+  lv_obj_set_style_bg_opa(grabber, LV_OPA_30, 0);
+
+  auto *tag = Kicker(sheet, "SELECT TARGET PARTITION", kAccent);
+  lv_obj_set_pos(tag, 48, 58);
+  auto *title = Label(sheet, "Flash image", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 48, 118);
+  const std::string subtitle_text =
+      "Choose exactly where this raw image will be written. Active slot: " +
+      RecoverySlot();
+  auto *subtitle = Label(sheet, subtitle_text.c_str(),
+                         &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(subtitle, 48, 188);
+
+  auto *file = lv_obj_create(sheet);
+  Panel(file, 26, kMainPanel);
+  lv_obj_set_pos(file, 48, 264);
+  lv_obj_set_size(file, sheet_width - 96, 210);
+  auto *file_icon = Label(file, LV_SYMBOL_FILE, &lv_font_montserrat_48, kViolet);
+  lv_obj_align(file_icon, LV_ALIGN_LEFT_MID, 32, 0);
+  auto *file_name = Label(file, entry.name.c_str(), &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(file_name, 112, 40);
+  lv_obj_set_width(file_name, sheet_width - 280);
+  lv_label_set_long_mode(file_name, LV_LABEL_LONG_DOT);
+  const std::string file_detail = Size(entry.bytes) + "  /  " + entry.path;
+  auto *file_path = Label(file, file_detail.c_str(), &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(file_path, 112, 108);
+  lv_obj_set_width(file_path, sheet_width - 280);
+  lv_label_set_long_mode(file_path, LV_LABEL_LONG_DOT);
+
+  const std::string active_slot = RecoverySlot();
+  auto both_slots = std::make_shared<bool>(false);
+  auto *slot_mode = lv_obj_create(sheet);
+  Panel(slot_mode, 28, kInset);
+  lv_obj_set_pos(slot_mode, 48, 504);
+  lv_obj_set_size(slot_mode, sheet_width - 96, 136);
+  const int mode_width = (sheet_width - 120) / 2;
+  auto *current_slot = lv_button_create(slot_mode);
+  Panel(current_slot, 22, kAccent);
+  lv_obj_set_pos(current_slot, 12, 12);
+  lv_obj_set_size(current_slot, mode_width, 112);
+  auto *current_label = Label(current_slot,
+      ("Current slot " + active_slot).c_str(), &lv_font_montserrat_24, kOnAccent);
+  lv_obj_center(current_label);
+  auto *both_slot_button = lv_button_create(slot_mode);
+  Panel(both_slot_button, 22, kInset);
+  lv_obj_set_pos(both_slot_button, mode_width + 12, 12);
+  lv_obj_set_size(both_slot_button, mode_width, 112);
+  auto *both_label = Label(both_slot_button, "Both slots A + B",
+                           &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_center(both_label);
+  OnClick(current_slot, [both_slots, current_slot, current_label,
+                         both_slot_button, both_label] {
+    *both_slots = false;
+    lv_obj_set_style_bg_color(current_slot, kAccent, 0);
+    lv_obj_set_style_bg_opa(current_slot, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(current_label, kOnAccent, 0);
+    lv_obj_set_style_bg_color(both_slot_button, kInset, 0);
+    lv_obj_set_style_text_color(both_label, kMutedStrong, 0);
+  });
+  OnClick(both_slot_button, [both_slots, current_slot, current_label,
+                             both_slot_button, both_label] {
+    *both_slots = true;
+    lv_obj_set_style_bg_color(current_slot, kInset, 0);
+    lv_obj_set_style_text_color(current_label, kMutedStrong, 0);
+    lv_obj_set_style_bg_color(both_slot_button, kAccent, 0);
+    lv_obj_set_style_bg_opa(both_slot_button, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(both_label, kOnAccent, 0);
+  });
+
+  auto *list = lv_obj_create(sheet);
+  Clear(list);
+  lv_obj_set_pos(list, 48, 680);
+  lv_obj_set_size(list, sheet_width - 96, sheet_height - 920);
+  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_set_style_bg_color(list, kAccent, LV_PART_SCROLLBAR);
+  lv_obj_set_style_width(list, 5, LV_PART_SCROLLBAR);
+
+  auto select_target = [state, overlay, entry, both_slots](const Volume &target) {
+      lv_obj_delete_async(overlay);
+      JobRequest request;
+      request.job = Job::kFlashImage;
+      request.title = "Flash Image";
+      request.path = entry.path;
+      request.partitions = {target.path};
+      request.both_slots = *both_slots;
+      const std::string slot_destination = *both_slots
+          ? "Both slots A + B"
+          : "Current slot " + RecoverySlot();
+      const std::string warning =
+          "Image\n" + entry.name + "\n\nTarget\n" + target.name +
+          "  /  " + target.path + "\n\nDestination\n" + slot_destination +
+          "\n\nThis writes directly to the selected partition. An incorrect image or target can prevent the device from booting.";
+      Sheet(state->screen, "Flash to " + target.name + "?", warning,
+            [state, request] {
+        SetJobRequest(request);
+        state->callback(Action::kRunOperation, state->context);
+      });
+  };
+
+  const int target_width = sheet_width - 96;
+  auto add_target = [select_target, target_width](
+      lv_obj_t *parent, int y, const Volume &target, bool recommended) {
+    auto *row = lv_button_create(parent);
+    Panel(row, 28, kMainPanel);
+    Interactive(row, kMainSelected);
+    lv_obj_set_pos(row, 0, y);
+    lv_obj_set_size(row, target_width, 184);
+    lv_obj_set_style_border_width(row, 0, 0);
+    OnClick(row, [select_target, target] { select_target(target); });
+
+    auto *icon = IconPlate(row, LV_SYMBOL_UPLOAD, kAccent,
+                           recommended ? kAccentSoft : kMainSelected, 76);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 28, 0);
+    auto *name = Label(row, target.name.c_str(), &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(name, 132, 28);
+    lv_obj_set_width(name, target_width - 430);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    auto *description = Label(row, ImageTargetDescription(target.path),
+                              &lv_font_montserrat_24, kMuted);
+    lv_obj_set_pos(description, 132, 92);
+    lv_obj_set_width(description, target_width - 300);
+    lv_label_set_long_mode(description, LV_LABEL_LONG_DOT);
+    if (recommended) {
+      auto *tag = Kicker(row, "RECOMMENDED", kAccent);
+      lv_obj_align(tag, LV_ALIGN_TOP_RIGHT, -62, 28);
+    }
+    auto *arrow = Label(row, LV_SYMBOL_RIGHT, &lv_font_montserrat_32, kMutedStrong);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -28, 0);
+  };
+
+  const std::string suggestion = SuggestedImageTarget(entry.name);
+  const auto recommended = std::find_if(
+      targets.begin(), targets.end(), [&](const Volume &target) {
+        return target.path == suggestion;
+      });
+  if (recommended != targets.end()) {
+    auto *recommended_title = Label(list, "DETECTED FROM FILENAME",
+                                    &lv_font_montserrat_18, kAccent);
+    lv_obj_set_pos(recommended_title, 8, 8);
+    lv_obj_set_style_text_letter_space(recommended_title, 3, 0);
+    add_target(list, 58, *recommended, true);
+
+    std::vector<Volume> advanced_targets;
+    for (const auto &target : targets)
+      if (target.path != recommended->path) advanced_targets.push_back(target);
+
+    auto *advanced = lv_obj_create(list);
+    Clear(advanced);
+    lv_obj_set_pos(advanced, 0, 420);
+    lv_obj_set_size(advanced, target_width,
+                    static_cast<int>(advanced_targets.size()) * 196);
+    for (size_t index = 0; index < advanced_targets.size(); ++index)
+      add_target(advanced, static_cast<int>(index) * 196,
+                 advanced_targets[index], false);
+    lv_obj_add_flag(advanced, LV_OBJ_FLAG_HIDDEN);
+
+    auto *toggle = lv_button_create(list);
+    Panel(toggle, 28, kInset);
+    Interactive(toggle, kMainSelected);
+    lv_obj_set_pos(toggle, 0, 266);
+    lv_obj_set_size(toggle, target_width, 120);
+    const std::string show_text = "Show " +
+        std::to_string(advanced_targets.size()) + " advanced partitions";
+    auto *toggle_label = Label(toggle, show_text.c_str(),
+                               &lv_font_montserrat_24, kMutedStrong);
+    lv_obj_align(toggle_label, LV_ALIGN_LEFT_MID, 32, 0);
+    auto *toggle_icon = Label(toggle, LV_SYMBOL_DOWN,
+                              &lv_font_montserrat_24, kMutedStrong);
+    lv_obj_align(toggle_icon, LV_ALIGN_RIGHT_MID, -32, 0);
+    OnClick(toggle, [advanced, toggle_label, toggle_icon, show_text] {
+      const bool hidden = lv_obj_has_flag(advanced, LV_OBJ_FLAG_HIDDEN);
+      if (hidden) {
+        lv_obj_remove_flag(advanced, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(toggle_label, "Hide advanced partitions");
+        lv_label_set_text(toggle_icon, LV_SYMBOL_UP);
+      } else {
+        lv_obj_add_flag(advanced, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(toggle_label, show_text.c_str());
+        lv_label_set_text(toggle_icon, LV_SYMBOL_DOWN);
+        lv_obj_scroll_to_y(lv_obj_get_parent(advanced), 0, LV_ANIM_ON);
+      }
+    });
+  } else {
+    auto *available_title = Label(list, "AVAILABLE PARTITIONS",
+                                  &lv_font_montserrat_18, kMuted);
+    lv_obj_set_pos(available_title, 8, 8);
+    lv_obj_set_style_text_letter_space(available_title, 3, 0);
+    for (size_t index = 0; index < targets.size(); ++index)
+      add_target(list, 58 + static_cast<int>(index) * 196,
+                 targets[index], false);
+  }
+
+  auto *cancel = Button(sheet, "Cancel", [overlay] {
+    lv_obj_delete_async(overlay);
+  });
+  lv_obj_set_size(cancel, sheet_width - 96, 132);
+  lv_obj_align(cancel, LV_ALIGN_BOTTOM_MID, 0, -40);
+  AnimateEnter(sheet, 0, 30);
+}
 
 void OpenFile(Files *state, const Entry &entry) {
   if (entry.directory) {
@@ -101,10 +379,12 @@ void OpenFile(Files *state, const Entry &entry) {
       SetJobRequest(request);
       state->callback(Action::kRunOperation, state->context);
     });
+  } else if (Image(entry.name)) {
+    OpenImageTargetPicker(state, entry);
   } else {
     Sheet(state->screen, entry.name,
           entry.path + "\n\nSize: " + Size(entry.bytes) +
-          "\n\nOpen images, install ZIP packages, or install .aerap plugins. "
+          "\n\nOpen pictures, install ZIP packages, flash .img files, or install .aerap plugins. "
           "This file type has no preview.");
   }
 }
@@ -124,11 +404,13 @@ void RenderEntries(Files *state) {
   for (size_t i = 0; i < count; ++i) {
     const auto entry = state->entries[i];
     Row(state->list, y, entry.directory ? LV_SYMBOL_DIRECTORY :
-        IsPicture(entry.name) ? LV_SYMBOL_IMAGE : LV_SYMBOL_FILE,
+        IsPicture(entry.name) ? LV_SYMBOL_IMAGE :
+        Image(entry.name) ? LV_SYMBOL_UPLOAD : LV_SYMBOL_FILE,
         entry.name, entry.directory ? "Folder" :
           Size(entry.bytes) + (plugins::IsPackageFile(entry.name) ?
                               "  /  AERA plugin package" :
                               Zip(entry.name) ? "  /  ZIP package" :
+                              Image(entry.name) ? "  /  Flashable image" :
                               IsPicture(entry.name) ? "  /  Image preview" : "  /  File"),
         [state, entry] { OpenFile(state, entry); });
     y += 180;
@@ -218,7 +500,7 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   auto *root = Button(screen, "Root", [state] { gDirectory = "/"; Populate(state); });
   lv_obj_set_pos(root, 492, landscape ? 350 : 496);
   lv_obj_set_size(root, 220, 120);
-  auto *filter = Button(screen, gPackagesOnly ? "Packages only" : "All files", [state] {
+  auto *filter = Button(screen, gPackagesOnly ? "Installable only" : "All files", [state] {
     gPackagesOnly = !gPackagesOnly;
     state->callback(Action::kInstall, state->context);
   });

@@ -96,6 +96,23 @@ std::vector<Volume> RecoveryVolumes(const std::string &kind) {
   return result;
 }
 
+std::vector<Volume> RecoveryImageVolumes() {
+  static const std::vector<std::string> allowed = {
+      "/boot", "/init_boot", "/vendor_boot", "/recovery", "/dtbo", "/abl"};
+  const auto flashable = RecoveryVolumes("flashimg");
+  std::vector<Volume> result;
+  for (const auto &path : allowed) {
+    const auto found = std::find_if(
+        flashable.begin(), flashable.end(), [&](const Volume &volume) {
+          return volume.path == path;
+        });
+    TWPartition *partition = PartitionManager.Find_Partition_By_Path(path);
+    if (found != flashable.end() && partition && partition->Is_SlotSelect())
+      result.push_back(*found);
+  }
+  return result;
+}
+
 std::string RecoveryStorage() { return DataManager::GetCurrentStoragePath(); }
 std::string RecoveryBackupRoot() { return DataManager::GetStrValue(TW_BACKUPS_FOLDER_VAR); }
 std::string RecoverySlot() { return PartitionManager.Get_Active_Slot_Display(); }
@@ -147,6 +164,56 @@ int RecoveryRunJob(const JobRequest &request) {
   DataManager::SetValue("tw_size_progress", "");
   DataManager::SetValue("tw_file_progress", "");
   if (request.job == Job::kInstall) return recovery_ui2_install_package(request.path.c_str());
+  if (request.job == Job::kFlashImage) {
+    if (request.partitions.size() != 1 || request.path.empty() ||
+        request.path.find_first_of("'\r\n") != std::string::npos) return 1;
+    struct stat image_info {};
+    if (stat(request.path.c_str(), &image_info) != 0 ||
+        !S_ISREG(image_info.st_mode) || image_info.st_size <= 0) return 1;
+    std::string lower_path = request.path;
+    std::transform(lower_path.begin(), lower_path.end(), lower_path.begin(),
+                   [](unsigned char value) {
+                     return static_cast<char>(std::tolower(value));
+                   });
+    if (lower_path.size() < 4 ||
+        lower_path.compare(lower_path.size() - 4, 4, ".img") != 0) return 1;
+
+    const auto targets = RecoveryImageVolumes();
+    const std::string &target = request.partitions.front();
+    if (target.find(';') != std::string::npos ||
+        std::none_of(targets.begin(), targets.end(),
+                     [&](const Volume &volume) {
+                       return volume.path == target;
+                     })) return 1;
+    const size_t slash = request.path.find_last_of('/');
+    if (slash == std::string::npos || slash + 1 >= request.path.size()) return 1;
+    std::string directory = slash == 0 ? "/" : request.path.substr(0, slash);
+    std::string filename = request.path.substr(slash + 1);
+    TWPartition *flash_partition = PartitionManager.Find_Partition_By_Path(target);
+    if (!flash_partition || !flash_partition->Is_SlotSelect()) return 1;
+    DataManager::SetValue("tw_flash_partition", target + ";");
+    DataManager::SetValue("tw_flash_both_slots", request.both_slots ? 1 : 0);
+    DataManager::SetValue("tw_partition", target);
+    TWFunc::SetPerformanceMode(true);
+    int result = 1;
+    if (request.both_slots) {
+      const std::string original_slot = PartitionManager.Get_Active_Slot_Display();
+      const bool first_slot_ok = PartitionManager.Flash_Image(directory, filename);
+      bool second_slot_ok = false;
+      if (first_slot_ok) {
+        PartitionManager.Override_Active_Slot(original_slot == "A" ? "B" : "A");
+        second_slot_ok = PartitionManager.Flash_Image(directory, filename);
+      }
+      PartitionManager.Override_Active_Slot(original_slot);
+      result = first_slot_ok && second_slot_ok ? 0 : 1;
+    } else {
+      result = PartitionManager.Flash_Image(directory, filename) ? 0 : 1;
+    }
+    DataManager::SetValue("tw_flash_both_slots", 0);
+    PartitionManager.Update_System_Details();
+    TWFunc::SetPerformanceMode(false);
+    return result;
+  }
   if (request.job == Job::kFormatData) {
     DataManager::SetValue("tw_partition", "/data");
     char fastboot_mode[PROPERTY_VALUE_MAX] = {};
