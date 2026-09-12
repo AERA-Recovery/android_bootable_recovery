@@ -225,12 +225,25 @@ void RenderPage(GenericScene *scene) {
   lv_obj_set_height(body_panel, panel_height);
   AnimateEnter(body_panel, 10, 10);
   int y = 134 + panel_height;
+  const ButtonModel *stop_button = nullptr;
+  size_t visible_index = 0;
   for (size_t index = 0; index < scene->buttons.size(); ++index) {
     const auto &model = scene->buttons[index];
-    ActionCard(scene, model, std::max(400, content_width - 72), y, index);
+    if (mirror && model.title.rfind("Stop", 0) == 0) {
+      if (plugin_api::ActiveMirrorMode() != plugin_api::MirrorMode::kOff)
+        stop_button = &model;
+      continue;
+    }
+    ActionCard(scene, model, std::max(400, content_width - 72), y,
+               visible_index++);
     y += model.detail.empty() ? 136 : 168;
   }
-  (void)y;
+  if (stop_button != nullptr) {
+    const int stop_y = std::max(y + 24,
+        static_cast<int>(lv_obj_get_height(scene->content)) - 184);
+    ActionCard(scene, *stop_button, std::max(400, content_width - 72),
+               stop_y, visible_index);
+  }
 }
 
 void ReplyOperation(GenericScene *scene, plugin_api::Operation operation,
