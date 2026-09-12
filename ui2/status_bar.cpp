@@ -28,6 +28,7 @@ struct StatusState {
   lv_obj_t *screen = nullptr;
   lv_obj_t *bar = nullptr;
   lv_obj_t *clock = nullptr;
+  lv_obj_t *mirror = nullptr;
   lv_obj_t *wifi = nullptr;
   lv_obj_t *recording_dot = nullptr;
   lv_obj_t *recording = nullptr;
@@ -483,6 +484,23 @@ void Refresh(StatusState *state, bool refresh_battery) {
              RecoveryPreference(Preference::kClock24) ? "%H:%M" : "%I:%M %p", &local);
   lv_label_set_text(state->clock, clock_text);
 
+  const auto mirror = plugin_api::ActiveMirrorMode();
+  if (mirror != plugin_api::MirrorMode::kOff) {
+    const std::string text =
+        mirror == plugin_api::MirrorMode::kWifi
+            ? std::string(LV_SYMBOL_VIDEO) + "  Wi-Fi Mirror"
+            : std::string(LV_SYMBOL_USB) + "  USB Mirror";
+    lv_label_set_text(state->mirror, text.c_str());
+    lv_obj_align_to(state->mirror, state->clock, LV_ALIGN_OUT_RIGHT_MID, 26, 0);
+    lv_obj_remove_flag(state->mirror, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(state->recording_dot, LV_ALIGN_LEFT_MID, 620, 0);
+    lv_obj_align(state->recording, LV_ALIGN_LEFT_MID, 650, 0);
+  } else {
+    lv_obj_add_flag(state->mirror, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(state->recording_dot, LV_ALIGN_LEFT_MID, 250, 0);
+    lv_obj_align(state->recording, LV_ALIGN_LEFT_MID, 280, 0);
+  }
+
   const auto recording = recorder::GetSnapshot();
   if (recorder::Active()) {
     const uint64_t seconds = recording.elapsed_ms / 1000;
@@ -505,18 +523,10 @@ void Refresh(StatusState *state, bool refresh_battery) {
 
   const auto connection = RecoveryWifiConnection();
   if (connection.connected) {
-    const auto mirror = plugin_api::ActiveMirrorMode();
-    const std::string mirror_prefix =
-        mirror == plugin_api::MirrorMode::kWifi
-            ? std::string(LV_SYMBOL_VIDEO) + "  Wi-Fi Mirror   •   "
-            : mirror == plugin_api::MirrorMode::kUsb
-                  ? std::string(LV_SYMBOL_USB) + "  USB Mirror   •   "
-                  : std::string();
-    const std::string text = mirror_prefix + LV_SYMBOL_WIFI + "  " +
+    const std::string text = std::string(LV_SYMBOL_WIFI) + "  " +
         (connection.ssid.empty() ? "Connected" : connection.ssid);
     lv_label_set_text(state->wifi, text.c_str());
-    lv_obj_set_style_text_color(state->wifi,
-        mirror == plugin_api::MirrorMode::kOff ? kMutedStrong : kAccent, 0);
+    lv_obj_set_style_text_color(state->wifi, kMutedStrong, 0);
     lv_obj_remove_flag(state->wifi, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(state->wifi, LV_OBJ_FLAG_HIDDEN);
@@ -616,6 +626,12 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
   state->clock = Label(bar, "--:--", &lv_font_montserrat_36, kText);
   lv_obj_set_style_text_letter_space(state->clock, 2, 0);
   lv_obj_align(state->clock, LV_ALIGN_LEFT_MID, 54, 0);
+
+  state->mirror = Label(bar, "", &lv_font_montserrat_24, kAccent);
+  lv_obj_set_width(state->mirror, 330);
+  lv_label_set_long_mode(state->mirror, LV_LABEL_LONG_DOT);
+  lv_obj_align_to(state->mirror, state->clock, LV_ALIGN_OUT_RIGHT_MID, 26, 0);
+  lv_obj_add_flag(state->mirror, LV_OBJ_FLAG_HIDDEN);
 
   state->recording_dot = lv_obj_create(bar);
   NoScroll(state->recording_dot);
