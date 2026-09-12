@@ -145,6 +145,13 @@ int main(int argc,char **argv) {
   backup_root=fixture_dir;
   std::filesystem::create_directory(backup_root+"/AERA-test-backup");
   lv_init();
+  const lv_font_t *latin_font = design::UiFont(&lv_font_montserrat_32);
+  for (uint32_t codepoint : {0x00c4u, 0x00d6u, 0x00dcu, 0x00dfu,
+                             0x00e4u, 0x00f6u, 0x00fcu}) {
+    lv_font_glyph_dsc_t glyph{};
+    assert(lv_font_get_glyph_dsc(latin_font, &glyph, codepoint, 0));
+    assert(glyph.adv_w > 0);
+  }
   std::vector<uint8_t> frame(1440*3168*4);
   auto *display=lv_display_create(1440,3168);
   lv_display_set_buffers(display,frame.data(),nullptr,frame.size(),LV_DISPLAY_RENDER_MODE_DIRECT);

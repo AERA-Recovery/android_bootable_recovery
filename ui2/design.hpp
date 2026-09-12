@@ -9,6 +9,8 @@
 
 #include <lvgl.h>
 
+#include "fonts/aera_latin.hpp"
+
 namespace recovery_ui2::design {
 
 constexpr lv_color_t Color(uint32_t rgb) {
@@ -66,25 +68,25 @@ inline void ApplyInterfaceSize(int size) {
 }
 
 inline const lv_font_t *UiFont(const lv_font_t *font) {
-  if (kInterfaceSize == 1 || font == nullptr) return font;
+  if (font == nullptr) return nullptr;
+  const lv_font_t *selected = font;
   if (kInterfaceSize == 0) {
-    if (font == &lv_font_montserrat_48) return &lv_font_montserrat_40;
-    if (font == &lv_font_montserrat_40) return &lv_font_montserrat_36;
-    if (font == &lv_font_montserrat_36) return &lv_font_montserrat_32;
-    if (font == &lv_font_montserrat_32) return &lv_font_montserrat_28;
-    if (font == &lv_font_montserrat_24) return &lv_font_montserrat_20;
-    if (font == &lv_font_montserrat_20) return &lv_font_montserrat_18;
-    if (font == &lv_font_montserrat_18) return &lv_font_montserrat_16;
-  } else {
-    if (font == &lv_font_montserrat_48) return &lv_font_montserrat_48;
-    if (font == &lv_font_montserrat_40) return &lv_font_montserrat_48;
-    if (font == &lv_font_montserrat_36) return &lv_font_montserrat_40;
-    if (font == &lv_font_montserrat_32) return &lv_font_montserrat_36;
-    if (font == &lv_font_montserrat_24) return &lv_font_montserrat_28;
-    if (font == &lv_font_montserrat_20) return &lv_font_montserrat_24;
-    if (font == &lv_font_montserrat_18) return &lv_font_montserrat_20;
+    if (font == &lv_font_montserrat_48) selected = &lv_font_montserrat_40;
+    else if (font == &lv_font_montserrat_40) selected = &lv_font_montserrat_36;
+    else if (font == &lv_font_montserrat_36) selected = &lv_font_montserrat_32;
+    else if (font == &lv_font_montserrat_32) selected = &lv_font_montserrat_28;
+    else if (font == &lv_font_montserrat_24) selected = &lv_font_montserrat_20;
+    else if (font == &lv_font_montserrat_20) selected = &lv_font_montserrat_18;
+    else if (font == &lv_font_montserrat_18) selected = &lv_font_montserrat_16;
+  } else if (kInterfaceSize == 2) {
+    if (font == &lv_font_montserrat_40) selected = &lv_font_montserrat_48;
+    else if (font == &lv_font_montserrat_36) selected = &lv_font_montserrat_40;
+    else if (font == &lv_font_montserrat_32) selected = &lv_font_montserrat_36;
+    else if (font == &lv_font_montserrat_24) selected = &lv_font_montserrat_28;
+    else if (font == &lv_font_montserrat_20) selected = &lv_font_montserrat_24;
+    else if (font == &lv_font_montserrat_18) selected = &lv_font_montserrat_20;
   }
-  return font;
+  return fonts::WithLatinFallback(selected);
 }
 
 inline bool IsLightMode() { return kLightMode; }
