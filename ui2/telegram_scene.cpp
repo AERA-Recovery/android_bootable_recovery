@@ -198,18 +198,34 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
       state == telegram::AuthState::kNeedRegistration ? "Create account" :
       state == telegram::AuthState::kConfirmElsewhere ? "Confirm sign-in" :
       "Connecting";
-  auto *logo = IconPlate(scene->surface, LV_SYMBOL_ENVELOPE, kCanvas, kCyan, 126);
-  lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 70);
+  auto *logo = lv_obj_create(scene->surface);
+  Panel(logo, LV_RADIUS_CIRCLE, kAccentSoft);
+  lv_obj_set_size(logo, 132, 132);
+  lv_obj_set_style_border_width(logo, 3, 0);
+  lv_obj_set_style_border_color(logo, kAccent, 0);
+  lv_obj_set_style_border_opa(logo, LV_OPA_70, 0);
+  auto *logo_mark = Label(logo, LV_SYMBOL_ENVELOPE,
+                          &lv_font_montserrat_48, kAccent);
+  lv_obj_center(logo_mark);
+  if (scene->landscape) lv_obj_set_pos(logo, 662, 48);
+  else lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 64);
   auto *badge = Kicker(scene->surface,
       configure ? "ONE-TIME CLIENT SETUP" :
       new_vault ? "FIRST-TIME SECURITY" :
       vault ? "ENCRYPTED LOCAL SESSION" : "TELEGRAM SIGN IN",
       configure ? kAccent : kCyan);
-  lv_obj_align(badge, LV_ALIGN_TOP_MID, 0, 222);
+  if (scene->landscape) {
+    lv_obj_set_width(badge, 1450);
+    lv_obj_set_style_text_align(badge, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(badge, 44, 208);
+  } else {
+    lv_obj_align(badge, LV_ALIGN_TOP_MID, 0, 218);
+  }
   scene->title = Label(scene->surface, title, &lv_font_montserrat_48, kText);
   lv_obj_set_width(scene->title, 1180);
   lv_obj_set_style_text_align(scene->title, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(scene->title, LV_ALIGN_TOP_MID, 0, 300);
+  if (scene->landscape) lv_obj_set_pos(scene->title, 180, 276);
+  else lv_obj_align(scene->title, LV_ALIGN_TOP_MID, 0, 294);
   const std::string shown_detail = new_vault
       ? "Choose a password to protect Telegram data stored by this recovery."
       : vault
@@ -218,7 +234,8 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
   scene->detail = Label(scene->surface, shown_detail.c_str(), &lv_font_montserrat_24, kMuted);
   lv_obj_set_width(scene->detail, 1120);
   lv_obj_set_style_text_align(scene->detail, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(scene->detail, LV_ALIGN_TOP_MID, 0, 382);
+  if (scene->landscape) lv_obj_set_pos(scene->detail, 220, 366);
+  else lv_obj_align(scene->detail, LV_ALIGN_TOP_MID, 0, 382);
 
   if (state == telegram::AuthState::kConfirmElsewhere) {
     auto *note = Label(scene->surface,
@@ -231,45 +248,45 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
       state == telegram::AuthState::kClosing) return;
 
   if (vault) {
-    auto *hint = Label(scene->surface,
+    const int card_width = scene->landscape ? 1408 : 1312;
+    const int card_height = new_vault ? 708 : 500;
+    auto *vault_card = lv_obj_create(scene->surface);
+    Panel(vault_card, 40, kMainSheet);
+    lv_obj_set_pos(vault_card, scene->landscape ? 64 : 64,
+                   scene->landscape ? 438 : 500);
+    lv_obj_set_size(vault_card, card_width, card_height);
+    lv_obj_set_style_border_width(vault_card, 1, 0);
+    lv_obj_set_style_border_color(vault_card, kMainLine, 0);
+    lv_obj_set_style_border_opa(vault_card, LV_OPA_40, 0);
+
+    auto *hint = Label(vault_card,
         new_vault
             ? "This is not your Telegram account password. Use at least 8 characters and keep it safe."
-            : "Your password never leaves this device.",
+            : "Encrypted locally — your password never leaves this device.",
         &lv_font_montserrat_24, kMutedStrong);
-    lv_obj_set_pos(hint, 62, 480);
-    lv_obj_set_width(hint, 1188);
+    lv_obj_set_pos(hint, 42, 32);
+    lv_obj_set_width(hint, card_width - 84);
 
-    auto *password_label = Label(scene->surface, "Vault password",
+    auto *password_label = Label(vault_card, "Vault password",
                                  &lv_font_montserrat_24, kText);
-    lv_obj_set_pos(password_label, 62, 550);
-    auto *first = Input(scene->surface, 600,
+    lv_obj_set_pos(password_label, 42, 100);
+    auto *first = Input(vault_card, 142,
                         new_vault ? "Create a password" : "Enter your password",
                         true);
     lv_obj_set_width(first, 1044);
-    PasswordToggle(scene->surface, first, 600);
+    PasswordToggle(vault_card, first, 142);
 
     lv_obj_t *confirmation = nullptr;
     if (new_vault) {
-      auto *confirm_label = Label(scene->surface, "Confirm password",
+      auto *confirm_label = Label(vault_card, "Confirm password",
                                   &lv_font_montserrat_24, kText);
-      lv_obj_set_pos(confirm_label, 62, 758);
-      confirmation = Input(scene->surface, 808, "Type it again", true);
+      lv_obj_set_pos(confirm_label, 42, 306);
+      confirmation = Input(vault_card, 348, "Type it again", true);
       lv_obj_set_width(confirmation, 1044);
-      PasswordToggle(scene->surface, confirmation, 808);
+      PasswordToggle(vault_card, confirmation, 348);
     }
 
-    auto *keyboard = lv_keyboard_create(scene->surface);
-    StyleKeyboard(keyboard);
-    const int keyboard_y = scene->landscape ? 260 : new_vault ? 988 : 800;
-    lv_obj_set_pos(keyboard, scene->landscape ? 1600 : 42, keyboard_y);
-    lv_obj_set_size(keyboard, scene->landscape ? 1500 : 1228,
-                    scene->landscape ? 850 : 690);
-    BindKeyboard(first, keyboard);
-    if (confirmation) BindKeyboard(confirmation, keyboard);
-    lv_keyboard_set_textarea(keyboard, first);
-    lv_obj_add_state(first, LV_STATE_FOCUSED);
-
-    auto *submit = Button(scene->surface,
+    auto *submit = Button(vault_card,
         new_vault ? "Create vault and continue" : "Unlock and continue",
         [scene, first, confirmation, new_vault] {
           const std::string value = lv_textarea_get_text(first);
@@ -292,9 +309,27 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
                          ? "Creating your private AERA Telegram database."
                          : "Unlocking your local messages and account state.");
         }, true);
-    lv_obj_set_pos(submit, scene->landscape ? 62 : 42,
-                   scene->landscape ? 1050 : keyboard_y + 740);
-    lv_obj_set_size(submit, scene->landscape ? 1208 : 1228, 132);
+    lv_obj_set_pos(submit, 42, new_vault ? 536 : 326);
+    lv_obj_set_size(submit, card_width - 84, 132);
+
+    auto *keyboard = lv_keyboard_create(scene->surface);
+    StyleKeyboard(keyboard);
+    if (scene->landscape) {
+      lv_obj_set_pos(keyboard, 1540,
+                     (lv_obj_get_height(scene->surface) - 900) / 2);
+      lv_obj_set_size(keyboard, 1564, 900);
+    } else {
+      constexpr int keyboard_height = 760;
+      lv_obj_set_pos(keyboard, 64,
+                     lv_obj_get_height(scene->surface) - keyboard_height - 32);
+      lv_obj_set_size(keyboard, 1312, keyboard_height);
+    }
+    BindKeyboard(first, keyboard);
+    if (confirmation) BindKeyboard(confirmation, keyboard);
+    lv_keyboard_set_textarea(keyboard, first);
+    lv_obj_add_state(first, LV_STATE_FOCUSED);
+    AnimateEnter(vault_card, 0, 18);
+    AnimateEnter(keyboard, 45, 22);
     return;
   }
 
