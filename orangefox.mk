@@ -972,6 +972,9 @@ endif
 #   AERA_REMOTE_DASHBOARD := 1       enable packing the dashboard bundle
 #   AERA_DASHBOARD_DIR    := <path>  source web dir to pack (defaults to the
 #                                   point this at a built React dist/ instead)
+ifeq ($(OF_ENABLE_WLAN),1)
+    AERA_REMOTE_DASHBOARD ?= 1
+endif
 ifeq ($(AERA_REMOTE_DASHBOARD),1)
     ifeq ($(OF_ENABLE_WLAN),1)
     AERA_DASHBOARD_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/fox/dashboard
@@ -983,7 +986,7 @@ OF_DASHBOARD_RULE_DEFINED := true
 # Track a stamp FILE (not the directory) as the build output; kati/ninja reject
 # directory outputs. The dashboard bundle is populated as a side effect.
 $(AERA_DASHBOARD_STAMP): $(AERA_DASHBOARD_DIR)
-	@echo "Packing OrangeFox remote dashboard from $<"
+	@echo "Packing AERA remote dashboard from $<"
 	@rm -rf $(AERA_DASHBOARD_OUT) && mkdir -p $(AERA_DASHBOARD_OUT) && cp -a $</. $(AERA_DASHBOARD_OUT)/ && touch $@
 
 ALL_DEFAULT_INSTALLED_MODULES += $(AERA_DASHBOARD_STAMP)

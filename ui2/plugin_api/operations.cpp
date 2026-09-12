@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "operations.hpp"
 
+#ifdef OF_ENABLE_WLAN
+#endif
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -436,13 +438,34 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
     return false;
   }
   if (operation == Operation::kStartMirror) {
+#ifdef OF_ENABLE_WLAN
+    if (address.empty() || address == "0.0.0.0") {
+      result = "Connect AERA to Wi-Fi first, then return here and start the mirror.";
+      return false;
+    }
+    const bool success = usb_ready && web_ready;
+    if (success) {
+      result = "Open http://" + address +
+               "/ in a browser, or use the AERA Mirror desktop client.";
+    } else if (usb_ready) {
+      result = "USB mirror is ready, but the Wi-Fi mirror server could not start.";
+    } else if (web_ready) {
+      result = "Browser mirror: http://" + address + "/";
+    } else {
+      result = "Could not start AERA Mirror.";
+    }
+    return success;
+#else
     result = success
-                 ? "USB mirror ready at 30 FPS. Open AERA Mirror on your computer."
+                 ? "USB mirror ready at 30 FPS. Open the AERA Mirror desktop client."
                  : "Could not start the AERA USB mirror.";
     return success;
+#endif
   }
   if (operation == Operation::kStopMirror) {
-    result = "AERA USB mirror stopped.";
+#ifdef OF_ENABLE_WLAN
+#endif
+    result = "AERA Mirror stopped.";
     return true;
   }
   Fd aera;
@@ -502,9 +525,9 @@ const char* OperationTitle(Operation operation) {
     case Operation::kRestoreAndroidSettings:
       return "Restore Android settings?";
     case Operation::kStartMirror:
-      return "Start USB screen sharing?";
+      return "Start AERA Mirror?";
     case Operation::kStopMirror:
-      return "Stop USB screen sharing?";
+      return "Stop AERA Mirror?";
   }
   return "Run plugin operation?";
 }
@@ -526,11 +549,10 @@ const char* OperationPrompt(Operation operation) {
              "onto the same ROM and Android version. "
              "The isolated plugin never receives direct /data access.";
     case Operation::kStartMirror:
-      return "AERA will capture the recovery display at up to 30 FPS and expose it only "
-             "through the existing USB/ADB channel. Touch and keyboard input remain "
-             "under AERA's trusted input service.";
+      return "AERA will share the recovery display and input over USB and the connected "
+             "Wi-Fi network. Open the phone's IP address in a browser after starting.";
     case Operation::kStopMirror:
-      return "Stop capturing the recovery display and close the USB mirror stream.";
+      return "Stop the USB stream and browser mirror server.";
   }
   return "The plugin requested an unknown operation.";
 }

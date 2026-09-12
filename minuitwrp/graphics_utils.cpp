@@ -16,6 +16,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <setjmp.h>
+#include <jpeglib.h>
 #include <png.h>
 #include <pixelflinger/pixelflinger.h>
 #include <linux/fb.h>
@@ -27,6 +29,64 @@ struct fb_var_screeninfo vi;
 extern GGLSurface gr_mem_surface;
 extern GRSurface* gr_draw;
 extern unsigned int gr_rotation;
+
+struct aera_jpeg_error {
+    struct jpeg_error_mgr base;
+    jmp_buf jump;
+};
+
+static void aera_jpeg_error_exit(j_common_ptr info)
+{
+    aera_jpeg_error *error = (aera_jpeg_error *)info->err;
+    longjmp(error->jump, 1);
+}
+
+static bool gr_capture_source(GGLSurface *source)
+{
+    *source = gr_mem_surface;
+    const gr_surface presented = gr_drm_get_presented_surface();
+    if (presented != NULL) {
+        const GRSurface *drm_surface = (const GRSurface *)presented;
+        source->version = sizeof(*source);
+        source->width = drm_surface->width;
+        source->height = drm_surface->height;
+        source->stride = drm_surface->row_bytes / drm_surface->pixel_bytes;
+        source->data = drm_surface->data;
+        source->format = drm_surface->format;
+    }
+    return source->data != NULL && source->width != 0 &&
+           source->height != 0 && source->stride != 0;
+}
+
+static bool gr_rgb_row(const GGLSurface *source, uint32_t source_y,
+                       uint32_t output_width, uint8_t *destination)
+{
+    const uint32_t pixel_bytes =
+        source->format == GGL_PIXEL_FORMAT_RGB_565 ? 2 : 4;
+    const uint8_t *source_row = source->data +
+        (size_t)source_y * source->stride * pixel_bytes;
+    uint8_t *dst = destination;
+    for (uint32_t x = 0; x < output_width; ++x) {
+        const uint32_t source_x = (uint32_t)((uint64_t)x * source->width /
+                                              output_width);
+        const uint8_t *src = source_row + (size_t)source_x * pixel_bytes;
+        if (source->format == GGL_PIXEL_FORMAT_BGRA_8888) {
+            dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0];
+        } else if (source->format == GGL_PIXEL_FORMAT_RGBA_8888 ||
+                   source->format == GGL_PIXEL_FORMAT_RGBX_8888) {
+            dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2];
+        } else if (source->format == GGL_PIXEL_FORMAT_RGB_565) {
+            const uint16_t pixel = src[0] | ((uint16_t)src[1] << 8);
+            dst[0] = (uint8_t)(((pixel >> 11) & 0x1f) * 255 / 31);
+            dst[1] = (uint8_t)(((pixel >> 5) & 0x3f) * 255 / 63);
+            dst[2] = (uint8_t)((pixel & 0x1f) * 255 / 31);
+        } else {
+            return false;
+        }
+        dst += 3;
+    }
+    return true;
+}
 
 static int gr_save_screenshot_internal(const char *dest,
                                        unsigned int max_width,
@@ -40,24 +100,13 @@ static int gr_save_screenshot_internal(const char *dest,
     FILE * volatile fp = NULL;
     png_structp png_ptr = NULL;
     png_infop info_ptr = NULL;
-    GGLSurface capture_source = gr_mem_surface;
-    const gr_surface presented = gr_drm_get_presented_surface();
-    if (presented != NULL) {
-        const GRSurface *drm_surface = (const GRSurface *)presented;
-        capture_source.version = sizeof(capture_source);
-        capture_source.width = drm_surface->width;
-        capture_source.height = drm_surface->height;
-        capture_source.stride = drm_surface->row_bytes / drm_surface->pixel_bytes;
-        capture_source.data = drm_surface->data;
-        capture_source.format = drm_surface->format;
-    }
+    GGLSurface capture_source;
 
     // DRM direct scanout does not use minui's legacy gr_draw surface. Use
     // the dimensions and mapped pixels of the actually presented buffer;
     // dereferencing gr_draw here caused a null-pointer crash in AERA's GPU
     // UI and left a zero-byte PNG behind.
-    if (capture_source.data == NULL || capture_source.width == 0 ||
-        capture_source.height == 0 || capture_source.stride == 0)
+    if (!gr_capture_source(&capture_source))
         goto exit;
 
     output_width = max_width > 0 && capture_source.width > max_width
@@ -105,37 +154,9 @@ static int gr_save_screenshot_internal(const char *dest,
     for (y = 0; y < output_height; ++y) {
         const uint32_t source_y = (uint32_t)((uint64_t)y * capture_source.height /
                                               output_height);
-        const uint32_t pixel_bytes =
-            capture_source.format == GGL_PIXEL_FORMAT_RGB_565 ? 2 : 4;
-        const uint8_t *source_row = capture_source.data +
-            (size_t)source_y * capture_source.stride * pixel_bytes;
-        uint8_t *dst = (uint8_t *)png_row;
-
-        for (uint32_t x = 0; x < output_width; ++x) {
-            const uint32_t source_x = (uint32_t)((uint64_t)x * capture_source.width /
-                                                  output_width);
-            const uint8_t *src = source_row + (size_t)source_x * pixel_bytes;
-            if (capture_source.format == GGL_PIXEL_FORMAT_BGRA_8888) {
-                dst[0] = src[2];
-                dst[1] = src[1];
-                dst[2] = src[0];
-            } else if (capture_source.format == GGL_PIXEL_FORMAT_RGBA_8888 ||
-                       capture_source.format == GGL_PIXEL_FORMAT_RGBX_8888) {
-                dst[0] = src[0];
-                dst[1] = src[1];
-                dst[2] = src[2];
-            } else if (capture_source.format == GGL_PIXEL_FORMAT_RGB_565) {
-                const uint16_t pixel = src[0] | ((uint16_t)src[1] << 8);
-                dst[0] = (uint8_t)(((pixel >> 11) & 0x1f) * 255 / 31);
-                dst[1] = (uint8_t)(((pixel >> 5) & 0x3f) * 255 / 63);
-                dst[2] = (uint8_t)((pixel & 0x1f) * 255 / 31);
-            } else {
-                printf("gr_save_screenshot unsupported pixel format %d\n",
-                       capture_source.format);
-                goto exit;
-            }
-            dst += 3;
-        }
+        if (!gr_rgb_row(&capture_source, source_y, output_width,
+                        (uint8_t *)png_row))
+            goto exit;
         png_write_row(png_ptr, (png_bytep)png_row);
     }
 
@@ -164,6 +185,71 @@ int gr_save_screenshot(const char *dest)
 int gr_save_screenshot_scaled_fast(const char *dest, unsigned int max_width)
 {
     return gr_save_screenshot_internal(dest, max_width, true);
+}
+
+int gr_save_screenshot_scaled_jpeg(const char *dest, unsigned int max_width,
+                                   int quality)
+{
+    GGLSurface source;
+    if (!gr_capture_source(&source))
+        return -1;
+    const uint32_t width = max_width > 0 && source.width > max_width
+        ? max_width : source.width;
+    const uint32_t height = width == source.width ? source.height :
+        (uint32_t)(((uint64_t)source.height * width + source.width / 2) /
+                   source.width);
+    FILE *file = fopen(dest, "wb");
+    if (!file)
+        return -1;
+    uint8_t *row = (uint8_t *)malloc((size_t)width * 3);
+    if (!row) {
+        fclose(file);
+        remove(dest);
+        return -1;
+    }
+
+    jpeg_compress_struct encoder = {};
+    aera_jpeg_error error = {};
+    encoder.err = jpeg_std_error(&error.base);
+    error.base.error_exit = aera_jpeg_error_exit;
+    if (setjmp(error.jump)) {
+        jpeg_destroy_compress(&encoder);
+        free(row);
+        fclose(file);
+        remove(dest);
+        return -1;
+    }
+    jpeg_create_compress(&encoder);
+    jpeg_stdio_dest(&encoder, file);
+    encoder.image_width = width;
+    encoder.image_height = height;
+    encoder.input_components = 3;
+    encoder.in_color_space = JCS_RGB;
+    jpeg_set_defaults(&encoder);
+    if (quality < 35) quality = 35;
+    if (quality > 95) quality = 95;
+    jpeg_set_quality(&encoder, quality, TRUE);
+    encoder.dct_method = JDCT_IFAST;
+    jpeg_start_compress(&encoder, TRUE);
+    while (encoder.next_scanline < encoder.image_height) {
+        const uint32_t source_y = (uint32_t)(
+            (uint64_t)encoder.next_scanline * source.height / height);
+        if (!gr_rgb_row(&source, source_y, width, row)) {
+            jpeg_abort_compress(&encoder);
+            jpeg_destroy_compress(&encoder);
+            free(row);
+            fclose(file);
+            remove(dest);
+            return -1;
+        }
+        JSAMPROW scanline = row;
+        jpeg_write_scanlines(&encoder, &scanline, 1);
+    }
+    jpeg_finish_compress(&encoder);
+    jpeg_destroy_compress(&encoder);
+    free(row);
+    fclose(file);
+    return 0;
 }
 
 int ROTATION_X_DISP(int x, int y, int w) {

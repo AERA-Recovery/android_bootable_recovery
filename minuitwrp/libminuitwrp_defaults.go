@@ -1,22 +1,22 @@
 /*
-	Copyright 2012-2020 TeamWin
-	This file is part of TWRP/TeamWin Recovery Project.
+Copyright 2012-2020 TeamWin
+This file is part of TWRP/TeamWin Recovery Project.
 
-	Copyright (C) 2026 OrangeFox Recovery Project
-	This file is part of the OrangeFox Recovery Project.
+Copyright (C) 2026 OrangeFox Recovery Project
+This file is part of the OrangeFox Recovery Project.
 
-	TWRP is free software: you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
+TWRP is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-	TWRP is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
+TWRP is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-	You should have received a copy of the GNU General Public License
-	along with TWRP.  If not, see <http://www.gnu.org/licenses/>.
+You should have received a copy of the GNU General Public License
+along with TWRP.  If not, see <http://www.gnu.org/licenses/>.
 */
 package twrp
 
@@ -95,8 +95,7 @@ func globalFlags(ctx android.BaseContext) []string {
 		if getMakeVars(ctx, "OF_LANDSCAPE_MODE") == "1" {
 			cflags = append(cflags, "-DOF_LANDSCAPE_MODE=1")
 			cflags = append(cflags, "-DTW_ROTATION=270")
-		} else
-		if getMakeVars(ctx, "BOARD_HAS_FLIPPED_SCREEN") == "true" {
+		} else if getMakeVars(ctx, "BOARD_HAS_FLIPPED_SCREEN") == "true" {
 			cflags = append(cflags, "-DTW_ROTATION=180")
 		} else {
 			cflags = append(cflags, "-DTW_ROTATION=0")
@@ -141,10 +140,6 @@ func globalIncludes(ctx android.BaseContext) []string {
 		includes = append(includes, "bootable/recovery/minuitwrp")
 	}
 
-	if getMakeVars(ctx, "TW_INCLUDE_JPEG") != "" {
-		includes = append(includes, "external/jpeg")
-	}
-
 	return includes
 }
 
@@ -178,9 +173,7 @@ func globalSharedLibs(ctx android.BaseContext) []string {
 		sharedLibs = append(sharedLibs, "android.hardware.vibrator-V2-cpp")
 	}
 
-	if getMakeVars(ctx, "TW_INCLUDE_JPEG") != "" {
-		sharedLibs = append(sharedLibs, "libjpeg")
-	}
+	sharedLibs = append(sharedLibs, "libjpeg")
 	return sharedLibs
 }
 
