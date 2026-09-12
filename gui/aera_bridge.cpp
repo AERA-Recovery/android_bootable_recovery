@@ -546,6 +546,7 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "haptic_action") DataManager::SetValue("tw_action_vibrate", value);
     else if (key == "wifi_auto_enable") DataManager::SetValue("of_wlan_auto_enable", value);
     else if (key == "wifi_auto_connect") DataManager::SetValue("of_wlan_auto_connect", value);
+    else if (key == "wifi_last_ssid") DataManager::SetValue("of_wlan_last_ssid", value);
   }
   loaded = true;
   DataManager::update_tz_environment_variables();
@@ -584,7 +585,8 @@ bool SaveAeraPreferences() {
          << "haptic_keyboard=" << DataManager::GetIntValue("tw_keyboard_vibrate") << '\n'
          << "haptic_action=" << DataManager::GetIntValue("tw_action_vibrate") << '\n'
          << "wifi_auto_enable=" << DataManager::GetIntValue("of_wlan_auto_enable") << '\n'
-         << "wifi_auto_connect=" << DataManager::GetIntValue("of_wlan_auto_connect") << '\n';
+         << "wifi_auto_connect=" << DataManager::GetIntValue("of_wlan_auto_connect") << '\n'
+         << "wifi_last_ssid=" << DataManager::GetStrValue("of_wlan_last_ssid") << '\n';
   output.flush();
   if (!output) return false;
   output.close();
@@ -660,6 +662,7 @@ std::vector<std::string> Lines(const std::string &text) {
 
 void RecoveryWifiInitialize() {
 #ifdef OF_ENABLE_WLAN
+  LoadAeraPreferencesIfAvailable();
   Wlan::Init();
 #endif
 }
@@ -748,6 +751,7 @@ int RecoveryRunWifi(const WifiRequest &request) {
       DataManager::SetValue("wlan_password", request.password);
       result = request.use_saved_credentials ? Wlan::ConnectSaved() : Wlan::Connect();
       DataManager::SetValue("wlan_password", "");
+      if (result) SaveAeraPreferences();
       break;
     case WifiOperation::kForget:
       DataManager::SetValue("wlanselectedid", request.ssid);
@@ -777,10 +781,16 @@ bool RecoveryWifiAutoConnect() {
   return DataManager::GetIntValue("of_wlan_auto_connect") == 1;
 }
 bool RecoverySetWifiAutoEnable(bool enabled) {
-  return DataManager::SetValue("of_wlan_auto_enable", enabled ? 1 : 0) == 0;
+  LoadAeraPreferencesIfAvailable();
+  if (DataManager::SetValue("of_wlan_auto_enable", enabled ? 1 : 0) != 0)
+    return false;
+  return SaveAeraPreferences();
 }
 bool RecoverySetWifiAutoConnect(bool enabled) {
-  return DataManager::SetValue("of_wlan_auto_connect", enabled ? 1 : 0) == 0;
+  LoadAeraPreferencesIfAvailable();
+  if (DataManager::SetValue("of_wlan_auto_connect", enabled ? 1 : 0) != 0)
+    return false;
+  return SaveAeraPreferences();
 }
 
 NasStatus RecoveryNasStatus() {
