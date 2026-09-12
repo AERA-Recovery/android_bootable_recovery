@@ -24,6 +24,17 @@ namespace {
 using namespace design;
 using namespace widgets;
 
+// The encrypted Telegram database remains persistent, while its unlock secret
+// lives only for the current recovery process. Reopening the app in the same
+// boot can therefore restore the TDLib session without persisting a password.
+std::string g_boot_vault_password;
+
+void SecureClear(std::string &value) {
+  std::fill(value.begin(), value.end(), '\0');
+  value.clear();
+  value.shrink_to_fit();
+}
+
 struct TelegramScene {
   lv_obj_t *screen = nullptr;
   lv_obj_t *surface = nullptr;
@@ -48,7 +59,9 @@ struct TelegramScene {
   bool existing_vault = false;
   bool keyboard_visible = false;
   bool history_loading = false;
+  bool using_cached_vault = false;
   bool landscape = false;
+  std::string pending_vault_password;
   ActionCallback callback = nullptr;
   void *context = nullptr;
 
@@ -60,6 +73,7 @@ struct TelegramScene {
     if (control >= 0) close(control);
     process.Stop();
     web::RemoveRuntime(preparation.directory);
+    SecureClear(pending_vault_password);
   }
 
   bool Send(telegram::Kind kind, const std::string &text = {},
@@ -284,7 +298,14 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
                               "The two passwords do not match. Please try again.");
             return;
           }
-          scene->Send(telegram::Kind::kConfigure, value, 0);
+          scene->pending_vault_password = value;
+          scene->using_cached_vault = false;
+          if (!scene->Send(telegram::Kind::kConfigure, value, 0)) {
+            SecureClear(scene->pending_vault_password);
+            lv_label_set_text(scene->detail,
+                              "Could not unlock the Telegram vault.");
+            return;
+          }
           lv_textarea_set_text(first, "");
           if (confirmation) lv_textarea_set_text(confirmation, "");
           ShowStatus(scene, "Opening encrypted session",
@@ -753,10 +774,46 @@ void Poll(TelegramScene *scene) {
     }
     if (message.kind == telegram::Kind::kState) {
       const auto state = static_cast<telegram::AuthState>(message.value);
-      if (state == telegram::AuthState::kReady) ShowChats(scene);
-      else ShowAuth(scene, state, message.text);
+      if (state == telegram::AuthState::kReady) {
+        if (!scene->pending_vault_password.empty()) {
+          SecureClear(g_boot_vault_password);
+          g_boot_vault_password = scene->pending_vault_password;
+          SecureClear(scene->pending_vault_password);
+        }
+        scene->using_cached_vault = false;
+        ShowChats(scene);
+      } else if (state == telegram::AuthState::kNeedVault &&
+                 !g_boot_vault_password.empty() &&
+                 !scene->using_cached_vault) {
+        scene->pending_vault_password = g_boot_vault_password;
+        scene->using_cached_vault = true;
+        if (scene->Send(telegram::Kind::kConfigure,
+                        scene->pending_vault_password, 0)) {
+          ShowStatus(scene, "Restoring Telegram session",
+                     "Unlocking the encrypted session from this recovery boot.");
+        } else {
+          SecureClear(scene->pending_vault_password);
+          scene->using_cached_vault = false;
+          ShowAuth(scene, state, message.text);
+        }
+      } else {
+        if (state == telegram::AuthState::kNeedVault &&
+            scene->using_cached_vault) {
+          SecureClear(g_boot_vault_password);
+          SecureClear(scene->pending_vault_password);
+          scene->using_cached_vault = false;
+        }
+        ShowAuth(scene, state, message.text);
+      }
     } else if (message.kind == telegram::Kind::kError) {
-      if (scene->detail) lv_label_set_text(scene->detail, message.text);
+      if (!scene->pending_vault_password.empty()) {
+        if (scene->using_cached_vault) SecureClear(g_boot_vault_password);
+        SecureClear(scene->pending_vault_password);
+        scene->using_cached_vault = false;
+        ShowAuth(scene, telegram::AuthState::kNeedVault, message.text);
+      } else if (scene->detail) {
+        lv_label_set_text(scene->detail, message.text);
+      }
     } else if (message.kind == telegram::Kind::kChat) {
       if (!scene->chat_id) AddChat(scene, message);
     } else if (message.kind == telegram::Kind::kMessage) {
