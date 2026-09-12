@@ -85,7 +85,9 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
   auto *plate = AppIconPlate(card, icon, accent, kMainPanel, 138,
                              retroarch_icon);
-  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 14);
+  lv_obj_set_style_bg_opa(plate, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(plate, 0, 0);
+  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 28);
   if (!retroarch_icon) {
     auto *mark = lv_obj_get_child(plate, 0);
     lv_obj_set_style_transform_scale(mark, 288, 0);
@@ -94,7 +96,7 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   lv_obj_set_width(title, width - 40);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 180);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 208);
   OnClick(card, std::move(action));
   return card;
 }
