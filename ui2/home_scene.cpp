@@ -140,13 +140,11 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
   lv_obj_align(file_icon, LV_ALIGN_LEFT_MID, 32, 0);
   auto *file_name = Label(file, entry.name.c_str(), &lv_font_montserrat_32, kText);
   lv_obj_set_pos(file_name, 112, 40);
-  lv_obj_set_width(file_name, sheet_width - 280);
-  lv_label_set_long_mode(file_name, LV_LABEL_LONG_DOT);
+  SingleLineLabel(file_name, sheet_width - 280, &lv_font_montserrat_32);
   const std::string file_detail = Size(entry.bytes) + "  /  " + entry.path;
   auto *file_path = Label(file, file_detail.c_str(), &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(file_path, 112, 108);
-  lv_obj_set_width(file_path, sheet_width - 280);
-  lv_label_set_long_mode(file_path, LV_LABEL_LONG_DOT);
+  SingleLineLabel(file_path, sheet_width - 280, &lv_font_montserrat_24);
 
   const std::string active_slot = RecoverySlot();
   auto both_slots = std::make_shared<bool>(false);
@@ -236,13 +234,12 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 28, 0);
     auto *name = Label(row, target.name.c_str(), &lv_font_montserrat_32, kText);
     lv_obj_set_pos(name, 132, 28);
-    lv_obj_set_width(name, target_width - 430);
-    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    SingleLineLabel(name, target_width - 430, &lv_font_montserrat_32);
     auto *description = Label(row, ImageTargetDescription(target.path),
                               &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(description, 132, 92);
-    lv_obj_set_width(description, target_width - 300);
-    lv_label_set_long_mode(description, LV_LABEL_LONG_DOT);
+    SingleLineLabel(description, target_width - 300,
+                    &lv_font_montserrat_24);
     if (recommended) {
       auto *tag = Kicker(row, "RECOMMENDED", kAccent);
       lv_obj_align(tag, LV_ALIGN_TOP_RIGHT, -62, 28);
@@ -513,8 +510,8 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   state->path_label = Label(screen, "", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(state->path_label, landscape ? 1460 : 80,
                  landscape ? 358 : 684);
-  lv_obj_set_width(state->path_label, landscape ? 1620 : 1270);
-  lv_label_set_long_mode(state->path_label, LV_LABEL_LONG_DOT);
+  SingleLineLabel(state->path_label, landscape ? 1620 : 1270,
+                  &lv_font_montserrat_32);
   state->summary = Label(screen, "", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(state->summary, landscape ? 1460 : 80,
                  landscape ? 424 : 750);

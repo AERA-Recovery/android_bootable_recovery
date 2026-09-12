@@ -245,12 +245,10 @@ inline lv_obj_t *Row(lv_obj_t *parent, int y, const char *symbol,
   lv_obj_set_pos(icon, 32, 63);
   auto *name = Label(row, title.c_str(), &lv_font_montserrat_32, kText);
   lv_obj_set_pos(name, 116, 34);
-  lv_obj_set_width(name, width - 272);
-  lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+  SingleLineLabel(name, width - 272, &lv_font_montserrat_32);
   auto *copy = Label(row, detail.c_str(), &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(copy, 116, 96);
-  lv_obj_set_width(copy, width - 272);
-  lv_label_set_long_mode(copy, LV_LABEL_LONG_DOT);
+  SingleLineLabel(copy, width - 272, &lv_font_montserrat_24);
   auto *end = Label(row, trailing, &lv_font_montserrat_32, kMuted);
   lv_obj_align(end, LV_ALIGN_RIGHT_MID, -28, 0);
   return row;

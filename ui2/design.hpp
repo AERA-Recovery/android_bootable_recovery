@@ -195,6 +195,12 @@ inline lv_obj_t *Label(lv_obj_t *parent, const char *text,
   return label;
 }
 
+inline void SingleLineLabel(lv_obj_t *label, int width,
+                            const lv_font_t *font) {
+  lv_obj_set_size(label, width, lv_font_get_line_height(UiFont(font)));
+  lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+}
+
 inline void Screen(lv_obj_t *screen) {
   NoScroll(screen);
   lv_obj_set_style_bg_color(screen, kCanvas, 0);

@@ -99,8 +99,8 @@ void BuildMediaScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   scene->descriptor.data_size = media::kFrameBytes;
   scene->title = Label(screen, "Preparing media engine", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(scene->title, 80, landscape ? 1010 : 1325);
-  lv_obj_set_width(scene->title, landscape ? 1120 : 1040);
-  lv_label_set_long_mode(scene->title, LV_LABEL_LONG_DOT);
+  SingleLineLabel(scene->title, landscape ? 1120 : 1040,
+                  &lv_font_montserrat_32);
   scene->time = Label(screen, "0:00 / 0:00", &lv_font_montserrat_24, kMuted);
   if (landscape) lv_obj_set_pos(scene->time, 1240, 1018);
   else lv_obj_align(scene->time, LV_ALIGN_TOP_RIGHT, -80, 1332);
