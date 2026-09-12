@@ -7,6 +7,7 @@
 #include <cstring>
 #include <memory>
 #include <sys/stat.h>
+#include <vector>
 #include <png.h>
 #include "src/libs/tjpgd/tjpgd.h"
 
@@ -31,7 +32,23 @@ bool Allocate(PictureData &out, uint32_t width, uint32_t height) {
   return true;
 }
 
-void Png(FILE *file, PictureData &out) {
+void ScaleBgra(const uint8_t *source, uint32_t source_width,
+               uint32_t source_height, uint8_t *target,
+               uint32_t target_width, uint32_t target_height) {
+  for (uint32_t y = 0; y < target_height; ++y) {
+    const uint32_t source_y = std::min(source_height - 1,
+        static_cast<uint32_t>((uint64_t(y) * source_height) / target_height));
+    for (uint32_t x = 0; x < target_width; ++x) {
+      const uint32_t source_x = std::min(source_width - 1,
+          static_cast<uint32_t>((uint64_t(x) * source_width) / target_width));
+      memcpy(target + (size_t(y) * target_width + x) * 4,
+             source + (size_t(source_y) * source_width + source_x) * 4, 4);
+    }
+  }
+}
+
+void Png(FILE *file, PictureData &out, uint32_t max_width,
+         uint32_t max_height) {
   png_image image{};
   image.version = PNG_IMAGE_VERSION;
   if (!png_image_begin_read_from_stdio(&image, file)) {
@@ -40,9 +57,31 @@ void Png(FILE *file, PictureData &out) {
     return;
   }
   image.format = PNG_FORMAT_BGRA;
-  if (!out.cancelled && Allocate(out, image.width, image.height) &&
-      !png_image_finish_read(&image, nullptr, out.pixels, 0, nullptr))
-    out.error = "PNG decoding failed; the file may be damaged.";
+  const bool scale = max_width && max_height &&
+      (image.width > max_width || image.height > max_height);
+  if (!scale) {
+    if (!out.cancelled && Allocate(out, image.width, image.height) &&
+        !png_image_finish_read(&image, nullptr, out.pixels, 0, nullptr))
+      out.error = "PNG decoding failed; the file may be damaged.";
+  } else if (!image.width || !image.height || image.width > 8192 ||
+             image.height > 8192 ||
+             uint64_t(image.width) * image.height > kMaxPixels) {
+    out.error = "PNG dimensions exceed the preview limit.";
+  } else {
+    std::vector<uint8_t> full(size_t(image.width) * image.height * 4);
+    if (!png_image_finish_read(&image, nullptr, full.data(), 0, nullptr)) {
+      out.error = "PNG decoding failed; the file may be damaged.";
+    } else if (!out.cancelled) {
+      const uint32_t divisor = std::max(
+          (image.width + max_width - 1) / max_width,
+          (image.height + max_height - 1) / max_height);
+      const uint32_t width = std::max(1u, image.width / divisor);
+      const uint32_t height = std::max(1u, image.height / divisor);
+      if (Allocate(out, width, height))
+        ScaleBgra(full.data(), image.width, image.height, out.pixels,
+                  width, height);
+    }
+  }
   png_image_free(&image);
 }
 
@@ -82,7 +121,8 @@ int WriteJpeg(JDEC *decoder, void *bitmap, JRECT *rect) {
   }
   return 1;
 }
-void Jpeg(FILE *file, PictureData &out) {
+void Jpeg(FILE *file, PictureData &out, uint32_t max_width,
+          uint32_t max_height) {
   static_assert(JD_FORMAT == 0, "Picture viewer requires RGB888 JPEG output");
   static_assert(JD_USE_SCALE == 0, "Use bounded output sampling, not TJpgDec scaling");
   alignas(16) std::array<uint8_t, 32768> work{};
@@ -97,12 +137,44 @@ void Jpeg(FILE *file, PictureData &out) {
     out.error = "JPEG dimensions exceed the preview limit.";
     return;
   }
-  while ((decoder.width + input.step - 1) / input.step > 2048 ||
-         (decoder.height + input.step - 1) / input.step > 2048) input.step *= 2;
+  const uint32_t width_limit = max_width ? max_width : 2048;
+  const uint32_t height_limit = max_height ? max_height : 2048;
+  while ((decoder.width + input.step - 1) / input.step > width_limit ||
+         (decoder.height + input.step - 1) / input.step > height_limit)
+    input.step *= 2;
   if (Allocate(out, (decoder.width + input.step - 1) / input.step,
                     (decoder.height + input.step - 1) / input.step) &&
       jd_decomp(&decoder, WriteJpeg, 0) != JDR_OK)
     out.error = "JPEG decoding failed; the file may be damaged or unsupported.";
+}
+void DecodeFile(const std::string &path, PictureData &out,
+                uint32_t max_width, uint32_t max_height) {
+  std::unique_ptr<FILE, decltype(&fclose)> file(fopen(path.c_str(), "rb"), fclose);
+  struct stat info{};
+  if (out.cancelled) {
+    out.ready.store(true, std::memory_order_release);
+    return;
+  }
+  if (!file || fstat(fileno(file.get()), &info) || !S_ISREG(info.st_mode))
+    out.error = "Cannot open this image. Check storage and decryption.";
+  else if (info.st_size <= 0 || uint64_t(info.st_size) > kMaxFileBytes)
+    out.error = "Image is empty or exceeds the 32 MiB file-size limit.";
+  else {
+    std::array<uint8_t, 8> signature{};
+    const size_t count = fread(signature.data(), 1, signature.size(), file.get());
+    rewind(file.get());
+    if (count == 8 && png_sig_cmp(signature.data(), 0, 8) == 0)
+      Png(file.get(), out, max_width, max_height);
+    else if (count >= 2 && signature[0] == 0xff && signature[1] == 0xd8)
+      Jpeg(file.get(), out, max_width, max_height);
+    else
+      out.error = "Not a supported PNG or JPEG image.";
+  }
+  if (!out.error.empty() || out.cancelled) {
+    free(out.pixels);
+    out.pixels = nullptr;
+  }
+  out.ready.store(true, std::memory_order_release);
 }
 } // namespace
 
@@ -123,28 +195,11 @@ void DecodePicture(const std::string &path, PictureData &out) {
     return;
   }
   struct Release { std::atomic<bool> &flag; ~Release() { flag = false; } } release{busy};
-  std::unique_ptr<FILE, decltype(&fclose)> file(fopen(path.c_str(), "rb"), fclose);
-  struct stat info{};
-  if (out.cancelled) {
-    out.ready.store(true, std::memory_order_release);
-    return;
-  }
-  if (!file || fstat(fileno(file.get()), &info) || !S_ISREG(info.st_mode))
-    out.error = "Cannot open this image. Check storage and decryption.";
-  else if (info.st_size <= 0 || uint64_t(info.st_size) > kMaxFileBytes)
-    out.error = "Image is empty or exceeds the 32 MiB file-size limit.";
-  else {
-    std::array<uint8_t, 8> signature{};
-    const size_t count = fread(signature.data(), 1, signature.size(), file.get());
-    rewind(file.get());
-    if (count == 8 && png_sig_cmp(signature.data(), 0, 8) == 0) Png(file.get(), out);
-    else if (count >= 2 && signature[0] == 0xff && signature[1] == 0xd8) Jpeg(file.get(), out);
-    else out.error = "Not a supported PNG or JPEG image.";
-  }
-  if (!out.error.empty() || out.cancelled) {
-    free(out.pixels);
-    out.pixels = nullptr;
-  }
-  out.ready.store(true, std::memory_order_release);
+  DecodeFile(path, out, 0, 0);
+}
+
+void DecodePictureThumbnail(const std::string &path, uint32_t max_width,
+                            uint32_t max_height, PictureData &out) {
+  DecodeFile(path, out, std::max(1u, max_width), std::max(1u, max_height));
 }
 } // namespace recovery_ui2

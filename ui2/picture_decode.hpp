@@ -15,4 +15,6 @@ struct PictureData {
 };
 bool IsPicture(const std::string &path);
 void DecodePicture(const std::string &path, PictureData &result);
+void DecodePictureThumbnail(const std::string &path, uint32_t max_width,
+                            uint32_t max_height, PictureData &result);
 } // namespace recovery_ui2

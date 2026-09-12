@@ -119,6 +119,10 @@ struct ev {
     int ignored;
 
     struct position p, mt_p;
+    struct position mt_slots[2];
+    int mt_slot;
+    bool mt_active[2];
+    bool mt_dirty[2];
     int down;
 };
 
@@ -128,6 +132,8 @@ static unsigned ev_count = 0;
 static struct timeval lastInputStat;
 static time_t lastInputMTime;
 static int has_mouse = 0;
+static struct input_event secondary_touch_event;
+static bool secondary_touch_pending = false;
 
 static inline int ABS(int x) {
     return x<0?-x:x;
@@ -302,6 +308,12 @@ static int vk_init(struct ev *e)
     ioctl(e->fd->fd, EVIOCGABS(ABS_MT_POSITION_X), &e->mt_p.xi);
     ioctl(e->fd->fd, EVIOCGABS(ABS_MT_POSITION_Y), &e->mt_p.yi);
     e->mt_p.synced = 0;
+    e->mt_slots[0].xi = e->mt_slots[1].xi = e->mt_p.xi;
+    e->mt_slots[0].yi = e->mt_slots[1].yi = e->mt_p.yi;
+    e->mt_slots[0].synced = e->mt_slots[1].synced = 0;
+    e->mt_slot = 0;
+    e->mt_active[0] = e->mt_active[1] = false;
+    e->mt_dirty[0] = e->mt_dirty[1] = false;
 #ifdef _EVENT_LOGGING
     printf("EV: MT minX: %d  maxX: %d  minY: %d  maxY: %d\n", e->mt_p.xi.minimum, e->mt_p.xi.maximum, e->mt_p.yi.minimum, e->mt_p.yi.maximum);
 #endif
@@ -500,9 +512,63 @@ static int vk_modify(struct ev *e, struct input_event *ev)
 #endif
 
 	// Handle keyboard events, value of 1 indicates key down, 0 indicates key up
-	if (ev->type == EV_KEY) {
+    if (ev->type == EV_KEY) {
 		return 0;
 	}
+
+    // Preserve the second type-B contact for AERA gestures. The legacy
+    // minui path intentionally flattens touch to one pointer; slot 1 is kept
+    // out of that path and emitted as a separate synthesized event instead.
+    if (ev->type == EV_ABS && ev->code == ABS_MT_SLOT) {
+        e->mt_slot = ev->value;
+        return 1;
+    }
+    if (ev->type == EV_ABS && e->mt_slot == 1) {
+        switch (ev->code) {
+        case ABS_MT_POSITION_X:
+            e->mt_slots[1].x = ev->value;
+            e->mt_slots[1].synced |= 0x01;
+            e->mt_dirty[1] = true;
+            break;
+        case ABS_MT_POSITION_Y:
+            e->mt_slots[1].y = ev->value;
+            e->mt_slots[1].synced |= 0x02;
+            e->mt_dirty[1] = true;
+            break;
+        case ABS_MT_TRACKING_ID:
+            e->mt_active[1] = ev->value >= 0;
+            e->mt_dirty[1] = true;
+            break;
+        default:
+            break;
+        }
+        return 1;
+    }
+
+    if (ev->type == EV_SYN && ev->code == SYN_REPORT && e->mt_dirty[1] &&
+        (e->mt_slots[1].synced & 0x03) == 0x03) {
+        int second_x = -1;
+        int second_y = -1;
+        if (!vk_tp_to_screen(&e->mt_slots[1], &second_x, &second_y)) {
+#ifdef RECOVERY_TOUCHSCREEN_SWAP_XY
+            second_x ^= second_y;
+            second_y ^= second_x;
+            second_x ^= second_y;
+#endif
+#ifdef RECOVERY_TOUCHSCREEN_FLIP_X
+            second_x = gr_fb_width() - second_x;
+#endif
+#ifdef RECOVERY_TOUCHSCREEN_FLIP_Y
+            second_y = gr_fb_height() - second_y;
+#endif
+            secondary_touch_event = {};
+            secondary_touch_event.type = EV_ABS;
+            secondary_touch_event.code = e->mt_active[1] ? 3 : 2;
+            secondary_touch_event.value = (second_x << 16) | second_y;
+            secondary_touch_pending = true;
+        }
+        e->mt_dirty[1] = false;
+    }
 
     if (ev->type == EV_ABS) {
         switch (ev->code) {
@@ -813,6 +879,12 @@ int ev_get(struct input_event *ev, int timeout_ms)
     int r;
     unsigned n;
     struct timeval curr;
+
+    if (secondary_touch_pending) {
+        *ev = secondary_touch_event;
+        secondary_touch_pending = false;
+        return 0;
+    }
 
     gettimeofday(&curr, NULL);
     if(curr.tv_sec - lastInputStat.tv_sec >= 2)

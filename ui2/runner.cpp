@@ -257,7 +257,8 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
         PointerEvent pointer;
         pointer.x = event.value >> 16;
         pointer.y = event.value & 0xffff;
-        pointer.pressed = event.code != 0;
+        pointer.slot = event.code >= 2 ? 1 : 0;
+        pointer.pressed = event.code == 1 || event.code == 3;
         engine.SetPointer(pointer);
         if (!pointer.pressed) {
             __android_log_print(ANDROID_LOG_DEBUG, kLogTag, "touch released at %d,%d", pointer.x,

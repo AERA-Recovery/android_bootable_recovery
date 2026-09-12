@@ -24,6 +24,7 @@
 #include <pixelflinger/pixelflinger.h>
 #include "design.hpp"
 #include "gpu_renderer.hpp"
+#include "picture_viewer.hpp"
 #include "recorder/service.hpp"
 #include "scene.hpp"
 #include "ui_components.hpp"
@@ -412,9 +413,19 @@ public:
   }
 
   void SetPointer(const PointerEvent &event) {
+    const int32_t logical_x = transform_.ToLogicalX(event.x);
+    const int32_t logical_y = transform_.ToLogicalY(event.y);
+    if (PictureViewerHandlePointer(event.slot, logical_x, logical_y,
+                                   event.pressed)) {
+      CancelEdgeSwipe();
+      pointer_.pressed = false;
+      if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
+      return;
+    }
+    if (event.slot != 0) return;
     const bool was_pressed = pointer_.pressed;
-    pointer_.x = transform_.ToLogicalX(event.x);
-    pointer_.y = transform_.ToLogicalY(event.y);
+    pointer_.x = logical_x;
+    pointer_.y = logical_y;
     pointer_.pressed = event.pressed;
 
     if (suspended_ || lock_overlay_ != nullptr || !backend_ready_ ||
