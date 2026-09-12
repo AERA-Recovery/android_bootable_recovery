@@ -30,6 +30,18 @@ inline constexpr const char *kUpper[] = {
     LV_SYMBOL_UP, "Z", "X", "C", "V", "B", "N", "M", LV_SYMBOL_BACKSPACE, "\n",
     "?123", ",", " ", ".", LV_SYMBOL_OK, ""};
 
+inline constexpr const char *kLowerQwertz[] = {
+    "q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "\n",
+    " ", "a", "s", "d", "f", "g", "h", "j", "k", "l", " ", "\n",
+    LV_SYMBOL_UP, "y", "x", "c", "v", "b", "n", "m", LV_SYMBOL_BACKSPACE, "\n",
+    "?123", ",", " ", ".", LV_SYMBOL_OK, ""};
+
+inline constexpr const char *kUpperQwertz[] = {
+    "Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "\n",
+    " ", "A", "S", "D", "F", "G", "H", "J", "K", "L", " ", "\n",
+    LV_SYMBOL_UP, "Y", "X", "C", "V", "B", "N", "M", LV_SYMBOL_BACKSPACE, "\n",
+    "?123", ",", " ", ".", LV_SYMBOL_OK, ""};
+
 inline constexpr const char *kSpecial[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
     " ", "@", "#", "$", "&", "*", "(", ")", "'", "\"", " ", "\n",
@@ -123,10 +135,11 @@ inline void Style(lv_obj_t *keyboard) {
 }
 
 inline void Apply(lv_obj_t *keyboard) {
+  const bool qwertz = RecoveryKeyboardLayout() == KeyboardLayout::kQwertz;
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER,
-                      kLower, kTextControls);
+                      qwertz ? kLowerQwertz : kLower, kTextControls);
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_UPPER,
-                      kUpper, kTextControls);
+                      qwertz ? kUpperQwertz : kUpper, kTextControls);
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_SPECIAL,
                       kSpecial, kSpecialControls);
   lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);

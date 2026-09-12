@@ -50,6 +50,11 @@ InterfaceSize RecoveryInterfaceSize() { return InterfaceSize::kNormal; }
 bool RecoverySetInterfaceSize(InterfaceSize size) {
   return static_cast<int>(size) >= 0 && static_cast<int>(size) <= 2;
 }
+KeyboardLayout RecoveryKeyboardLayout() { return KeyboardLayout::kQwerty; }
+bool RecoverySetKeyboardLayout(KeyboardLayout layout) {
+  return layout == KeyboardLayout::kQwerty ||
+         layout == KeyboardLayout::kQwertz;
+}
 int RecoveryHomeGridColumns() { return 3; }
 bool RecoverySetHomeGridColumns(int columns) { return columns == 2 || columns == 3; }
 DockLayout RecoveryDockLayout() { return DockLayout::kGlass; }

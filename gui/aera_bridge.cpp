@@ -422,6 +422,18 @@ bool RecoverySetInterfaceSize(InterfaceSize size) {
   return value >= 0 && value <= 2 &&
       DataManager::SetValue("aera_interface_size", value, 1) == 0;
 }
+KeyboardLayout RecoveryKeyboardLayout() {
+  LoadAeraPreferencesIfAvailable();
+  return DataManager::GetStrValue("aera_keyboard_layout") == "qwertz"
+      ? KeyboardLayout::kQwertz : KeyboardLayout::kQwerty;
+}
+bool RecoverySetKeyboardLayout(KeyboardLayout layout) {
+  if (layout != KeyboardLayout::kQwerty &&
+      layout != KeyboardLayout::kQwertz) return false;
+  return DataManager::SetValue(
+      "aera_keyboard_layout",
+      layout == KeyboardLayout::kQwertz ? "qwertz" : "qwerty", 1) == 0;
+}
 int RecoveryHomeGridColumns() {
   LoadAeraPreferencesIfAvailable();
   const std::string stored = DataManager::GetStrValue("aera_home_grid_columns");
@@ -536,6 +548,7 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "accent") DataManager::SetValue("aera_theme_accent", value);
     else if (key == "theme") DataManager::SetValue("aera_theme_mode", value);
     else if (key == "interface_size") DataManager::SetValue("aera_interface_size", value);
+    else if (key == "keyboard_layout") DataManager::SetValue("aera_keyboard_layout", value);
     else if (key == "home_grid_columns") DataManager::SetValue("aera_home_grid_columns", value);
     else if (key == "dock_layout") DataManager::SetValue("aera_dock_layout", value);
     else if (key == "dock_transparency") DataManager::SetValue("aera_dock_transparency", value);
@@ -576,6 +589,9 @@ bool SaveAeraPreferences() {
          << "accent=" << DataManager::GetStrValue("aera_theme_accent") << '\n'
          << "theme=" << DataManager::GetStrValue("aera_theme_mode") << '\n'
          << "interface_size=" << static_cast<int>(RecoveryInterfaceSize()) << '\n'
+         << "keyboard_layout="
+         << (RecoveryKeyboardLayout() == KeyboardLayout::kQwertz
+                 ? "qwertz" : "qwerty") << '\n'
          << "home_grid_columns=" << RecoveryHomeGridColumns() << '\n'
          << "dock_layout=" << DataManager::GetIntValue("aera_dock_layout") << '\n'
          << "dock_transparency=" << RecoveryDockTransparency() << '\n'

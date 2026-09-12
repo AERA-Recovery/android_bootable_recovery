@@ -575,7 +575,7 @@ const char *AccentName(uint32_t rgb) {
 
 void BuildTheme(Tools *state) {
   Header(state->screen, "Theme Engine",
-         "Choose appearance, interface size and accent for every AERA page.", state->callback,
+         "Choose appearance, sizing, keyboard and accent for every AERA page.", state->callback,
          state->context);
   const bool landscape = Landscape(state->screen);
   state->list = Scroll(state->screen, landscape ? 340 : 460,
@@ -728,9 +728,50 @@ void BuildTheme(Tools *state) {
     });
   }
 
+  auto *keyboard_section = Label(state->list, "Keyboard layout",
+                                 &lv_font_montserrat_32, kAccent);
+  lv_obj_set_pos(keyboard_section, 32, 1310);
+  struct KeyboardPreset {
+    const char *name;
+    const char *detail;
+    KeyboardLayout layout;
+  };
+  const std::array<KeyboardPreset, 2> keyboard_layouts{{
+      {"QWERTY", "International default", KeyboardLayout::kQwerty},
+      {"QWERTZ", "Y and Z exchanged", KeyboardLayout::kQwertz},
+  }};
+  const KeyboardLayout selected_keyboard = RecoveryKeyboardLayout();
+  for (size_t i = 0; i < keyboard_layouts.size(); ++i) {
+    const auto preset = keyboard_layouts[i];
+    const bool selected = selected_keyboard == preset.layout;
+    auto *card = lv_button_create(state->list);
+    Panel(card, 32, kMainPanel);
+    Interactive(card, kMainSelected);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 1380);
+    lv_obj_set_size(card, 624, 170);
+    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
+    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
+    auto *name = Label(card, preset.name, &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(name, 32, 28);
+    auto *detail = Label(card, preset.detail, &lv_font_montserrat_24, kMuted);
+    lv_obj_set_pos(detail, 32, 94);
+    if (selected) {
+      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
+      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -32, 38);
+    }
+    OnClick(card, [state, preset] {
+      if (!RecoverySetKeyboardLayout(preset.layout)) {
+        Sheet(state->screen, "Keyboard unavailable",
+              "The keyboard layout could not be stored.");
+        return;
+      }
+      Open(state, Action::kTheme);
+    });
+  }
+
   auto *section = Label(state->list, "Accent palettes",
                         &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(section, 32, 1310);
+  lv_obj_set_pos(section, 32, 1610);
   const uint32_t selected_rgb = RecoveryAccentColor();
   for (size_t i = 0; i < kAccentPresets.size(); ++i) {
     const auto preset = kAccentPresets[i];
@@ -738,7 +779,7 @@ void BuildTheme(Tools *state) {
     const int32_t row = static_cast<int32_t>(i / 4);
     auto *card = lv_button_create(state->list);
     Clear(card);
-    lv_obj_set_pos(card, 16 + column * 320, 1380 + row * 220);
+    lv_obj_set_pos(card, 16 + column * 320, 1680 + row * 220);
     lv_obj_set_size(card, 304, 190);
     lv_obj_set_style_radius(card, 32, 0);
     lv_obj_set_style_bg_color(card, kMainPanel, 0);
@@ -778,7 +819,7 @@ void BuildTheme(Tools *state) {
       "AERA Cyan is the default. Palette changes apply immediately and are\n"
       "saved with the rest of your recovery preferences.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(note, 32, 1860);
+  lv_obj_set_pos(note, 32, 2160);
   lv_obj_set_width(note, 1220);
 
   auto *reset = Button(state->list, "Reset to AERA Cyan", [state] {
@@ -790,12 +831,12 @@ void BuildTheme(Tools *state) {
     ApplyAccent(kDefaultAccentRgb);
     Open(state, Action::kTheme);
   });
-  lv_obj_set_pos(reset, 16, 1990);
+  lv_obj_set_pos(reset, 16, 2290);
   lv_obj_set_size(reset, 1280, 124);
 
   auto *dock_section = Label(state->list, "Navigation dock",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(dock_section, 32, 2200);
+  lv_obj_set_pos(dock_section, 32, 2500);
   const std::array<std::pair<const char *, DockLayout>, 3> dock_modes{{
       {"Glass", DockLayout::kGlass}, {"Compact", DockLayout::kCompact},
       {"Minimal", DockLayout::kMinimal}}};
@@ -806,7 +847,7 @@ void BuildTheme(Tools *state) {
       RecoverySetDockLayout(mode.second);
       Open(state, Action::kTheme);
     }, selected);
-    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 426, 2270);
+    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 426, 2570);
     lv_obj_set_size(card, 408, 128);
     lv_obj_set_style_radius(card, 34, 0);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
@@ -849,10 +890,10 @@ void BuildTheme(Tools *state) {
       else RecoverySetDockTransparency(value);
     }, LV_EVENT_ALL, binding);
   };
-  dock_slider(2430, "Transparency",
+  dock_slider(2730, "Transparency",
               "0% is solid; 100% leaves only the controls visible",
               RecoveryDockTransparency(), false);
-  dock_slider(2670, "Backdrop blur",
+  dock_slider(2970, "Backdrop blur",
               "GPU-friendly live blur behind the dock surface",
               RecoveryDockBlur(), true);
 
@@ -863,12 +904,12 @@ void BuildTheme(Tools *state) {
         RecoverySetDockHideInApps(!hide_apps);
         Open(state, Action::kTheme);
       }, hide_apps);
-  lv_obj_set_pos(hide, 16, 2910);
+  lv_obj_set_pos(hide, 16, 3210);
   lv_obj_set_size(hide, 1280, 128);
   auto *hide_note = Label(state->list,
       "Installed plugins use the full screen. Edge-swipe or hardware Back still works.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(hide_note, 32, 3070);
+  lv_obj_set_pos(hide_note, 32, 3370);
   lv_obj_set_width(hide_note, 1220);
 
   auto *save = Button(state->screen, "Save theme", [state] {
