@@ -145,7 +145,7 @@ void RequestOperation(GenericScene *scene,
           static_cast<uint32_t>(plugin_api::Operation::kBackupSettings) ||
       message.value >
           static_cast<uint32_t>(
-              plugin_api::Operation::kStopMirror)) {
+              plugin_api::Operation::kStartWifiMirror)) {
     scene->session.Send(plugin_api::Kind::kOperationResult,
                         message.request_id, 0, 0, nullptr,
                         "Unsupported host operation.");

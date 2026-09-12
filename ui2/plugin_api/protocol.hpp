@@ -35,6 +35,7 @@ enum class Operation : uint32_t {
   kRestoreAndroidSettings = 4,
   kStartMirror = 5,
   kStopMirror = 6,
+  kStartWifiMirror = 7,
 };
 enum Flags : uint32_t {
   kPrimary = 1U << 0,

@@ -427,6 +427,7 @@ bool OperationAllowed(const plugins::Plugin& plugin, Operation operation) {
       return plugins::HasPermission(plugin, "android-settings-restore");
     case Operation::kStartMirror:
     case Operation::kStopMirror:
+    case Operation::kStartWifiMirror:
       return plugins::HasPermission(plugin, "screen-mirror");
   }
   return false;
@@ -439,27 +440,34 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
   }
   if (operation == Operation::kStartMirror) {
 #ifdef OF_ENABLE_WLAN
+    // The same embedded page is available through an ADB port forward, so the
+    // forthcoming one-click desktop launcher needs no bundled UI/runtime.
+    const bool success = stream_ready && browser_ready;
+    result = success
+                 ? "USB mirror ready. Open it with the AERA Mirror desktop launcher."
+                 : stream_ready
+                       ? "Legacy USB client ready, but browser forwarding could not start."
+                       : "Could not start the AERA USB mirror.";
+#else
+    const bool success = stream_ready;
+    result = success
+                 ? "USB mirror ready at 30 FPS. Open the AERA Mirror desktop client."
+                 : "Could not start the AERA USB mirror.";
+#endif
+    return success;
+  }
+  if (operation == Operation::kStartWifiMirror) {
+#ifdef OF_ENABLE_WLAN
     if (address.empty() || address == "0.0.0.0") {
       result = "Connect AERA to Wi-Fi first, then return here and start the mirror.";
       return false;
     }
-    const bool success = usb_ready && web_ready;
-    if (success) {
-      result = "Open http://" + address +
-               "/ in a browser, or use the AERA Mirror desktop client.";
-    } else if (usb_ready) {
-      result = "USB mirror is ready, but the Wi-Fi mirror server could not start.";
-    } else if (web_ready) {
-      result = "Browser mirror: http://" + address + "/";
-    } else {
-      result = "Could not start AERA Mirror.";
-    }
+    result = success ? "Wi-Fi mirror ready: http://" + address + "/"
+                     : "Could not start the AERA Wi-Fi mirror.";
     return success;
 #else
-    result = success
-                 ? "USB mirror ready at 30 FPS. Open the AERA Mirror desktop client."
-                 : "Could not start the AERA USB mirror.";
-    return success;
+    result = "Wi-Fi mirroring is not available in this recovery build.";
+    return false;
 #endif
   }
   if (operation == Operation::kStopMirror) {
@@ -525,9 +533,11 @@ const char* OperationTitle(Operation operation) {
     case Operation::kRestoreAndroidSettings:
       return "Restore Android settings?";
     case Operation::kStartMirror:
-      return "Start AERA Mirror?";
+      return "Start USB Mirror?";
     case Operation::kStopMirror:
       return "Stop AERA Mirror?";
+    case Operation::kStartWifiMirror:
+      return "Start Wi-Fi Mirror?";
   }
   return "Run plugin operation?";
 }
@@ -549,10 +559,13 @@ const char* OperationPrompt(Operation operation) {
              "onto the same ROM and Android version. "
              "The isolated plugin never receives direct /data access.";
     case Operation::kStartMirror:
-      return "AERA will share the recovery display and input over USB and the connected "
-             "Wi-Fi network. Open the phone's IP address in a browser after starting.";
+      return "AERA will share the recovery display and input with the desktop client "
+             "over the connected USB/ADB cable.";
     case Operation::kStopMirror:
-      return "Stop the USB stream and browser mirror server.";
+      return "Stop both the USB stream and Wi-Fi browser server.";
+    case Operation::kStartWifiMirror:
+      return "AERA will share the recovery display and input on the connected Wi-Fi "
+             "network. Enter the phone address shown afterward in any browser.";
   }
   return "The plugin requested an unknown operation.";
 }
