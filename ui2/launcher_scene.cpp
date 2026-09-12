@@ -20,6 +20,19 @@ namespace {
 using namespace design;
 using namespace widgets;
 
+// Decorative objects created with lv_obj_create() are clickable by default.
+// When an icon is placed inside a button that makes the artwork win hit
+// testing, leaving a dead spot in the middle of the card.  Keep the complete
+// artwork tree transparent to input so every point on a Home card reaches the
+// card itself.
+void MakeDecorationPassThrough(lv_obj_t *object) {
+  if (object == nullptr) return;
+  lv_obj_remove_flag(object, LV_OBJ_FLAG_CLICKABLE);
+  const uint32_t child_count = lv_obj_get_child_count(object);
+  for (uint32_t index = 0; index < child_count; ++index)
+    MakeDecorationPassThrough(lv_obj_get_child(object, index));
+}
+
 lv_obj_t *MaterialTerminalIcon(lv_obj_t *parent, lv_color_t color, int size) {
   auto *art = lv_obj_create(parent);
   Clear(art);
@@ -135,6 +148,18 @@ const char *GenericPluginIcon(const plugins::Plugin &plugin) {
   return LV_SYMBOL_SETTINGS;
 }
 
+const char *PluginSummary(const plugins::Plugin &plugin) {
+  if (plugin.entry == "browser") return "Browse the web with mobile WebKit.";
+  if (plugin.entry == "retroarch") return "Play classic games with RetroArch.";
+  if (plugin.entry == "telegram") return "Secure messaging and file sharing.";
+  if (plugin.entry == "gallery") return "Browse, preview and zoom your photos.";
+  if (plugin.entry == "media") return "Play music and video from storage.";
+  if (plugin.entry == "recorder") return "Record the recovery screen to video.";
+  if (plugin.entry == "appvault") return "Back up and restore installed apps.";
+  if (plugin.id == "mirror") return "View and control AERA from another screen.";
+  return plugin.description.c_str();
+}
+
 lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
                   const char *icon, const char *name, const char *description,
                   lv_color_t accent, Handler action,
@@ -157,6 +182,7 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
   auto *plate = AppIconPlate(card, icon, accent, 144, retroarch_icon,
                              terminal_engraving, webkit_icon);
   lv_obj_set_pos(plate, 28, 22);
+  MakeDecorationPassThrough(plate);
   auto *title = Label(card, name, &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, 36, 188);
   auto *copy = Label(card, description, &lv_font_montserrat_24, kMuted);
@@ -171,6 +197,13 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
                      const char *icon, const plugins::Plugin &plugin,
                      lv_color_t accent, Handler action,
                      bool retroarch_icon = false) {
+  if (width >= 600) {
+    auto *card = AppCard(parent, x, y, width, icon, plugin.name.c_str(),
+                         PluginSummary(plugin), accent, std::move(action),
+                         retroarch_icon, false, plugin.entry == "browser");
+    lv_obj_set_height(card, height);
+    return card;
+  }
   auto *card = lv_button_create(parent);
   Panel(card, 34, kMainSheet);
   Interactive(card, kMainSelected);
@@ -187,6 +220,7 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
     auto *mark = lv_obj_get_child(plate, 0);
     lv_obj_set_style_transform_scale(mark, 384, 0);
   }
+  MakeDecorationPassThrough(plate);
   auto *title = Label(card, plugin.name.c_str(), &lv_font_montserrat_32, kText);
   lv_obj_set_width(title, width - 40);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
@@ -211,12 +245,33 @@ void UpdatePluginPageDots(PluginPagerState *state) {
   const int selected = std::clamp(
       (offset + state->page_width / 2) / state->page_width,
       0, state->pages - 1);
-  std::string dots;
   for (int page = 0; page < state->pages; ++page) {
-    if (page != 0) dots += "   ";
-    dots += page == selected ? "●" : "○";
+    auto *dot = lv_obj_get_child(state->dots, page);
+    if (dot == nullptr) continue;
+    const bool active = page == selected;
+    lv_obj_set_size(dot, active ? 34 : 14, 14);
+    lv_obj_set_style_bg_color(dot, active ? kAccent : kMainLine, 0);
+    lv_obj_set_style_bg_opa(dot, active ? LV_OPA_COVER : LV_OPA_70, 0);
   }
-  lv_label_set_text(state->dots, dots.c_str());
+}
+
+void InvalidatePluginPagerGutters(PluginPagerState *state) {
+  auto *screen = lv_obj_get_screen(state->view);
+  lv_area_t screen_area{};
+  lv_area_t pager_area{};
+  lv_obj_get_coords(screen, &screen_area);
+  lv_obj_get_coords(state->view, &pager_area);
+
+  if (pager_area.x1 > screen_area.x1) {
+    lv_area_t left{screen_area.x1, pager_area.y1,
+                   pager_area.x1 - 1, pager_area.y2};
+    lv_obj_invalidate_area(screen, &left);
+  }
+  if (pager_area.x2 < screen_area.x2) {
+    lv_area_t right{pager_area.x2 + 1, pager_area.y1,
+                    screen_area.x2, pager_area.y2};
+    lv_obj_invalidate_area(screen, &right);
+  }
 }
 
 void PluginPagerEvent(lv_event_t *event) {
@@ -225,8 +280,20 @@ void PluginPagerEvent(lv_event_t *event) {
     delete state;
     return;
   }
-  if (lv_event_get_code(event) == LV_EVENT_SCROLL_END)
+  if (lv_event_get_code(event) == LV_EVENT_SCROLL ||
+      lv_event_get_code(event) == LV_EVENT_SCROLL_END) {
     UpdatePluginPageDots(state);
+    // The pager itself invalidates only its own bounds. Explicitly refresh the
+    // two narrow outer gutters while transformed icon glyphs are moving so a
+    // GPU frame cannot retain pixels that crossed the clipping edge.
+    InvalidatePluginPagerGutters(state);
+  }
+  if (lv_event_get_code(event) == LV_EVENT_SCROLL_END) {
+    // Scaled icon glyphs can temporarily extend beyond the pager's invalidated
+    // strip while GPU scrolling. Redraw the containing scene once after the
+    // snap completes so no edge pixels survive outside the viewport.
+    lv_obj_invalidate(lv_obj_get_screen(state->view));
+  }
 }
 
 }  // namespace
@@ -333,10 +400,12 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   lv_obj_set_pos(extensions, 80, 1410);
   constexpr int kGridWidth = 1312;
   constexpr int kGridHeight = 1050;
-  constexpr int kTileWidth = 416;
   constexpr int kTileHeight = 318;
-  constexpr int kGapX = 32;
   constexpr int kGapY = 30;
+  const int grid_columns = RecoveryHomeGridColumns();
+  const int slots_per_page = grid_columns * 3;
+  const int tile_width = grid_columns == 2 ? 636 : 416;
+  const int gap_x = grid_columns == 2 ? 40 : 32;
   auto *pager = lv_obj_create(screen);
   lv_obj_set_pos(pager, 64, 1468);
   lv_obj_set_size(pager, kGridWidth, kGridHeight);
@@ -349,7 +418,9 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   lv_obj_add_flag(pager, LV_OBJ_FLAG_SCROLL_ONE);
   lv_obj_add_flag(pager, LV_OBJ_FLAG_SCROLL_MOMENTUM);
   lv_obj_remove_flag(pager, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
-  const int page_count = std::max(1, static_cast<int>((installed.size() + 8) / 9));
+  const int page_count = std::max(
+      1, static_cast<int>((installed.size() + slots_per_page - 1) /
+                          slots_per_page));
   int visible_index = 0;
   lv_obj_t *page = nullptr;
   for (const auto &plugin : installed) {
@@ -390,8 +461,8 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     } else {
       continue;
     }
-    const int page_index = visible_index / 9;
-    const int slot = visible_index % 9;
+    const int page_index = visible_index / slots_per_page;
+    const int slot = visible_index % slots_per_page;
     if (slot == 0) {
       page = lv_obj_create(pager);
       Clear(page);
@@ -399,11 +470,11 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       lv_obj_set_size(page, kGridWidth, kGridHeight);
       lv_obj_add_flag(page, LV_OBJ_FLAG_SNAPPABLE);
     }
-    const int column = slot % 3;
-    const int row = slot / 3;
-    auto *card = PluginTile(page, column * (kTileWidth + kGapX),
+    const int column = slot % grid_columns;
+    const int row = slot / grid_columns;
+    auto *card = PluginTile(page, column * (tile_width + gap_x),
                             row * (kTileHeight + kGapY),
-                            kTileWidth, kTileHeight, icon, plugin, accent,
+                            tile_width, kTileHeight, icon, plugin, accent,
                             [=] {
                               if (action == Action::kPluginApp)
                                 SetSelectedPluginId(plugin.id);
@@ -433,10 +504,24 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_set_style_radius(open, 28, 0);
     AnimateEnter(empty, 90, 14);
   } else if (page_count > 1) {
-    auto *dots = Label(screen, "", &lv_font_montserrat_24, kAccent);
-    lv_obj_set_width(dots, 600);
-    lv_obj_set_style_text_align(dots, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(dots, 420, 2540);
+    auto *dots = lv_obj_create(screen);
+    Clear(dots);
+    lv_obj_set_pos(dots, 570, 2540);
+    lv_obj_set_size(dots, 300, 42);
+    lv_obj_set_flex_flow(dots, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(dots, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(dots, 14, 0);
+    for (int page_index = 0; page_index < page_count; ++page_index) {
+      auto *dot = lv_obj_create(dots);
+      Clear(dot);
+      lv_obj_set_size(dot, 14, 14);
+      lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+      lv_obj_set_style_bg_color(dot, kMainLine, 0);
+      lv_obj_set_style_bg_opa(dot, LV_OPA_70, 0);
+      MakeDecorationPassThrough(dot);
+    }
+    MakeDecorationPassThrough(dots);
     auto *pager_state =
         new PluginPagerState{pager, dots, page_count, kGridWidth};
     lv_obj_add_event_cb(pager, PluginPagerEvent, LV_EVENT_ALL, pager_state);

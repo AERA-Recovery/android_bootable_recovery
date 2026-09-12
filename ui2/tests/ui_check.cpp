@@ -46,6 +46,8 @@ uint32_t RecoveryAccentColor() { return accent_color; }
 bool RecoverySetAccentColor(uint32_t rgb) { accent_color = rgb; return true; }
 bool RecoveryLightMode() { return light_mode; }
 bool RecoverySetLightMode(bool enabled) { light_mode = enabled; return true; }
+int RecoveryHomeGridColumns() { return 3; }
+bool RecoverySetHomeGridColumns(int columns) { return columns == 2 || columns == 3; }
 DockLayout RecoveryDockLayout() { return DockLayout::kGlass; }
 bool RecoverySetDockLayout(DockLayout) { return true; }
 int RecoveryDockTransparency() { return 60; }

@@ -54,6 +54,8 @@ uint32_t RecoveryAccentColor();
 bool RecoverySetAccentColor(uint32_t rgb);
 bool RecoveryLightMode();
 bool RecoverySetLightMode(bool enabled);
+int RecoveryHomeGridColumns();
+bool RecoverySetHomeGridColumns(int columns);
 enum class DockLayout { kGlass = 0, kCompact = 1, kMinimal = 2 };
 DockLayout RecoveryDockLayout();
 bool RecoverySetDockLayout(DockLayout layout);

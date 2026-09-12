@@ -660,9 +660,46 @@ void BuildTheme(Tools *state) {
     });
   }
 
+  auto *grid_section = Label(state->list, "Home plugin grid",
+                             &lv_font_montserrat_32, kAccent);
+  lv_obj_set_pos(grid_section, 32, 690);
+  struct GridPreset { const char *name; const char *detail; int columns; };
+  const std::array<GridPreset, 2> grids{{
+      {"2 x 3", "Wide cards - 6 apps per page", 2},
+      {"3 x 3", "Compact cards - 9 apps per page", 3},
+  }};
+  const int selected_columns = RecoveryHomeGridColumns();
+  for (size_t i = 0; i < grids.size(); ++i) {
+    const auto grid = grids[i];
+    const bool selected = selected_columns == grid.columns;
+    auto *card = lv_button_create(state->list);
+    Panel(card, 32, kMainPanel);
+    Interactive(card, kMainSelected);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 760);
+    lv_obj_set_size(card, 624, 170);
+    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
+    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
+    auto *name = Label(card, grid.name, &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(name, 32, 28);
+    auto *detail = Label(card, grid.detail, &lv_font_montserrat_24, kMuted);
+    lv_obj_set_pos(detail, 32, 94);
+    if (selected) {
+      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
+      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -32, 38);
+    }
+    OnClick(card, [state, grid] {
+      if (!RecoverySetHomeGridColumns(grid.columns)) {
+        Sheet(state->screen, "Layout unavailable",
+              "The Home plugin grid could not be changed.");
+        return;
+      }
+      Open(state, Action::kTheme);
+    });
+  }
+
   auto *section = Label(state->list, "Accent palettes",
                         &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(section, 32, 690);
+  lv_obj_set_pos(section, 32, 1000);
   const uint32_t selected_rgb = RecoveryAccentColor();
   for (size_t i = 0; i < kAccentPresets.size(); ++i) {
     const auto preset = kAccentPresets[i];
@@ -670,7 +707,7 @@ void BuildTheme(Tools *state) {
     const int32_t row = static_cast<int32_t>(i / 4);
     auto *card = lv_button_create(state->list);
     Clear(card);
-    lv_obj_set_pos(card, 16 + column * 320, 760 + row * 220);
+    lv_obj_set_pos(card, 16 + column * 320, 1070 + row * 220);
     lv_obj_set_size(card, 304, 190);
     lv_obj_set_style_radius(card, 32, 0);
     lv_obj_set_style_bg_color(card, kMainPanel, 0);
@@ -710,7 +747,7 @@ void BuildTheme(Tools *state) {
       "AERA Cyan is the default. Palette changes apply immediately and are\n"
       "saved with the rest of your recovery preferences.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(note, 32, 1240);
+  lv_obj_set_pos(note, 32, 1550);
   lv_obj_set_width(note, 1220);
 
   auto *reset = Button(state->list, "Reset to AERA Cyan", [state] {
@@ -722,12 +759,12 @@ void BuildTheme(Tools *state) {
     ApplyAccent(kDefaultAccentRgb);
     Open(state, Action::kTheme);
   });
-  lv_obj_set_pos(reset, 16, 1370);
+  lv_obj_set_pos(reset, 16, 1680);
   lv_obj_set_size(reset, 1280, 124);
 
   auto *dock_section = Label(state->list, "Navigation dock",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(dock_section, 32, 1580);
+  lv_obj_set_pos(dock_section, 32, 1890);
   const std::array<std::pair<const char *, DockLayout>, 3> dock_modes{{
       {"Glass", DockLayout::kGlass}, {"Compact", DockLayout::kCompact},
       {"Minimal", DockLayout::kMinimal}}};
@@ -738,7 +775,7 @@ void BuildTheme(Tools *state) {
       RecoverySetDockLayout(mode.second);
       Open(state, Action::kTheme);
     }, selected);
-    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 426, 1650);
+    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 426, 1960);
     lv_obj_set_size(card, 408, 128);
     lv_obj_set_style_radius(card, 34, 0);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
@@ -781,10 +818,10 @@ void BuildTheme(Tools *state) {
       else RecoverySetDockTransparency(value);
     }, LV_EVENT_ALL, binding);
   };
-  dock_slider(1810, "Transparency",
+  dock_slider(2120, "Transparency",
               "0% is solid; 100% leaves only the controls visible",
               RecoveryDockTransparency(), false);
-  dock_slider(2050, "Backdrop blur",
+  dock_slider(2360, "Backdrop blur",
               "GPU-friendly live blur behind the dock surface",
               RecoveryDockBlur(), true);
 
@@ -795,12 +832,12 @@ void BuildTheme(Tools *state) {
         RecoverySetDockHideInApps(!hide_apps);
         Open(state, Action::kTheme);
       }, hide_apps);
-  lv_obj_set_pos(hide, 16, 2290);
+  lv_obj_set_pos(hide, 16, 2600);
   lv_obj_set_size(hide, 1280, 128);
   auto *hide_note = Label(state->list,
       "Installed plugins use the full screen. Edge-swipe or hardware Back still works.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(hide_note, 32, 2450);
+  lv_obj_set_pos(hide_note, 32, 2760);
   lv_obj_set_width(hide_note, 1220);
 
   auto *save = Button(state->screen, "Save theme", [state] {

@@ -340,6 +340,16 @@ bool RecoveryLightMode() {
 bool RecoverySetLightMode(bool enabled) {
   return DataManager::SetValue("aera_theme_mode", enabled ? "light" : "graphite", 1) == 0;
 }
+int RecoveryHomeGridColumns() {
+  LoadAeraPreferencesIfAvailable();
+  const std::string stored = DataManager::GetStrValue("aera_home_grid_columns");
+  if (stored.empty()) return 3;
+  return atoi(stored.c_str()) == 2 ? 2 : 3;
+}
+bool RecoverySetHomeGridColumns(int columns) {
+  if (columns != 2 && columns != 3) return false;
+  return DataManager::SetValue("aera_home_grid_columns", columns, 1) == 0;
+}
 DockLayout RecoveryDockLayout() {
   LoadAeraPreferencesIfAvailable();
   const int value = std::clamp(DataManager::GetIntValue("aera_dock_layout"), 0, 2);
@@ -443,6 +453,7 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "brightness") DataManager::SetValue("tw_brightness_pct", value);
     else if (key == "accent") DataManager::SetValue("aera_theme_accent", value);
     else if (key == "theme") DataManager::SetValue("aera_theme_mode", value);
+    else if (key == "home_grid_columns") DataManager::SetValue("aera_home_grid_columns", value);
     else if (key == "dock_layout") DataManager::SetValue("aera_dock_layout", value);
     else if (key == "dock_transparency") DataManager::SetValue("aera_dock_transparency", value);
     else if (key == "dock_blur") DataManager::SetValue("aera_dock_blur", value);
@@ -480,6 +491,7 @@ bool SaveAeraPreferences() {
          << "brightness=" << DataManager::GetIntValue("tw_brightness_pct") << '\n'
          << "accent=" << DataManager::GetStrValue("aera_theme_accent") << '\n'
          << "theme=" << DataManager::GetStrValue("aera_theme_mode") << '\n'
+         << "home_grid_columns=" << RecoveryHomeGridColumns() << '\n'
          << "dock_layout=" << DataManager::GetIntValue("aera_dock_layout") << '\n'
          << "dock_transparency=" << RecoveryDockTransparency() << '\n'
          << "dock_blur=" << RecoveryDockBlur() << '\n'
