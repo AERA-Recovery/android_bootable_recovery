@@ -284,8 +284,8 @@ void MakePinPad(DecryptState *state, lv_obj_t *panel) {
     lv_obj_set_style_transition(key, &press_transition, 0);
     lv_obj_set_style_border_width(key, 0, 0);
     lv_obj_set_style_text_font(lv_obj_get_child(key, 0),
-                               i == 9 ? &lv_font_montserrat_32
-                                      : &lv_font_montserrat_48, 0);
+                               UiFont(i == 9 ? &lv_font_montserrat_32
+                                             : &lv_font_montserrat_48), 0);
     if (!utility)
       lv_obj_set_style_transform_scale(lv_obj_get_child(key, 0), 352, 0);
     lv_obj_set_user_data(key, reinterpret_cast<void *>(keys[i]));
@@ -305,7 +305,7 @@ void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
                                    pin ? "Enter PIN" : "Enter password");
   lv_textarea_set_max_length(state->input, 128);
   if (pin) lv_textarea_set_accepted_chars(state->input, "0123456789");
-  lv_obj_set_style_text_font(state->input, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_font(state->input, UiFont(&lv_font_montserrat_32), 0);
   lv_obj_set_style_text_color(state->input, kText, 0);
   lv_obj_set_style_text_color(state->input, kMuted, LV_PART_TEXTAREA_PLACEHOLDER);
   lv_obj_set_style_bg_color(state->input, kMainBottom, 0);
@@ -316,7 +316,7 @@ void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
   lv_obj_set_style_pad_all(state->input, 38, 0);
 
   if (pin) {
-    lv_obj_set_style_text_font(state->input, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(state->input, UiFont(&lv_font_montserrat_48), 0);
     lv_obj_set_pos(state->input, 86, 90);
     lv_obj_set_style_text_align(state->input, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_letter_space(state->input, 12, 0);
@@ -349,7 +349,7 @@ void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
   lv_obj_set_style_bg_color(state->keyboard, kAccentSoft,
                             LV_PART_ITEMS | LV_STATE_PRESSED);
   lv_obj_set_style_text_color(state->keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_text_font(state->keyboard, &lv_font_montserrat_24,
+  lv_obj_set_style_text_font(state->keyboard, UiFont(&lv_font_montserrat_24),
                              LV_PART_ITEMS);
   lv_obj_set_style_radius(state->keyboard, 20, LV_PART_ITEMS);
   lv_obj_set_style_border_width(state->keyboard, 1, LV_PART_ITEMS);

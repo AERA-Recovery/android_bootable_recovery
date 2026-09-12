@@ -407,6 +407,21 @@ bool RecoveryLightMode() {
 bool RecoverySetLightMode(bool enabled) {
   return DataManager::SetValue("aera_theme_mode", enabled ? "light" : "graphite", 1) == 0;
 }
+InterfaceSize RecoveryInterfaceSize() {
+  LoadAeraPreferencesIfAvailable();
+  const int value = std::clamp(
+      DataManager::GetIntValue("aera_interface_size"), 0, 2);
+  // DataManager returns zero for an unset integer. Preserve today's UI as the
+  // default by storing human-readable names and treating empty as Normal.
+  const std::string stored = DataManager::GetStrValue("aera_interface_size");
+  return stored.empty() ? InterfaceSize::kNormal
+                        : static_cast<InterfaceSize>(value);
+}
+bool RecoverySetInterfaceSize(InterfaceSize size) {
+  const int value = static_cast<int>(size);
+  return value >= 0 && value <= 2 &&
+      DataManager::SetValue("aera_interface_size", value, 1) == 0;
+}
 int RecoveryHomeGridColumns() {
   LoadAeraPreferencesIfAvailable();
   const std::string stored = DataManager::GetStrValue("aera_home_grid_columns");
@@ -520,6 +535,7 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "brightness") DataManager::SetValue("tw_brightness_pct", value);
     else if (key == "accent") DataManager::SetValue("aera_theme_accent", value);
     else if (key == "theme") DataManager::SetValue("aera_theme_mode", value);
+    else if (key == "interface_size") DataManager::SetValue("aera_interface_size", value);
     else if (key == "home_grid_columns") DataManager::SetValue("aera_home_grid_columns", value);
     else if (key == "dock_layout") DataManager::SetValue("aera_dock_layout", value);
     else if (key == "dock_transparency") DataManager::SetValue("aera_dock_transparency", value);
@@ -558,6 +574,7 @@ bool SaveAeraPreferences() {
          << "brightness=" << DataManager::GetIntValue("tw_brightness_pct") << '\n'
          << "accent=" << DataManager::GetStrValue("aera_theme_accent") << '\n'
          << "theme=" << DataManager::GetStrValue("aera_theme_mode") << '\n'
+         << "interface_size=" << static_cast<int>(RecoveryInterfaceSize()) << '\n'
          << "home_grid_columns=" << RecoveryHomeGridColumns() << '\n'
          << "dock_layout=" << DataManager::GetIntValue("aera_dock_layout") << '\n'
          << "dock_transparency=" << RecoveryDockTransparency() << '\n'

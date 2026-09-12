@@ -226,7 +226,7 @@ void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_pos(state->command, 52, 6);
   lv_textarea_set_one_line(state->command, true);
   lv_textarea_set_placeholder_text(state->command, "Type a command…");
-  lv_obj_set_style_text_font(state->command, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_font(state->command, UiFont(&lv_font_montserrat_32), 0);
   lv_obj_set_style_text_color(state->command, kText, 0);
   lv_obj_set_style_text_color(state->command, kMuted,
                               LV_PART_TEXTAREA_PLACEHOLDER);
@@ -250,7 +250,7 @@ void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_style_pad_all(state->keyboard, 18, LV_PART_MAIN);
   lv_obj_set_style_pad_row(state->keyboard, 14, LV_PART_MAIN);
   lv_obj_set_style_pad_column(state->keyboard, 10, LV_PART_MAIN);
-  lv_obj_set_style_text_font(state->keyboard, &lv_font_montserrat_48,
+  lv_obj_set_style_text_font(state->keyboard, UiFont(&lv_font_montserrat_48),
                              LV_PART_ITEMS);
   lv_obj_set_style_text_color(state->keyboard, kText, LV_PART_ITEMS);
   lv_obj_set_style_bg_color(state->keyboard, kMainPanel, LV_PART_ITEMS);

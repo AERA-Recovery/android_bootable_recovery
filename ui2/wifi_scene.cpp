@@ -237,7 +237,7 @@ void PasswordDialog(WifiUi *state, const WifiNetwork &network) {
   lv_textarea_set_password_mode(input, true);
   lv_textarea_set_max_length(input, 63);
   lv_textarea_set_placeholder_text(input, "Password");
-  lv_obj_set_style_text_font(input, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_font(input, UiFont(&lv_font_montserrat_32), 0);
   lv_obj_set_style_text_color(input, kText, 0);
   lv_obj_set_style_bg_color(input, kMainPanel, 0);
   lv_obj_set_style_bg_opa(input, LV_OPA_COVER, 0);
@@ -261,7 +261,7 @@ void PasswordDialog(WifiUi *state, const WifiNetwork &network) {
   lv_obj_set_style_pad_all(keyboard, 14, LV_PART_MAIN);
   lv_obj_set_style_pad_row(keyboard, 12, LV_PART_MAIN);
   lv_obj_set_style_pad_column(keyboard, 8, LV_PART_MAIN);
-  lv_obj_set_style_text_font(keyboard, &lv_font_montserrat_48, LV_PART_ITEMS);
+  lv_obj_set_style_text_font(keyboard, UiFont(&lv_font_montserrat_48), LV_PART_ITEMS);
   lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
   lv_obj_set_style_text_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
   lv_obj_set_style_bg_color(keyboard, Color(0x484c54), LV_PART_ITEMS);

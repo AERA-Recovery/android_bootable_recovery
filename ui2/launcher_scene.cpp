@@ -198,7 +198,9 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
                              terminal_engraving, webkit_icon);
   lv_obj_set_pos(plate, 28, 22);
   MakeDecorationPassThrough(plate);
-  auto *title = Label(card, name, &lv_font_montserrat_48, kText);
+  // 40 px is the Normal Home identity size. The shared scale maps it down for
+  // Small and up to 48 px for Large, keeping all three modes visibly distinct.
+  auto *title = Label(card, name, &lv_font_montserrat_40, kText);
   lv_obj_set_pos(title, 36, 188);
   auto *copy = Label(card, description, &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(copy, 36, 250);

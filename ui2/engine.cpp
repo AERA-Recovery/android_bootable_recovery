@@ -163,6 +163,7 @@ public:
 
     design::ApplySurfaceMode(RecoveryLightMode());
     design::ApplyAccent(RecoveryAccentColor());
+    design::ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
     if (fastboot_mode) {
       backend_ready_ = true;
       interactive_ready_ = true;

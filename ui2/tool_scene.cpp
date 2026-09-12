@@ -83,7 +83,7 @@ void PartitionRows(Tools *state) {
       lv_checkbox_set_text(check, "");
       lv_obj_set_pos(check, 24, 46);
       lv_obj_set_style_pad_all(check, 0, LV_PART_MAIN);
-      lv_obj_set_style_text_font(check, &lv_font_montserrat_32, LV_PART_MAIN);
+      lv_obj_set_style_text_font(check, UiFont(&lv_font_montserrat_32), LV_PART_MAIN);
       lv_obj_set_style_pad_all(check, 8, LV_PART_INDICATOR);
       lv_obj_set_style_radius(check, 10, LV_PART_INDICATOR);
       lv_obj_set_style_border_width(check, 2, LV_PART_INDICATOR);
@@ -299,7 +299,7 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
   lv_textarea_set_max_length(state->format_input, 32);
   lv_textarea_set_text(state->format_input, "");
   lv_textarea_set_placeholder_text(state->format_input, "yes");
-  lv_obj_set_style_text_font(state->format_input, &lv_font_montserrat_48, 0);
+  lv_obj_set_style_text_font(state->format_input, UiFont(&lv_font_montserrat_48), 0);
   lv_obj_set_style_text_color(state->format_input, kText, 0);
   lv_obj_set_style_text_color(state->format_input, kMuted, LV_PART_TEXTAREA_PLACEHOLDER);
   lv_obj_set_style_bg_color(state->format_input, kMainPanel, 0);
@@ -319,7 +319,7 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
   lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
   lv_keyboard_set_textarea(keyboard, state->format_input);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_text_font(keyboard, &lv_font_montserrat_32, LV_PART_ITEMS);
+  lv_obj_set_style_text_font(keyboard, UiFont(&lv_font_montserrat_32), LV_PART_ITEMS);
   lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
   lv_obj_set_style_bg_color(keyboard, kMainPanel, LV_PART_ITEMS);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
@@ -380,7 +380,7 @@ void BuildPartitions(Tools *state) {
     lv_obj_set_pos(saved, landscape ? 550 : 734, landscape ? 350 : 458);
     lv_obj_set_size(saved, landscape ? 470 : 642, 112);
     lv_obj_set_pos(state->summary, 80, landscape ? 760 : 812);
-    lv_obj_set_style_text_font(state->summary, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(state->summary, UiFont(&lv_font_montserrat_48), 0);
     state->selection_detail = Label(state->screen, "", &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(state->selection_detail, 80, landscape ? 830 : 884);
     lv_obj_set_width(state->selection_detail, landscape ? 940 : 1280);
@@ -587,7 +587,7 @@ const char *AccentName(uint32_t rgb) {
 
 void BuildTheme(Tools *state) {
   Header(state->screen, "Theme Engine",
-         "Choose the surface and accent for every AERA page.", state->callback,
+         "Choose appearance, interface size and accent for every AERA page.", state->callback,
          state->context);
   const bool landscape = Landscape(state->screen);
   state->list = Scroll(state->screen, landscape ? 340 : 460,
@@ -660,9 +660,52 @@ void BuildTheme(Tools *state) {
     });
   }
 
+  auto *size_section = Label(state->list, "Interface size",
+                             &lv_font_montserrat_32, kAccent);
+  lv_obj_set_pos(size_section, 32, 690);
+  struct SizePreset {
+    const char *name;
+    const char *detail;
+    InterfaceSize size;
+  };
+  const std::array<SizePreset, 3> sizes{{
+      {"Small", "More content", InterfaceSize::kSmall},
+      {"Normal", "AERA default", InterfaceSize::kNormal},
+      {"Large", "Easier to read", InterfaceSize::kLarge},
+  }};
+  const InterfaceSize selected_size = RecoveryInterfaceSize();
+  for (size_t i = 0; i < sizes.size(); ++i) {
+    const auto preset = sizes[i];
+    const bool selected = selected_size == preset.size;
+    auto *card = lv_button_create(state->list);
+    Panel(card, 32, kMainPanel);
+    Interactive(card, kMainSelected);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 426, 760);
+    lv_obj_set_size(card, 410, 170);
+    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
+    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
+    auto *name = Label(card, preset.name, &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(name, 28, 28);
+    auto *detail = Label(card, preset.detail, &lv_font_montserrat_20, kMuted);
+    lv_obj_set_pos(detail, 28, 96);
+    if (selected) {
+      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
+      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -28, 34);
+    }
+    OnClick(card, [state, preset] {
+      if (!RecoverySetInterfaceSize(preset.size)) {
+        Sheet(state->screen, "Size unavailable",
+              "The interface size could not be changed.");
+        return;
+      }
+      ApplyInterfaceSize(static_cast<int>(preset.size));
+      Open(state, Action::kTheme);
+    });
+  }
+
   auto *grid_section = Label(state->list, "Home plugin grid",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(grid_section, 32, 690);
+  lv_obj_set_pos(grid_section, 32, 1000);
   struct GridPreset { const char *name; const char *detail; int columns; };
   const std::array<GridPreset, 2> grids{{
       {"2 x 3", "Wide cards - 6 apps per page", 2},
@@ -675,7 +718,7 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 760);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 1070);
     lv_obj_set_size(card, 624, 170);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
@@ -699,7 +742,7 @@ void BuildTheme(Tools *state) {
 
   auto *section = Label(state->list, "Accent palettes",
                         &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(section, 32, 1000);
+  lv_obj_set_pos(section, 32, 1310);
   const uint32_t selected_rgb = RecoveryAccentColor();
   for (size_t i = 0; i < kAccentPresets.size(); ++i) {
     const auto preset = kAccentPresets[i];
@@ -707,7 +750,7 @@ void BuildTheme(Tools *state) {
     const int32_t row = static_cast<int32_t>(i / 4);
     auto *card = lv_button_create(state->list);
     Clear(card);
-    lv_obj_set_pos(card, 16 + column * 320, 1070 + row * 220);
+    lv_obj_set_pos(card, 16 + column * 320, 1380 + row * 220);
     lv_obj_set_size(card, 304, 190);
     lv_obj_set_style_radius(card, 32, 0);
     lv_obj_set_style_bg_color(card, kMainPanel, 0);
@@ -747,7 +790,7 @@ void BuildTheme(Tools *state) {
       "AERA Cyan is the default. Palette changes apply immediately and are\n"
       "saved with the rest of your recovery preferences.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(note, 32, 1550);
+  lv_obj_set_pos(note, 32, 1860);
   lv_obj_set_width(note, 1220);
 
   auto *reset = Button(state->list, "Reset to AERA Cyan", [state] {
@@ -759,12 +802,12 @@ void BuildTheme(Tools *state) {
     ApplyAccent(kDefaultAccentRgb);
     Open(state, Action::kTheme);
   });
-  lv_obj_set_pos(reset, 16, 1680);
+  lv_obj_set_pos(reset, 16, 1990);
   lv_obj_set_size(reset, 1280, 124);
 
   auto *dock_section = Label(state->list, "Navigation dock",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(dock_section, 32, 1890);
+  lv_obj_set_pos(dock_section, 32, 2200);
   const std::array<std::pair<const char *, DockLayout>, 3> dock_modes{{
       {"Glass", DockLayout::kGlass}, {"Compact", DockLayout::kCompact},
       {"Minimal", DockLayout::kMinimal}}};
@@ -775,7 +818,7 @@ void BuildTheme(Tools *state) {
       RecoverySetDockLayout(mode.second);
       Open(state, Action::kTheme);
     }, selected);
-    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 426, 1960);
+    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 426, 2270);
     lv_obj_set_size(card, 408, 128);
     lv_obj_set_style_radius(card, 34, 0);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
@@ -818,10 +861,10 @@ void BuildTheme(Tools *state) {
       else RecoverySetDockTransparency(value);
     }, LV_EVENT_ALL, binding);
   };
-  dock_slider(2120, "Transparency",
+  dock_slider(2430, "Transparency",
               "0% is solid; 100% leaves only the controls visible",
               RecoveryDockTransparency(), false);
-  dock_slider(2360, "Backdrop blur",
+  dock_slider(2670, "Backdrop blur",
               "GPU-friendly live blur behind the dock surface",
               RecoveryDockBlur(), true);
 
@@ -832,12 +875,12 @@ void BuildTheme(Tools *state) {
         RecoverySetDockHideInApps(!hide_apps);
         Open(state, Action::kTheme);
       }, hide_apps);
-  lv_obj_set_pos(hide, 16, 2600);
+  lv_obj_set_pos(hide, 16, 2910);
   lv_obj_set_size(hide, 1280, 128);
   auto *hide_note = Label(state->list,
       "Installed plugins use the full screen. Edge-swipe or hardware Back still works.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(hide_note, 32, 2760);
+  lv_obj_set_pos(hide_note, 32, 3070);
   lv_obj_set_width(hide_note, 1220);
 
   auto *save = Button(state->screen, "Save theme", [state] {
@@ -994,7 +1037,8 @@ void BuildLogs(Tools *state) {
 }
 
 void BuildMenu(Tools *state) {
-  Header(state->screen, "Menu", "Tools for your recovery session.", state->callback, state->context);
+  Header(state->screen, "Menu", "Tools for your recovery session.",
+         state->callback, state->context);
   // Only the six utility cards scroll. Reboot is pinned above Navigation so
   // it always reads as the final action on the page.
   const bool landscape = Landscape(state->screen);
@@ -1022,10 +1066,12 @@ void BuildMenu(Tools *state) {
     // Reboot is a deliberate final destination, pinned immediately above the
     // four-button navigation dock instead of merely following the grid.
     const int card_width = landscape ? 992 : 640;
+    const int card_step = landscape ? 284 : 306;
+    const int card_height = landscape ? 260 : 280;
     lv_obj_set_pos(card, reboot ? 64 : column * (landscape ? 1016 : 672),
-                   reboot ? (landscape ? 1030 : 2684) : row * 268);
+                   reboot ? (landscape ? 1010 : 2648) : row * card_step);
     lv_obj_set_size(card, reboot ? (landscape ? 3040 : 1312) : card_width,
-                    reboot ? (landscape ? 160 : 210) : 242);
+                    reboot ? (landscape ? 190 : 232) : card_height);
     lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
     lv_obj_set_style_border_width(card, reboot ? 0 : 1, 0);
     lv_obj_set_style_border_color(card, reboot ? kRed : kMainLine, 0);
@@ -1036,20 +1082,21 @@ void BuildMenu(Tools *state) {
     auto *plate = lv_obj_create(card);
     Panel(plate, 22, reboot ? kRedSoft : kAccentSoft);
     lv_obj_set_pos(plate, 28, 28);
-    lv_obj_set_size(plate, 84, 84);
-    auto *icon = Label(plate, item.icon, &lv_font_montserrat_32,
+    lv_obj_set_size(plate, reboot ? 96 : 108, reboot ? 96 : 108);
+    auto *icon = Label(plate, item.icon, &lv_font_montserrat_48,
                        reboot ? kRed : kAccent);
     lv_obj_center(icon);
-    auto *title = Label(card, item.title, &lv_font_montserrat_32, kText);
-    lv_obj_set_pos(title, 136, 42);
+    auto *title = Label(card, item.title, &lv_font_montserrat_36, kText);
+    lv_obj_set_pos(title, reboot ? 152 : 164, reboot ? 40 : 42);
     lv_obj_set_width(title, reboot ? (landscape ? 2750 : 1040)
-                                  : card_width - 230);
+                                  : card_width - 252);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    auto *detail = Label(card, item.detail, &lv_font_montserrat_24, kMuted);
-    lv_obj_set_pos(detail, reboot ? 136 : 30, reboot ? 116 : 140);
+    auto *detail = Label(card, item.detail, &lv_font_montserrat_32, kMuted);
+    lv_obj_set_pos(detail, reboot ? 152 : 30,
+                   reboot ? 126 : (landscape ? 150 : 164));
     lv_obj_set_width(detail, reboot ? (landscape ? 2750 : 1040)
                                    : card_width - 100);
-    auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_32,
+    auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_36,
                         reboot ? kRed : kMutedStrong);
     lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -30, 0);
     AnimateEnter(card, 30 + static_cast<uint32_t>(i) * 28, 12);

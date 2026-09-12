@@ -138,7 +138,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   lv_textarea_set_one_line(s->address, true);
   lv_textarea_set_max_length(s->address, 2040);
   lv_textarea_set_placeholder_text(s->address, "Enter website address");
-  lv_obj_set_style_text_font(s->address, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_font(s->address, UiFont(&lv_font_montserrat_32), 0);
   lv_obj_set_style_text_color(s->address, kText, 0);
   lv_obj_set_style_bg_color(s->address, kMainPanel, 0);
   lv_obj_set_style_bg_opa(s->address, LV_OPA_COVER, 0);
@@ -182,7 +182,8 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
                      i * (landscape ? 469 : 278), 334);
     lv_obj_set_size(button, landscape ? 445 : 254, 106);
     lv_obj_set_style_radius(button, 53, 0);
-    lv_obj_set_style_text_font(lv_obj_get_child(button, 0), &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(lv_obj_get_child(button, 0),
+                               UiFont(&lv_font_montserrat_48), 0);
     // Do not present navigation as functional before the isolated session exists.
     lv_obj_add_state(button, LV_STATE_DISABLED);
     lv_obj_set_style_opa(button, LV_OPA_40, LV_STATE_DISABLED);
@@ -272,7 +273,8 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
                   landscape ? 720 : 760);
   if (landscape) lv_obj_align(s->keyboard, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
   else lv_obj_align(s->keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_text_font(s->keyboard, &lv_font_montserrat_48, LV_PART_ITEMS);
+  lv_obj_set_style_text_font(s->keyboard, UiFont(&lv_font_montserrat_48),
+                             LV_PART_ITEMS);
   lv_obj_set_style_bg_color(s->keyboard, kMainBottom, 0);
   lv_obj_set_style_bg_opa(s->keyboard, LV_OPA_COVER, 0);
   lv_obj_set_style_pad_all(s->keyboard, 18, 0);

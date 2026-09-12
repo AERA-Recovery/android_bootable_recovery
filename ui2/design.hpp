@@ -59,6 +59,33 @@ inline lv_color_t kAccent = Color(kDefaultAccentRgb);
 inline lv_color_t kAccentPressed = Color(0x0aa8db);
 inline lv_color_t kAccentSoft = Color(0x17343d);
 inline lv_color_t kMainSelected = Color(0x30434a);
+inline int kInterfaceSize = 1;
+
+inline void ApplyInterfaceSize(int size) {
+  kInterfaceSize = size < 0 ? 0 : size > 2 ? 2 : size;
+}
+
+inline const lv_font_t *UiFont(const lv_font_t *font) {
+  if (kInterfaceSize == 1 || font == nullptr) return font;
+  if (kInterfaceSize == 0) {
+    if (font == &lv_font_montserrat_48) return &lv_font_montserrat_40;
+    if (font == &lv_font_montserrat_40) return &lv_font_montserrat_36;
+    if (font == &lv_font_montserrat_36) return &lv_font_montserrat_32;
+    if (font == &lv_font_montserrat_32) return &lv_font_montserrat_28;
+    if (font == &lv_font_montserrat_24) return &lv_font_montserrat_20;
+    if (font == &lv_font_montserrat_20) return &lv_font_montserrat_18;
+    if (font == &lv_font_montserrat_18) return &lv_font_montserrat_16;
+  } else {
+    if (font == &lv_font_montserrat_48) return &lv_font_montserrat_48;
+    if (font == &lv_font_montserrat_40) return &lv_font_montserrat_48;
+    if (font == &lv_font_montserrat_36) return &lv_font_montserrat_40;
+    if (font == &lv_font_montserrat_32) return &lv_font_montserrat_36;
+    if (font == &lv_font_montserrat_24) return &lv_font_montserrat_28;
+    if (font == &lv_font_montserrat_20) return &lv_font_montserrat_24;
+    if (font == &lv_font_montserrat_18) return &lv_font_montserrat_20;
+  }
+  return font;
+}
 
 inline bool IsLightMode() { return kLightMode; }
 
@@ -163,7 +190,7 @@ inline lv_obj_t *Label(lv_obj_t *parent, const char *text,
                        const lv_font_t *font, lv_color_t color) {
   lv_obj_t *label = lv_label_create(parent);
   lv_label_set_text(label, text);
-  lv_obj_set_style_text_font(label, font, 0);
+  lv_obj_set_style_text_font(label, UiFont(font), 0);
   lv_obj_set_style_text_color(label, color, 0);
   return label;
 }

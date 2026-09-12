@@ -861,7 +861,7 @@ void EditValue(State *state, bool password) {
   lv_textarea_set_password_show_time(input, 0);
   lv_textarea_set_text(input, password ? "" : state->repository.c_str());
   lv_textarea_set_placeholder_text(input, password ? "Password" : kDefaultRepository);
-  lv_obj_set_style_text_font(input, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_font(input, UiFont(&lv_font_montserrat_32), 0);
   lv_obj_set_style_text_color(input, kText, 0);
   lv_obj_set_style_bg_color(input, kMainPanel, 0);
   lv_obj_set_style_border_color(input, kAccent, LV_STATE_FOCUSED);
@@ -874,7 +874,7 @@ void EditValue(State *state, bool password) {
   lv_obj_set_size(keyboard, landscape ? 1804 : 1216, landscape ? 570 : 630);
   lv_keyboard_set_textarea(keyboard, input);
   lv_obj_set_style_bg_color(keyboard, kMainBottom, LV_PART_MAIN);
-  lv_obj_set_style_text_font(keyboard, &lv_font_montserrat_48, LV_PART_ITEMS);
+  lv_obj_set_style_text_font(keyboard, UiFont(&lv_font_montserrat_48), LV_PART_ITEMS);
   lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
   lv_obj_set_style_bg_color(keyboard, Color(0x484c54), LV_PART_ITEMS);
   lv_obj_set_style_bg_color(keyboard, kAccent, LV_PART_ITEMS | LV_STATE_PRESSED);
@@ -1281,7 +1281,8 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_size(select_all, filter_width, 82);
   lv_obj_align(select_all, LV_ALIGN_TOP_RIGHT, -(filter_width + 44), 24);
   state->select_all_label = lv_obj_get_child(select_all, 0);
-  lv_obj_set_style_text_font(state->select_all_label, &lv_font_montserrat_24, 0);
+  lv_obj_set_style_text_font(state->select_all_label,
+                             UiFont(&lv_font_montserrat_24), 0);
   auto *system_filter = Button(apps_panel, "", [state] {
     state->show_system = !state->show_system;
     RenderApps(state);
@@ -1289,7 +1290,8 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_size(system_filter, filter_width, 82);
   lv_obj_align(system_filter, LV_ALIGN_TOP_RIGHT, -24, 24);
   state->system_filter_label = lv_obj_get_child(system_filter, 0);
-  lv_obj_set_style_text_font(state->system_filter_label, &lv_font_montserrat_24, 0);
+  lv_obj_set_style_text_font(state->system_filter_label,
+                             UiFont(&lv_font_montserrat_24), 0);
   state->list = lv_obj_create(apps_panel);
   Clear(state->list);
   lv_obj_set_pos(state->list, 24, 132);

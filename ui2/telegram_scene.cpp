@@ -88,7 +88,7 @@ lv_obj_t *Input(lv_obj_t *parent, int y, const char *placeholder,
   lv_textarea_set_password_mode(input, password);
   lv_textarea_set_password_show_time(input, 0);
   lv_textarea_set_max_length(input, 512);
-  lv_obj_set_style_text_font(input, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_font(input, UiFont(&lv_font_montserrat_32), 0);
   lv_obj_set_style_text_color(input, kText, 0);
   lv_obj_set_style_text_color(input, kMutedStrong,
                               LV_PART_TEXTAREA_PLACEHOLDER);
@@ -115,7 +115,7 @@ void StyleKeyboard(lv_obj_t *keyboard) {
   lv_obj_set_style_pad_all(keyboard, 14, LV_PART_MAIN);
   lv_obj_set_style_pad_row(keyboard, 12, LV_PART_MAIN);
   lv_obj_set_style_pad_column(keyboard, 8, LV_PART_MAIN);
-  lv_obj_set_style_text_font(keyboard, &lv_font_montserrat_48, LV_PART_ITEMS);
+  lv_obj_set_style_text_font(keyboard, UiFont(&lv_font_montserrat_48), LV_PART_ITEMS);
   lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
   lv_obj_set_style_bg_color(keyboard, kMainPanel, LV_PART_ITEMS);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_ITEMS);
