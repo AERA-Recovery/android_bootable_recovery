@@ -91,16 +91,21 @@ bool ModalVisible(lv_obj_t *screen) {
 
 void RenderPage(GenericScene *scene) {
   lv_obj_clean(scene->content);
+  // LVGL defers coordinate resolution until a layout pass. Generic plugin
+  // pages can commit during the very first timer tick, so resolve the explicit
+  // content size before using it for child widths.
+  lv_obj_update_layout(scene->content);
+  const int content_width = lv_obj_get_width(scene->content);
   auto *title = Label(scene->content,
                       scene->page_title.empty() ? scene->plugin.name.c_str()
                                                 : scene->page_title.c_str(),
                       &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, 36, 30);
-  lv_obj_set_width(title, std::max(400, lv_obj_get_width(scene->content) - 72));
+  lv_obj_set_width(title, std::max(400, content_width - 72));
   auto *body = Label(scene->content, scene->page_body.c_str(),
                      &lv_font_montserrat_32, kMutedStrong);
   lv_obj_set_pos(body, 36, 112);
-  lv_obj_set_width(body, std::max(400, lv_obj_get_width(scene->content) - 72));
+  lv_obj_set_width(body, std::max(400, content_width - 72));
   lv_obj_set_style_text_line_space(body, 14, 0);
   lv_obj_update_layout(body);
   int y = 148 + std::max(80, static_cast<int>(lv_obj_get_height(body)));
@@ -113,7 +118,7 @@ void RenderPage(GenericScene *scene) {
     auto *button = Button(scene->content, model.title.c_str(), action,
                           (model.flags & plugin_api::kPrimary) != 0);
     lv_obj_set_pos(button, 36, y);
-    lv_obj_set_size(button, std::max(400, lv_obj_get_width(scene->content) - 72),
+    lv_obj_set_size(button, std::max(400, content_width - 72),
                     model.detail.empty() ? 112 : 146);
     if (disabled) lv_obj_add_state(button, LV_STATE_DISABLED);
     if (!model.detail.empty()) {
@@ -258,27 +263,26 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
     delete static_cast<GenericScene *>(lv_event_get_user_data(event));
   }, LV_EVENT_DELETE, scene);
   Header(screen, scene->plugin.name.c_str(),
-         "Root app rendered by AERA Host API 2.", callback, context);
+         scene->plugin.description.c_str(), callback, context);
   const bool landscape = Landscape(screen);
+  const int card_width = landscape ? lv_obj_get_width(screen) - 128 : 1312;
+  const int card_height = landscape ? lv_obj_get_height(screen) - 520 : 2250;
   scene->card = lv_obj_create(screen);
   Panel(scene->card, 42, kMainPanel);
   lv_obj_set_pos(scene->card, 64, landscape ? 320 : 430);
-  lv_obj_set_size(scene->card,
-                  landscape ? lv_obj_get_width(screen) - 128 : 1312,
-                  landscape ? lv_obj_get_height(screen) - 520 : 2250);
+  lv_obj_set_size(scene->card, card_width, card_height);
   scene->content = lv_obj_create(scene->card);
   Clear(scene->content);
   lv_obj_set_pos(scene->content, 24, 24);
-  lv_obj_set_size(scene->content, lv_obj_get_width(scene->card) - 48,
-                  lv_obj_get_height(scene->card) - 132);
+  lv_obj_set_size(scene->content, card_width - 48, card_height - 132);
   lv_obj_add_flag(scene->content, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(scene->content, LV_DIR_VER);
   scene->page_title = "Preparing " + scene->plugin.name;
   scene->page_body = "Verifying the plugin runtime and expanding it into private RAM.";
   RenderPage(scene);
   scene->progress = lv_bar_create(scene->card);
-  lv_obj_set_pos(scene->progress, 36, lv_obj_get_height(scene->card) - 80);
-  lv_obj_set_size(scene->progress, lv_obj_get_width(scene->card) - 72, 10);
+  lv_obj_set_pos(scene->progress, 36, card_height - 80);
+  lv_obj_set_size(scene->progress, card_width - 72, 10);
   lv_obj_set_style_bg_color(scene->progress, kAccent, LV_PART_INDICATOR);
   scene->status = Label(scene->card, "Checking signed runtime",
                         &lv_font_montserrat_24, kMuted);
@@ -308,6 +312,7 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
       std::string error;
       if (!scene->process.Start(scene->preparation.directory, control, error) ||
           !scene->session.Adopt(control)) {
+        scene->stopped = true;
         SetStatus(scene, error.empty() ? scene->session.Status() : error);
         return;
       }

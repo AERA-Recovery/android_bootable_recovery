@@ -35,13 +35,17 @@ bool Process::Start(const std::string &runtime, int &control_fd,
   const std::string plugin_root = "AERA_PLUGIN_ROOT=" + runtime;
   const std::string data_dirs = "XDG_DATA_DIRS=" + runtime + "/usr/share";
   struct stat loader_info{}, program_info{};
-  if (lstat(loader.c_str(), &loader_info) != 0 ||
-      !S_ISREG(loader_info.st_mode) || loader_info.st_uid != 0 ||
-      (loader_info.st_mode & 0111) == 0 ||
-      lstat(program.c_str(), &program_info) != 0 ||
+  if (lstat(program.c_str(), &program_info) != 0 ||
       !S_ISREG(program_info.st_mode) || program_info.st_uid != 0 ||
       (program_info.st_mode & 0111) == 0) {
-    error = "The API 2 runtime has no trusted executable or loader.";
+    error = "The API 2 runtime has no trusted executable.";
+    return false;
+  }
+  const bool loader_present = lstat(loader.c_str(), &loader_info) == 0;
+  const bool loader_trusted = loader_present && S_ISREG(loader_info.st_mode) &&
+      loader_info.st_uid == 0 && (loader_info.st_mode & 0111) != 0;
+  if (loader_present && !loader_trusted) {
+    error = "The API 2 runtime has an untrusted dynamic loader.";
     return false;
   }
   int channels[2] = {-1, -1};
@@ -80,7 +84,15 @@ bool Process::Start(const std::string &runtime, int &control_fd,
         const_cast<char *>("AERA_HOST_API=2"),
         const_cast<char *>(plugin_root.c_str()),
         const_cast<char *>(data_dirs.c_str()), nullptr};
-    execve(loader.c_str(), arguments, environment);
+    // Most API 2 plugins are intentionally static, keeping their package small
+    // and self-contained. Execute those directly. A dynamic plugin whose ELF
+    // interpreter is not present in recovery returns here with ENOENT; only
+    // then fall back to its verified, root-owned packaged musl loader.
+    char *const direct_arguments[] = {
+        const_cast<char *>(program.c_str()),
+        const_cast<char *>("--aera-host-api=2"), nullptr};
+    execve(program.c_str(), direct_arguments, environment);
+    if (loader_trusted) execve(loader.c_str(), arguments, environment);
     _exit(78);
   }
   close(child_control);
