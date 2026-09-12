@@ -20,19 +20,17 @@ using namespace design;
 using namespace widgets;
 
 lv_obj_t *AppIconPlate(lv_obj_t *parent, const char *symbol,
-                       lv_color_t accent, lv_color_t fill, int size,
+                       lv_color_t accent, int size,
                        bool retroarch_icon = false) {
   auto *plate = lv_obj_create(parent);
-  Panel(plate, size / 3, fill);
+  Clear(plate);
   lv_obj_set_size(plate, size, size);
-  lv_obj_set_style_border_width(plate, 1, 0);
-  lv_obj_set_style_border_color(plate, accent, 0);
-  lv_obj_set_style_border_opa(plate, LV_OPA_30, 0);
   if (retroarch_icon) {
-    auto *mark = RetroArchIconPlate(plate, accent, size - 22);
+    auto *mark = RetroArchIconPlate(plate, accent, size - 14);
     lv_obj_center(mark);
   } else {
     auto *mark = Label(plate, symbol, &lv_font_montserrat_48, accent);
+    lv_obj_set_style_transform_scale(mark, 352, 0);
     lv_obj_center(mark);
   }
   return plate;
@@ -58,13 +56,12 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_40, 0);
   OnClick(card, std::move(action));
-  auto *plate = AppIconPlate(card, icon, accent, kMainSheet, 112,
-                             retroarch_icon);
-  lv_obj_set_pos(plate, 36, 38);
+  auto *plate = AppIconPlate(card, icon, accent, 144, retroarch_icon);
+  lv_obj_set_pos(plate, 28, 22);
   auto *title = Label(card, name, &lv_font_montserrat_48, kText);
-  lv_obj_set_pos(title, 36, 178);
+  lv_obj_set_pos(title, 36, 188);
   auto *copy = Label(card, description, &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(copy, 36, 242);
+  lv_obj_set_pos(copy, 36, 250);
   lv_obj_set_width(copy, width - 110);
   auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_32, kDim);
   lv_obj_align(arrow, LV_ALIGN_TOP_RIGHT, -38, 74);
@@ -83,20 +80,17 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
-  auto *plate = AppIconPlate(card, icon, accent, kMainPanel, 138,
-                             retroarch_icon);
-  lv_obj_set_style_bg_opa(plate, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(plate, 0, 0);
-  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 28);
+  auto *plate = AppIconPlate(card, icon, accent, 154, retroarch_icon);
+  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 18);
   if (!retroarch_icon) {
     auto *mark = lv_obj_get_child(plate, 0);
-    lv_obj_set_style_transform_scale(mark, 288, 0);
+    lv_obj_set_style_transform_scale(mark, 384, 0);
   }
   auto *title = Label(card, plugin.name.c_str(), &lv_font_montserrat_32, kText);
   lv_obj_set_width(title, width - 40);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 208);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 214);
   OnClick(card, std::move(action));
   return card;
 }
