@@ -19,13 +19,100 @@ namespace {
 using namespace design;
 using namespace widgets;
 
+lv_obj_t *MaterialTerminalIcon(lv_obj_t *parent, lv_color_t color, int size) {
+  auto *art = lv_obj_create(parent);
+  Clear(art);
+  lv_obj_set_size(art, size, size);
+
+  auto *frame = lv_obj_create(art);
+  Clear(frame);
+  lv_obj_set_size(frame, 104, 82);
+  lv_obj_center(frame);
+  lv_obj_set_style_radius(frame, 12, 0);
+  lv_obj_set_style_border_width(frame, 8, 0);
+  lv_obj_set_style_border_color(frame, color, 0);
+  lv_obj_set_style_border_opa(frame, LV_OPA_COVER, 0);
+
+  static constexpr lv_point_precise_t kChevron[] = {
+      {44, 57}, {61, 72}, {44, 87},
+  };
+  auto *chevron = lv_line_create(art);
+  lv_line_set_points(chevron, kChevron, 3);
+  lv_obj_set_style_line_width(chevron, 8, 0);
+  lv_obj_set_style_line_color(chevron, color, 0);
+  lv_obj_set_style_line_rounded(chevron, true, 0);
+
+  auto *cursor = lv_obj_create(art);
+  Clear(cursor);
+  lv_obj_set_pos(cursor, 74, 82);
+  lv_obj_set_size(cursor, 34, 8);
+  lv_obj_set_style_radius(cursor, 4, 0);
+  lv_obj_set_style_bg_color(cursor, color, 0);
+  lv_obj_set_style_bg_opa(cursor, LV_OPA_COVER, 0);
+  return art;
+}
+
+void AddTerminalEngraving(lv_obj_t *card, int width, lv_color_t accent) {
+  static constexpr const char *kStreams[] = {
+      "0\n1\nA\n7\n/\nR\n0\n1\n{\n9\nE\n3\n}",
+      "R\n4\n>\n0\n1\nA\n8\n/\n2\nE\n1\n;\n6",
+      "1\n0\nF\n5\nA\n{\n3\nR\n9\n}\n0\n1\nE",
+      "A\nE\n2\n/\n7\nR\n1\n0\n>\n4\n;\n8\nA",
+      "7\n{\n0\n1\nE\n5\nR\n/\nA\n3\n}\n9\n0",
+      "0\nA\n1\nR\n6\n>\nE\n2\n/\n8\n1\n0\n;",
+      "E\n3\n/\nA\n0\n1\nR\n7\n{\n4\n9\n}\n1",
+      "1\nR\n8\n0\n>\nA\n5\nE\n/\n2\n0\n1\n6",
+      "A\n4\n{\nE\n1\n0\n7\nR\n}\n/\n3\n9\n0",
+      "R\n0\n1\n6\nA\n/\n>\nE\n8\n2\n;\n1\n0",
+      "0\nE\n5\n1\nR\n{\nA\n3\n/\n}\n7\n0\n1",
+      "A\n1\n/\n9\n0\nE\n4\nR\n>\n1\n8\n;\n2",
+      "E\n7\nR\n0\n1\nA\n{\n5\n}\n/\n3\n0\n9",
+      "1\n0\nA\n2\n/\nR\n8\nE\n>\n6\n1\n;\n4",
+      "R\n5\nE\n{\n0\n1\nA\n9\n/\n3\n}\n7\n0",
+      "0\nA\n6\n1\nE\n>\nR\n4\n/\n8\n0\n1\n;",
+      "A\nE\n0\n7\nR\n/\n1\n{\n5\n}\n9\n0\n3",
+      "1\nR\n4\n0\nA\nE\n>\n8\n/\n2\n1\n;\n6",
+  };
+  constexpr int kStreamCount =
+      static_cast<int>(sizeof(kStreams) / sizeof(kStreams[0]));
+
+  const int column_count = std::clamp(width / 46, 14, 30);
+  const int spacing = (width - 112) / (column_count - 1);
+  for (int column = 0; column < column_count; ++column) {
+    const int x = 56 + column * spacing;
+    const int y = 4 + (column % 3) * 3;
+    const lv_opa_t depth = static_cast<lv_opa_t>(108 + (column % 3) * 18);
+
+    const char *stream = kStreams[column % kStreamCount];
+    auto *impression = Label(card, stream,
+                             &lv_font_montserrat_18, kMainCanvas);
+    lv_obj_set_pos(impression, x, y);
+    lv_obj_set_style_text_align(impression, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_line_space(impression, 8, 0);
+    lv_obj_set_style_text_opa(impression, depth, 0);
+
+    auto *edge = Label(card, stream, &lv_font_montserrat_18,
+                       column % 4 == 2 ? accent : kText);
+    lv_obj_set_pos(edge, x + 1, y + 2);
+    lv_obj_set_style_text_align(edge, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_line_space(edge, 8, 0);
+    lv_obj_set_style_text_opa(
+        edge, static_cast<lv_opa_t>(column % 4 == 2 ? 78 : 54), 0);
+  }
+
+}
+
 lv_obj_t *AppIconPlate(lv_obj_t *parent, const char *symbol,
                        lv_color_t accent, int size,
-                       bool retroarch_icon = false) {
+                       bool retroarch_icon = false,
+                       bool terminal_icon = false) {
   auto *plate = lv_obj_create(parent);
   Clear(plate);
   lv_obj_set_size(plate, size, size);
-  if (retroarch_icon) {
+  if (terminal_icon) {
+    auto *mark = MaterialTerminalIcon(plate, accent, size);
+    lv_obj_center(mark);
+  } else if (retroarch_icon) {
     auto *mark = RetroArchIconPlate(plate, accent, size - 14);
     lv_obj_center(mark);
   } else {
@@ -46,7 +133,8 @@ const char *GenericPluginIcon(const plugins::Plugin &plugin) {
 lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
                   const char *icon, const char *name, const char *description,
                   lv_color_t accent, Handler action,
-                  bool retroarch_icon = false) {
+                  bool retroarch_icon = false,
+                  bool terminal_engraving = false) {
   auto *card = lv_button_create(screen);
   Panel(card, 44, kMainPanel);
   Interactive(card, kMainSelected);
@@ -56,7 +144,12 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_40, 0);
   OnClick(card, std::move(action));
-  auto *plate = AppIconPlate(card, icon, accent, 144, retroarch_icon);
+  if (terminal_engraving) {
+    lv_obj_set_style_clip_corner(card, true, 0);
+    AddTerminalEngraving(card, width, kAccent);
+  }
+  auto *plate = AppIconPlate(card, icon, accent, 144, retroarch_icon,
+                             terminal_engraving);
   lv_obj_set_pos(plate, 28, 22);
   auto *title = Label(card, name, &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, 36, 188);
@@ -160,7 +253,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
                                SetSelectedPluginId(plugin_id);
                              callback(action, context);
                            },
-                           retro_icon);
+                           retro_icon, action == Action::kTerminal);
       AnimateEnter(card, 20 + index * 22, 12);
       ++index;
     };
@@ -219,7 +312,8 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
                         kCyan, [=] { callback(Action::kPlugins, context); });
   auto *terminal = AppCard(screen, 64, 974, 1312, LV_SYMBOL_EDIT, "Terminal",
                            "Run recovery commands in the built-in AERA shell.",
-                           kGreen, [=] { callback(Action::kTerminal, context); });
+                           kAccent, [=] { callback(Action::kTerminal, context); },
+                           false, true);
   AnimateEnter(files, 20, 14);
   AnimateEnter(store, 55, 14);
   AnimateEnter(terminal, 80, 14);
