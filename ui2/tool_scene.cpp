@@ -62,6 +62,10 @@ void UpdateSelection(Tools *state) {
 
 void PartitionRows(Tools *state) {
   lv_obj_clean(state->list);
+  // Resolve the real scroll width before laying out rows. Without this pass,
+  // LVGL can still report its creation-time width and the entire row collapses
+  // into the 600 px fallback.
+  lv_obj_update_layout(state->list);
   const int row_width = std::max(600, static_cast<int>(
       lv_obj_get_width(state->list)));
   for (size_t i = 0; i < state->volumes.size(); ++i) {
@@ -70,14 +74,14 @@ void PartitionRows(Tools *state) {
     {
       const bool wipe = state->tool == Action::kWipe;
       auto *row = Button(state->list, "", [] {});
-      lv_obj_set_pos(row, 0, static_cast<int>(i) * 132);
-      lv_obj_set_size(row, row_width, 126);
+      lv_obj_set_pos(row, 0, static_cast<int>(i) * 148);
+      lv_obj_set_size(row, row_width, 142);
       lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
       lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
       lv_obj_set_style_radius(row, 18, 0);
       auto *check = lv_checkbox_create(row);
       lv_checkbox_set_text(check, "");
-      lv_obj_set_pos(check, 24, 38);
+      lv_obj_set_pos(check, 24, 46);
       lv_obj_set_style_pad_all(check, 0, LV_PART_MAIN);
       lv_obj_set_style_text_font(check, &lv_font_montserrat_32, LV_PART_MAIN);
       lv_obj_set_style_pad_all(check, 8, LV_PART_INDICATOR);
@@ -94,19 +98,21 @@ void PartitionRows(Tools *state) {
       lv_obj_set_style_bg_image_opa(check, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
       lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE);
       if (selected) lv_obj_add_state(check, LV_STATE_CHECKED);
-      auto *name = Label(row, v.name.c_str(), &lv_font_montserrat_32, kText);
-      lv_obj_set_pos(name, 112, 20);
-      lv_obj_set_width(name, wipe ? row_width - 150 : row_width - 420);
+      auto *name = Label(row, v.name.c_str(), &lv_font_montserrat_36, kText);
+      lv_obj_set_pos(name, 112, 14);
+      lv_obj_set_width(name, wipe ? row_width - 150 : row_width - 430);
       lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
       const auto detail = wipe ? WipeDescription(v.path) : v.path;
-      auto *path = Label(row, detail.c_str(), &lv_font_montserrat_24,
+      auto *path = Label(row, detail.c_str(), &lv_font_montserrat_32,
           wipe && (v.path == "/metadata" || v.path == "INTERNAL") ? kAmber : kMuted);
-      lv_obj_set_pos(path, 112, 70);
-      lv_obj_set_width(path, wipe ? row_width - 150 : row_width - 420);
+      lv_obj_set_pos(path, 112, 76);
+      lv_obj_set_width(path, wipe ? row_width - 150 : row_width - 430);
       lv_label_set_long_mode(path, LV_LABEL_LONG_DOT);
       if (!wipe) {
         auto *size = Label(row, Size(v.bytes).c_str(), &lv_font_montserrat_32, kMutedStrong);
-        lv_obj_align(size, LV_ALIGN_RIGHT_MID, -24, 0);
+        lv_obj_set_width(size, 270);
+        lv_obj_set_style_text_align(size, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_align(size, LV_ALIGN_RIGHT_MID, -28, 0);
       }
       OnClick(row, [state, v, check] {
         if (state->selected.erase(v.path)) lv_obj_remove_state(check, LV_STATE_CHECKED);
@@ -432,8 +438,18 @@ void BuildPartitions(Tools *state) {
   auto *review = Button(state->screen, backup ? "Review backup" :
                         restore ? "Review restore" : "Review wipe",
                         [state] { Review(state); }, true);
-  lv_obj_set_pos(review, 80, landscape ? 1080 : 2610);
-  lv_obj_set_size(review, landscape ? 940 : 1280, 150);
+  constexpr int review_height = 150;
+  const int review_gap = landscape ? 20 : 24;
+  const int review_y = lv_obj_get_height(state->screen) -
+      NavigationHeight(state->screen) - review_gap - review_height;
+  lv_obj_set_pos(review, 80, review_y);
+  lv_obj_set_size(review, landscape ? 940 : 1280, review_height);
+  if (!landscape && (backup || restore)) {
+    constexpr int list_top = 954;
+    constexpr int list_to_review_gap = 28;
+    lv_obj_set_height(state->list,
+                      std::max(600, review_y - list_top - list_to_review_gap));
+  }
   state->review = review;
   lv_obj_set_style_bg_color(review, kMainPanel, LV_STATE_DISABLED);
   lv_obj_set_style_text_color(lv_obj_get_child(review, 0), kMuted, LV_STATE_DISABLED);

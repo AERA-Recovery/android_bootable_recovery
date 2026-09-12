@@ -75,6 +75,15 @@ inline void Header(lv_obj_t *screen, const char *title, const char *subtitle,
   AnimateEnter(heading, 0, 12);
 }
 
+inline int NavigationHeight(lv_obj_t *screen) {
+  const bool landscape = Landscape(screen);
+  const DockLayout layout = RecoveryDockLayout();
+  const bool compact = layout == DockLayout::kCompact;
+  const bool minimal = layout == DockLayout::kMinimal;
+  return landscape ? (minimal ? 138 : 160)
+                   : (minimal ? 170 : compact ? 188 : 226);
+}
+
 inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
                             ActionCallback callback, void *context,
                             bool app_surface = false) {
@@ -92,8 +101,7 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
   const bool minimal = layout == DockLayout::kMinimal;
   const int bar_width = landscape ? (minimal ? 1360 : compact ? 1600 : 1800)
                                   : (minimal ? 1120 : compact ? 1280 : 1440);
-  const int bar_height = landscape ? (minimal ? 138 : 160)
-                                   : (minimal ? 170 : compact ? 188 : 226);
+  const int bar_height = NavigationHeight(screen);
   const int shelf_x = landscape || compact || minimal ? 0 : 120;
   const int shelf_y = minimal ? 4 : landscape ? 8 : 18;
   const int shelf_width = landscape || compact || minimal ? bar_width : 1200;
