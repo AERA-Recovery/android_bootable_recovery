@@ -44,7 +44,6 @@ cc_library_static {
         "plugin_scene.cpp",
         "plugins/plugin_manager.cpp",
         "plugin_api/launcher.cpp",
-        "plugin_api/operations.cpp",
         "plugin_api/session.cpp",
         "recorder/service.cpp",
         "recorder_scene.cpp",

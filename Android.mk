@@ -53,6 +53,7 @@ LOCAL_SRC_FILES := \
     gui/nanosvg.cpp \
     twrpDigestDriver.cpp \
     openrecoveryscript.cpp \
+    ui2/plugin_api/operations.cpp \
     tarWrite.c \
     twrpAdbBuFifo.cpp \
     twrpRepacker.cpp
