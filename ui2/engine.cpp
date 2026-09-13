@@ -1255,6 +1255,8 @@ private:
     lv_obj_t *screen = lv_obj_create(nullptr);
     update_scene_ = BuildUpdateScene(screen, HandleSceneAction, this);
     lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
+    lv_obj_update_layout(screen);
+    RefreshUpdateScene(update_scene_);
   }
 
   void TrackScene(Action target) {
@@ -1435,10 +1437,7 @@ private:
     if (now - last_update_connection_poll_ < 1000) return;
     last_update_connection_poll_ = now;
     const bool connected = RecoveryWifiConnection().connected;
-    if (!connected) {
-      update_connection_seen_ = false;
-      return;
-    }
+    if (!connected) return;
     if (update_connection_seen_ || update_running_ || wifi_running_ ||
         operation_running_) return;
     update_connection_seen_ = true;

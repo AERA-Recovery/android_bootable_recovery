@@ -379,8 +379,7 @@ bool Check() {
     gSnapshot.local_build_time = LocalBuildTime();
     gSnapshot.message = "Contacting the AERA update service";
     gSnapshot.checked = false;
-    gSnapshot.available = false;
-    gSnapshot.release = {};
+    if (!gSnapshot.available) gSnapshot.release = {};
     gSnapshot.package_path.clear();
   }
 

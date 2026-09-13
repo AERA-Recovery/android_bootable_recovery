@@ -128,8 +128,11 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
                         [callback, context] {
                           callback(Action::kCheckUpdates, context);
                         });
+  const int actions_width = landscape ? 1358 : 1220;
+  const int action_gap = 24;
+  const int action_width = (actions_width - action_gap) / 2;
   lv_obj_set_pos(result.check, 46, landscape ? 650 : 632);
-  lv_obj_set_size(result.check, landscape ? 640 : 578, 112);
+  lv_obj_set_size(result.check, action_width, 112);
 
   result.install = Button(summary, LV_SYMBOL_DOWNLOAD "  Download and install",
       [screen, callback, context] {
@@ -145,9 +148,9 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
                 callback(Action::kDownloadUpdate, context);
               });
       }, true);
-  lv_obj_set_pos(result.install, landscape ? 726 : 670,
+  lv_obj_set_pos(result.install, 46 + action_width + action_gap,
                  landscape ? 650 : 632);
-  lv_obj_set_size(result.install, landscape ? 678 : 696, 112);
+  lv_obj_set_size(result.install, action_width, 112);
 
   auto *notes = lv_obj_create(screen);
   Panel(notes, 38, kMainSheet);
@@ -232,6 +235,18 @@ void RefreshUpdateScene(const UpdateScene &scene) {
   const bool busy = snapshot.phase == update::Phase::kChecking ||
                     snapshot.phase == update::Phase::kDownloading ||
                     snapshot.phase == update::Phase::kVerifying;
+  const int actions_width = Landscape(scene.screen) ? 1358 : 1220;
+  constexpr int action_gap = 24;
+  if (snapshot.available) {
+    const int action_width = (actions_width - action_gap) / 2;
+    lv_obj_set_width(scene.check, action_width);
+    lv_obj_set_x(scene.install, 46 + action_width + action_gap);
+    lv_obj_set_width(scene.install, action_width);
+    lv_obj_remove_flag(scene.install, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_set_width(scene.check, actions_width);
+    lv_obj_add_flag(scene.install, LV_OBJ_FLAG_HIDDEN);
+  }
   SetDisabled(scene.check, busy);
   SetDisabled(scene.install, busy || !snapshot.available);
   if (snapshot.phase == update::Phase::kDownloading ||
