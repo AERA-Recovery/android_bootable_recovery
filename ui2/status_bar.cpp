@@ -337,7 +337,7 @@ void BuildShade(StatusState *state) {
 
   auto *brightness_title = Label(state->sheet, "Brightness",
                                   &lv_font_montserrat_32, kText);
-  const int brightness_y = landscape ? 570 : 674;
+  const int brightness_y = landscape ? 530 : 620;
   lv_obj_set_pos(brightness_title, offset + 2, brightness_y);
   state->brightness_value = Label(state->sheet, "", &lv_font_montserrat_32,
                                   kAccent);
@@ -345,7 +345,7 @@ void BuildShade(StatusState *state) {
                -(screen_width - offset - content_width), brightness_y);
   state->brightness_slider = lv_slider_create(state->sheet);
   lv_obj_set_pos(state->brightness_slider, offset + 2,
-                 landscape ? 675 : 795);
+                 landscape ? 635 : 730);
   lv_obj_set_size(state->brightness_slider, content_width - 4, 22);
   lv_slider_set_range(state->brightness_slider, 10, 100);
   const int brightness = std::max(10, RecoveryBrightness());
@@ -389,7 +389,10 @@ void BuildShade(StatusState *state) {
                       LV_EVENT_CLICKED, state);
   lv_obj_add_flag(state->shade_update, LV_OBJ_FLAG_HIDDEN);
 
-  const int shortcut_y = landscape ? 900 : 1010;
+  // Keep the shortcut row attached to the bottom of the shade instead of
+  // leaving a large, visually empty footer below it.  Deriving the position
+  // from the actual shade height also keeps it consistent across devices.
+  const int shortcut_y = state->shade_height - 200;
   const int shortcut_gap = 24;
   const int shortcut_width = (content_width - shortcut_gap * 2) / 3;
   AddShortcut(state, offset, shortcut_y, shortcut_width,
