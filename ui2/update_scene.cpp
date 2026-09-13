@@ -1,0 +1,247 @@
+/*
+ * Copyright (C) 2026 AERA Recovery Project contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include "scene.hpp"
+
+#include <algorithm>
+#include <cstdio>
+#include <ctime>
+#include <string>
+
+#include "ui_components.hpp"
+#include "update/update_manager.hpp"
+
+namespace recovery_ui2 {
+namespace {
+using namespace design;
+using namespace widgets;
+
+std::string UpdateSize(uint64_t bytes) {
+  char text[64];
+  if (bytes >= 1024ULL * 1024 * 1024)
+    snprintf(text, sizeof(text), "%.2f GB",
+             static_cast<double>(bytes) / (1024.0 * 1024 * 1024));
+  else if (bytes >= 1024ULL * 1024)
+    snprintf(text, sizeof(text), "%.1f MB",
+             static_cast<double>(bytes) / (1024.0 * 1024));
+  else
+    snprintf(text, sizeof(text), "%.1f KB",
+             static_cast<double>(bytes) / 1024.0);
+  return text;
+}
+
+std::string BuildDate(uint64_t value) {
+  if (value == 0) return "Unknown";
+  const time_t timestamp = static_cast<time_t>(value);
+  struct tm date {};
+  char text[64] = {};
+  if (gmtime_r(&timestamp, &date) == nullptr ||
+      strftime(text, sizeof(text), "%Y-%m-%d %H:%M UTC", &date) == 0)
+    return std::to_string(value);
+  return text;
+}
+
+std::string Notes(const update::Release &release) {
+  if (release.changelog.empty()) return "No release notes were provided.";
+  std::string text;
+  for (const auto &line : release.changelog) {
+    if (!text.empty()) text += "\n";
+    text += LV_SYMBOL_RIGHT "  " + line;
+  }
+  return text;
+}
+
+void SetDisabled(lv_obj_t *object, bool disabled) {
+  if (disabled) lv_obj_add_state(object, LV_STATE_DISABLED);
+  else lv_obj_remove_state(object, LV_STATE_DISABLED);
+}
+
+}  // namespace
+
+UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
+                             void *context) {
+  UpdateScene result;
+  result.screen = screen;
+  Header(screen, "Recovery Update", "AERA recovery releases", callback, context);
+  const bool landscape = Landscape(screen);
+
+  auto *summary = lv_obj_create(screen);
+  Panel(summary, 38, kMainSheet);
+  lv_obj_set_pos(summary, 64, landscape ? 330 : 460);
+  lv_obj_set_size(summary, landscape ? 1450 : 1312,
+                  landscape ? 850 : 780);
+  lv_obj_set_style_border_width(summary, 1, 0);
+  lv_obj_set_style_border_color(summary, kMainLine, 0);
+  lv_obj_set_style_border_opa(summary, LV_OPA_30, 0);
+
+  auto *icon_plate = lv_obj_create(summary);
+  Panel(icon_plate, 28, kAccentSoft);
+  lv_obj_set_pos(icon_plate, 46, 44);
+  lv_obj_set_size(icon_plate, 122, 122);
+  auto *icon = Label(icon_plate, LV_SYMBOL_DOWNLOAD,
+                     &lv_font_montserrat_48, kAccent);
+  lv_obj_center(icon);
+
+  result.status = Label(summary, "Ready to check", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(result.status, 204, 42);
+  lv_obj_set_width(result.status, landscape ? 1160 : 1040);
+  lv_label_set_long_mode(result.status, LV_LABEL_LONG_DOT);
+  result.detail = Label(summary, "", &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(result.detail, 204, 112);
+  lv_obj_set_width(result.detail, landscape ? 1160 : 1040);
+  lv_label_set_long_mode(result.detail, LV_LABEL_LONG_WRAP);
+
+  auto *line = lv_obj_create(summary);
+  Clear(line);
+  lv_obj_set_pos(line, 46, 206);
+  lv_obj_set_size(line, landscape ? 1358 : 1220, 1);
+  lv_obj_set_style_bg_color(line, kMainLine, 0);
+  lv_obj_set_style_bg_opa(line, LV_OPA_50, 0);
+
+  auto *installed_title =
+      Label(summary, "INSTALLED BUILD", &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(installed_title, 46, 250);
+  result.installed = Label(summary, "", &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(result.installed, 46, 306);
+  lv_obj_set_width(result.installed, landscape ? 1358 : 1220);
+
+  auto *release_title =
+      Label(summary, "AVAILABLE RELEASE", &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(release_title, 46, 388);
+  result.release = Label(summary, "", &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(result.release, 46, 444);
+  lv_obj_set_width(result.release, landscape ? 1358 : 1220);
+  lv_label_set_long_mode(result.release, LV_LABEL_LONG_WRAP);
+
+  result.progress = lv_bar_create(summary);
+  lv_obj_set_pos(result.progress, 46, 548);
+  lv_obj_set_size(result.progress, landscape ? 1358 : 1220, 24);
+  lv_bar_set_range(result.progress, 0, 100);
+  lv_obj_set_style_radius(result.progress, 12, LV_PART_MAIN);
+  lv_obj_set_style_radius(result.progress, 12, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(result.progress, kMainLine, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(result.progress, kAccent, LV_PART_INDICATOR);
+  lv_obj_add_flag(result.progress, LV_OBJ_FLAG_HIDDEN);
+
+  result.check = Button(summary, LV_SYMBOL_REFRESH "  Check for updates",
+                        [callback, context] {
+                          callback(Action::kCheckUpdates, context);
+                        });
+  lv_obj_set_pos(result.check, 46, landscape ? 650 : 632);
+  lv_obj_set_size(result.check, landscape ? 640 : 578, 112);
+
+  result.install = Button(summary, LV_SYMBOL_DOWNLOAD "  Download and install",
+      [screen, callback, context] {
+        const auto snapshot = update::GetSnapshot();
+        if (!snapshot.available) return;
+        std::string copy = snapshot.release.version + "  /  " +
+            UpdateSize(snapshot.release.size) + "\n" +
+            BuildDate(snapshot.release.build_time) +
+            "\n\nThe package's included installer will control the target "
+            "partitions and slots.";
+        Sheet(screen, "Install this recovery update?", copy,
+              [callback, context] {
+                callback(Action::kDownloadUpdate, context);
+              });
+      }, true);
+  lv_obj_set_pos(result.install, landscape ? 726 : 670,
+                 landscape ? 650 : 632);
+  lv_obj_set_size(result.install, landscape ? 678 : 696, 112);
+
+  auto *notes = lv_obj_create(screen);
+  Panel(notes, 38, kMainSheet);
+  lv_obj_set_pos(notes, landscape ? 1560 : 64,
+                 landscape ? 330 : 1290);
+  lv_obj_set_size(notes, landscape ? 1544 : 1312,
+                  landscape ? 850 : 920);
+  lv_obj_set_style_border_width(notes, 1, 0);
+  lv_obj_set_style_border_color(notes, kMainLine, 0);
+  lv_obj_set_style_border_opa(notes, LV_OPA_30, 0);
+  auto *notes_title =
+      Label(notes, "What's new", &lv_font_montserrat_40, kText);
+  lv_obj_set_pos(notes_title, 46, 42);
+  auto *notes_hint =
+      Label(notes, "Release notes", &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(notes_hint, 46, 108);
+  result.changelog = Label(notes, "", &lv_font_montserrat_32, kMutedStrong);
+  lv_obj_set_pos(result.changelog, 46, 184);
+  lv_obj_set_width(result.changelog, landscape ? 1452 : 1220);
+  lv_obj_set_style_text_line_space(result.changelog, 18, 0);
+  lv_label_set_long_mode(result.changelog, LV_LABEL_LONG_WRAP);
+
+  AnimateEnter(summary, 30, 24);
+  AnimateEnter(notes, 65, 24);
+  RefreshUpdateScene(result);
+  return result;
+}
+
+void RefreshUpdateScene(const UpdateScene &scene) {
+  if (scene.screen == nullptr) return;
+  const auto snapshot = update::GetSnapshot();
+  std::string status;
+  switch (snapshot.phase) {
+    case update::Phase::kChecking:
+      status = "Checking for updates";
+      break;
+    case update::Phase::kAvailable:
+      status = snapshot.release.version + " is available";
+      break;
+    case update::Phase::kUpToDate:
+      status = "AERA is up to date";
+      break;
+    case update::Phase::kDownloading:
+      status = "Downloading update";
+      break;
+    case update::Phase::kVerifying:
+      status = "Verifying package";
+      break;
+    case update::Phase::kReady:
+      status = "Update package ready";
+      break;
+    case update::Phase::kError:
+      status = "Update check failed";
+      break;
+    case update::Phase::kIdle:
+    default:
+      status = "Ready to check";
+      break;
+  }
+  lv_label_set_text(scene.status, status.c_str());
+  lv_label_set_text(scene.detail, snapshot.message.empty()
+      ? "Connect to Wi-Fi to check for a newer build."
+      : snapshot.message.c_str());
+
+  const std::string installed = snapshot.device.empty()
+      ? "Current recovery"
+      : snapshot.device + "  /  " + BuildDate(snapshot.local_build_time);
+  lv_label_set_text(scene.installed, installed.c_str());
+
+  std::string release = "No newer build found";
+  if (snapshot.release.build_time != 0) {
+    release = snapshot.release.version;
+    if (!snapshot.release.build_type.empty())
+      release += "  /  " + snapshot.release.build_type;
+    release += "  /  " + BuildDate(snapshot.release.build_time);
+    release += "\n" + snapshot.release.filename + "  /  " +
+        UpdateSize(snapshot.release.size);
+  }
+  lv_label_set_text(scene.release, release.c_str());
+  lv_label_set_text(scene.changelog, Notes(snapshot.release).c_str());
+
+  const bool busy = snapshot.phase == update::Phase::kChecking ||
+                    snapshot.phase == update::Phase::kDownloading ||
+                    snapshot.phase == update::Phase::kVerifying;
+  SetDisabled(scene.check, busy);
+  SetDisabled(scene.install, busy || !snapshot.available);
+  if (snapshot.phase == update::Phase::kDownloading ||
+      snapshot.phase == update::Phase::kVerifying) {
+    lv_bar_set_value(scene.progress, std::min(snapshot.progress, 100U),
+                     LV_ANIM_ON);
+    lv_obj_remove_flag(scene.progress, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(scene.progress, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+}  // namespace recovery_ui2

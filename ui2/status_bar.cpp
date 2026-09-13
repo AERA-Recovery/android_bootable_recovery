@@ -18,6 +18,7 @@
 #include "plugin_api/operations.hpp"
 #include "recorder/service.hpp"
 #include "recovery_ui2/backend.hpp"
+#include "update/update_manager.hpp"
 
 namespace recovery_ui2 {
 namespace {
@@ -46,6 +47,9 @@ struct StatusState {
   lv_obj_t *shade_reboot_detail = nullptr;
   lv_obj_t *shade_recorder = nullptr;
   lv_obj_t *shade_recorder_detail = nullptr;
+  lv_obj_t *shade_update = nullptr;
+  lv_obj_t *shade_update_title = nullptr;
+  lv_obj_t *shade_update_detail = nullptr;
   lv_obj_t *brightness_value = nullptr;
   lv_obj_t *brightness_slider = nullptr;
   int battery = -1;
@@ -113,6 +117,9 @@ void AnimateShade(StatusState *state, bool open) {
     state->shade_reboot_detail = nullptr;
     state->shade_recorder = nullptr;
     state->shade_recorder_detail = nullptr;
+    state->shade_update = nullptr;
+    state->shade_update_title = nullptr;
+    state->shade_update_detail = nullptr;
     state->brightness_value = nullptr;
     state->brightness_slider = nullptr;
     lv_obj_delete_delayed(closing, 250);
@@ -350,14 +357,49 @@ void BuildShade(StatusState *state) {
   lv_obj_add_event_cb(state->brightness_slider, BrightnessChanged,
                       LV_EVENT_RELEASED, state);
 
-  const int shortcut_y = landscape ? 840 : 1010;
+  const int update_y = landscape ? 735 : 855;
+  state->shade_update = lv_button_create(state->sheet);
+  NoScroll(state->shade_update);
+  lv_obj_set_user_data(state->shade_update,
+      reinterpret_cast<void *>(static_cast<uintptr_t>(Action::kUpdates)));
+  lv_obj_set_pos(state->shade_update, offset, update_y);
+  lv_obj_set_size(state->shade_update, content_width, 126);
+  lv_obj_set_style_radius(state->shade_update, 30, 0);
+  lv_obj_set_style_bg_color(state->shade_update, kAccentSoft, 0);
+  lv_obj_set_style_bg_color(state->shade_update, kMainSelected,
+                            LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(state->shade_update, 1, 0);
+  lv_obj_set_style_border_color(state->shade_update, kAccent, 0);
+  lv_obj_set_style_border_opa(state->shade_update, LV_OPA_60, 0);
+  auto *update_icon =
+      Label(state->shade_update, LV_SYMBOL_DOWNLOAD,
+            &lv_font_montserrat_36, kAccent);
+  lv_obj_align(update_icon, LV_ALIGN_LEFT_MID, 34, 0);
+  state->shade_update_title =
+      Label(state->shade_update, "AERA update available",
+            &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(state->shade_update_title, 104, 22);
+  lv_obj_set_width(state->shade_update_title, content_width - 190);
+  lv_label_set_long_mode(state->shade_update_title, LV_LABEL_LONG_DOT);
+  state->shade_update_detail =
+      Label(state->shade_update, "Tap to review",
+            &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(state->shade_update_detail, 104, 70);
+  lv_obj_add_event_cb(state->shade_update, ShortcutClicked,
+                      LV_EVENT_CLICKED, state);
+  lv_obj_add_flag(state->shade_update, LV_OBJ_FLAG_HIDDEN);
+
+  const int shortcut_y = landscape ? 900 : 1010;
   const int shortcut_gap = 24;
-  const int shortcut_width = (content_width - shortcut_gap) / 2;
+  const int shortcut_width = (content_width - shortcut_gap * 2) / 3;
   AddShortcut(state, offset, shortcut_y, shortcut_width,
               LV_SYMBOL_WIFI "  Network", Action::kWifi);
   AddShortcut(state, offset + shortcut_width + shortcut_gap, shortcut_y,
               shortcut_width, LV_SYMBOL_SETTINGS "  Preferences",
               Action::kPreferences);
+  AddShortcut(state, offset + (shortcut_width + shortcut_gap) * 2, shortcut_y,
+              shortcut_width, LV_SYMBOL_REFRESH "  Check updates",
+              Action::kCheckUpdates);
   auto *handle = lv_obj_create(state->sheet);
   NoScroll(handle);
   lv_obj_set_size(handle, 190, 12);
@@ -460,6 +502,18 @@ void RefreshShade(StatusState *state) {
        recording.state == recorder::State::kStarting) ? "Starting…" : "Ready");
   StyleTile(state->shade_recorder, recorder_active,
             recorder_installed || recorder_active);
+
+  const auto update = update::GetSnapshot();
+  if (state->shade_update != nullptr) {
+    if (update.available) {
+      const std::string title = "AERA " + update.release.version + " available";
+      lv_label_set_text(state->shade_update_title, title.c_str());
+      lv_label_set_text(state->shade_update_detail, "Tap to review the update");
+      lv_obj_remove_flag(state->shade_update, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(state->shade_update, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
 
   if (state->brightness_value != nullptr && !state->dragging) {
     const int brightness = std::max(10, RecoveryBrightness());

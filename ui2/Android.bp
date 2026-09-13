@@ -67,6 +67,8 @@ cc_library_static {
         "telegram_scene.cpp",
         "terminal_scene.cpp",
         "tool_scene.cpp",
+        "update/update_manager.cpp",
+        "update_scene.cpp",
         "wifi_scene.cpp",
         "webkit_icon.cpp",
         "runner.cpp",

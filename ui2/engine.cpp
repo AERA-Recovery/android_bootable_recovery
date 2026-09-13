@@ -28,6 +28,7 @@
 #include "recorder/service.hpp"
 #include "scene.hpp"
 #include "ui_components.hpp"
+#include "update/update_manager.hpp"
 #include "draw/opengles/lv_draw_opengles.h"
 
 extern "C" int recovery_ui2_install_package(const char *path);
@@ -43,6 +44,12 @@ constexpr uint32_t kTargetRefreshHz = 120;
 // after 2 ms so the complete pipeline still fits a 120 Hz frame deadline.
 constexpr uint32_t kFrameIntervalMs = 2;
 constexpr uint32_t kBufferAlignment = 64;
+
+enum class UpdateTask {
+  kNone,
+  kCheck,
+  kDownload,
+};
 
 uint32_t MonotonicMilliseconds() {
   timespec now{};
@@ -188,6 +195,7 @@ public:
 
   void Shutdown() {
     plugin_progress_.cancel.store(true);
+    update::Cancel();
     if (operation_thread_.joinable())
       operation_thread_.join();
     if (decrypt_thread_.joinable())
@@ -198,6 +206,8 @@ public:
       nas_thread_.join();
     if (plugin_thread_.joinable())
       plugin_thread_.join();
+    if (update_thread_.joinable())
+      update_thread_.join();
     CancelEdgeSwipe();
     if (pointer_device_ != nullptr) {
       lv_indev_delete(pointer_device_);
@@ -230,6 +240,10 @@ public:
     wifi_scene_report_ = false;
     nas_running_ = false;
     plugin_running_ = false;
+    update_running_ = false;
+    update_task_ = UpdateTask::kNone;
+    update_installing_ = false;
+    update_connection_seen_ = false;
     decryption_active_ = false;
     secondary_decryption_ = false;
     navigation_history_.clear();
@@ -261,6 +275,10 @@ public:
       if (operation_thread_.joinable())
         operation_thread_.join();
       const bool success = operation_result_.load(std::memory_order_acquire) == 0;
+      if (update_installing_) {
+        if (success) update::MarkInstalled();
+        update_installing_ = false;
+      }
       CompleteOperationScene(
           operation_scene_, success,
           success ? "The requested operation completed. Review its output below."
@@ -314,6 +332,38 @@ public:
                            plugin_progress_.downloaded_bytes.load(),
                            plugin_progress_.total_bytes.load());
     }
+    if (update_complete_.exchange(false, std::memory_order_acq_rel)) {
+      if (update_thread_.joinable()) update_thread_.join();
+      const bool success =
+          update_result_.load(std::memory_order_acquire) == 0;
+      const UpdateTask completed = update_task_;
+      const bool manual = update_manual_;
+      update_running_ = false;
+      update_task_ = UpdateTask::kNone;
+      if (current_scene_ == Action::kUpdates)
+        RefreshUpdateScene(update_scene_);
+      const auto snapshot = update::GetSnapshot();
+      if (completed == UpdateTask::kCheck && success && snapshot.available &&
+          !manual &&
+          update_banner_build_time_ != snapshot.release.build_time) {
+        update_banner_build_time_ = snapshot.release.build_time;
+        ShowUpdateBanner(snapshot.release.version);
+      } else if (completed == UpdateTask::kDownload && success &&
+                 !snapshot.package_path.empty()) {
+        JobRequest request;
+        request.job = Job::kInstall;
+        request.path = snapshot.package_path;
+        request.title = "Install AERA Update";
+        update_installing_ = true;
+        StartJob(request);
+      }
+    }
+    if (update_running_ && current_scene_ == Action::kUpdates &&
+        MonotonicMilliseconds() - last_update_refresh_ >= 120) {
+      last_update_refresh_ = MonotonicMilliseconds();
+      RefreshUpdateScene(update_scene_);
+    }
+    PollAutomaticUpdates();
     const uint32_t next = lv_timer_handler();
 #ifndef TW_OEM_BUILD
     // Capture only after LVGL has flushed and DRM exposes the newly presented
@@ -751,6 +801,62 @@ public:
     lv_obj_delete_delayed(panel, 1800);
   }
 
+  void ShowUpdateBanner(const std::string &version) {
+    if (!initialized_ || suspended_) return;
+    if (notice_overlay_ != nullptr) lv_obj_delete(notice_overlay_);
+    auto *panel = lv_obj_create(lv_layer_top());
+    notice_overlay_ = panel;
+    design::Panel(panel, 42, design::kMainSheet);
+    lv_obj_set_size(panel, 1080, 176);
+    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, -196);
+    lv_obj_set_style_border_width(panel, 1, 0);
+    lv_obj_set_style_border_color(panel, design::kAccent, 0);
+    lv_obj_set_style_border_opa(panel, LV_OPA_60, 0);
+    lv_obj_set_style_pad_all(panel, 0, 0);
+    lv_obj_add_event_cb(panel, [](lv_event_t *event) {
+      auto *self = static_cast<Impl *>(lv_event_get_user_data(event));
+      auto *target = static_cast<lv_obj_t *>(lv_event_get_target(event));
+      if (self != nullptr && self->notice_overlay_ == target)
+        self->notice_overlay_ = nullptr;
+    }, LV_EVENT_DELETE, this);
+    auto *icon_plate = lv_obj_create(panel);
+    design::Panel(icon_plate, 26, design::kAccentSoft);
+    lv_obj_set_pos(icon_plate, 34, 30);
+    lv_obj_set_size(icon_plate, 116, 116);
+    auto *icon = design::Label(icon_plate, LV_SYMBOL_DOWNLOAD,
+                               &lv_font_montserrat_40, design::kAccent);
+    lv_obj_center(icon);
+    const std::string title = "AERA " + version + " is available";
+    auto *label = design::Label(panel, title.c_str(),
+                                &lv_font_montserrat_32, design::kText);
+    lv_obj_set_pos(label, 184, 34);
+    lv_obj_set_width(label, 840);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    auto *detail = design::Label(panel, "Tap to review the recovery update",
+                                 &lv_font_montserrat_24,
+                                 design::kMutedStrong);
+    lv_obj_set_pos(detail, 184, 94);
+    widgets::OnClick(panel, [this] {
+      if (notice_overlay_ != nullptr) {
+        auto *notice = notice_overlay_;
+        notice_overlay_ = nullptr;
+        lv_obj_delete_async(notice);
+      }
+      HandleSceneAction(Action::kUpdates, this);
+    });
+    lv_anim_t enter;
+    lv_anim_init(&enter);
+    lv_anim_set_var(&enter, panel);
+    lv_anim_set_values(&enter, lv_obj_get_y(panel), 190);
+    lv_anim_set_duration(&enter, 240);
+    lv_anim_set_path_cb(&enter, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&enter, [](void *target, int32_t value) {
+      lv_obj_set_y(static_cast<lv_obj_t *>(target), value);
+    });
+    lv_anim_start(&enter);
+    lv_obj_delete_delayed(panel, 5000);
+  }
+
 private:
   void ApplyStoredAppearance() {
     design::ApplySurfaceMode(RecoveryLightMode());
@@ -820,7 +926,9 @@ private:
     }
 
     if (self->operation_running_ || self->wifi_running_ || self->nas_running_ ||
-        self->plugin_running_) return;
+        self->plugin_running_ ||
+        (self->update_running_ &&
+         self->update_task_ == UpdateTask::kDownload)) return;
     self->CancelEdgeSwipe();
 
     if (self->fastboot_mode_) {
@@ -852,6 +960,23 @@ private:
                               ? WifiOperation::kDisable
                               : WifiOperation::kEnable;
       self->StartWifi(request, false);
+      return;
+    }
+
+    if (action == Action::kUpdates) {
+      self->ShowUpdates();
+      return;
+    }
+
+    if (action == Action::kCheckUpdates) {
+      if (self->current_scene_ != Action::kUpdates)
+        self->ShowUpdates();
+      self->StartUpdateCheck(true);
+      return;
+    }
+
+    if (action == Action::kDownloadUpdate) {
+      self->StartUpdateDownload();
       return;
     }
 
@@ -1123,6 +1248,15 @@ private:
     lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 140, 0, true);
   }
 
+  void ShowUpdates() {
+    TrackScene(Action::kUpdates);
+    on_home_ = false;
+    current_tool_ = Action::kUpdates;
+    lv_obj_t *screen = lv_obj_create(nullptr);
+    update_scene_ = BuildUpdateScene(screen, HandleSceneAction, this);
+    lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
+  }
+
   void TrackScene(Action target) {
     if (target == Action::kNone) return;
     if (target == Action::kBackHome) {
@@ -1249,6 +1383,66 @@ private:
       plugin_result_.store(result ? 0 : -1, std::memory_order_release);
       plugin_complete_.store(true, std::memory_order_release);
     });
+  }
+
+  void StartUpdateCheck(bool manual) {
+    if (update_running_) return;
+    if (!RecoveryWifiConnection().connected) {
+      update::SetOffline();
+      if (current_scene_ == Action::kUpdates)
+        RefreshUpdateScene(update_scene_);
+      return;
+    }
+    update_running_ = true;
+    update_manual_ = manual;
+    update_task_ = UpdateTask::kCheck;
+    update_result_.store(-1, std::memory_order_release);
+    update_complete_.store(false, std::memory_order_release);
+    if (current_scene_ == Action::kUpdates)
+      RefreshUpdateScene(update_scene_);
+    update_thread_ = std::thread([this] {
+      const bool success = update::Check();
+      update_result_.store(success ? 0 : -1, std::memory_order_release);
+      update_complete_.store(true, std::memory_order_release);
+    });
+  }
+
+  void StartUpdateDownload() {
+    if (update_running_ || operation_running_ || wifi_running_ ||
+        nas_running_ || plugin_running_) return;
+    if (!RecoveryWifiConnection().connected) {
+      update::SetOffline();
+      if (current_scene_ == Action::kUpdates)
+        RefreshUpdateScene(update_scene_);
+      return;
+    }
+    update_running_ = true;
+    update_manual_ = true;
+    update_task_ = UpdateTask::kDownload;
+    update_result_.store(-1, std::memory_order_release);
+    update_complete_.store(false, std::memory_order_release);
+    RefreshUpdateScene(update_scene_);
+    update_thread_ = std::thread([this] {
+      const bool success = update::Download();
+      update_result_.store(success ? 0 : -1, std::memory_order_release);
+      update_complete_.store(true, std::memory_order_release);
+    });
+  }
+
+  void PollAutomaticUpdates() {
+    if (!backend_ready_ || fastboot_mode_) return;
+    const uint32_t now = MonotonicMilliseconds();
+    if (now - last_update_connection_poll_ < 1000) return;
+    last_update_connection_poll_ = now;
+    const bool connected = RecoveryWifiConnection().connected;
+    if (!connected) {
+      update_connection_seen_ = false;
+      return;
+    }
+    if (update_connection_seen_ || update_running_ || wifi_running_ ||
+        operation_running_) return;
+    update_connection_seen_ = true;
+    StartUpdateCheck(false);
   }
 
   void BeginEdgeSwipe() {
@@ -1492,12 +1686,14 @@ private:
   WifiScene wifi_scene_{};
   NasScene nas_scene_{};
   PluginScene plugin_scene_{};
+  UpdateScene update_scene_{};
   std::string selected_package_;
   std::thread operation_thread_;
   std::thread decrypt_thread_;
   std::thread wifi_thread_;
   std::thread nas_thread_;
   std::thread plugin_thread_;
+  std::thread update_thread_;
   std::atomic<int> operation_result_{-1};
   std::atomic<bool> operation_complete_{false};
   std::atomic<int> decrypt_result_{-1};
@@ -1508,6 +1704,8 @@ private:
   std::atomic<bool> nas_complete_{false};
   std::atomic<int> plugin_result_{-1};
   std::atomic<bool> plugin_complete_{false};
+  std::atomic<int> update_result_{-1};
+  std::atomic<bool> update_complete_{false};
   plugins::Progress plugin_progress_{};
   Action pending_action_ = Action::kNone;
   DecryptionCompletion decryption_completion_ = DecryptionCompletion::kNone;
@@ -1516,6 +1714,9 @@ private:
   uint32_t submitted_frames_ = 0;
   uint32_t last_operation_update_ = 0;
   uint32_t last_plugin_update_ = 0;
+  uint32_t last_update_refresh_ = 0;
+  uint32_t last_update_connection_poll_ = 0;
+  uint64_t update_banner_build_time_ = 0;
   int32_t swipe_start_x_ = 0;
   int32_t swipe_start_y_ = 0;
   int32_t swipe_last_y_ = 0;
@@ -1533,6 +1734,11 @@ private:
   bool wifi_scene_report_ = false;
   bool nas_running_ = false;
   bool plugin_running_ = false;
+  bool update_running_ = false;
+  bool update_manual_ = false;
+  bool update_installing_ = false;
+  bool update_connection_seen_ = false;
+  UpdateTask update_task_ = UpdateTask::kNone;
   bool decryption_active_ = false;
   bool secondary_decryption_ = false;
   bool interactive_ready_ = false;

@@ -79,6 +79,18 @@ struct NasScene {
   void *state = nullptr;
 };
 
+struct UpdateScene {
+  lv_obj_t *screen = nullptr;
+  lv_obj_t *status = nullptr;
+  lv_obj_t *detail = nullptr;
+  lv_obj_t *installed = nullptr;
+  lv_obj_t *release = nullptr;
+  lv_obj_t *changelog = nullptr;
+  lv_obj_t *progress = nullptr;
+  lv_obj_t *check = nullptr;
+  lv_obj_t *install = nullptr;
+};
+
 void BuildBootScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void CompleteBootScene(lv_obj_t *screen);
 void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context);
@@ -162,5 +174,8 @@ void UpdatePluginProgress(const PluginScene &scene, unsigned value,
                           uint64_t downloaded_bytes, uint64_t total_bytes);
 void CompletePluginOperation(const PluginScene &scene, bool success,
                              const char *message);
+UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
+                             void *context);
+void RefreshUpdateScene(const UpdateScene &scene);
 
 }  // namespace recovery_ui2

@@ -59,6 +59,9 @@ enum class Action {
     kToggleRecording,
     kUsers,
     kDecryptUser,
+    kUpdates,
+    kCheckUpdates,
+    kDownloadUpdate,
 };
 
 enum class DecryptionCompletion {
