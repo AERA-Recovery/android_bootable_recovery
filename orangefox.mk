@@ -961,6 +961,25 @@ endif
 
 endif
 
+# Offline Root Manager provider assets are part of AERA itself, not a device
+# tree. Every ARM64 recovery receives the same verified KMI catalog and payloads.
+ifeq ($(TARGET_ARCH),arm64)
+    AERA_ROOT_ASSETS_DIR := $(commands_TWRP_local_path)/prebuilt/aera/root
+    AERA_ROOT_ASSETS_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/root
+    AERA_ROOT_ASSETS_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/.root-assets.stamp
+    AERA_ROOT_ASSET_FILES := $(shell find $(AERA_ROOT_ASSETS_DIR) -type f 2>/dev/null)
+
+ifndef AERA_ROOT_ASSETS_RULE_DEFINED
+AERA_ROOT_ASSETS_RULE_DEFINED := true
+
+$(AERA_ROOT_ASSETS_STAMP): $(AERA_ROOT_ASSET_FILES)
+	@echo "Packing AERA offline root providers"
+	@rm -rf $(AERA_ROOT_ASSETS_OUT) && mkdir -p $(AERA_ROOT_ASSETS_OUT) && cp -a $(AERA_ROOT_ASSETS_DIR)/. $(AERA_ROOT_ASSETS_OUT)/ && touch $@
+
+ALL_DEFAULT_INSTALLED_MODULES += $(AERA_ROOT_ASSETS_STAMP)
+endif
+endif
+
 # Remote-control dashboard (optional static web UI).
 #
 # The USB/FIFO remote-control engine is always built (see Android.mk), so

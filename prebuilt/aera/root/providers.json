@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "generated": "2026-09-10",
+  "architecture": "aarch64",
+  "providers": [
+    {
+      "id": "kernelsu",
+      "name": "KernelSU",
+      "repository": "tiann/KernelSU",
+      "version": "v3.3.0",
+      "assets": [
+        {"kmi":"android14-6.1","name":"lkm-aarch64-android14-6.1_kernelsu.ko","size":386600,"sha256":"db47d831e5a61bc4ca1563915ac1c61cd40ceda7dc6c3d19a9572dfdce72d14c","archive":false},
+        {"kmi":"android15-6.6","name":"lkm-aarch64-android15-6.6_kernelsu.ko","size":315176,"sha256":"c31d994aaf285e7bf4cf1ec38c2bbf2d7f303d1a4a7d616405bcd9f850d684e5","archive":false},
+        {"kmi":"android16-6.12","name":"lkm-aarch64-android16-6.12_kernelsu.ko","size":386624,"sha256":"877286f81d500c4ec546c96e9718c186b7379573c97ba5d5a35dd9a91465d076","archive":false}
+      ]
+    },
+    {
+      "id": "kernelsu-next",
+      "name": "KernelSU Next",
+      "repository": "KernelSU-Next/KernelSU-Next",
+      "version": "v3.3.0",
+      "assets": [
+        {"kmi":"android14-6.1","name":"android14-6.1_kernelsu.ko","size":421800,"sha256":"4e69edfc1157c56051ce247f9a0a02df916e94f01a0ae6e72565237a483549f2","archive":false},
+        {"kmi":"android15-6.6","name":"android15-6.6_kernelsu.ko","size":325952,"sha256":"0ddcd6d91bc4217ac0b3ff0bfbfb376ad4b333f23c2ccca23b5c89dbc9087e2b","archive":false},
+        {"kmi":"android16-6.12","name":"android16-6.12_kernelsu.ko","size":392144,"sha256":"a6d29a9880530c6069afd9bbd23be8114225b1f5e8a3687d4b0d0fd0ba368d6e","archive":false}
+      ]
+    },
+    {
+      "id": "sukisu-ultra",
+      "name": "SukiSU Ultra",
+      "repository": "SukiSU-Ultra/SukiSU-Ultra",
+      "version": "v4.2.0",
+      "assets": [
+        {"kmi":"android14-6.1","name":"aarch64-android14-6.1-lkm.zip","size":107139,"sha256":"043cb8ed21fd16b1bd67769881d283cd9b45fb4811ad32985608fe11c21215cd","archive":true},
+        {"kmi":"android15-6.6","name":"aarch64-android15-6.6-lkm.zip","size":91847,"sha256":"ac6703e2639f41ddb069bc6ee3e7147b989f0d93e247a3360237e533997398bb","archive":true},
+        {"kmi":"android16-6.12","name":"aarch64-android16-6.12-lkm.zip","size":107275,"sha256":"faf8897e7e5f602cddaf872c7a8558bfd138a1bf6835611a7198a7c7ddddfdd4","archive":true}
+      ]
+    }
+  ]
+}
