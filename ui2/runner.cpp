@@ -366,7 +366,8 @@ RunResult RunLoop(bool fastboot_mode = false,
     performance.Boost();
     HardwareState hardware;
     WriteVolume(hardware.volume);
-    ConfigureStatusBarHeight(metrics.status_bar_height);
+    ConfigureStatusBar(metrics.status_bar_height, metrics.status_indent_left,
+                       metrics.status_indent_right);
     Engine engine;
     if (!engine.Initialize(fastboot_mode, metrics.adaptive_resolution,
                            metrics.logical_height))

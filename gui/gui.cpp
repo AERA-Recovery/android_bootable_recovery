@@ -98,6 +98,12 @@ static inline long long nowMs() { struct timeval t; gettimeofday(&t, NULL); retu
 // runtime environment switch to select it.
 static bool gUseRecoveryUi2 = true;
 
+#ifndef AERA_STATUS_INDENT_LEFT
+#define AERA_STATUS_INDENT_LEFT 54
+#endif
+#ifndef AERA_STATUS_INDENT_RIGHT
+#define AERA_STATUS_INDENT_RIGHT 54
+#endif
 #ifdef AERA_UI2_ADAPTIVE_RESOLUTION
 #ifndef AERA_SCREEN_H
 #define AERA_SCREEN_H 2376
@@ -107,9 +113,11 @@ static bool gUseRecoveryUi2 = true;
 #endif
 static constexpr auto kAeraDisplayMetrics =
 	recovery_ui2::DisplayMetrics::FromThemeMetrics(
-		true, AERA_SCREEN_H, AERA_STATUS_H);
+		true, AERA_SCREEN_H, AERA_STATUS_H,
+		AERA_STATUS_INDENT_LEFT, AERA_STATUS_INDENT_RIGHT);
 #else
-static constexpr recovery_ui2::DisplayMetrics kAeraDisplayMetrics{};
+static constexpr recovery_ui2::DisplayMetrics kAeraDisplayMetrics{
+	false, 3168, 165, AERA_STATUS_INDENT_LEFT, AERA_STATUS_INDENT_RIGHT};
 #endif
 
 extern "C" void gr_write_frame_to_file(int fd);

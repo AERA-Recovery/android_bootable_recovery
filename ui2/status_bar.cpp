@@ -68,6 +68,8 @@ struct StatusState {
 
 constexpr int kShadeHeight = 1390;
 int32_t gStatusBarHeight = 165;
+int32_t gStatusIndentLeft = 54;
+int32_t gStatusIndentRight = 54;
 
 void PulseRecordingDot(void *target, int32_t opacity) {
   lv_obj_set_style_bg_opa(static_cast<lv_obj_t *>(target),
@@ -638,10 +640,13 @@ void Activate(lv_event_t *event) {
 
 }  // namespace
 
-void ConfigureStatusBarHeight(int32_t height) {
+void ConfigureStatusBar(int32_t height, int32_t left_indent,
+                        int32_t right_indent) {
   // Keep malformed device configuration from making the status bar consume
   // the whole display or disappear completely.
   gStatusBarHeight = std::clamp(height, 112, 260);
+  gStatusIndentLeft = std::clamp(left_indent, 0, 240);
+  gStatusIndentRight = std::clamp(right_indent, 0, 240);
 }
 
 int32_t StatusBarHeight() {
@@ -680,7 +685,7 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
 
   state->clock = Label(bar, "--:--", &lv_font_montserrat_36, kText);
   lv_obj_set_style_text_letter_space(state->clock, 2, 0);
-  lv_obj_align(state->clock, LV_ALIGN_LEFT_MID, 54, 0);
+  lv_obj_align(state->clock, LV_ALIGN_LEFT_MID, gStatusIndentLeft, 0);
 
   state->mirror = Label(bar, "", &lv_font_montserrat_24, kAccent);
   lv_obj_set_width(state->mirror, 330);
@@ -719,19 +724,22 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
   lv_obj_set_style_text_align(state->wifi, LV_TEXT_ALIGN_RIGHT, 0);
   lv_label_set_long_mode(state->wifi, LV_LABEL_LONG_DOT);
   lv_obj_align(state->wifi, LV_ALIGN_RIGHT_MID,
-               action == StatusBarAction::kNone ? -270 : -390, 0);
+               -(gStatusIndentRight +
+                 (action == StatusBarAction::kNone ? 216 : 336)), 0);
   lv_obj_add_flag(state->wifi, LV_OBJ_FLAG_HIDDEN);
 
   state->battery_text =
       Label(bar, "--%", &lv_font_montserrat_32, kMutedStrong);
   lv_obj_align(state->battery_text, LV_ALIGN_RIGHT_MID,
-               action == StatusBarAction::kNone ? -150 : -270, 0);
+               -(gStatusIndentRight +
+                 (action == StatusBarAction::kNone ? 96 : 216)), 0);
 
   lv_obj_t *battery = lv_obj_create(bar);
   NoScroll(battery);
   lv_obj_set_size(battery, 68, 36);
   lv_obj_align(battery, LV_ALIGN_RIGHT_MID,
-               action == StatusBarAction::kNone ? -54 : -164, 0);
+               -(gStatusIndentRight +
+                 (action == StatusBarAction::kNone ? 0 : 110)), 0);
   lv_obj_set_style_radius(battery, 6, 0);
   lv_obj_set_style_bg_opa(battery, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(battery, 2, 0);
@@ -761,7 +769,7 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
   if (action != StatusBarAction::kNone) {
     lv_obj_t *button = lv_button_create(bar);
     lv_obj_set_size(button, 88, 88);
-    lv_obj_align(button, LV_ALIGN_RIGHT_MID, -54, 0);
+    lv_obj_align(button, LV_ALIGN_RIGHT_MID, -gStatusIndentRight, 0);
     Panel(button, 24, kPanelStrong);
     Interactive(button);
     lv_obj_set_style_pad_all(button, 0, 0);

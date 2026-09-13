@@ -18,12 +18,14 @@ normalized touch coordinates through `Engine::SetPointer()` and calls
 `Engine::RunFrame()` at the returned interval.
 
 Device trees can set `AERA_UI2_ADAPTIVE_RESOLUTION := true` together with
-`AERA_SCREEN_H` and `AERA_STATUS_H`. Screen height uses the stock theme's
-1080-wide reference units and is converted to UI2's 1440-wide coordinate space;
-status-bar height remains literal. Infiniti's 2340/141 values therefore become
-a 1440 x 3120 canvas with a 141-pixel status bar. That canvas renders across the complete native framebuffer
-without letterbox bars, and physical touch coordinates are mapped back to it.
-Leaving adaptive mode unset retains native one-to-one rendering.
+`AERA_SCREEN_H`, `AERA_STATUS_H`, `AERA_STATUS_INDENT_LEFT`, and
+`AERA_STATUS_INDENT_RIGHT`. Screen height uses the stock theme's 1080-wide
+reference units and is converted to UI2's 1440-wide coordinate space; status-bar
+height and horizontal safe-area indents remain literal. Infiniti's 2340/141
+values therefore become a 1440 x 3120 canvas with a 141-pixel status bar. That
+canvas renders across the complete native framebuffer without letterbox bars,
+and physical touch coordinates are mapped back to it. Leaving adaptive mode
+unset retains native one-to-one rendering.
 
 For bring-up, create `/tmp/recovery-ui2-capture` over ADB. The runner removes
 the request and writes the current framebuffer to `/tmp/recovery-ui2.png`.

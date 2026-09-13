@@ -7,10 +7,12 @@ using recovery_ui2::DisplayTransform;
 
 int main() {
   constexpr auto metrics = recovery_ui2::DisplayMetrics::FromThemeMetrics(
-      true, 2340, 141);
+      true, 2340, 141, 70, 50);
   static_assert(metrics.adaptive_resolution);
   static_assert(metrics.logical_height == 3120);
   static_assert(metrics.status_bar_height == 141);
+  static_assert(metrics.status_indent_left == 70);
+  static_assert(metrics.status_indent_right == 50);
 
   const auto dodge = DisplayTransform::Adaptive(1440, 3168);
   assert(dodge.IsValid());

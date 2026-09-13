@@ -25,16 +25,20 @@ enum class DecryptionResult {
 };
 
 // AERA_SCREEN_H uses the stock theme's 1080-wide reference space, while
-// AERA_STATUS_H is the requested UI status-bar height and must remain literal.
+// the status-bar dimensions use UI2's 1440-wide logical coordinate space.
 // Convert only the screen height at the renderer boundary.
 struct DisplayMetrics {
     bool adaptive_resolution = false;
     int32_t logical_height = 3168;
     int32_t status_bar_height = 165;
+    int32_t status_indent_left = 54;
+    int32_t status_indent_right = 54;
 
     static constexpr DisplayMetrics FromThemeMetrics(
-            bool adaptive, int32_t screen_height, int32_t status_height) {
-        return {adaptive, screen_height * 4 / 3, status_height};
+            bool adaptive, int32_t screen_height, int32_t status_height,
+            int32_t status_left = 54, int32_t status_right = 54) {
+        return {adaptive, screen_height * 4 / 3, status_height,
+                status_left, status_right};
     }
 };
 

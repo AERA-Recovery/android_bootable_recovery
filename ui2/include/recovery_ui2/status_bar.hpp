@@ -18,9 +18,10 @@ enum class StatusBarAction {
   kBack,
 };
 
-// Set once before the first UI2 scene is constructed. The value is expressed
-// in UI2's 1440-wide logical coordinate space.
-void ConfigureStatusBarHeight(int32_t height);
+// Set once before the first UI2 scene is constructed. Values are expressed in
+// UI2's 1440-wide logical coordinate space.
+void ConfigureStatusBar(int32_t height, int32_t left_indent,
+                        int32_t right_indent);
 int32_t StatusBarHeight();
 
 // Adds the persistent clock and battery chrome used by native recovery pages.

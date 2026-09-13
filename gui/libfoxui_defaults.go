@@ -280,7 +280,12 @@ func globalFlags(ctx android.BaseContext) []string {
 	if adaptiveResolution == "1" || strings.EqualFold(adaptiveResolution, "true") {
 		cflags = append(cflags, "-DAERA_UI2_ADAPTIVE_RESOLUTION=1")
 	}
-	for _, metric := range []string{"AERA_SCREEN_H", "AERA_STATUS_H"} {
+	for _, metric := range []string{
+		"AERA_SCREEN_H",
+		"AERA_STATUS_H",
+		"AERA_STATUS_INDENT_LEFT",
+		"AERA_STATUS_INDENT_RIGHT",
+	} {
 		value := strings.Trim(getMakeVars(ctx, metric), "\"")
 		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
 			cflags = append(cflags, fmt.Sprintf("-D%s=%d", metric, parsed))
