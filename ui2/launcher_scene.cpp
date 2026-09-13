@@ -287,7 +287,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
         "Browse storage, preview images and install ZIPs.", kAccent,
         Action::kFiles);
     add(LV_SYMBOL_DOWNLOAD, "Plugin Manager",
-        "Discover and install signed AERA extensions.", kCyan,
+        "Discover and install signed AERA extensions.", kAccent,
         Action::kPlugins);
     add(LV_SYMBOL_EDIT, "Terminal",
         "A real recovery shell built into AERA.", kAccent,
@@ -308,13 +308,13 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
             kAccent, Action::kGallery);
       else if (plugin.entry == "media")
         add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
-            kCyan, Action::kMedia);
+            kAccent, Action::kMedia);
       else if (plugin.entry == "recorder")
         add(LV_SYMBOL_VIDEO, plugin.name.c_str(), plugin.description.c_str(),
             kAccent, Action::kRecorder);
       else if (plugin.entry == "appvault")
         add(LV_SYMBOL_SAVE, plugin.name.c_str(), plugin.description.c_str(),
-            kCyan, Action::kAppVault);
+            kAccent, Action::kAppVault);
       else if (plugins::IsGeneric(plugin))
         add(GenericPluginIcon(plugin), plugin.name.c_str(),
             plugin.description.c_str(), kAccent, Action::kPluginApp, false,
@@ -332,7 +332,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   auto *store = AppCard(screen, 740, 484, 636, LV_SYMBOL_DOWNLOAD,
                         "Plugin Manager",
                         "Discover signed apps and install them to storage or RAM.",
-                        kCyan, [=] { callback(Action::kPlugins, context); });
+                        kAccent, [=] { callback(Action::kPlugins, context); });
   auto *terminal = AppCard(screen, 64, 884, 1312, LV_SYMBOL_EDIT, "Terminal",
                            "Run recovery commands in the built-in AERA shell.",
                            kAccent, [=] { callback(Action::kTerminal, context); },
@@ -372,7 +372,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   for (const auto &plugin : installed) {
     Action action = Action::kNone;
     const char *icon = LV_SYMBOL_GPS;
-    lv_color_t accent = kCyan;
+    lv_color_t accent = kAccent;
     if (plugin.entry == "browser") {
       action = Action::kWeb;
       accent = kAccent;
@@ -391,7 +391,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     } else if (plugin.entry == "media") {
       action = Action::kMedia;
       icon = LV_SYMBOL_PLAY;
-      accent = kCyan;
+      accent = kAccent;
     } else if (plugin.entry == "recorder") {
       action = Action::kRecorder;
       icon = LV_SYMBOL_VIDEO;
@@ -399,7 +399,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     } else if (plugin.entry == "appvault") {
       action = Action::kAppVault;
       icon = LV_SYMBOL_SAVE;
-      accent = kCyan;
+      accent = kAccent;
     } else if (plugins::IsGeneric(plugin)) {
       action = Action::kPluginApp;
       icon = GenericPluginIcon(plugin);

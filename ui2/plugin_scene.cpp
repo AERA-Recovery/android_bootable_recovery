@@ -95,8 +95,7 @@ void Render(State *state) {
     lv_obj_set_style_border_color(card, kMainLine, 0);
     lv_obj_set_style_border_opa(card, LV_OPA_40, 0);
 
-    const auto accent = (plugin.id == "browser" || plugin.id == "media")
-        ? kCyan : kAccent;
+    const auto accent = kAccent;
     const char *symbol = plugin.id == "browser" ? LV_SYMBOL_GPS :
         plugin.id == "gallery" ? LV_SYMBOL_IMAGE :
         plugin.id == "media" ? LV_SYMBOL_PLAY : LV_SYMBOL_SETTINGS;
