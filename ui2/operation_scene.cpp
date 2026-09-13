@@ -75,6 +75,22 @@ std::string CleanInstallerStatus(std::string value) {
   return value;
 }
 
+std::string CleanInstallerHistory(const std::string &value,
+                                  size_t visible_lines) {
+  const auto lines = Lines(value);
+  std::string history;
+  const size_t first = lines.size() > visible_lines
+      ? lines.size() - visible_lines : 0;
+  for (size_t i = first; i < lines.size(); ++i) {
+    auto line = lines[i];
+    line = CleanInstallerStatus(std::move(line));
+    if (line.empty()) continue;
+    if (!history.empty()) history += '\n';
+    history += line;
+  }
+  return history;
+}
+
 const char *InitialTitle(Job job) {
   switch (job) {
     case Job::kFlashImage: return "Preparing image flash";
@@ -355,33 +371,60 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_width(result.destination, 1216);
   lv_label_set_long_mode(result.destination, LV_LABEL_LONG_DOT);
 
+  const bool installer = request.job == Job::kInstall;
+  const int activity_y = landscape ? 340 : 1230;
+  const int activity_height = installer
+      ? std::max(500, static_cast<int>(lv_obj_get_height(screen)) -
+                          activity_y - (landscape ? 250 : 360))
+      : (landscape ? 850 : 600);
   auto *activity_card = lv_obj_create(screen);
   Panel(activity_card, 40, kMainSheet);
-  lv_obj_set_pos(activity_card, landscape ? 1560 : 64,
-                 landscape ? 340 : 1230);
+  lv_obj_set_pos(activity_card, landscape ? 1560 : 64, activity_y);
   lv_obj_set_size(activity_card, landscape ? 1544 : 1312,
-                  landscape ? 850 : 600);
+                  activity_height);
   lv_obj_set_style_border_width(activity_card, 1, 0);
   lv_obj_set_style_border_color(activity_card, kMainLine, 0);
   lv_obj_set_style_border_opa(activity_card, LV_OPA_20, 0);
-  auto *activity_title = Label(activity_card, "WHAT'S HAPPENING", &lv_font_montserrat_24, kAccent);
+  auto *activity_title = Label(activity_card,
+      installer ? "INSTALLER OUTPUT" : "WHAT'S HAPPENING",
+      &lv_font_montserrat_24, kAccent);
   lv_obj_set_pos(activity_title, 48, 42);
   lv_obj_set_style_text_letter_space(activity_title, 3, 0);
+  const lv_font_t *activity_font = installer
+      ? (landscape ? &lv_font_montserrat_20 : &lv_font_montserrat_24)
+      : &lv_font_montserrat_32;
+  const int activity_text_height = installer
+      ? activity_height - 150 : LV_SIZE_CONTENT;
   result.activity_summary = Label(activity_card,
-      "AERA is preparing the operation. Progress will appear here in plain language.",
-      &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(result.activity_summary, 48, 112);
-  lv_obj_set_width(result.activity_summary, landscape ? 1448 : 1216);
-  result.notice = Label(activity_card,
-      LV_SYMBOL_WARNING "  Keep the device powered on until the operation completes.",
-      &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_pos(result.notice, 48, 280);
-  lv_obj_set_width(result.notice, landscape ? 1448 : 1216);
+      installer ? "Waiting for installer output..." :
+          "AERA is preparing the operation. Progress will appear here in plain language.",
+      activity_font, kText);
+  lv_obj_set_pos(result.activity_summary, 48, installer ? 100 : 112);
+  lv_obj_set_size(result.activity_summary, landscape ? 1448 : 1216,
+                  activity_text_height);
+  if (installer) {
+    const int line_space = landscape ? 0 : 2;
+    const int line_height =
+        static_cast<int>(lv_font_get_line_height(activity_font)) + line_space;
+    result.installer_lines = static_cast<unsigned>(std::max(
+        1, activity_text_height / line_height));
+    lv_label_set_long_mode(result.activity_summary, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_line_space(result.activity_summary, line_space, 0);
+  } else {
+    result.notice = Label(activity_card,
+        LV_SYMBOL_WARNING "  Keep the device powered on until the operation completes.",
+        &lv_font_montserrat_24, kMutedStrong);
+    lv_obj_set_pos(result.notice, 48, 280);
+    lv_obj_set_width(result.notice, landscape ? 1448 : 1216);
+  }
   result.details = Button(activity_card, "View technical details", [screen] {
     ShowTechnicalLog(screen);
   });
-  lv_obj_set_pos(result.details, 48, landscape ? 650 : 400);
+  lv_obj_set_pos(result.details, 48,
+                 installer ? activity_height - 200 :
+                     (landscape ? 650 : 400));
   lv_obj_set_size(result.details, landscape ? 1448 : 1216, 132);
+  if (installer) lv_obj_add_flag(result.details, LV_OBJ_FLAG_HIDDEN);
 
   const bool backup = request.job == Job::kBackup || request.job == Job::kRestore;
   const bool format = request.job == Job::kFormatData;
@@ -441,8 +484,12 @@ void RefreshOperationScene(const OperationScene &scene) {
 
   auto friendly = Explain(RecoveryOperationDetail(), scene.job, progress);
   if (scene.job == Job::kInstall) {
+    const std::string history =
+        CleanInstallerHistory(RecoveryInstallerStatus(),
+                              std::max(1U, scene.installer_lines));
+    const auto installer_lines = Lines(history);
     const std::string installer =
-        CleanInstallerStatus(RecoveryInstallerStatus());
+        installer_lines.empty() ? "" : installer_lines.back();
     if (!installer.empty()) {
       const std::string lower = Lower(installer);
       if (lower.find("installing aera to slot") != std::string::npos ||
@@ -461,12 +508,10 @@ void RefreshOperationScene(const OperationScene &scene) {
       friendly.explanation = installer;
       friendly.amount = installer;
       friendly.files.clear();
-      friendly.activity =
-          lower.find("reboot") != std::string::npos
-              ? "AERA will restart automatically when the countdown finishes."
-              : "Live output from the included recovery installer.";
+      friendly.activity = history;
     } else {
       friendly.amount = "Waiting for installer output";
+      friendly.activity = "Waiting for installer output...";
     }
   }
   lv_label_set_text(scene.status, friendly.title.c_str());
@@ -530,6 +575,8 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
         LV_SYMBOL_WARNING "  Review technical details before trying again.");
     lv_obj_set_style_text_color(scene.notice, result_color, 0);
   }
+  if (scene.details)
+    lv_obj_remove_flag(scene.details, LV_OBJ_FLAG_HIDDEN);
   lv_obj_remove_flag(scene.done, LV_OBJ_FLAG_HIDDEN);
 }
 

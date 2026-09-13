@@ -360,13 +360,14 @@ int main(int argc,char **argv) {
   CompleteOperationScene(operation,true,"Backup completed"); Tick();
   lv_screen_load(screen); lv_obj_delete(job);
   recovery_progress=0;
-  installer_status="- Installing AERA to slot _a...";
+  installer_status="- Preparing recovery update...\n- Installing AERA to slot _a...";
   auto *install_job=lv_obj_create(nullptr);
   JobRequest install_request; install_request.job=Job::kInstall; install_request.title="Install AERA Update";
   auto installing=BuildJobScene(install_job,install_request,[](Action,void*){},nullptr);
   lv_screen_load(install_job); RefreshOperationScene(installing); Tick();
   assert(Find(install_job,"Installing"));
   assert(Find(install_job,"Installing AERA to slot _a..."));
+  assert(Find(install_job,"Preparing recovery update...\nInstalling AERA to slot _a..."));
   lv_screen_load(screen); lv_obj_delete(install_job);
   recovery_progress=38;
   installer_status.clear();

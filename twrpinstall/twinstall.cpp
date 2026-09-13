@@ -77,6 +77,28 @@ enum zip_type {
 	TWRP_THEME_ZIP_TYPE
 };
 
+static void Append_Aera_Install_Status(const char* line) {
+	constexpr size_t kBufferedLines = 256;
+	std::string history = DataManager::GetStrValue("aera_install_status");
+	if (!history.empty())
+		history += '\n';
+	history += line;
+
+	size_t lines = 1;
+	for (char c : history) {
+		if (c == '\n')
+			++lines;
+	}
+	while (lines > kBufferedLines) {
+		const size_t next = history.find('\n');
+		if (next == std::string::npos)
+			break;
+		history.erase(0, next + 1);
+		--lines;
+	}
+	DataManager::SetValue("aera_install_status", history);
+}
+
 static int Install_Theme(const char* path, ZipArchiveHandle Zip) {
 #ifdef TW_OEM_BUILD // We don't do custom themes in OEM builds
 	return INSTALL_CORRUPT;
@@ -238,7 +260,7 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype) 
 		  		gui_changeOverlay("");
 		  		TWFunc::copy_file(Fox_aroma_cfg, Fox_sdcard_aroma_cfg, 0644);
 			     }
-			DataManager::SetValue("aera_install_status", display_value);
+			Append_Aera_Install_Status(display_value);
 	      		    gui_print("%s", display_value);
 	      		    if (strcmp(display_value, "(c) 2013-2015 by amarullz.com") == 0 && (aroma_running == 0)) {
 		  		aroma_running = 1;

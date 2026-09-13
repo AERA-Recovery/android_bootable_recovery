@@ -36,6 +36,7 @@ struct OperationScene {
   lv_obj_t *metrics = nullptr;
   lv_obj_t *destination = nullptr;
   uint32_t started = 0;
+  unsigned installer_lines = 0;
   Job job = Job::kInstall;
   bool format_data = false;
   bool indeterminate_progress = false;
