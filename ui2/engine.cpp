@@ -495,7 +495,10 @@ public:
 
     if (event.pressed && !was_pressed) {
       const int32_t edge = std::max(72, width_ / 20);
-      if (pointer_.x <= edge) BeginEdgeSwipe();
+      if (pointer_.x <= edge)
+        BeginEdgeSwipe(false);
+      else if (pointer_.x >= width_ - edge)
+        BeginEdgeSwipe(true);
       return;
     }
 
@@ -506,31 +509,29 @@ public:
         return;
       }
       swipe_last_y_ = pointer_.y;
-      swipe_farthest_x_ = std::max(swipe_farthest_x_, pointer_.x);
-      if (gesture_indicator_ != nullptr) {
-        const int32_t progress = std::clamp(
-            (swipe_farthest_x_ - swipe_start_x_) / 4, 12, 82);
-        lv_obj_set_width(gesture_indicator_, progress);
-        lv_obj_set_style_opa(gesture_indicator_,
-                             std::clamp(70 + progress * 2, 70, 230), 0);
-      }
+      const int32_t inward = std::max(
+          0, swipe_right_edge_ ? swipe_start_x_ - pointer_.x
+                               : pointer_.x - swipe_start_x_);
+      swipe_max_inward_ = std::max(swipe_max_inward_, inward);
+      UpdateEdgeSwipe(inward);
       return;
     }
 
     if (!event.pressed && was_pressed && swipe_active_) {
-      const int32_t horizontal = swipe_farthest_x_ - swipe_start_x_;
       // Several touch controllers zero ABS_MT_POSITION_Y when the tracking ID
       // is released. Validate direction with the last coordinate seen while
       // the contact was still active.
       const int32_t vertical = std::abs(swipe_last_y_ - swipe_start_y_);
-      const bool accepted = horizontal >= width_ / 6 &&
-                            horizontal > vertical * 2;
-      CancelEdgeSwipe();
+      const bool accepted = swipe_max_inward_ >= width_ / 6 &&
+                            swipe_max_inward_ > vertical * 2;
+      const bool right_edge = swipe_right_edge_;
+      FinishEdgeSwipe(accepted);
       if (accepted) {
         if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
+        RecoveryVibrate(Haptic::kTouch);
         __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                            "left-edge Back gesture accepted");
-        NavigateBack();
+                            "%s-edge Back gesture accepted",
+                            right_edge ? "right" : "left");
       }
     }
   }
@@ -1444,35 +1445,201 @@ private:
     StartUpdateCheck(false);
   }
 
-  void BeginEdgeSwipe() {
+  static double SmoothStep(double value) {
+    value = std::clamp(value, 0.0, 1.0);
+    return value * value * (3.0 - 2.0 * value);
+  }
+
+  static int32_t WaveExtent(int32_t depth, int32_t y, int32_t half_height) {
+    if (depth <= 0 || half_height <= 0) return 0;
+    const double distance = std::clamp(
+        static_cast<double>(std::abs(y)) / half_height, 0.0, 1.0);
+    // A wide, zero-slope crown avoids the pointed bow-tie silhouette. The
+    // second factor gently tightens the shoulders near the screen edge while
+    // keeping the centre lobe round and substantial.
+    const double round = 1.0 - distance * distance;
+    const double profile = round * (1.0 - 0.25 * distance * distance);
+    return std::max(0, static_cast<int32_t>(depth * profile + 0.5));
+  }
+
+  static lv_point_precise_t DrawPoint(int32_t x, int32_t y) {
+    lv_point_precise_t point{};
+    point.x = x;
+    point.y = y;
+    return point;
+  }
+
+  static void DrawWaveLayer(lv_layer_t *layer, const lv_area_t &bounds,
+                            bool right_edge, int32_t depth, lv_color_t color,
+                            lv_opa_t opacity) {
+    constexpr int32_t kSegments = 48;
+    if (layer == nullptr || depth <= 0 || opacity == LV_OPA_TRANSP) return;
+    const int32_t height = lv_area_get_height(&bounds);
+    const int32_t half = height / 2;
+    const int32_t centre = bounds.y1 + half;
+    const int32_t edge_x = right_edge ? bounds.x2 : bounds.x1;
+
+    lv_draw_triangle_dsc_t triangle;
+    lv_draw_triangle_dsc_init(&triangle);
+    triangle.color = color;
+    triangle.opa = opacity;
+    for (int32_t segment = 0; segment < kSegments; ++segment) {
+      const int32_t y0 = bounds.y1 + height * segment / kSegments;
+      const int32_t y1 = bounds.y1 + height * (segment + 1) / kSegments;
+      const int32_t extent0 = WaveExtent(depth, y0 - centre, half);
+      const int32_t extent1 = WaveExtent(depth, y1 - centre, half);
+      const int32_t inner0 = edge_x + (right_edge ? -extent0 : extent0);
+      const int32_t inner1 = edge_x + (right_edge ? -extent1 : extent1);
+
+      triangle.p[0] = DrawPoint(edge_x, y0);
+      triangle.p[1] = DrawPoint(inner0, y0);
+      triangle.p[2] = DrawPoint(inner1, y1);
+      lv_draw_triangle(layer, &triangle);
+      triangle.p[0] = DrawPoint(edge_x, y0);
+      triangle.p[1] = DrawPoint(inner1, y1);
+      triangle.p[2] = DrawPoint(edge_x, y1);
+      lv_draw_triangle(layer, &triangle);
+    }
+  }
+
+  static void DrawEdgeGesture(lv_event_t *event) {
+    auto *self = static_cast<Impl *>(lv_event_get_user_data(event));
+    auto *object = lv_event_get_target_obj(event);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    if (self == nullptr || object == nullptr || layer == nullptr ||
+        object != self->gesture_indicator_) return;
+
+    lv_area_t bounds{};
+    lv_obj_get_coords(object, &bounds);
+    const int32_t maximum = std::max(1, lv_area_get_width(&bounds) - 14);
+    const int32_t depth = std::clamp(self->gesture_depth_, 0, maximum);
+    // kMainSelected is derived from the live accent and current surface. Draw
+    // it as one pre-blended opaque silhouette: it reads as translucent glass
+    // without triangle overlap seams or the heavy full-screen blur pipeline.
+    DrawWaveLayer(layer, bounds, self->swipe_right_edge_, depth,
+                  design::kMainSelected, LV_OPA_COVER);
+
+    if (depth < 30) return;
+    const int32_t edge_x = self->swipe_right_edge_ ? bounds.x2 : bounds.x1;
+    const int32_t direction = self->swipe_right_edge_ ? -1 : 1;
+    const int32_t tip = edge_x + direction * std::max(16, depth * 45 / 100);
+    const int32_t arm = tip + direction * 16;
+    const int32_t centre = (bounds.y1 + bounds.y2) / 2;
+    const int32_t half_arrow = 15;
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.color = design::kAccent;
+    line.width = 5;
+    line.opa = static_cast<lv_opa_t>(
+        std::clamp((depth - 26) * 10, 0, 230));
+    line.round_start = true;
+    line.round_end = true;
+    line.p1 = DrawPoint(arm, centre - half_arrow);
+    line.p2 = DrawPoint(tip, centre);
+    lv_draw_line(layer, &line);
+    line.p1 = DrawPoint(tip, centre);
+    line.p2 = DrawPoint(arm, centre + half_arrow);
+    lv_draw_line(layer, &line);
+  }
+
+  static void SetEdgeGestureDepth(void *target, int32_t value) {
+    auto *self = static_cast<Impl *>(target);
+    if (self == nullptr || self->gesture_indicator_ == nullptr) return;
+    self->gesture_depth_ = std::max(0, value);
+    lv_obj_invalidate(self->gesture_indicator_);
+  }
+
+  static void CompleteEdgeGesture(lv_anim_t *animation) {
+    auto *self = static_cast<Impl *>(lv_anim_get_user_data(animation));
+    if (self == nullptr || self->gesture_indicator_ == nullptr) return;
+    lv_obj_delete(self->gesture_indicator_);
+    self->gesture_indicator_ = nullptr;
+    self->gesture_depth_ = 0;
+    const bool navigate_back = self->gesture_navigate_back_;
+    self->gesture_navigate_back_ = false;
+    if (navigate_back) self->NavigateBack(false);
+  }
+
+  void BeginEdgeSwipe(bool right_edge) {
     CancelEdgeSwipe();
     swipe_active_ = true;
+    swipe_right_edge_ = right_edge;
     swipe_start_x_ = pointer_.x;
     swipe_start_y_ = pointer_.y;
     swipe_last_y_ = pointer_.y;
-    swipe_farthest_x_ = pointer_.x;
+    swipe_max_inward_ = 0;
+    gesture_depth_ = 2;
 
-    gesture_indicator_ = lv_obj_create(lv_screen_active());
+    const int32_t maximum_depth = std::clamp(width_ / 10, 104, 148);
+    const int32_t wave_height = std::clamp(width_ / 4, 300, 410);
+    gesture_indicator_ = lv_obj_create(lv_layer_top());
     lv_obj_remove_flag(gesture_indicator_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(gesture_indicator_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_pos(gesture_indicator_, 0,
-                   std::clamp(pointer_.y - 74, 80, height_ - 228));
-    lv_obj_set_size(gesture_indicator_, 12, 148);
-    lv_obj_set_style_radius(gesture_indicator_, 0, 0);
-    lv_obj_set_style_radius(gesture_indicator_, 74, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(gesture_indicator_, design::kAccent, 0);
-    lv_obj_set_style_bg_opa(gesture_indicator_, LV_OPA_COVER, 0);
+    lv_obj_set_pos(gesture_indicator_, right_edge ? width_ - maximum_depth : 0,
+                   std::clamp(pointer_.y - wave_height / 2, 0,
+                              height_ - wave_height));
+    lv_obj_set_size(gesture_indicator_, maximum_depth, wave_height);
+    lv_obj_set_style_bg_opa(gesture_indicator_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(gesture_indicator_, 0, 0);
-    lv_obj_set_style_opa(gesture_indicator_, LV_OPA_30, 0);
+    lv_obj_set_style_pad_all(gesture_indicator_, 0, 0);
+    lv_obj_add_event_cb(gesture_indicator_, DrawEdgeGesture,
+                        LV_EVENT_DRAW_MAIN, this);
     lv_obj_move_foreground(gesture_indicator_);
+    lv_obj_invalidate(gesture_indicator_);
+  }
+
+  void UpdateEdgeSwipe(int32_t inward) {
+    if (gesture_indicator_ == nullptr) return;
+    const int32_t maximum = std::max(1, lv_obj_get_width(gesture_indicator_) - 14);
+    const int32_t full_drag = std::max(1, width_ / 6);
+    const double progress = std::clamp(
+        static_cast<double>(inward) / full_drag, 0.0, 1.0);
+    // Smooth-step starts almost flat and becomes increasingly elastic as the
+    // finger pulls inward. Extra travel meets rubber-band resistance.
+    const int32_t overshoot = inward > full_drag
+        ? std::min(12, (inward - full_drag) / 9) : 0;
+    gesture_depth_ = std::min(
+        maximum, 2 + static_cast<int32_t>((maximum - 14) * SmoothStep(progress))
+                     + overshoot);
+
+    const int32_t wave_height = lv_obj_get_height(gesture_indicator_);
+    const int32_t pulled_y = swipe_start_y_ +
+        (pointer_.y - swipe_start_y_) * 2 / 5;
+    lv_obj_set_y(gesture_indicator_,
+                 std::clamp(pulled_y - wave_height / 2, 0,
+                            height_ - wave_height));
+    lv_obj_invalidate(gesture_indicator_);
+  }
+
+  void FinishEdgeSwipe(bool accepted) {
+    swipe_active_ = false;
+    gesture_navigate_back_ = accepted;
+    if (gesture_indicator_ == nullptr) {
+      gesture_navigate_back_ = false;
+      return;
+    }
+    lv_anim_delete(this, SetEdgeGestureDepth);
+    lv_anim_t settle;
+    lv_anim_init(&settle);
+    lv_anim_set_var(&settle, this);
+    lv_anim_set_values(&settle, gesture_depth_, 0);
+    lv_anim_set_duration(&settle, accepted ? 150 : 220);
+    lv_anim_set_path_cb(&settle, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&settle, SetEdgeGestureDepth);
+    lv_anim_set_user_data(&settle, this);
+    lv_anim_set_completed_cb(&settle, CompleteEdgeGesture);
+    lv_anim_start(&settle);
   }
 
   void CancelEdgeSwipe() {
     swipe_active_ = false;
+    gesture_navigate_back_ = false;
+    lv_anim_delete(this, SetEdgeGestureDepth);
     if (gesture_indicator_ != nullptr) {
       lv_obj_delete(gesture_indicator_);
       gesture_indicator_ = nullptr;
     }
+    gesture_depth_ = 0;
   }
 
   bool PresentScaledSoftware(const uint8_t *pixels) {
@@ -1719,7 +1886,8 @@ private:
   int32_t swipe_start_x_ = 0;
   int32_t swipe_start_y_ = 0;
   int32_t swipe_last_y_ = 0;
-  int32_t swipe_farthest_x_ = 0;
+  int32_t swipe_max_inward_ = 0;
+  int32_t gesture_depth_ = 0;
   bool direct_scanout_ = false;
   unsigned int next_software_scanout_ = 0;
   bool gpu_accelerated_ = false;
@@ -1743,6 +1911,8 @@ private:
   bool interactive_ready_ = false;
   bool navigating_back_ = false;
   bool swipe_active_ = false;
+  bool swipe_right_edge_ = false;
+  bool gesture_navigate_back_ = false;
   bool suspended_ = false;
   bool fastboot_mode_ = false;
   bool on_home_ = false;
