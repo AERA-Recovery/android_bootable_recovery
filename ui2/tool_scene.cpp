@@ -3,6 +3,7 @@
 #include "scene.hpp"
 #include "phone_keyboard.hpp"
 #include "ui_components.hpp"
+#include <cmath>
 #include <dirent.h>
 #include <set>
 #include <sys/stat.h>
@@ -561,17 +562,230 @@ struct AccentPreset {
   uint32_t rgb;
 };
 
-constexpr std::array<AccentPreset, 8> kAccentPresets{{
+constexpr std::array<AccentPreset, 7> kAccentPresets{{
     {"AERA Cyan", 0x16c8ff}, {"Azure", 0x4c8dff},
     {"Violet", 0xa991ff}, {"Magenta", 0xf05dce},
-    {"Rose", 0xff5c7a}, {"Orange", 0xff8a32},
-    {"Emerald", 0x42d392}, {"Lime", 0xa6e35a},
+    {"Lime", 0xa6e35a}, {"Orange", 0xff8a32},
+    {"Emerald", 0x42d392},
 }};
+
+bool IsPresetAccent(uint32_t rgb) {
+  return std::any_of(kAccentPresets.begin(), kAccentPresets.end(),
+      [rgb](const AccentPreset &preset) { return preset.rgb == rgb; });
+}
 
 const char *AccentName(uint32_t rgb) {
   for (const auto &preset : kAccentPresets)
     if (preset.rgb == rgb) return preset.name;
-  return "Custom";
+  return "User selected";
+}
+
+lv_obj_t *HueSaturationDisk(lv_obj_t *parent, int size) {
+  auto *pixels = new std::vector<lv_color32_t>(
+      static_cast<size_t>(size) * static_cast<size_t>(size));
+  constexpr double kPi = 3.14159265358979323846;
+  const double center = (size - 1) * 0.5;
+  const double radius = center - 1.0;
+  for (int y = 0; y < size; ++y) {
+    for (int x = 0; x < size; ++x) {
+      const double dx = x - center;
+      const double dy = y - center;
+      const double distance = std::sqrt(dx * dx + dy * dy);
+      auto &pixel = (*pixels)[static_cast<size_t>(y) * size + x];
+      if (distance > radius + 1.0) {
+        pixel = lv_color32_make(0, 0, 0, 0);
+        continue;
+      }
+      double degrees = std::atan2(dy, dx) * 180.0 / kPi;
+      if (degrees < 0.0) degrees += 360.0;
+      const uint8_t saturation = static_cast<uint8_t>(std::clamp(
+          distance * 100.0 / radius, 0.0, 100.0));
+      const lv_color_t color = lv_color_hsv_to_rgb(
+          static_cast<uint16_t>(degrees), saturation, 100);
+      const lv_opa_t alpha = distance <= radius ? LV_OPA_COVER
+          : static_cast<lv_opa_t>(std::clamp(
+                (radius + 1.0 - distance) * 255.0, 0.0, 255.0));
+      pixel = lv_color32_make(color.red, color.green, color.blue, alpha);
+    }
+  }
+
+  auto *canvas = lv_canvas_create(parent);
+  lv_canvas_set_buffer(canvas, pixels->data(), size, size,
+                       LV_COLOR_FORMAT_ARGB8888);
+  lv_obj_set_size(canvas, size, size);
+  lv_obj_remove_flag(canvas, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(canvas, [](lv_event_t *event) {
+    delete static_cast<std::vector<lv_color32_t> *>(
+        lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, pixels);
+  return canvas;
+}
+
+struct AccentPickerState {
+  Tools *tools = nullptr;
+  lv_obj_t *overlay = nullptr;
+  lv_obj_t *wheel = nullptr;
+  lv_obj_t *marker = nullptr;
+  lv_obj_t *preview = nullptr;
+  lv_obj_t *hex = nullptr;
+  uint32_t rgb = kDefaultAccentRgb;
+  int wheel_size = 0;
+};
+
+void UpdateAccentPicker(AccentPickerState *picker, double dx, double dy) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double radius = picker->wheel_size * 0.5 - 3.0;
+  double distance = std::sqrt(dx * dx + dy * dy);
+  if (distance > radius && distance > 0.0) {
+    dx *= radius / distance;
+    dy *= radius / distance;
+    distance = radius;
+  }
+  double degrees = std::atan2(dy, dx) * 180.0 / kPi;
+  if (degrees < 0.0) degrees += 360.0;
+  const uint8_t saturation = static_cast<uint8_t>(std::clamp(
+      distance * 100.0 / radius, 0.0, 100.0));
+  const lv_color_t color = lv_color_hsv_to_rgb(
+      static_cast<uint16_t>(degrees), saturation, 100);
+  picker->rgb = (static_cast<uint32_t>(color.red) << 16) |
+                (static_cast<uint32_t>(color.green) << 8) |
+                static_cast<uint32_t>(color.blue);
+
+  const int marker_size = 46;
+  lv_obj_set_pos(picker->marker,
+      static_cast<int>(picker->wheel_size * 0.5 + dx) - marker_size / 2,
+      static_cast<int>(picker->wheel_size * 0.5 + dy) - marker_size / 2);
+  lv_obj_set_style_bg_color(picker->marker, color, 0);
+  lv_obj_set_style_bg_color(picker->preview, color, 0);
+  lv_obj_set_style_text_color(picker->hex,
+      lv_color_luminance(color) < 118 ? Color(0xffffff) : Color(0x101318), 0);
+  char value[16];
+  std::snprintf(value, sizeof(value), "#%06X", picker->rgb);
+  lv_label_set_text(picker->hex, value);
+}
+
+void UpdateAccentPickerFromTouch(AccentPickerState *picker) {
+  lv_indev_t *input = lv_indev_active();
+  if (input == nullptr) return;
+  lv_point_t point{};
+  lv_indev_get_point(input, &point);
+  lv_area_t area{};
+  lv_obj_get_coords(picker->wheel, &area);
+  UpdateAccentPicker(picker,
+      point.x - area.x1 - picker->wheel_size * 0.5,
+      point.y - area.y1 - picker->wheel_size * 0.5);
+}
+
+void OpenAccentPicker(Tools *tools) {
+  constexpr double kPi = 3.14159265358979323846;
+  auto *picker = new AccentPickerState;
+  picker->tools = tools;
+  picker->rgb = RecoveryAccentColor();
+  picker->overlay = lv_obj_create(tools->screen);
+  lv_obj_set_user_data(picker->overlay, &kModalMarker);
+  Clear(picker->overlay);
+  lv_obj_set_size(picker->overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(picker->overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(picker->overlay, LV_OPA_70, 0);
+  lv_obj_add_event_cb(picker->overlay, [](lv_event_t *event) {
+    delete static_cast<AccentPickerState *>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, picker);
+
+  const bool landscape = Landscape(tools->screen);
+  const int screen_width = lv_obj_get_width(tools->screen);
+  const int screen_height = lv_obj_get_height(tools->screen);
+  const int sheet_width = landscape ? std::min(2100, screen_width - 160) : 1312;
+  const int sheet_height = landscape ? std::min(1120, screen_height - 100) : 1450;
+  auto *sheet = lv_obj_create(picker->overlay);
+  Panel(sheet, 48, kMainSheet);
+  lv_obj_set_size(sheet, sheet_width, sheet_height);
+  lv_obj_center(sheet);
+  lv_obj_set_style_border_width(sheet, 1, 0);
+  lv_obj_set_style_border_color(sheet, kMainLine, 0);
+
+  auto *heading = Label(sheet, "Choose your accent",
+                        &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(heading, 56, 48);
+  auto *copy = Label(sheet,
+      "Drag anywhere on the colour disk. The centre is softer; the edge is vivid.",
+      &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(copy, 56, 116);
+  lv_obj_set_width(copy, sheet_width - 112);
+
+  picker->wheel_size = landscape ? 680 : 760;
+  auto *wheel_holder = lv_obj_create(sheet);
+  Clear(wheel_holder);
+  lv_obj_set_size(wheel_holder, picker->wheel_size, picker->wheel_size);
+  lv_obj_set_pos(wheel_holder, landscape ? 70 : (sheet_width - picker->wheel_size) / 2,
+                 landscape ? 232 : 208);
+  lv_obj_set_style_radius(wheel_holder, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(wheel_holder, kMainPanel, 0);
+  lv_obj_set_style_bg_opa(wheel_holder, LV_OPA_COVER, 0);
+  lv_obj_set_style_shadow_color(wheel_holder, lv_color_black(), 0);
+  lv_obj_set_style_shadow_width(wheel_holder, 30, 0);
+  lv_obj_set_style_shadow_opa(wheel_holder, LV_OPA_30, 0);
+  picker->wheel = HueSaturationDisk(wheel_holder, picker->wheel_size);
+  lv_obj_set_pos(picker->wheel, 0, 0);
+
+  picker->marker = lv_obj_create(wheel_holder);
+  Clear(picker->marker);
+  lv_obj_set_size(picker->marker, 46, 46);
+  lv_obj_set_style_radius(picker->marker, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_opa(picker->marker, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(picker->marker, 6, 0);
+  lv_obj_set_style_border_color(picker->marker, Color(0xffffff), 0);
+  lv_obj_set_style_shadow_color(picker->marker, lv_color_black(), 0);
+  lv_obj_set_style_shadow_width(picker->marker, 10, 0);
+  lv_obj_set_style_shadow_opa(picker->marker, LV_OPA_50, 0);
+  lv_obj_remove_flag(picker->marker, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(wheel_holder, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(wheel_holder, [](lv_event_t *event) {
+    const auto code = lv_event_get_code(event);
+    if (code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING)
+      UpdateAccentPickerFromTouch(static_cast<AccentPickerState *>(
+          lv_event_get_user_data(event)));
+  }, LV_EVENT_ALL, picker);
+
+  const int controls_x = landscape ? 850 : 80;
+  const int controls_y = landscape ? 286 : 1012;
+  picker->preview = lv_obj_create(sheet);
+  Clear(picker->preview);
+  lv_obj_set_pos(picker->preview, controls_x, controls_y);
+  lv_obj_set_size(picker->preview, landscape ? sheet_width - controls_x - 70
+                                             : sheet_width - 160, 126);
+  lv_obj_set_style_radius(picker->preview, 38, 0);
+  lv_obj_set_style_bg_opa(picker->preview, LV_OPA_COVER, 0);
+  picker->hex = Label(picker->preview, "", &lv_font_montserrat_32,
+                      Color(0x101318));
+  lv_obj_center(picker->hex);
+
+  const int buttons_y = landscape ? 684 : 1182;
+  const int button_width = landscape ? (sheet_width - controls_x - 94) / 2
+                                     : (sheet_width - 184) / 2;
+  auto *cancel = Button(sheet, "Cancel", [picker] {
+    lv_obj_delete_async(picker->overlay);
+  });
+  lv_obj_set_pos(cancel, controls_x, buttons_y);
+  lv_obj_set_size(cancel, button_width, 126);
+  auto *use = Button(sheet, "Use colour", [picker] {
+    const uint32_t rgb = picker->rgb;
+    if (!RecoverySetAccentColor(rgb)) {
+      Sheet(picker->tools->screen, "Theme unavailable",
+            "The selected accent could not be stored.");
+      return;
+    }
+    ApplyAccent(rgb);
+    Open(picker->tools, Action::kTheme);
+  }, true);
+  lv_obj_set_pos(use, controls_x + button_width + 24, buttons_y);
+  lv_obj_set_size(use, button_width, 126);
+
+  const lv_color_hsv_t hsv = lv_color_to_hsv(Color(picker->rgb));
+  const double angle = hsv.h * kPi / 180.0;
+  const double radius = (picker->wheel_size * 0.5 - 3.0) * hsv.s / 100.0;
+  UpdateAccentPicker(picker, std::cos(angle) * radius,
+                     std::sin(angle) * radius);
+  AnimateEnter(sheet, 0, 18);
 }
 
 void BuildTheme(Tools *state) {
@@ -816,9 +1030,41 @@ void BuildTheme(Tools *state) {
     });
   }
 
+  const bool custom_selected = !IsPresetAccent(selected_rgb);
+  auto *custom = lv_button_create(state->list);
+  Clear(custom);
+  lv_obj_set_pos(custom, 16 + 3 * 320, 1680 + 220);
+  lv_obj_set_size(custom, 304, 190);
+  lv_obj_set_style_radius(custom, 32, 0);
+  lv_obj_set_style_bg_color(custom, kMainPanel, 0);
+  lv_obj_set_style_bg_opa(custom, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(custom, kMainSelected, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(custom, custom_selected ? 4 : 1, 0);
+  lv_obj_set_style_border_color(custom,
+      custom_selected ? Color(selected_rgb) : kMainLine, 0);
+  lv_obj_set_style_transform_scale(custom, 250, LV_STATE_PRESSED);
+  auto *disk = HueSaturationDisk(custom, 72);
+  lv_obj_set_pos(disk, 24, 24);
+  auto *custom_name = Label(custom, "User select",
+                            &lv_font_montserrat_24, kText);
+  lv_obj_set_pos(custom_name, 24, 116);
+  if (custom_selected) {
+    auto *selected = lv_obj_create(custom);
+    Clear(selected);
+    lv_obj_set_size(selected, 38, 38);
+    lv_obj_align(selected, LV_ALIGN_TOP_RIGHT, -28, 38);
+    lv_obj_set_style_radius(selected, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(selected, Color(selected_rgb), 0);
+    lv_obj_set_style_bg_opa(selected, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(selected, 3, 0);
+    lv_obj_set_style_border_color(selected, kText, 0);
+    lv_obj_remove_flag(selected, LV_OBJ_FLAG_CLICKABLE);
+  }
+  OnClick(custom, [state] { OpenAccentPicker(state); });
+
   auto *note = Label(state->list,
-      "AERA Cyan is the default. Palette changes apply immediately and are\n"
-      "saved with the rest of your recovery preferences.",
+      "AERA Cyan is the default. Choose User select for any colour. Changes\n"
+      "apply immediately and are saved with your recovery preferences.",
       &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(note, 32, 2160);
   lv_obj_set_width(note, 1220);
