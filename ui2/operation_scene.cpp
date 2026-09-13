@@ -62,6 +62,19 @@ std::string CleanMetric(std::string value) {
   return value;
 }
 
+std::string CleanInstallerStatus(std::string value) {
+  while (!value.empty() &&
+         std::isspace(static_cast<unsigned char>(value.front())))
+    value.erase(value.begin());
+  if (!value.empty() && value.front() == '-') {
+    value.erase(value.begin());
+    while (!value.empty() &&
+           std::isspace(static_cast<unsigned char>(value.front())))
+      value.erase(value.begin());
+  }
+  return value;
+}
+
 const char *InitialTitle(Job job) {
   switch (job) {
     case Job::kFlashImage: return "Preparing image flash";
@@ -95,6 +108,10 @@ void SetActivityBorderOpacity(void *target, int32_t opacity) {
 void SetProgressPulseOpacity(void *target, int32_t opacity) {
   lv_obj_set_style_opa(static_cast<lv_obj_t *>(target),
                        static_cast<lv_opa_t>(opacity), 0);
+}
+
+void SetIndeterminateProgressX(void *target, int32_t x) {
+  lv_obj_set_x(static_cast<lv_obj_t *>(target), x);
 }
 
 FriendlyProgress Explain(const std::string &raw, Job job, int progress) {
@@ -221,6 +238,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   OperationScene result;
   result.job = request.job;
   result.format_data = request.job == Job::kFormatData;
+  result.indeterminate_progress = request.job == Job::kInstall;
   result.started = lv_tick_get();
   const bool landscape = Landscape(screen);
 
@@ -280,13 +298,14 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_style_bg_color(result.progress, kMainLine, LV_PART_MAIN);
   lv_obj_set_style_bg_color(result.progress, kAccent, LV_PART_INDICATOR);
 
-  if (request.job == Job::kBackup || request.job == Job::kRestore) {
-    // A tiny pulse rides the leading edge of the transfer. It adds life to a
-    // long operation without a spinner or several continuously moving layers.
+  const bool transfer =
+      request.job == Job::kBackup || request.job == Job::kRestore;
+  if (transfer || result.indeterminate_progress) {
     result.progress_pulse = lv_obj_create(card);
     Clear(result.progress_pulse);
     lv_obj_set_pos(result.progress_pulse, 48, 314);
-    lv_obj_set_size(result.progress_pulse, 24, 24);
+    lv_obj_set_size(result.progress_pulse,
+                    result.indeterminate_progress ? 240 : 24, 24);
     lv_obj_set_style_radius(result.progress_pulse, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(result.progress_pulse, kAccent, 0);
     lv_obj_set_style_bg_opa(result.progress_pulse, LV_OPA_COVER, 0);
@@ -294,16 +313,21 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
     lv_obj_set_style_shadow_width(result.progress_pulse, 18, 0);
     lv_obj_set_style_shadow_opa(result.progress_pulse, LV_OPA_40, 0);
     lv_obj_remove_flag(result.progress_pulse, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(result.progress_pulse, LV_OBJ_FLAG_HIDDEN);
+    if (!result.indeterminate_progress)
+      lv_obj_add_flag(result.progress_pulse, LV_OBJ_FLAG_HIDDEN);
     lv_anim_t pulse;
     lv_anim_init(&pulse);
     lv_anim_set_var(&pulse, result.progress_pulse);
-    lv_anim_set_values(&pulse, LV_OPA_50, LV_OPA_COVER);
-    lv_anim_set_duration(&pulse, 760);
-    lv_anim_set_playback_duration(&pulse, 760);
+    lv_anim_set_values(&pulse,
+        result.indeterminate_progress ? 48 : LV_OPA_50,
+        result.indeterminate_progress ? 1024 : LV_OPA_COVER);
+    lv_anim_set_duration(&pulse, result.indeterminate_progress ? 1100 : 760);
+    lv_anim_set_playback_duration(&pulse,
+                                  result.indeterminate_progress ? 1100 : 760);
     lv_anim_set_repeat_count(&pulse, LV_ANIM_REPEAT_INFINITE);
     lv_anim_set_path_cb(&pulse, lv_anim_path_ease_in_out);
-    lv_anim_set_exec_cb(&pulse, SetProgressPulseOpacity);
+    lv_anim_set_exec_cb(&pulse, result.indeterminate_progress
+        ? SetIndeterminateProgressX : SetProgressPulseOpacity);
     lv_anim_start(&pulse);
   }
 
@@ -391,9 +415,16 @@ OperationScene BuildOperationScene(lv_obj_t *screen, const char *path,
 
 void RefreshOperationScene(const OperationScene &scene) {
   const int progress = RecoveryProgress();
-  lv_bar_set_value(scene.progress, progress, LV_ANIM_ON);
-  lv_label_set_text(scene.percent, (std::to_string(progress) + "%").c_str());
-  if (scene.progress_pulse) {
+  const bool indeterminate = scene.indeterminate_progress && progress <= 0;
+  lv_bar_set_value(scene.progress, indeterminate ? 0 : progress, LV_ANIM_ON);
+  lv_label_set_text(scene.percent, indeterminate
+      ? "Installing"
+      : (std::to_string(progress) + "%").c_str());
+  if (scene.progress_pulse && indeterminate) {
+    lv_obj_remove_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
+  } else if (scene.progress_pulse) {
+    if (scene.indeterminate_progress)
+      lv_anim_delete(scene.progress_pulse, SetIndeterminateProgressX);
     if (progress <= 0) {
       lv_obj_add_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -408,7 +439,36 @@ void RefreshOperationScene(const OperationScene &scene) {
   snprintf(elapsed, sizeof(elapsed), "%u:%02u elapsed", seconds / 60, seconds % 60);
   lv_label_set_text(scene.elapsed, elapsed);
 
-  const auto friendly = Explain(RecoveryOperationDetail(), scene.job, progress);
+  auto friendly = Explain(RecoveryOperationDetail(), scene.job, progress);
+  if (scene.job == Job::kInstall) {
+    const std::string installer =
+        CleanInstallerStatus(RecoveryInstallerStatus());
+    if (!installer.empty()) {
+      const std::string lower = Lower(installer);
+      if (lower.find("installing aera to slot") != std::string::npos ||
+          lower.find("flashing aera") != std::string::npos) {
+        friendly.title = "Writing AERA recovery";
+      } else if (lower.find("finished installing") != std::string::npos) {
+        friendly.title = "Installation complete";
+      } else if (lower.find("reboot") != std::string::npos ||
+                 (installer.size() >= 2 &&
+                  std::isdigit(static_cast<unsigned char>(installer[0])) &&
+                  installer[1] == 's')) {
+        friendly.title = "Restarting recovery";
+      } else {
+        friendly.title = "Installing AERA update";
+      }
+      friendly.explanation = installer;
+      friendly.amount = installer;
+      friendly.files.clear();
+      friendly.activity =
+          lower.find("reboot") != std::string::npos
+              ? "AERA will restart automatically when the countdown finishes."
+              : "Live output from the included recovery installer.";
+    } else {
+      friendly.amount = "Waiting for installer output";
+    }
+  }
   lv_label_set_text(scene.status, friendly.title.c_str());
   lv_label_set_text(scene.detail, friendly.explanation.c_str());
   lv_label_set_text(scene.metrics,
@@ -424,6 +484,8 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
   lv_anim_delete(scene.activity, SetActivityBorderOpacity);
   if (scene.progress_pulse)
     lv_anim_delete(scene.progress_pulse, SetProgressPulseOpacity);
+  if (scene.progress_pulse)
+    lv_anim_delete(scene.progress_pulse, SetIndeterminateProgressX);
   if (success) {
     lv_bar_set_value(scene.progress, 100, LV_ANIM_ON);
     lv_label_set_text(scene.percent, "100%");
@@ -439,12 +501,14 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
     lv_obj_set_style_text_color(icon, result_color, 0);
   }
   lv_obj_set_style_bg_color(scene.progress, result_color, LV_PART_INDICATOR);
-  if (scene.progress_pulse) {
+  if (scene.progress_pulse && !scene.indeterminate_progress) {
     lv_obj_remove_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_opa(scene.progress_pulse, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(scene.progress_pulse, result_color, 0);
     lv_obj_set_style_shadow_color(scene.progress_pulse, result_color, 0);
     if (success) lv_obj_set_x(scene.progress_pulse, 1240);
+  } else if (scene.progress_pulse) {
+    lv_obj_add_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
   }
   lv_label_set_text(scene.status, success ? "Operation complete" : "Operation stopped");
   lv_obj_set_style_text_color(scene.status, result_color, 0);

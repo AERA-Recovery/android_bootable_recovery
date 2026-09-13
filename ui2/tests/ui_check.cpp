@@ -109,8 +109,11 @@ int RecoveryBrightness() { return 50; }
 void RecoverySetBrightness(int) {}
 bool RecoveryMtpEnabled() { return false; }
 bool RecoverySetMtp(bool) { return true; }
-int RecoveryProgress() { return 38; }
+int recovery_progress = 38;
+std::string installer_status;
+int RecoveryProgress() { return recovery_progress; }
 std::string RecoveryOperationDetail() { return "Backing up / Boot\n38MB of 100MB (38%)"; }
+std::string RecoveryInstallerStatus() { return installer_status; }
 void RecoveryWifiInitialize() {}
 WifiStatus RecoveryWifiStatus() {
   WifiStatus status;
@@ -356,6 +359,17 @@ int main(int argc,char **argv) {
   lv_screen_load(job); RefreshOperationScene(operation); save("/tmp/aera-operation-host.png");
   CompleteOperationScene(operation,true,"Backup completed"); Tick();
   lv_screen_load(screen); lv_obj_delete(job);
+  recovery_progress=0;
+  installer_status="- Installing AERA to slot _a...";
+  auto *install_job=lv_obj_create(nullptr);
+  JobRequest install_request; install_request.job=Job::kInstall; install_request.title="Install AERA Update";
+  auto installing=BuildJobScene(install_job,install_request,[](Action,void*){},nullptr);
+  lv_screen_load(install_job); RefreshOperationScene(installing); Tick();
+  assert(Find(install_job,"Installing"));
+  assert(Find(install_job,"Installing AERA to slot _a..."));
+  lv_screen_load(screen); lv_obj_delete(install_job);
+  recovery_progress=38;
+  installer_status.clear();
   auto *format_job=lv_obj_create(nullptr);
   format_request.job=Job::kFormatData;
   auto formatting=BuildJobScene(format_job,format_request,RecordAction,nullptr);

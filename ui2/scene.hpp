@@ -38,6 +38,7 @@ struct OperationScene {
   uint32_t started = 0;
   Job job = Job::kInstall;
   bool format_data = false;
+  bool indeterminate_progress = false;
 };
 
 struct DecryptScene {
@@ -87,6 +88,8 @@ struct UpdateScene {
   lv_obj_t *release = nullptr;
   lv_obj_t *changelog = nullptr;
   lv_obj_t *progress = nullptr;
+  lv_obj_t *progress_value = nullptr;
+  lv_obj_t *progress_amount = nullptr;
   lv_obj_t *check = nullptr;
   lv_obj_t *install = nullptr;
 };

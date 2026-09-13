@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -354,6 +355,7 @@ public:
         request.job = Job::kInstall;
         request.path = snapshot.package_path;
         request.title = "Install AERA Update";
+        request.present_before_run = true;
         update_installing_ = true;
         StartJob(request);
       }
@@ -1334,6 +1336,8 @@ private:
     operation_result_.store(-1, std::memory_order_release);
     operation_complete_.store(false, std::memory_order_release);
     operation_thread_ = std::thread([this, request]() {
+      if (request.present_before_run)
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
       const int result = RecoveryRunJob(request);
       operation_result_.store(result, std::memory_order_release);
       operation_complete_.store(true, std::memory_order_release);
@@ -1417,6 +1421,10 @@ private:
       update::SetOffline();
       if (current_scene_ == Action::kUpdates)
         RefreshUpdateScene(update_scene_);
+      return;
+    }
+    if (!update::PrepareDownload()) {
+      RefreshUpdateScene(update_scene_);
       return;
     }
     update_running_ = true;

@@ -238,6 +238,7 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype) 
 		  		gui_changeOverlay("");
 		  		TWFunc::copy_file(Fox_aroma_cfg, Fox_sdcard_aroma_cfg, 0644);
 			     }
+			DataManager::SetValue("aera_install_status", display_value);
 	      		    gui_print("%s", display_value);
 	      		    if (strcmp(display_value, "(c) 2013-2015 by amarullz.com") == 0 && (aroma_running == 0)) {
 		  		aroma_running = 1;

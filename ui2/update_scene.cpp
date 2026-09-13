@@ -116,13 +116,23 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
 
   result.progress = lv_bar_create(summary);
   lv_obj_set_pos(result.progress, 46, 548);
-  lv_obj_set_size(result.progress, landscape ? 1358 : 1220, 24);
+  lv_obj_set_size(result.progress, landscape ? 1358 : 1220, 30);
   lv_bar_set_range(result.progress, 0, 100);
   lv_obj_set_style_radius(result.progress, 12, LV_PART_MAIN);
   lv_obj_set_style_radius(result.progress, 12, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(result.progress, kMainLine, LV_PART_MAIN);
   lv_obj_set_style_bg_color(result.progress, kAccent, LV_PART_INDICATOR);
   lv_obj_add_flag(result.progress, LV_OBJ_FLAG_HIDDEN);
+  result.progress_value =
+      Label(summary, "0%", &lv_font_montserrat_28, kAccent);
+  lv_obj_set_pos(result.progress_value, 46, 590);
+  result.progress_amount =
+      Label(summary, "", &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(result.progress_amount, landscape ? 510 : 350, 594);
+  lv_obj_set_width(result.progress_amount, landscape ? 894 : 916);
+  lv_obj_set_style_text_align(result.progress_amount, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_add_flag(result.progress_value, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(result.progress_amount, LV_OBJ_FLAG_HIDDEN);
 
   result.check = Button(summary, LV_SYMBOL_REFRESH "  Check for updates",
                         [callback, context] {
@@ -131,7 +141,7 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
   const int actions_width = landscape ? 1358 : 1220;
   const int action_gap = 24;
   const int action_width = (actions_width - action_gap) / 2;
-  lv_obj_set_pos(result.check, 46, landscape ? 650 : 632);
+  lv_obj_set_pos(result.check, 46, landscape ? 650 : 640);
   lv_obj_set_size(result.check, action_width, 112);
 
   result.install = Button(summary, LV_SYMBOL_DOWNLOAD "  Download and install",
@@ -149,7 +159,7 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
               });
       }, true);
   lv_obj_set_pos(result.install, 46 + action_width + action_gap,
-                 landscape ? 650 : 632);
+                 landscape ? 650 : 640);
   lv_obj_set_size(result.install, action_width, 112);
 
   auto *notes = lv_obj_create(screen);
@@ -249,13 +259,38 @@ void RefreshUpdateScene(const UpdateScene &scene) {
   }
   SetDisabled(scene.check, busy);
   SetDisabled(scene.install, busy || !snapshot.available);
-  if (snapshot.phase == update::Phase::kDownloading ||
-      snapshot.phase == update::Phase::kVerifying) {
-    lv_bar_set_value(scene.progress, std::min(snapshot.progress, 100U),
+  const bool downloading = snapshot.phase == update::Phase::kDownloading;
+  const bool verifying = snapshot.phase == update::Phase::kVerifying;
+  if (downloading || verifying) {
+    unsigned stage_progress = 0;
+    std::string value;
+    std::string amount;
+    if (downloading) {
+      if (snapshot.total != 0) {
+        stage_progress = static_cast<unsigned>(
+            std::min(snapshot.downloaded, snapshot.total) * 100 /
+            snapshot.total);
+      }
+      value = std::to_string(stage_progress) + "%";
+      amount = UpdateSize(snapshot.downloaded) + " / " +
+          UpdateSize(snapshot.total);
+    } else {
+      stage_progress = snapshot.progress <= 90
+          ? 0 : std::min((snapshot.progress - 90) * 10, 100U);
+      value = "Verifying";
+      amount = "SHA-256 integrity check";
+    }
+    lv_bar_set_value(scene.progress, static_cast<int32_t>(stage_progress),
                      LV_ANIM_ON);
+    lv_label_set_text(scene.progress_value, value.c_str());
+    lv_label_set_text(scene.progress_amount, amount.c_str());
     lv_obj_remove_flag(scene.progress, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(scene.progress_value, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(scene.progress_amount, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(scene.progress, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(scene.progress_value, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(scene.progress_amount, LV_OBJ_FLAG_HIDDEN);
   }
 }
 

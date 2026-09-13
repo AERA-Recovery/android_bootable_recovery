@@ -36,6 +36,7 @@ struct JobRequest {
   bool compression = true;
   bool both_slots = false;
   std::string confirmation;
+  bool present_before_run = false;
 };
 inline bool FormatDataAuthorized(const JobRequest &request) {
   return request.job == Job::kFormatData && request.path == "/data" &&
@@ -55,6 +56,7 @@ bool RecoverySetStorage(const std::string &path);
 int RecoveryRunJob(const JobRequest &request);
 int RecoveryProgress();
 std::string RecoveryOperationDetail();
+std::string RecoveryInstallerStatus();
 int RecoveryBrightness();
 void RecoverySetBrightness(int percent);
 bool RecoveryFlashlightSupported();

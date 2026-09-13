@@ -187,6 +187,7 @@ int RecoveryRunJob(const JobRequest &request) {
   DataManager::SetValue("tw_partition", "");
   DataManager::SetValue("tw_size_progress", "");
   DataManager::SetValue("tw_file_progress", "");
+  DataManager::SetValue("aera_install_status", "");
   if (request.job == Job::kInstall) return recovery_ui2_install_package(request.path.c_str());
   if (request.job == Job::kFlashImage) {
     if (request.partitions.size() != 1 || request.path.empty() ||
@@ -328,6 +329,9 @@ std::string RecoveryOperationDetail() {
   const auto files = DataManager::GetStrValue("tw_file_progress");
   if (!files.empty()) text += "\n" + files;
   return text;
+}
+std::string RecoveryInstallerStatus() {
+  return DataManager::GetStrValue("aera_install_status");
 }
 int RecoveryBrightness() {
   LoadAeraPreferencesIfAvailable();

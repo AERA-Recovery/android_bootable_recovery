@@ -449,6 +449,19 @@ bool Check() {
   return true;
 }
 
+bool PrepareDownload() {
+  std::lock_guard<std::mutex> lock(gMutex);
+  if (!gSnapshot.available || gSnapshot.release.size == 0) return false;
+  gCancel.store(false);
+  gDownloaded.store(0);
+  gTotal.store(gSnapshot.release.size);
+  gProgress.store(0);
+  gSnapshot.phase = Phase::kDownloading;
+  gSnapshot.message = "Starting recovery download";
+  gSnapshot.package_path.clear();
+  return true;
+}
+
 bool Download() {
   Snapshot snapshot = GetSnapshot();
   if (!snapshot.available || snapshot.release.size == 0) {
@@ -462,10 +475,10 @@ bool Download() {
     return false;
   }
 
-  gCancel.store(false);
-  gDownloaded.store(0);
-  gTotal.store(snapshot.release.size);
-  gProgress.store(0);
+  if (snapshot.phase != Phase::kDownloading && !PrepareDownload()) {
+    SetPhase(Phase::kError, "The recovery download could not be started", false);
+    return false;
+  }
   const std::string final_path =
       std::string(kUpdateRoot) + "/" + snapshot.release.filename;
   const std::string partial_path = final_path + ".part";

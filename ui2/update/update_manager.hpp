@@ -49,6 +49,7 @@ struct Snapshot {
 const char *CatalogUrl();
 Snapshot GetSnapshot();
 bool Check();
+bool PrepareDownload();
 bool Download();
 void SetOffline();
 void Cancel();
