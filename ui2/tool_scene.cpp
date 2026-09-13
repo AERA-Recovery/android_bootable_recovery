@@ -1130,13 +1130,13 @@ void BuildUsers(Tools *state) {
 void BuildMenu(Tools *state) {
   Header(state->screen, "Menu", "Tools for your recovery session.",
          state->callback, state->context);
-  // Utility cards scroll. Reboot is pinned above Navigation so
-  // it always reads as the final action on the page.
+  // Utility cards scroll. About and Reboot are full-width destinations pinned
+  // above Navigation, with About immediately above the final Reboot action.
   const bool landscape = Landscape(state->screen);
   state->list = Scroll(state->screen, landscape ? 340 : 452,
-                       landscape ? 610 : 2130);
+                       landscape ? 438 : 1900);
   struct Item { const char *icon, *title, *detail; Action action; };
-  const std::array<Item, 9> items{{
+  const std::array<Item, 10> items{{
     {LV_SYMBOL_DRIVE, "Mounts", "Mount or unmount recovery volumes", Action::kMounts},
     {LV_SYMBOL_LIST, "Recovery log", "Read output and troubleshoot operations", Action::kLogs},
     {LV_SYMBOL_WIFI, "Wi-Fi", "Networks, saved credentials and connection test", Action::kWifi},
@@ -1145,27 +1145,33 @@ void BuildMenu(Tools *state) {
     {LV_SYMBOL_KEYBOARD, "Android Users", "Unlock additional users on demand", Action::kUsers},
     {LV_SYMBOL_TINT, "Theme Engine", "Global accent colors and interface appearance", Action::kTheme},
     {LV_SYMBOL_SETTINGS, "Preferences", "Display, files, backups, time and USB", Action::kPreferences},
+    {"A", "About AERA", "Project identity, contributors and build information", Action::kAbout},
     {LV_SYMBOL_POWER, "Reboot", "Android, recovery, bootloader or power off", Action::kOpenReboot}}};
   for (size_t i = 0; i < items.size(); ++i) {
     const auto item = items[i];
     const bool reboot = item.action == Action::kOpenReboot;
+    const bool about = item.action == Action::kAbout;
+    const bool pinned = about || reboot;
     const int columns = landscape ? 3 : 2;
     const int column = static_cast<int>(i % columns);
     const int row = static_cast<int>(i / columns);
-    auto *card = lv_button_create(reboot ? state->screen : state->list);
+    auto *card = lv_button_create(pinned ? state->screen : state->list);
     Panel(card, 34, kMainSheet);
     Interactive(card, kMainSelected);
-    // Reboot is a deliberate final destination, pinned immediately above the
-    // four-button navigation dock instead of merely following the grid.
+    // These two deliberate destinations form a full-width stack immediately
+    // above the four-button navigation dock.
     const int card_width = landscape ? 992 : 640;
     const int card_step = landscape ? 284 : 306;
     const int card_height = landscape ? 260 : 280;
-    lv_obj_set_pos(card, reboot ? 64 : column * (landscape ? 1016 : 672),
-                   reboot ? (landscape ? 1010 : 2648) : row * card_step);
-    lv_obj_set_size(card, reboot ? (landscape ? 3040 : 1312) : card_width,
-                    reboot ? (landscape ? 190 : 232) : card_height);
+    const int pinned_y = about ? (landscape ? 798 : 2398)
+                               : (landscape ? 1010 : 2648);
+    lv_obj_set_pos(card, pinned ? 64 : column * (landscape ? 1016 : 672),
+                   pinned ? pinned_y : row * card_step);
+    lv_obj_set_size(card, pinned ? (landscape ? 3040 : 1312) : card_width,
+                    pinned ? (landscape ? 190 : about ? 218 : 232)
+                           : card_height);
     lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(card, reboot ? 0 : 1, 0);
+    lv_obj_set_style_border_width(card, pinned ? 0 : 1, 0);
     lv_obj_set_style_border_color(card, reboot ? kRed : kMainLine, 0);
     lv_obj_set_style_border_opa(card,
                                 reboot ? LV_OPA_TRANSP : LV_OPA_30, 0);
@@ -1173,20 +1179,22 @@ void BuildMenu(Tools *state) {
 
     auto *plate = lv_obj_create(card);
     Panel(plate, 22, reboot ? kRedSoft : kAccentSoft);
-    lv_obj_set_pos(plate, 28, 28);
-    lv_obj_set_size(plate, reboot ? 96 : 108, reboot ? 96 : 108);
+    lv_obj_set_pos(plate, 28, pinned ? (landscape ? 47 : about ? 55 : 68) : 28);
+    lv_obj_set_size(plate, pinned ? 96 : 108, pinned ? 96 : 108);
     auto *icon = Label(plate, item.icon, &lv_font_montserrat_48,
                        reboot ? kRed : kAccent);
     lv_obj_center(icon);
     auto *title = Label(card, item.title, &lv_font_montserrat_36, kText);
-    lv_obj_set_pos(title, reboot ? 152 : 164, reboot ? 40 : 42);
-    lv_obj_set_width(title, reboot ? (landscape ? 2750 : 1040)
+    lv_obj_set_pos(title, pinned ? 152 : 164,
+                   pinned ? (landscape ? 36 : about ? 42 : 40) : 42);
+    lv_obj_set_width(title, pinned ? (landscape ? 2750 : 1040)
                                   : card_width - 252);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     auto *detail = Label(card, item.detail, &lv_font_montserrat_32, kMuted);
-    lv_obj_set_pos(detail, reboot ? 152 : 30,
-                   reboot ? 126 : (landscape ? 150 : 164));
-    lv_obj_set_width(detail, reboot ? (landscape ? 2750 : 1040)
+    lv_obj_set_pos(detail, pinned ? 152 : 30,
+                   pinned ? (landscape ? 112 : about ? 122 : 126)
+                          : (landscape ? 150 : 164));
+    lv_obj_set_width(detail, pinned ? (landscape ? 2750 : 1040)
                                    : card_width - 100);
     auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_36,
                         reboot ? kRed : kMutedStrong);

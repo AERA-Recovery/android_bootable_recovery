@@ -16,7 +16,9 @@ set(AERA_LATIN_FONTS
   ../fonts/aera_latin_16.c ../fonts/aera_latin_18.c ../fonts/aera_latin_20.c
   ../fonts/aera_latin_24.c ../fonts/aera_latin_28.c ../fonts/aera_latin_32.c
   ../fonts/aera_latin_36.c ../fonts/aera_latin_40.c ../fonts/aera_latin_48.c)
-add_executable(ui_check ui_check.cpp ../tool_scene.cpp ../wifi_scene.cpp ../picture_decode.cpp
+add_executable(ui_check ui_check.cpp ../about_scene.cpp ../aera_logo.cpp
+  ../matrix_engraving.cpp
+  ../tool_scene.cpp ../wifi_scene.cpp ../picture_decode.cpp
   ../picture_viewer.cpp ../operation_scene.cpp ../decrypt_scene.cpp
   ../browser/web_scene.cpp ../browser/session.cpp ../browser/launcher.cpp
   ${AERA_LATIN_FONTS})

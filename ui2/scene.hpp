@@ -127,6 +127,7 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
                              ActionCallback callback, void *context);
 void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback,
                            void *context);
+void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
                         void *context);
 void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context);

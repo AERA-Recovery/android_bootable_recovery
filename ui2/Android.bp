@@ -17,7 +17,9 @@ cc_library_static {
     name: "librecoveryui2",
     recovery_available: true,
     srcs: [
+        "aera_logo.cpp",
         "android_icon.cpp",
+        "about_scene.cpp",
         "boot_scene.cpp",
         "appvault_scene.cpp",
         "browser_scene.cpp",
@@ -43,6 +45,7 @@ cc_library_static {
         "home_scene.cpp",
         "launcher_scene.cpp",
         "lock_scene.cpp",
+        "matrix_engraving.cpp",
         "media_scene.cpp",
         "media/launcher.cpp",
         "media/session.cpp",

@@ -9,6 +9,7 @@
 #include <ctime>
 
 #include "design.hpp"
+#include "aera_logo.hpp"
 #include "recovery_ui2/status_bar.hpp"
 
 namespace recovery_ui2 {
@@ -21,43 +22,6 @@ constexpr int32_t kKnobSize = kSliderHeight;
 constexpr int32_t kSliderInset = 0;
 constexpr int32_t kSliderTravel =
     kSliderWidth - kKnobSize - (kSliderInset * 2);
-
-#include "aera_lock_logo.inc"
-#include "aera_lock_inner_dark.inc"
-#include "aera_lock_inner_light.inc"
-
-static const lv_image_dsc_t kLockLogoImage = {
-    .header = {.magic = LV_IMAGE_HEADER_MAGIC,
-               .cf = LV_COLOR_FORMAT_A8,
-               .flags = 0,
-               .w = 900,
-               .h = 684,
-               .stride = 900},
-    .data_size = sizeof(_tmp_aera_lock_logo_raw),
-    .data = _tmp_aera_lock_logo_raw,
-};
-
-static const lv_image_dsc_t kLockLogoInnerDarkImage = {
-    .header = {.magic = LV_IMAGE_HEADER_MAGIC,
-               .cf = LV_COLOR_FORMAT_A8,
-               .flags = 0,
-               .w = 900,
-               .h = 684,
-               .stride = 900},
-    .data_size = sizeof(_tmp_aera_lock_inner_dark_raw),
-    .data = _tmp_aera_lock_inner_dark_raw,
-};
-
-static const lv_image_dsc_t kLockLogoInnerLightImage = {
-    .header = {.magic = LV_IMAGE_HEADER_MAGIC,
-               .cf = LV_COLOR_FORMAT_A8,
-               .flags = 0,
-               .w = 900,
-               .h = 684,
-               .stride = 900},
-    .data_size = sizeof(_tmp_aera_lock_inner_light_raw),
-    .data = _tmp_aera_lock_inner_light_raw,
-};
 
 struct LockState {
   lv_obj_t *content = nullptr;
@@ -226,13 +190,13 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent, ActionCallback callback,
   // Every edge mask is clipped inside the A, so there are no offset ghosts.
   const int logo_x = state->landscape ? -700 : 0;
   const int logo_y = state->landscape ? 250 : 852;
-  auto *deep_shadow = LogoLayer(content, &kLockLogoImage, logo_x, logo_y,
+  auto *deep_shadow = LogoLayer(content, &assets::kAeraLogo, logo_x, logo_y,
                                 Color(0x191b1e), LV_OPA_40);
-  auto *soft_shadow = LogoLayer(content, &kLockLogoInnerDarkImage, logo_x, logo_y,
+  auto *soft_shadow = LogoLayer(content, &assets::kAeraLogoInnerDark, logo_x, logo_y,
                                 lv_color_black(), LV_OPA_40);
-  auto *accent_edge = LogoLayer(content, &kLockLogoInnerLightImage, logo_x, logo_y,
+  auto *accent_edge = LogoLayer(content, &assets::kAeraLogoInnerLight, logo_x, logo_y,
                                 kMainLine, LV_OPA_20);
-  auto *mark = LogoLayer(content, &kLockLogoImage, logo_x, logo_y,
+  auto *mark = LogoLayer(content, &assets::kAeraLogo, logo_x, logo_y,
                          kMainCanvas, LV_OPA_10);
   lv_obj_set_style_opa(deep_shadow, LV_OPA_0, 0);
   lv_obj_set_style_opa(soft_shadow, LV_OPA_0, 0);

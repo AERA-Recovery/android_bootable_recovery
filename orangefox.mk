@@ -214,10 +214,10 @@ ifeq ($(OF_DONT_PATCH_ENCRYPTED_DEVICE),1)
     LOCAL_CFLAGS += -DOF_DONT_PATCH_ENCRYPTED_DEVICE='"1"'
 endif
 
-ifneq ($(OF_MAINTAINER),)
-    LOCAL_CFLAGS += -DOF_MAINTAINER='"$(OF_MAINTAINER)"'
+ifneq ($(AERA_MAINTAINER),)
+    LOCAL_CFLAGS += -DAERA_MAINTAINER='"$(AERA_MAINTAINER)"'
 else
-    LOCAL_CFLAGS += -DOF_MAINTAINER='"Testing build (unofficial)"'
+    LOCAL_CFLAGS += -DAERA_MAINTAINER='"Testing build (unofficial)"'
 endif
 
 ifneq ($(OF_FLASHLIGHT_ENABLE),)

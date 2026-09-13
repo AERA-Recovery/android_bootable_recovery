@@ -140,6 +140,24 @@ std::vector<Volume> RecoveryImageVolumes() {
 std::string RecoveryStorage() { return DataManager::GetCurrentStoragePath(); }
 std::string RecoveryBackupRoot() { return DataManager::GetStrValue(TW_BACKUPS_FOLDER_VAR); }
 std::string RecoverySlot() { return PartitionManager.Get_Active_Slot_Display(); }
+std::string RecoveryVersion() { return DataManager::GetStrValue(TW_VERSION_VAR); }
+std::string RecoveryBuildType() {
+  return DataManager::GetStrValue("fox_build_type1");
+}
+std::string RecoveryDevice() {
+  char model[PROPERTY_VALUE_MAX] = {};
+  property_get("ro.product.model", model, "");
+  if (model[0] != '\0' && std::string(model) != "AOSP on ARM64") return model;
+  std::string device = DataManager::GetStrValue(AERA_COMPATIBILITY_DEVICE);
+  if (device.empty()) device = DataManager::GetStrValue("fox_product_device");
+  return device;
+}
+std::string RecoveryBuildDate() {
+  return DataManager::GetStrValue("AERA_BUILD_DATE_REAL");
+}
+std::string RecoveryMaintainer() {
+  return DataManager::GetStrValue(AERA_MAINTAINER_STR);
+}
 bool RecoverySetActiveSlot(const std::string &slot) {
   if (slot != "A" && slot != "B") return false;
   if (RecoverySlot() == slot) return true;

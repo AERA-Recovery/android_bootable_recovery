@@ -62,6 +62,7 @@ enum class Action {
     kUpdates,
     kCheckUpdates,
     kDownloadUpdate,
+    kAbout,
 };
 
 enum class DecryptionCompletion {

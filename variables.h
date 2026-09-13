@@ -29,7 +29,7 @@
 
 // OrangeFox - Values
 #define AERA_DEVICE              AERA_DEVICE_MODEL
-#define OF_MAINTAINER_STR	"of_maintainer"
+#define AERA_MAINTAINER_STR	"aera_maintainer"
 #define OF_FLASHLIGHT_ENABLE_STR "of_flashlight_enable"
 
 // OrangeFox - NAS

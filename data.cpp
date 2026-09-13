@@ -750,7 +750,7 @@ void DataManager::SetDefaultValues()
   mConst.SetValue("false", "0");
 
   mConst.SetValue(TW_VERSION_VAR, AERA_BUILD);
-  mConst.SetValue(OF_MAINTAINER_STR, OF_MAINTAINER);
+  mConst.SetValue(AERA_MAINTAINER_STR, AERA_MAINTAINER);
   mConst.SetValue(BUILD_TYPE_STR, AERA_BUILD_TYPE);
   mConst.SetValue("fox_branch", AERA_BRANCH);
 

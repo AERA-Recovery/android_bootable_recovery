@@ -12,6 +12,7 @@
 #include <lvgl.h>
 #include "src/misc/cache/instance/lv_image_cache.h"
 
+#include "aera_logo.hpp"
 #include "design.hpp"
 #include "recovery_ui2/engine.hpp"
 
@@ -53,9 +54,6 @@ enum AssetIndex {
 #include "aera_boot_arrow.inc"
 #include "aera_boot_word.inc"
 #include "aera_boot_subtitle.inc"
-#include "aera_boot_final_white.inc"
-#include "aera_boot_final_cyan.inc"
-
 #define AERA_BOOT_IMAGE(name, pixels, width, height)                       \
   static const lv_image_dsc_t name = {                                    \
       .header = {.magic = LV_IMAGE_HEADER_MAGIC,                           \
@@ -76,11 +74,6 @@ AERA_BOOT_IMAGE(kCenterImage, _tmp_aera_boot_center_raw, 142, 126);
 AERA_BOOT_IMAGE(kBottomRightImage, _tmp_aera_boot_bottom_right_raw, 208, 138);
 AERA_BOOT_IMAGE(kWordImage, _tmp_aera_boot_word_raw, 846, 168);
 AERA_BOOT_IMAGE(kSubtitleImage, _tmp_aera_boot_subtitle_raw, 846, 50);
-AERA_BOOT_IMAGE(kFinalWhiteImage, _tmp_aera_boot_final_white_raw,
-                kFinalWidth, kFinalHeight);
-AERA_BOOT_IMAGE(kFinalCyanImage, _tmp_aera_boot_final_cyan_raw,
-                kFinalWidth, kFinalHeight);
-
 #undef AERA_BOOT_IMAGE
 
 struct AssetGeometry {
@@ -466,8 +459,8 @@ void BuildBootScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   // The assembly needs individual pieces, but the idle pulse and outro do
   // not.  Precomposed two-tone layers cut per-frame transforms from nine to
   // two and avoid repeatedly resampling every seam in the finished mark.
-  boot->final_white = CreateImage(&kFinalWhiteImage, lv_color_white());
-  boot->final_cyan = CreateImage(&kFinalCyanImage, Color(0x16c8ff));
+  boot->final_white = CreateImage(&assets::kAeraBrandWhite, lv_color_white());
+  boot->final_cyan = CreateImage(&assets::kAeraBrandAccent, Color(0x16c8ff));
   for (auto *image : {boot->final_white, boot->final_cyan}) {
     lv_image_set_pivot(image, kFinalWidth / 2, kFinalHeight / 2);
     PositionFinalObject(image, boot->base_scale);

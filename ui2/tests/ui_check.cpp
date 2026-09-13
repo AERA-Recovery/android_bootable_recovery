@@ -95,6 +95,11 @@ std::vector<Volume> RecoveryRestoreVolumes(const std::string &) { return Recover
 std::string RecoveryStorage() { return "/tmp"; }
 std::string RecoveryBackupRoot() { return backup_root; }
 std::string RecoverySlot() { return active_slot; }
+std::string RecoveryVersion() { return "R1.0"; }
+std::string RecoveryBuildType() { return "Unofficial"; }
+std::string RecoveryDevice() { return "dodge"; }
+std::string RecoveryBuildDate() { return "2026-09-13"; }
+std::string RecoveryMaintainer() { return "Jonas Salo & Daniel Springer"; }
 bool RecoverySetActiveSlot(const std::string &slot) {
   if (slot != "A" && slot != "B") return false;
   active_slot = slot;
@@ -167,6 +172,17 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--about")) {
+    auto *about=lv_obj_create(nullptr);
+    BuildAboutScene(about,RecordAction,nullptr);
+    lv_screen_load(about); Tick();
+    assert(Find(about,"Jonas Salo · koaaN"));
+    assert(Find(about,"Daniel Springer · Daniel210191"));
+    assert(Find(about,"R1.0"));
+    save("/tmp/aera-about-host.png");
+    lv_deinit();
+    return 0;
+  }
   auto *wifi=lv_obj_create(nullptr); BuildWifiScene(wifi,RecordAction,nullptr);
   lv_screen_load(wifi); Tick();
   assert(Find(wifi,"AERA Lab"));
@@ -381,6 +397,14 @@ int main(int argc,char **argv) {
   auto *reboot_options=Find(format_job,"Reboot options"); assert(reboot_options);
   lv_obj_send_event(reboot_options,LV_EVENT_CLICKED,nullptr); assert(last_action==Action::kOpenReboot);
   lv_screen_load(screen); lv_obj_delete(format_job);
+  auto *about=lv_obj_create(nullptr);
+  BuildAboutScene(about,RecordAction,nullptr);
+  lv_screen_load(about); Tick();
+  assert(Find(about,"Jonas Salo · koaaN"));
+  assert(Find(about,"Daniel Springer · Daniel210191"));
+  assert(Find(about,"R1.0"));
+  save("/tmp/aera-about-host.png");
+  lv_screen_load(screen); lv_obj_delete(about);
   puts("Headless UI checks passed: wipe selection, format confirmation guard, keyboard no auto-submit, bottom navigation geometry, preference toggles, backup/restore, Android users, unlock, viewer, operation completion. No destructive backend is linked.");
   lv_deinit();
 }
