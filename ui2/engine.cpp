@@ -610,7 +610,7 @@ public:
       volume_overlay_ = panel;
       design::Panel(panel, 66, design::kMainSheet);
       lv_obj_set_size(panel, 1040, 196);
-      lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 220);
+      lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, -220);
       lv_obj_set_style_border_width(panel, 1, 0);
       lv_obj_set_style_border_color(panel, design::kMainLine, 0);
       lv_obj_set_style_border_opa(panel, LV_OPA_60, 0);
@@ -649,38 +649,51 @@ public:
       lv_obj_set_style_bg_opa(volume_fill_, LV_OPA_COVER, 0);
       lv_obj_set_width(volume_fill_, std::max(1, displayed_volume_ * 810 / 100));
 
-      lv_obj_set_style_translate_y(panel, -56, 0);
-      lv_obj_set_style_opa(panel, LV_OPA_0, 0);
+    } else {
+      lv_label_set_text(volume_icon_, symbol);
+      lv_label_set_text(volume_label_, amount);
+    }
+
+    // Keep this top-layer subtree alive and fully opaque. Opacity/transform
+    // layers being created over a GPU streaming image can invalidate LVGL's
+    // OpenGL layer storage. A real-coordinate slide is equally smooth and
+    // does not allocate a compositing layer.
+    if (lv_obj_get_y(volume_overlay_) != 220) {
+      lv_anim_delete(volume_overlay_, nullptr);
       lv_anim_t enter;
       lv_anim_init(&enter);
-      lv_anim_set_var(&enter, panel);
-      lv_anim_set_values(&enter, -56, 0);
-      lv_anim_set_duration(&enter, 260);
-      lv_anim_set_path_cb(&enter, lv_anim_path_overshoot);
+      lv_anim_set_var(&enter, volume_overlay_);
+      lv_anim_set_values(&enter, lv_obj_get_y(volume_overlay_), 220);
+      lv_anim_set_duration(&enter, 230);
+      lv_anim_set_path_cb(&enter, lv_anim_path_ease_out);
       lv_anim_set_exec_cb(&enter, [](void *target, int32_t value) {
-        lv_obj_set_style_translate_y(static_cast<lv_obj_t *>(target), value, 0);
+        lv_obj_set_y(static_cast<lv_obj_t *>(target), value);
       });
       lv_anim_start(&enter);
-      lv_obj_fade_in(panel, 160, 0);
+    }
 
+    if (volume_hide_timer_ == nullptr) {
       volume_hide_timer_ = lv_timer_create([](lv_timer_t *timer) {
         auto *self = static_cast<Impl *>(lv_timer_get_user_data(timer));
         if (self == nullptr) return;
         self->volume_hide_timer_ = nullptr;
         auto *panel = self->volume_overlay_;
-        self->volume_overlay_ = nullptr;
-        self->volume_icon_ = nullptr;
-        self->volume_label_ = nullptr;
-        self->volume_fill_ = nullptr;
         if (panel != nullptr) {
-          lv_obj_fade_out(panel, 160, 0);
-          lv_obj_delete_delayed(panel, 170);
+          lv_anim_delete(panel, nullptr);
+          lv_anim_t leave;
+          lv_anim_init(&leave);
+          lv_anim_set_var(&leave, panel);
+          lv_anim_set_values(&leave, lv_obj_get_y(panel), -220);
+          lv_anim_set_duration(&leave, 210);
+          lv_anim_set_path_cb(&leave, lv_anim_path_ease_in);
+          lv_anim_set_exec_cb(&leave, [](void *target, int32_t value) {
+            lv_obj_set_y(static_cast<lv_obj_t *>(target), value);
+          });
+          lv_anim_start(&leave);
         }
       }, 1350, this);
       lv_timer_set_repeat_count(volume_hide_timer_, 1);
     } else {
-      lv_label_set_text(volume_icon_, symbol);
-      lv_label_set_text(volume_label_, amount);
       lv_timer_reset(volume_hide_timer_);
       lv_timer_set_repeat_count(volume_hide_timer_, 1);
     }

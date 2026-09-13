@@ -13,6 +13,9 @@ namespace recovery_ui2::widgets {
 using namespace design;
 using Handler = std::function<void()>;
 inline char kModalMarker;
+// Long-lived overlays such as the Media viewer own timers and reusable child
+// objects. Back must ask them to close instead of deleting their subtree.
+inline char kPersistentModalMarker;
 inline int kPreviousNavigationIndex = -1;
 
 inline bool Landscape(lv_obj_t *object) {
@@ -23,8 +26,13 @@ inline bool Landscape(lv_obj_t *object) {
 inline bool DismissModal(lv_obj_t *screen) {
   for (int i = static_cast<int>(lv_obj_get_child_count(screen)) - 1; i >= 0; --i) {
     auto *child = lv_obj_get_child(screen, i);
-    if (lv_obj_get_user_data(child) == &kModalMarker &&
+    void *marker = lv_obj_get_user_data(child);
+    if (marker == &kPersistentModalMarker &&
         !lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN)) {
+      lv_obj_send_event(child, LV_EVENT_CANCEL, nullptr);
+      return true;
+    }
+    if (marker == &kModalMarker && !lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN)) {
       lv_obj_delete_async(child);
       return true;
     }

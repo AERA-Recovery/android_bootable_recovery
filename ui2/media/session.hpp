@@ -20,6 +20,10 @@ class Session {
   int64_t Position() const { return position_ms_; }
   int64_t Duration() const { return duration_ms_; }
   bool Playing() const { return playing_; }
+  int FrameWidth() const { return frame_width_; }
+  int FrameHeight() const { return frame_height_; }
+  Kind FrameKind() const { return frame_kind_; }
+  int32_t FrameToken() const { return frame_token_; }
 
  private:
   bool Write(const Message &message);
@@ -31,6 +35,10 @@ class Session {
   uint32_t sequence_ = 0;
   int64_t position_ms_ = 0;
   int64_t duration_ms_ = 0;
+  int frame_width_ = kLandscapeWidth;
+  int frame_height_ = kLandscapeHeight;
+  Kind frame_kind_ = Kind::kFrame;
+  int32_t frame_token_ = 0;
   bool frame_pending_ = false;
   bool playing_ = false;
 };
