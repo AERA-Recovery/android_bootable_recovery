@@ -20,6 +20,7 @@ enum class Job {
   kDisableModule,
   kRemoveModule,
   kUpdateModule,
+  kInstallManager,
 };
 
 struct Status {
@@ -74,6 +75,13 @@ struct Module {
   std::string changelog;
 };
 
+struct ManagerStatus {
+  bool installed = false;
+  bool staged = false;
+  std::string package_name;
+  std::string detail;
+};
+
 struct Request {
   Job job = Job::kRefreshRelease;
   Provider provider = Provider::kKernelSU;
@@ -96,6 +104,7 @@ PatchInfo InspectSlot(const std::string &slot);
 Release BundledRelease(Provider provider, const std::string &kmi);
 Release CachedRelease(Provider provider);
 std::vector<Module> InstalledModules();
+ManagerStatus InspectManager(Provider provider);
 bool Run(const Request &request, Progress &progress);
 const char *ProviderName(Provider provider);
 

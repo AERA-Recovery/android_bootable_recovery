@@ -26,6 +26,10 @@ struct RootUi {
   lv_obj_t *patch_button = nullptr;
   lv_obj_t *refresh_release_button = nullptr;
   lv_obj_t *rollback_button = nullptr;
+  lv_obj_t *manager_status = nullptr;
+  lv_obj_t *manager_detail = nullptr;
+  lv_obj_t *manager_progress = nullptr;
+  lv_obj_t *manager_button = nullptr;
   lv_obj_t *module_list = nullptr;
   lv_obj_t *module_summary = nullptr;
   lv_obj_t *provider_buttons[3] = {};
@@ -34,6 +38,7 @@ struct RootUi {
   ActionCallback callback = nullptr;
   void *context = nullptr;
   root::Provider provider = root::Provider::kKernelSU;
+  root::Job active_job = root::Job::kRefreshRelease;
   std::string slot = "a";
   root::Status device;
   root::PatchInfo patch;
@@ -82,6 +87,9 @@ void SetBusy(RootUi *state, bool busy) {
   if (state->rollback_button)
     busy ? lv_obj_add_state(state->rollback_button, LV_STATE_DISABLED)
          : lv_obj_remove_state(state->rollback_button, LV_STATE_DISABLED);
+  if (state->manager_button)
+    busy ? lv_obj_add_state(state->manager_button, LV_STATE_DISABLED)
+         : lv_obj_remove_state(state->manager_button, LV_STATE_DISABLED);
 }
 
 void LoadSnapshot(RootUi *state) {
@@ -109,10 +117,15 @@ void Start(RootUi *state, const root::Request &request) {
   state->work.cancel.store(false);
   state->done.store(false);
   SetBusy(state, true);
-  lv_obj_remove_flag(state->progress, LV_OBJ_FLAG_HIDDEN);
-  lv_bar_set_value(state->progress, 0, LV_ANIM_OFF);
-  lv_label_set_text(state->patch_status, "Starting…");
-  lv_label_set_text(state->patch_detail, "AERA is preparing the root operation.");
+  state->active_job = request.job;
+  const bool manager = request.job == root::Job::kInstallManager;
+  lv_obj_t *bar = manager ? state->manager_progress : state->progress;
+  lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN);
+  lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+  lv_label_set_text(manager ? state->manager_status : state->patch_status,
+                    "Starting…");
+  lv_label_set_text(manager ? state->manager_detail : state->patch_detail,
+                    "AERA is preparing the root operation.");
   state->worker = std::thread([state, request] {
     const bool success = root::Run(request, state->work);
     LoadSnapshot(state);
@@ -297,6 +310,19 @@ void RefreshUi(RootUi *state) {
     lv_obj_add_state(state->rollback_button, LV_STATE_DISABLED);
   else if (!state->busy.load())
     lv_obj_remove_state(state->rollback_button, LV_STATE_DISABLED);
+
+  const root::ManagerStatus manager = root::InspectManager(state->provider);
+  lv_label_set_text(state->manager_status,
+      manager.installed ? "Manager installed" :
+      manager.staged ? "Manager ready for Android" : "Manager app missing");
+  lv_label_set_text(state->manager_detail, manager.detail.c_str());
+  lv_label_set_text(lv_obj_get_child(state->manager_button, 0),
+      manager.installed ? "Installed" :
+      manager.staged ? "Ready on next boot" : "Download & install");
+  if (manager.installed || manager.staged || !state->device.storage_ready)
+    lv_obj_add_state(state->manager_button, LV_STATE_DISABLED);
+  else if (!state->busy.load())
+    lv_obj_remove_state(state->manager_button, LV_STATE_DISABLED);
   RenderModules(state);
 }
 
@@ -311,16 +337,24 @@ void Poll(RootUi *state) {
     return;
   }
   if (state->busy.load()) {
-    lv_bar_set_value(state->progress, static_cast<int>(state->work.value.load()), LV_ANIM_ON);
+    const bool manager = state->active_job == root::Job::kInstallManager;
+    lv_obj_t *bar = manager ? state->manager_progress : state->progress;
+    lv_bar_set_value(bar, static_cast<int>(state->work.value.load()), LV_ANIM_ON);
     const std::string status = ProgressText(state->work, false);
     const std::string detail = ProgressText(state->work, true);
-    if (!status.empty()) lv_label_set_text(state->patch_status, status.c_str());
-    if (!detail.empty()) lv_label_set_text(state->patch_detail, detail.c_str());
+    if (!status.empty())
+      lv_label_set_text(manager ? state->manager_status : state->patch_status,
+                        status.c_str());
+    if (!detail.empty())
+      lv_label_set_text(manager ? state->manager_detail : state->patch_detail,
+                        detail.c_str());
   }
   if (state->busy.load() && state->done.exchange(false, std::memory_order_acq_rel)) {
     if (state->worker.joinable()) state->worker.join();
     SetBusy(state, false);
-    lv_bar_set_value(state->progress, static_cast<int>(state->work.value.load()), LV_ANIM_ON);
+    lv_bar_set_value(state->active_job == root::Job::kInstallManager
+                         ? state->manager_progress : state->progress,
+                     static_cast<int>(state->work.value.load()), LV_ANIM_ON);
     RefreshUi(state);
     const std::string status = ProgressText(state->work, false);
     const std::string detail = ProgressText(state->work, true);
@@ -441,20 +475,63 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_pos(state->rollback_button, 942, 220);
   lv_obj_set_size(state->rollback_button, 338, 106);
 
+  auto *manager_card = lv_obj_create(state->list);
+  Panel(manager_card, 34, kMainSheet);
+  lv_obj_set_pos(manager_card, 0, 1040);
+  lv_obj_set_size(manager_card, 1312, 258);
+  auto *manager_plate = lv_obj_create(manager_card);
+  Panel(manager_plate, 22, kAccentSoft);
+  lv_obj_set_pos(manager_plate, 28, 30);
+  lv_obj_set_size(manager_plate, 82, 82);
+  auto *manager_icon = Label(manager_plate, LV_SYMBOL_DOWNLOAD,
+                             &lv_font_montserrat_32, kAccent);
+  lv_obj_center(manager_icon);
+  state->manager_status = Label(manager_card, "Inspecting manager app…",
+                                &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(state->manager_status, 136, 28);
+  state->manager_detail = Label(manager_card,
+      "Checking Android's installed packages.", &lv_font_montserrat_24,
+      kMutedStrong);
+  lv_obj_set_pos(state->manager_detail, 136, 80);
+  lv_obj_set_width(state->manager_detail, 760);
+  state->manager_progress = lv_bar_create(manager_card);
+  lv_obj_set_pos(state->manager_progress, 28, 142);
+  lv_obj_set_size(state->manager_progress, 1256, 12);
+  lv_bar_set_range(state->manager_progress, 0, 100);
+  lv_obj_set_style_bg_color(state->manager_progress, kMainPanel, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(state->manager_progress, kAccent, LV_PART_INDICATOR);
+  lv_obj_set_style_radius(state->manager_progress, 6, LV_PART_MAIN);
+  lv_obj_set_style_radius(state->manager_progress, 6, LV_PART_INDICATOR);
+  lv_obj_add_flag(state->manager_progress, LV_OBJ_FLAG_HIDDEN);
+  state->manager_button = Button(manager_card, "Download & install", [state] {
+    Sheet(state->screen, "Install manager app?",
+          std::string("AERA will download and verify the latest official ") +
+              root::ProviderName(state->provider) +
+              " manager APK, then make it available when Android boots.",
+          [state] {
+            root::Request request;
+            request.job = root::Job::kInstallManager;
+            request.provider = state->provider;
+            Start(state, request);
+          });
+  }, true);
+  lv_obj_set_pos(state->manager_button, 936, 52);
+  lv_obj_set_size(state->manager_button, 348, 106);
+
   auto *modules_title = Label(state->list, "MODULES", &lv_font_montserrat_20, kMuted);
-  lv_obj_set_pos(modules_title, 18, 1050);
+  lv_obj_set_pos(modules_title, 18, 1340);
   state->module_summary = Label(state->list, "Reading installed modules…",
                                 &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_pos(state->module_summary, 18, 1090);
+  lv_obj_set_pos(state->module_summary, 18, 1380);
   auto *refresh = Button(state->list, "Check updates", [state] {
     root::Request request; request.job = root::Job::kRefreshModules;
     Start(state, request);
   });
-  lv_obj_set_pos(refresh, 962, 1040);
+  lv_obj_set_pos(refresh, 962, 1330);
   lv_obj_set_size(refresh, 350, 96);
   state->module_list = lv_obj_create(state->list);
   Clear(state->module_list);
-  lv_obj_set_pos(state->module_list, 0, 1160);
+  lv_obj_set_pos(state->module_list, 0, 1450);
   lv_obj_set_size(state->module_list, 1312, 1200);
   lv_obj_remove_flag(state->module_list, LV_OBJ_FLAG_SCROLLABLE);
 

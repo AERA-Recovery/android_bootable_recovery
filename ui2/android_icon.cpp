@@ -528,4 +528,37 @@ bool DecodeAndroidIcon(const std::string &apk,
   return false;
 }
 
+bool ReadAndroidPackageName(const std::string &apk, std::string &package_name) {
+  package_name.clear();
+  android::AssetManager assets;
+  int32_t cookie = 0;
+  if (!assets.addAssetPath(android::String8(apk.c_str()), &cookie)) return false;
+  std::unique_ptr<android::Asset> manifest(assets.openNonAsset(
+      cookie, "AndroidManifest.xml", android::Asset::ACCESS_BUFFER));
+  if (!manifest) return false;
+  android::ResXMLTree tree;
+  if (tree.setTo(manifest->getBuffer(true), manifest->getLength()) !=
+      android::NO_ERROR) return false;
+  while (true) {
+    const auto event = tree.next();
+    if (event == android::ResXMLTree::END_DOCUMENT ||
+        event == android::ResXMLTree::BAD_DOCUMENT) return false;
+    if (event != android::ResXMLTree::START_TAG) continue;
+    size_t tag_length = 0;
+    const char16_t *tag = tree.getElementName(&tag_length);
+    if (!tag || android::String8(tag, tag_length) != "manifest") return false;
+    for (size_t index = 0; index < tree.getAttributeCount(); ++index) {
+      size_t name_length = 0;
+      const char16_t *name = tree.getAttributeName(index, &name_length);
+      if (!name || android::String8(name, name_length) != "package") continue;
+      size_t value_length = 0;
+      const char16_t *value = tree.getAttributeStringValue(index, &value_length);
+      if (!value || !value_length) return false;
+      package_name = android::String8(value, value_length).c_str();
+      return true;
+    }
+    return false;
+  }
+}
+
 }  // namespace recovery_ui2

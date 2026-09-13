@@ -25,9 +25,12 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <selinux/selinux.h>
 
 #include <map>
 #include <mutex>
+
+#include "android_icon.hpp"
 
 namespace recovery_ui2::root {
 namespace {
@@ -41,8 +44,11 @@ constexpr char kReceipts[] = "/sdcard/AERA/RootManager/receipts";
 constexpr char kWork[] = "/tmp/aera-root-manager";
 constexpr char kBundledRoot[] = "/system/etc/aera/root";
 constexpr char kBundledCatalog[] = "/system/etc/aera/root/providers.json";
+constexpr char kManagerStaging[] = "/data/adb/aera/root-manager";
+constexpr char kManagerModule[] = "/data/adb/modules/aera-manager-installer";
 constexpr uint64_t kMaxMetadata = 2 * 1024 * 1024;
 constexpr uint64_t kMaxAsset = 8 * 1024 * 1024;
+constexpr uint64_t kMaxManagerApk = 64 * 1024 * 1024;
 constexpr uint64_t kMaxModuleZip = 256 * 1024 * 1024;
 
 std::mutex gMutex;
@@ -232,6 +238,50 @@ bool ReadJson(const std::string &path, Json::Value &value) {
   return Json::parseFromStream(builder, input, &value, &errors);
 }
 
+bool ReadText(const std::string &path, std::string &text,
+              uint64_t maximum = 32 * 1024 * 1024) {
+  text.clear();
+  int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  struct stat info{};
+  if (fd < 0 || fstat(fd, &info) || !S_ISREG(info.st_mode) ||
+      info.st_size < 0 || static_cast<uint64_t>(info.st_size) > maximum) {
+    if (fd >= 0) close(fd);
+    return false;
+  }
+  text.resize(static_cast<size_t>(info.st_size));
+  size_t done = 0;
+  while (done < text.size()) {
+    const ssize_t count = read(fd, text.data() + done, text.size() - done);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) {
+      close(fd);
+      text.clear();
+      return false;
+    }
+    done += static_cast<size_t>(count);
+  }
+  close(fd);
+  return true;
+}
+
+bool WriteText(const std::string &path, const std::string &text, mode_t mode) {
+  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW |
+                O_CLOEXEC, mode);
+  if (fd < 0) return false;
+  bool ok = fchmod(fd, mode) == 0 && fchown(fd, 0, 0) == 0;
+  size_t done = 0;
+  while (ok && done < text.size()) {
+    const ssize_t count = write(fd, text.data() + done, text.size() - done);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) ok = false;
+    else done += static_cast<size_t>(count);
+  }
+  if (ok) ok = fsync(fd) == 0;
+  close(fd);
+  if (!ok) unlink(path.c_str());
+  return ok;
+}
+
 bool HashFile(const std::string &path, uint64_t expected_size,
               const std::string &expected_hash, std::string *actual_out = nullptr) {
   int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
@@ -361,6 +411,111 @@ const char *ProviderId(Provider provider) {
     case Provider::kSukiSU: return "sukisu-ultra";
   }
   return "";
+}
+
+const char *ManagerPackage(Provider provider) {
+  switch (provider) {
+    case Provider::kKernelSU: return "me.weishu.kernelsu";
+    case Provider::kKernelSUNext: return "com.rifsxd.ksunext";
+    case Provider::kSukiSU: return "com.sukisu.ultra";
+  }
+  return "";
+}
+
+std::string ManagerStagingPath(Provider provider) {
+  return std::string(kManagerStaging) + "/" + ProviderId(provider) + ".apk";
+}
+
+bool ManagerAssetName(Provider provider, const std::string &name) {
+  std::string lower = name;
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  if (lower.size() < 5 || lower.compare(lower.size() - 4, 4, ".apk") ||
+      lower.find("spoof") != std::string::npos) return false;
+  switch (provider) {
+    case Provider::kKernelSU:
+      return lower.compare(0, 9, "kernelsu_") == 0 &&
+             lower.find("next") == std::string::npos &&
+             lower.find("release") != std::string::npos;
+    case Provider::kKernelSUNext:
+      return lower.compare(0, 14, "kernelsu_next_") == 0 &&
+             lower.find("release") != std::string::npos;
+    case Provider::kSukiSU:
+      return lower.compare(0, 7, "sukisu_") == 0 &&
+             lower.find("release") != std::string::npos;
+  }
+  return false;
+}
+
+bool PackageListed(const std::string &package_name) {
+  std::string packages;
+  if (ReadText("/data/system/packages.list", packages, 16 * 1024 * 1024)) {
+    size_t offset = 0;
+    while (offset < packages.size()) {
+      const size_t end = packages.find('\n', offset);
+      const size_t length =
+          (end == std::string::npos ? packages.size() : end) - offset;
+      if (length > package_name.size() &&
+          packages.compare(offset, package_name.size(), package_name) == 0 &&
+          std::isspace(static_cast<unsigned char>(
+              packages[offset + package_name.size()]))) return true;
+      if (end == std::string::npos) break;
+      offset = end + 1;
+    }
+  }
+  if (!ReadText("/data/system/packages.xml", packages)) return false;
+  return packages.find("name=\"" + package_name + "\"") != std::string::npos;
+}
+
+bool FetchManagerApk(Provider provider, Progress &progress, Release &release) {
+  release = {};
+  release.provider = provider;
+  if (!EnsureDirectory(kWork)) {
+    release.error = "Could not create the temporary root workspace.";
+    return false;
+  }
+  const std::string metadata = std::string(kWork) + "/manager-release.json";
+  const std::string url = std::string("https://api.github.com/repos/") +
+                          Repository(provider) + "/releases/latest";
+  SetText(progress, "Finding manager app", Repository(provider));
+  progress.value.store(2);
+  if (!Download(url, metadata, kMaxMetadata, progress, 2, 18, 0, true)) {
+    release.error = "Could not download the official release metadata.";
+    return false;
+  }
+  Json::Value root;
+  if (!ReadJson(metadata, root) || !root.isObject() ||
+      !root["assets"].isArray()) {
+    release.error = "GitHub returned malformed release metadata.";
+    return false;
+  }
+  release.version = root.get("tag_name", "").asString();
+  unsigned matches = 0;
+  for (const auto &asset : root["assets"]) {
+    const std::string name = asset.get("name", "").asString();
+    if (!ManagerAssetName(provider, name)) continue;
+    ++matches;
+    release.asset_name = name;
+    release.asset_url = asset.get("browser_download_url", "").asString();
+    release.size = asset.get("size", Json::UInt64(0)).asUInt64();
+    release.sha256 = asset.get("digest", "").asString();
+    if (release.sha256.compare(0, 7, "sha256:") == 0)
+      release.sha256.erase(0, 7);
+  }
+  const bool hash_ok = release.sha256.size() == 64 &&
+      std::all_of(release.sha256.begin(), release.sha256.end(),
+                  [](unsigned char c) { return std::isxdigit(c); });
+  if (matches != 1 || release.version.empty() ||
+      !OfficialUrl(release.asset_url) || release.size < 64 * 1024 ||
+      release.size > kMaxManagerApk || !hash_ok) {
+    release.error = matches == 0
+        ? "The latest release does not contain a standard manager APK."
+        : "The official manager APK is ambiguous or has no SHA-256 digest.";
+    return false;
+  }
+  release.available = true;
+  progress.value.store(20);
+  return true;
 }
 
 std::string ExpectedAsset(Provider provider, const std::string &kmi) {
@@ -524,6 +679,190 @@ uint64_t FileSize(const std::string &path) {
     return size;
   }
   return 0;
+}
+
+std::string RandomCodeToken() {
+  std::array<unsigned char, 16> bytes{};
+  int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+  size_t done = 0;
+  while (fd >= 0 && done < bytes.size()) {
+    const ssize_t count = read(fd, bytes.data() + done, bytes.size() - done);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) break;
+    done += static_cast<size_t>(count);
+  }
+  if (fd >= 0) close(fd);
+  if (done != bytes.size()) return {};
+  constexpr char alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  std::string result;
+  result.reserve(24);
+  for (size_t offset = 0; offset < bytes.size(); offset += 3) {
+    const size_t left = bytes.size() - offset;
+    const uint32_t value = static_cast<uint32_t>(bytes[offset]) << 16 |
+        (left > 1 ? static_cast<uint32_t>(bytes[offset + 1]) << 8 : 0) |
+        (left > 2 ? bytes[offset + 2] : 0);
+    result.push_back(alphabet[(value >> 18) & 63]);
+    result.push_back(alphabet[(value >> 12) & 63]);
+    result.push_back(left > 1 ? alphabet[(value >> 6) & 63] : '=');
+    result.push_back(left > 2 ? alphabet[value & 63] : '=');
+  }
+  return result;
+}
+
+bool CreateApkDirectory(const std::string &path) {
+  if (mkdir(path.c_str(), 0755) || chmod(path.c_str(), 0755) ||
+      chown(path.c_str(), 1000, 1000)) return false;
+  return setfilecon(path.c_str(), "u:object_r:apk_data_file:s0") == 0;
+}
+
+bool StageDataApp(const std::string &apk, const std::string &package_name,
+                  uint64_t size, Progress &progress, std::string &code_path) {
+  struct stat data_app{};
+  if (lstat("/data/app", &data_app) || !S_ISDIR(data_app.st_mode) ||
+      access("/data/app", W_OK)) return false;
+  std::string outer;
+  for (unsigned attempt = 0; attempt < 8; ++attempt) {
+    const std::string token = RandomCodeToken();
+    if (token.empty()) return false;
+    outer = "/data/app/~~" + token;
+    if (CreateApkDirectory(outer)) break;
+    if (errno != EEXIST) return false;
+    outer.clear();
+  }
+  if (outer.empty()) return false;
+  const std::string token = RandomCodeToken();
+  const std::string package_dir = outer + "/" + package_name + "-" + token;
+  if (token.empty() || !CreateApkDirectory(package_dir)) {
+    rmdir(outer.c_str());
+    return false;
+  }
+  code_path = package_dir + "/base.apk";
+  if (!CopyExact(apk, code_path, size, progress, 70, 90) ||
+      chmod(code_path.c_str(), 0644) || chown(code_path.c_str(), 1000, 1000) ||
+      setfilecon(code_path.c_str(), "u:object_r:apk_data_file:s0")) {
+    unlink(code_path.c_str());
+    rmdir(package_dir.c_str());
+    rmdir(outer.c_str());
+    code_path.clear();
+    return false;
+  }
+  return true;
+}
+
+bool StageManagerFallback(const std::string &apk,
+                          const std::string &package_name,
+                          const std::string &provider_name) {
+  if (!EnsureDirectory("/data/adb") ||
+      !EnsureDirectory("/data/adb/modules") ||
+      !EnsureDirectory(kManagerModule)) return false;
+  const std::string module = kManagerModule;
+  const std::string module_prop =
+      "id=aera-manager-installer\n"
+      "name=AERA Root Manager installer\n"
+      "version=1\n"
+      "versionCode=1\n"
+      "author=AERA Recovery Project\n"
+      "description=One-shot installer for " + provider_name + "\n";
+  const std::string script =
+      "#!/system/bin/sh\n"
+      "APK='" + apk + "'\n"
+      "PACKAGE='" + package_name + "'\n"
+      "MODDIR='/data/adb/modules/aera-manager-installer'\n"
+      "LOG='/data/adb/aera/root-manager/install.log'\n"
+      "attempt=0\n"
+      "while [ \"$(getprop sys.boot_completed)\" != \"1\" ] && "
+          "[ \"$attempt\" -lt 180 ]; do\n"
+      "  sleep 1\n"
+      "  attempt=$((attempt + 1))\n"
+      "done\n"
+      "if /system/bin/pm path \"$PACKAGE\" >/dev/null 2>&1; then\n"
+      "  result=0\n"
+      "else\n"
+      "  /system/bin/pm install -r --user 0 \"$APK\" >\"$LOG\" 2>&1\n"
+      "  result=$?\n"
+      "fi\n"
+      "if [ \"$result\" -eq 0 ]; then\n"
+      "  rm -f \"$APK\"\n"
+      "  touch \"$MODDIR/remove\"\n"
+      "fi\n";
+  return WriteText(module + "/module.prop", module_prop, 0644) &&
+      WriteText(module + "/service.sh", script, 0755) &&
+      WriteText(module + "/skip_mount", "", 0600);
+}
+
+bool InstallManager(Provider provider, Progress &progress) {
+  const std::string package_name = ManagerPackage(provider);
+  if (package_name.empty()) return false;
+  if (PackageListed(package_name)) {
+    progress.value.store(100);
+    SetText(progress, "Manager already installed",
+            std::string(ProviderName(provider)) + " is registered in Android.");
+    return true;
+  }
+  if (access("/data/system/packages.xml", R_OK) || access("/data/app", W_OK)) {
+    SetText(progress, "Unlock data first",
+            "AERA needs decrypted Android data to install the manager app.");
+    return false;
+  }
+  Release release;
+  if (!FetchManagerApk(provider, progress, release)) {
+    SetText(progress, "Manager unavailable", release.error);
+    return false;
+  }
+  if (!EnsureDirectory(kCache) || !EnsureDirectory(kManagerStaging)) {
+    SetText(progress, "Storage unavailable",
+            "Could not create the manager download folders.");
+    return false;
+  }
+  const std::string download = std::string(kCache) + "/" + release.asset_name;
+  SetText(progress, "Downloading manager app",
+          std::string(ProviderName(provider)) + " " + release.version);
+  if (!HashFile(download, release.size, release.sha256) &&
+      !Download(release.asset_url, download, kMaxManagerApk, progress, 20, 58,
+                release.size, true)) {
+    SetText(progress, "Download failed", "Could not download the official manager APK.");
+    return false;
+  }
+  if (!HashFile(download, release.size, release.sha256)) {
+    unlink(download.c_str());
+    SetText(progress, "Verification failed",
+            "The manager APK does not match GitHub's SHA-256 digest.");
+    return false;
+  }
+  std::string parsed_package;
+  if (!ReadAndroidPackageName(download, parsed_package) ||
+      parsed_package != package_name) {
+    unlink(download.c_str());
+    SetText(progress, "APK rejected",
+            "The downloaded APK does not contain the expected manager package.");
+    return false;
+  }
+  const std::string staged = ManagerStagingPath(provider);
+  if (!CopyExact(download, staged, release.size, progress, 58, 68) ||
+      chmod(staged.c_str(), 0600) || chown(staged.c_str(), 0, 0)) {
+    unlink(staged.c_str());
+    SetText(progress, "Staging failed", "Could not preserve the verified manager APK.");
+    return false;
+  }
+  std::string code_path;
+  const bool direct = StageDataApp(staged, package_name, release.size,
+                                   progress, code_path);
+  progress.value.store(92);
+  const bool fallback = StageManagerFallback(
+      staged, package_name, ProviderName(provider));
+  if (!direct && !fallback) {
+    unlink(staged.c_str());
+    SetText(progress, "Installation failed",
+            "Could not create an Android app directory or boot-time installer.");
+    return false;
+  }
+  progress.value.store(100);
+  SetText(progress, "Manager app ready",
+          std::string(ProviderName(provider)) + " " + release.version +
+          (direct ? " was placed in Android's app store. " : " was staged. ") +
+          "It will appear after booting Android.");
+  return true;
 }
 
 std::string BlockForSlot(const std::string &slot) {
@@ -1020,6 +1359,30 @@ std::vector<Module> InstalledModules() {
   return LoadModules();
 }
 
+ManagerStatus InspectManager(Provider provider) {
+  ManagerStatus status;
+  status.package_name = ManagerPackage(provider);
+  if (status.package_name.empty()) {
+    status.detail = "Unknown root provider.";
+    return status;
+  }
+  if (access("/data/system/packages.xml", R_OK)) {
+    status.detail = "Unlock data to inspect the Android manager app.";
+    return status;
+  }
+  status.installed = PackageListed(status.package_name);
+  status.staged = access(ManagerStagingPath(provider).c_str(), R_OK) == 0;
+  if (status.installed)
+    status.detail = std::string(ProviderName(provider)) + " is installed in Android.";
+  else if (status.staged)
+    status.detail = std::string(ProviderName(provider)) +
+        " is ready and will be installed when Android boots.";
+  else
+    status.detail = std::string(ProviderName(provider)) +
+        " is not installed. Download the official manager app from GitHub.";
+  return status;
+}
+
 bool Run(const Request &request, Progress &progress) {
   progress.value.store(0); progress.downloaded.store(0); progress.total.store(0);
   switch (request.job) {
@@ -1039,6 +1402,7 @@ bool Run(const Request &request, Progress &progress) {
     case Job::kDisableModule:
     case Job::kRemoveModule: return ModuleCommand(request, progress);
     case Job::kUpdateModule: return UpdateModule(request, progress);
+    case Job::kInstallManager: return InstallManager(request.provider, progress);
   }
   return false;
 }
