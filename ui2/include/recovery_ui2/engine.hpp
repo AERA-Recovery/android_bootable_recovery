@@ -35,6 +35,7 @@ enum class Action {
     kMounts,
     kLogs,
     kPreferences,
+    kLanguage,
     kTheme,
     kFormatData,
     kWeb,

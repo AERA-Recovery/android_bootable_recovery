@@ -205,8 +205,9 @@ void BuildGalleryScene(lv_obj_t *screen, ActionCallback callback, void *context)
     return a.path > b.path;
   });
 
-  const std::string count = std::to_string(pictures.size()) +
-      (pictures.size() == 1 ? " PHOTO" : " PHOTOS");
+  const std::string count = pictures.size() == 1
+      ? i18n::Format("%zu PHOTO", pictures.size())
+      : i18n::Format("%zu PHOTOS", pictures.size());
   auto *badge = Kicker(screen, count.c_str(), pictures.empty() ? kMuted : kAccent);
   lv_obj_set_pos(badge, 80, landscape ? 306 : 426);
 

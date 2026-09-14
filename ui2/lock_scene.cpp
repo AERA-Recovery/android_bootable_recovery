@@ -46,15 +46,23 @@ void RefreshClock(LockState *state) {
   const time_t now = time(nullptr);
   struct tm local {};
   char clock[16] = "--:--";
-  char date[64] = "AERA Recovery Project";
+  std::string date = "AERA Recovery Project";
   if (localtime_r(&now, &local) != nullptr) {
+    static const char *const weekdays[] = {
+        "Sunday", "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday"};
+    static const char *const months[] = {
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"};
     int hour = local.tm_hour % 12;
     if (hour == 0) hour = 12;
     snprintf(clock, sizeof(clock), "%d:%02d", hour, local.tm_min);
-    strftime(date, sizeof(date), "%A, %e %B", &local);
+    date = i18n::Format("%s, %d %s",
+        i18n::Translate(weekdays[local.tm_wday]), local.tm_mday,
+        i18n::Translate(months[local.tm_mon]));
   }
-  lv_label_set_text(state->clock, clock);
-  lv_label_set_text(state->date, date);
+  i18n::BindLabel(state->clock, clock);
+  i18n::BindLabel(state->date, date.c_str());
   // Text transforms default to a top-left pivot in LVGL. Refresh the pivot
   // after the glyph width changes so every time remains optically centered.
   lv_obj_update_layout(state->clock);

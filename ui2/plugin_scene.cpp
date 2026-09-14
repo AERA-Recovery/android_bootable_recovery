@@ -56,8 +56,8 @@ void Request(State *state, plugins::Job job, const std::string &id) {
       job == plugins::Job::kInstallStorage ||
       job == plugins::Job::kInstallMemory;
   if (network_job && !RecoveryWifiConnection().connected) {
-    lv_label_set_text(state->scene.status,
-                      "Offline — connect to Wi-Fi before refreshing the store.");
+    i18n::BindLabel(state->scene.status,
+                    "Offline — connect to Wi-Fi before refreshing the store.");
     Sheet(state->screen, "Plugin Store is offline",
           "Connect AERA to Wi-Fi, then try Refresh store again.");
     return;
@@ -108,15 +108,18 @@ void Render(State *state) {
     auto *description = Label(card, plugin.description.c_str(),
                               &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(description, 154, 94);
-    lv_obj_set_width(description, card_width - 230);
-    const std::string version = "Version " + plugin.version;
+    FitLabelToLines(description, card_width - 230, 2,
+                    {&lv_font_montserrat_24, &lv_font_montserrat_20,
+                     &lv_font_montserrat_18, &lv_font_montserrat_16});
+    const std::string version =
+        i18n::Format("Version %s", plugin.version.c_str());
     auto *version_label = Label(card, version.c_str(), &lv_font_montserrat_18, kDim);
     lv_obj_set_pos(version_label, 154, 156);
 
     if (local) {
-      auto *badge = Kicker(card,
-          (std::string("INSTALLED / ") + plugins::LocationLabel(local->location)).c_str(),
-          kGreen);
+      const std::string installed = i18n::Format(
+          "INSTALLED / %s", plugins::LocationLabel(local->location));
+      auto *badge = Kicker(card, installed.c_str(), kGreen);
       lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -34, 40);
       if (local->entry == "browser" || local->entry == "retroarch" ||
           local->entry == "telegram" || local->entry == "gallery" ||
@@ -204,9 +207,12 @@ void Render(State *state) {
       auto *description = Label(card, plugin.description.c_str(),
                                 &lv_font_montserrat_24, kMuted);
       lv_obj_set_pos(description, 154, 94);
-      lv_obj_set_width(description, card_width - 230);
-      const std::string version = "Version " + plugin.version +
-          "  /  Installed from a local package";
+      FitLabelToLines(description, card_width - 230, 2,
+                      {&lv_font_montserrat_24, &lv_font_montserrat_20,
+                       &lv_font_montserrat_18, &lv_font_montserrat_16});
+      const std::string version = i18n::Format(
+          "Version %s  /  Installed from a local package",
+          plugin.version.c_str());
       auto *version_label = Label(card, version.c_str(),
                                   &lv_font_montserrat_18, kDim);
       lv_obj_set_pos(version_label, 154, 156);
@@ -312,7 +318,7 @@ void SetPluginBusy(const PluginScene &scene, const plugins::Request &request) {
       request.job == plugins::Job::kInstallLocalStorage ? "Installing local plugin..." :
       request.job == plugins::Job::kInstallMemory ? "Loading plugin into RAM..." :
       "Installing plugin on storage...";
-  lv_label_set_text(scene.status, text);
+  i18n::BindLabel(scene.status, text);
 }
 
 void UpdatePluginProgress(const PluginScene &scene, unsigned value,
@@ -322,24 +328,22 @@ void UpdatePluginProgress(const PluginScene &scene, unsigned value,
   if (scene.progress) lv_bar_set_value(scene.progress, value, LV_ANIM_ON);
   if (!state || !scene.status || !state->busy) return;
 
-  char message[160];
+  std::string message;
   if (total_bytes && value <= 78) {
     constexpr double kMiB = 1024.0 * 1024.0;
     const unsigned download_percent = static_cast<unsigned>(
         std::min<uint64_t>(downloaded_bytes, total_bytes) * 100 / total_bytes);
-    std::snprintf(message, sizeof(message),
+    message = i18n::Format(
         "Downloading AERA Browser  %.1f / %.1f MB  -  %u%%",
         downloaded_bytes / kMiB, total_bytes / kMiB, download_percent);
   } else if (total_bytes && value < 100) {
-    std::snprintf(message, sizeof(message),
-                  "Verifying and installing  -  %u%%", value);
+    message = i18n::Format("Verifying and installing  -  %u%%", value);
   } else if (state->active_job == plugins::Job::kRefresh) {
-    std::snprintf(message, sizeof(message),
-                  "Refreshing signed store  -  %u%%", value);
+    message = i18n::Format("Refreshing signed store  -  %u%%", value);
   } else {
-    std::snprintf(message, sizeof(message), "Preparing download  -  %u%%", value);
+    message = i18n::Format("Preparing download  -  %u%%", value);
   }
-  lv_label_set_text(scene.status, message);
+  i18n::BindLabel(scene.status, message.c_str());
 }
 
 void CompletePluginOperation(const PluginScene &scene, bool success,
@@ -349,8 +353,9 @@ void CompletePluginOperation(const PluginScene &scene, bool success,
   state->busy = false;
   lv_obj_remove_state(scene.refresh, LV_STATE_DISABLED);
   lv_bar_set_value(scene.progress, success ? 100 : 0, LV_ANIM_ON);
-  lv_label_set_text(scene.status, message && *message ? message :
-                    (success ? "Plugin operation completed." : "Plugin operation failed."));
+  i18n::BindLabel(scene.status, message && *message ? message :
+                  (success ? "Plugin operation completed."
+                           : "Plugin operation failed."));
   Render(state);
 }
 

@@ -15,6 +15,10 @@ bootstrap_go_package {
 
 }
 
+aera_ui2_defaults {
+    name: "aera_ui2_defaults"
+}
+
 // FoxUiEngine - the OrangeFox UI engine static library (formerly libguitwrp).
 cc_library_static {
     rtti: true,
@@ -87,6 +91,7 @@ cc_library_static {
     ],
     shared_libs: [
         "libminuitwrp",
+        "libft2",
         "libc",
         "libstdc++",
         "libaosprecovery",

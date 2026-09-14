@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdio>
 #include <functional>
+#include <initializer_list>
 #include <string>
 #include "design.hpp"
 #include "scene.hpp"
@@ -52,6 +53,50 @@ inline void OnClick(lv_obj_t *object, Handler callback) {
   }, LV_EVENT_ALL, handler);
 }
 
+inline void FitLabelToLines(
+    lv_obj_t *label, int width, int max_lines,
+    std::initializer_list<const lv_font_t *> candidates) {
+  if (label == nullptr || width <= 0 || max_lines <= 0 ||
+      candidates.size() == 0) return;
+  const char *text = lv_label_get_text(label);
+  const int letter_space =
+      lv_obj_get_style_text_letter_space(label, LV_PART_MAIN);
+  const int line_space =
+      lv_obj_get_style_text_line_space(label, LV_PART_MAIN);
+  const lv_font_t *selected = UiFont(*candidates.begin());
+  bool fits = false;
+  for (const lv_font_t *candidate : candidates) {
+    const lv_font_t *font = UiFont(candidate);
+    lv_point_t measured{};
+    lv_text_get_size(&measured, text == nullptr ? "" : text, font,
+                     letter_space, line_space, width, LV_TEXT_FLAG_NONE);
+    selected = font;
+    const int limit = max_lines * lv_font_get_line_height(font) +
+                      (max_lines - 1) * line_space;
+    if (measured.y <= limit) {
+      fits = true;
+      break;
+    }
+  }
+  const int height = max_lines * lv_font_get_line_height(selected) +
+                     (max_lines - 1) * line_space;
+  lv_obj_set_style_text_font(label, selected, 0);
+  lv_label_set_long_mode(label, fits ? LV_LABEL_LONG_MODE_WRAP
+                                     : LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_set_size(label, width, height);
+}
+
+inline void FitButtonLabel(lv_obj_t *button) {
+  if (button == nullptr || lv_obj_get_child_count(button) == 0) return;
+  auto *label = lv_obj_get_child(button, 0);
+  const int width = std::max(40, static_cast<int>(lv_obj_get_width(button)) - 48);
+  FitLabelToLines(label, width, 1,
+                  {&lv_font_montserrat_32, &lv_font_montserrat_28,
+                   &lv_font_montserrat_24, &lv_font_montserrat_20,
+                   &lv_font_montserrat_18});
+  lv_obj_center(label);
+}
+
 inline lv_obj_t *Button(lv_obj_t *parent, const char *text, Handler action,
                         bool primary = false) {
   auto *button = lv_button_create(parent);
@@ -65,7 +110,10 @@ inline lv_obj_t *Button(lv_obj_t *parent, const char *text, Handler action,
   lv_obj_set_style_transform_scale(button, 250, LV_STATE_PRESSED);
   auto *label = Label(button, text, &lv_font_montserrat_32,
                       primary ? kOnAccent : kText);
-  lv_obj_center(label);
+  lv_obj_add_event_cb(button, [](lv_event_t *event) {
+    FitButtonLabel(lv_event_get_target_obj(event));
+  }, LV_EVENT_SIZE_CHANGED, nullptr);
+  FitButtonLabel(button);
   OnClick(button, std::move(action));
   return button;
 }

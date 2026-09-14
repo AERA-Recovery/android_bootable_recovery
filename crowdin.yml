@@ -1,5 +1,0 @@
-files:
-    translation: /**/gui/theme/common/languages/%locale_with_underscore%.xml
-    translatable_elements:
-      - /language/resources/string
-      - /language/display

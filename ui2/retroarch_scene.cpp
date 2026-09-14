@@ -61,13 +61,13 @@ void LaunchRetroArch(RetroArchScene *scene) {
   if (!scene->process.Start(scene->preparation.directory, frame_fd,
                             control_fd, error) ||
       !scene->session.Adopt(frame_fd, control_fd)) {
-    lv_label_set_text(scene->title, "RetroArch could not start");
-    lv_label_set_text(scene->detail,
+    i18n::BindLabel(scene->title, "RetroArch could not start");
+    i18n::BindLabel(scene->detail,
         error.empty() ? scene->session.Status().c_str() : error.c_str());
     return;
   }
-  lv_label_set_text(scene->title, "Starting RetroArch");
-  lv_label_set_text(scene->detail,
+  i18n::BindLabel(scene->title, "Starting RetroArch");
+  i18n::BindLabel(scene->detail,
       "Loading the recovery-safe menu, bundled test core, and your content library.");
   lv_bar_set_value(scene->progress, 100, LV_ANIM_ON);
 }
@@ -181,8 +181,8 @@ void BuildRetroArchScene(lv_obj_t *screen, ActionCallback callback,
       return;
     }
     if (!scene->preparation.verified) {
-      lv_label_set_text(scene->title, "RetroArch unavailable");
-      lv_label_set_text(scene->detail, scene->preparation.error.c_str());
+      i18n::BindLabel(scene->title, "RetroArch unavailable");
+      i18n::BindLabel(scene->detail, scene->preparation.error.c_str());
       return;
     }
     LaunchRetroArch(scene);
@@ -202,8 +202,8 @@ void BuildRetroArchScene(lv_obj_t *screen, ActionCallback callback,
       scene->session.Close();
       lv_obj_add_flag(scene->viewport, LV_OBJ_FLAG_HIDDEN);
       lv_obj_remove_flag(scene->loading, LV_OBJ_FLAG_HIDDEN);
-      lv_label_set_text(scene->title, "RetroArch closed");
-      lv_label_set_text(scene->detail,
+      i18n::BindLabel(scene->title, "RetroArch closed");
+      i18n::BindLabel(scene->detail,
           "Return Home, or reopen RetroArch to start a fresh session.");
     }
   }, 8, scene);

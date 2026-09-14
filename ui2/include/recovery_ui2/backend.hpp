@@ -96,6 +96,8 @@ int RecoveryDockBlur();
 bool RecoverySetDockBlur(int percent);
 bool RecoveryDockHideInApps();
 bool RecoverySetDockHideInApps(bool enabled);
+std::string RecoveryLanguage();
+bool RecoverySetLanguage(const std::string &language);
 bool RecoverySavePreferences();
 enum class Haptic { kTouch, kKeyboard, kAction };
 bool RecoveryHapticsAvailable();

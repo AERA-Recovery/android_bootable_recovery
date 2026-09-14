@@ -58,7 +58,7 @@ void UpdateDetail(Viewer *state) {
       std::to_string(state->data->height) + "   •   " +
       std::to_string(state->scale * 100 / 256) + "%" +
       (original ? "   •   Original size" : "");
-  lv_label_set_text(state->detail, text.c_str());
+  i18n::BindLabel(state->detail, text.c_str());
 }
 
 void Zoom(Viewer *state, uint32_t requested, int focus_x = -1,
@@ -114,8 +114,8 @@ void Loaded(lv_timer_t *timer) {
   if (!state->data->ready.load(std::memory_order_acquire)) return;
   lv_timer_pause(timer);
   if (!state->data->pixels) {
-    lv_label_set_text(state->message, state->data->error.c_str());
-    lv_label_set_text(state->detail, "PNG and baseline JPEG supported");
+    i18n::BindLabel(state->message, state->data->error.c_str());
+    i18n::BindLabel(state->detail, "PNG and baseline JPEG supported");
     return;
   }
   lv_obj_add_flag(state->message, LV_OBJ_FLAG_HIDDEN);

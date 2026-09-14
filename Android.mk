@@ -161,7 +161,7 @@ LOCAL_C_INCLUDES += \
 LOCAL_STATIC_LIBRARIES += libvterm
 LOCAL_SHARED_LIBRARIES += libz libc libcutils libstdc++ libtar libblkid libminuitwrp libmtdutils libtwadbbu libpng
 LOCAL_SHARED_LIBRARIES += libbootloader_message libcrecovery libtwrpdigest libc++ libaosprecovery libcrypto libbase
-LOCAL_SHARED_LIBRARIES += libandroidfw libziparchive libselinux libdl_android.bootstrap
+LOCAL_SHARED_LIBRARIES += libandroidfw libziparchive libselinux libdl_android.bootstrap libft2
 
 ifneq ($(wildcard system/core/libsparse/Android.mk),)
 LOCAL_SHARED_LIBRARIES += libsparse
@@ -498,10 +498,10 @@ ifneq ($(TARGET_RECOVERY_INITRC),)
     TW_EXCLUDE_DEFAULT_USB_INIT := true
 endif
 LOCAL_CFLAGS += -DTW_USE_NEW_MINADBD
-ifneq ($(TW_DEFAULT_LANGUAGE),)
-    LOCAL_CFLAGS += -DTW_DEFAULT_LANGUAGE=$(TW_DEFAULT_LANGUAGE)
+ifneq ($(AERA_DEFAULT_LANGUAGE),)
+    LOCAL_CFLAGS += -DAERA_DEFAULT_LANGUAGE=$(AERA_DEFAULT_LANGUAGE)
 else
-    LOCAL_CFLAGS += -DTW_DEFAULT_LANGUAGE=en
+    LOCAL_CFLAGS += -DAERA_DEFAULT_LANGUAGE=en
 endif
 ifneq ($(TW_QCOM_ATS_OFFSET),)
 	LOCAL_CFLAGS += -DTW_QCOM_ATS_OFFSET=$(TW_QCOM_ATS_OFFSET)

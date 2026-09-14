@@ -206,7 +206,7 @@ void BrightnessChanged(lv_event_t *event) {
   const int percent = lv_slider_get_value(state->brightness_slider);
   char text[16];
   snprintf(text, sizeof(text), "%d%%", percent);
-  lv_label_set_text(state->brightness_value, text);
+  i18n::BindLabel(state->brightness_value, text);
   // Update while dragging, but avoid hammering sysfs for every input sample.
   if (lv_event_get_code(event) == LV_EVENT_RELEASED ||
       state->applied_brightness < 0 ||
@@ -349,7 +349,7 @@ void BuildShade(StatusState *state) {
   state->shade_recorder = QuickTile(
       state, offset + (tile_width + tile_gap) * 4, tile_y, tile_width,
       tile_height, LV_SYMBOL_VIDEO, "Recorder", &state->shade_recorder_detail);
-  lv_label_set_text(state->shade_reboot_detail, "Power menu");
+  i18n::BindLabel(state->shade_reboot_detail, "Power menu");
   for (auto *tile : {state->shade_wifi, state->shade_rotation,
                      state->shade_flashlight, state->shade_reboot,
                      state->shade_recorder})
@@ -539,19 +539,19 @@ void RefreshShade(StatusState *state) {
     wifi_detail = "Working…";
   else
     wifi_detail = wifi.enabled ? "On" : "Off";
-  lv_label_set_text(state->shade_wifi_detail, wifi_detail.c_str());
+  i18n::BindLabel(state->shade_wifi_detail, wifi_detail.c_str());
   StyleTile(state->shade_wifi, wifi.enabled, wifi.supported && !wifi.busy);
 
   const bool landscape =
       lv_display_get_rotation(lv_display_get_default()) !=
       LV_DISPLAY_ROTATION_0;
-  lv_label_set_text(state->shade_rotation_detail,
+  i18n::BindLabel(state->shade_rotation_detail,
                     landscape ? "Landscape" : "Portrait");
   StyleTile(state->shade_rotation, landscape);
 
   const bool torch_supported = RecoveryFlashlightSupported();
   const bool torch_enabled = RecoveryFlashlightEnabled();
-  lv_label_set_text(state->shade_flashlight_detail,
+  i18n::BindLabel(state->shade_flashlight_detail,
                     !torch_supported ? "Unavailable"
                                      : torch_enabled ? "On" : "Off");
   StyleTile(state->shade_flashlight, torch_enabled, torch_supported);
@@ -560,7 +560,7 @@ void RefreshShade(StatusState *state) {
   const auto recording = recorder::GetSnapshot();
   const bool recorder_installed = recorder::Installed();
   const bool recorder_active = recorder::Active();
-  lv_label_set_text(state->shade_recorder_detail,
+  i18n::BindLabel(state->shade_recorder_detail,
       !recorder_installed && !recorder_active ? "Not installed" :
       recording.state == recorder::State::kRecording ? "Recording" :
       recording.state == recorder::State::kFinalizing ? "Saving…" :
@@ -576,22 +576,24 @@ void RefreshShade(StatusState *state) {
       const bool active = download.active_count > 0;
       const std::string title = active
           ? (download.active_count > 1
-              ? std::to_string(download.active_count) + " downloads"
-              : "Downloading " + download.name)
+              ? i18n::Format("%u downloads", download.active_count)
+              : i18n::Format("Downloading %s", download.name.c_str()))
           : download.status == web::DownloadStatus::kFinished
               ? "Download finished"
               : download.status == web::DownloadStatus::kCancelled
                   ? "Download cancelled" : "Download failed";
       std::string detail = active
-          ? std::to_string(download.progress) + "%"
+          ? i18n::Format("%u%%", download.progress)
           : download.name;
       if (active && download.total_bytes)
-        detail += "  •  " + std::to_string(download.received_bytes / (1024 * 1024)) +
-                  " of " + std::to_string(download.total_bytes / (1024 * 1024)) + " MB";
+        detail = i18n::Format(
+            "%s  •  %llu of %llu MB", detail.c_str(),
+            static_cast<unsigned long long>(download.received_bytes / (1024 * 1024)),
+            static_cast<unsigned long long>(download.total_bytes / (1024 * 1024)));
       if (active && download.speed_bytes_per_second)
         detail += "  •  " + FormatDownloadSpeed(download.speed_bytes_per_second);
-      lv_label_set_text(state->shade_download_title, title.c_str());
-      lv_label_set_text(state->shade_download_detail, detail.c_str());
+      i18n::BindLabel(state->shade_download_title, title.c_str());
+      i18n::BindLabel(state->shade_download_detail, detail.c_str());
       lv_bar_set_value(state->shade_download_progress,
                        active ? download.progress :
                        download.status == web::DownloadStatus::kFinished ? 100 : 0,
@@ -605,9 +607,10 @@ void RefreshShade(StatusState *state) {
     lv_obj_set_y(state->shade_update,
                  (landscape ? 735 : 855) + (download.available ? 148 : 0));
     if (update.available) {
-      const std::string title = "AERA " + update.release.version + " available";
-      lv_label_set_text(state->shade_update_title, title.c_str());
-      lv_label_set_text(state->shade_update_detail, "Tap to review the update");
+      const std::string title = i18n::Format(
+          "AERA %s available", update.release.version.c_str());
+      i18n::BindLabel(state->shade_update_title, title.c_str());
+      i18n::BindLabel(state->shade_update_detail, "Tap to review the update");
       lv_obj_remove_flag(state->shade_update, LV_OBJ_FLAG_HIDDEN);
     } else {
       lv_obj_add_flag(state->shade_update, LV_OBJ_FLAG_HIDDEN);
@@ -618,7 +621,7 @@ void RefreshShade(StatusState *state) {
     const int brightness = std::max(10, RecoveryBrightness());
     char text[16];
     snprintf(text, sizeof(text), "%d%%", brightness);
-    lv_label_set_text(state->brightness_value, text);
+    i18n::BindLabel(state->brightness_value, text);
     if (state->brightness_slider != nullptr)
       lv_slider_set_value(state->brightness_slider, brightness, LV_ANIM_OFF);
   }
@@ -633,7 +636,7 @@ void Refresh(StatusState *state, bool refresh_battery) {
   if (localtime_r(&now, &local) != nullptr)
     strftime(clock_text, sizeof(clock_text),
              RecoveryPreference(Preference::kClock24) ? "%H:%M" : "%I:%M %p", &local);
-  lv_label_set_text(state->clock, clock_text);
+  i18n::BindLabel(state->clock, clock_text);
 
   const auto mirror = plugin_api::ActiveMirrorMode();
   if (mirror != plugin_api::MirrorMode::kOff) {
@@ -641,7 +644,7 @@ void Refresh(StatusState *state, bool refresh_battery) {
         mirror == plugin_api::MirrorMode::kWifi
             ? std::string(LV_SYMBOL_VIDEO) + "  Wi-Fi Mirror"
             : std::string(LV_SYMBOL_USB) + "  USB Mirror";
-    lv_label_set_text(state->mirror, text.c_str());
+    i18n::BindLabel(state->mirror, text.c_str());
     lv_obj_align_to(state->mirror, state->clock, LV_ALIGN_OUT_RIGHT_MID, 26, 0);
     lv_obj_remove_flag(state->mirror, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -672,7 +675,7 @@ void Refresh(StatusState *state, bool refresh_battery) {
              static_cast<unsigned long long>(seconds % 60));
     const lv_color_t color =
         recording.state == recorder::State::kRecording ? kRed : kAccent;
-    lv_label_set_text(state->recording, text);
+    i18n::BindLabel(state->recording, text);
     lv_obj_set_style_text_color(state->recording, color, 0);
     lv_obj_set_style_bg_color(state->recording_dot, color, 0);
     lv_obj_remove_flag(state->recording_dot, LV_OBJ_FLAG_HIDDEN);
@@ -686,7 +689,7 @@ void Refresh(StatusState *state, bool refresh_battery) {
   if (connection.connected) {
     const std::string text = std::string(LV_SYMBOL_WIFI) + "  " +
         (connection.ssid.empty() ? "Connected" : connection.ssid);
-    lv_label_set_text(state->wifi, text.c_str());
+    i18n::BindLabel(state->wifi, text.c_str());
     lv_obj_set_style_text_color(state->wifi, kMutedStrong, 0);
     lv_obj_remove_flag(state->wifi, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -705,7 +708,7 @@ void Refresh(StatusState *state, bool refresh_battery) {
     snprintf(battery_text, sizeof(battery_text), "%d%%%s", state->battery,
              state->charging ? " +" : "");
   }
-  lv_label_set_text(state->battery_text, battery_text);
+  i18n::BindLabel(state->battery_text, battery_text);
 
   const int level = state->battery < 0 ? 0 : state->battery;
   lv_obj_set_width(state->battery_fill, std::max(3, level * 58 / 100));

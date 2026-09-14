@@ -62,7 +62,7 @@ void RefreshOutput(TerminalUi *state, bool force = false) {
     if (i + 1 < lines.size()) text.push_back('\n');
   }
   if (text.empty()) text = "Starting recovery shell…";
-  lv_label_set_text(state->output, text.c_str());
+  i18n::BindLabel(state->output, text.c_str());
   LayoutCommandLine(state);
   lv_obj_update_layout(state->viewport);
   lv_obj_scroll_to_y(state->viewport, LV_COORD_MAX, LV_ANIM_OFF);

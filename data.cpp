@@ -1483,8 +1483,8 @@ void DataManager::SetDefaultValues()
 #endif
   mPersist.SetValue("tw_mount_system_ro", "2");
   mPersist.SetValue("tw_never_show_system_ro_page", "0");
-  mPersist.SetValue("tw_language", EXPAND(TW_DEFAULT_LANGUAGE));
-  LOGINFO("LANG: %s\n", EXPAND(TW_DEFAULT_LANGUAGE));
+  mPersist.SetValue("tw_language", EXPAND(AERA_DEFAULT_LANGUAGE));
+  LOGINFO("LANG: %s\n", EXPAND(AERA_DEFAULT_LANGUAGE));
 
   mData.SetValue("tw_has_adopted_storage", "0");
 

@@ -525,6 +525,19 @@ bool RecoveryDockHideInApps() {
 bool RecoverySetDockHideInApps(bool enabled) {
   return DataManager::SetValue("aera_dock_hide_apps", enabled ? 1 : 0, 1) == 0;
 }
+std::string RecoveryLanguage() {
+  LoadAeraPreferencesIfAvailable();
+  const std::string language = DataManager::GetStrValue("tw_language");
+  return language.empty() ? AERA_DEFAULT_LANGUAGE : language;
+}
+bool RecoverySetLanguage(const std::string &language) {
+  if (language.empty() || language.size() > 16) return false;
+  for (const unsigned char character : language) {
+    if (!(std::isalnum(character) || character == '_' || character == '-'))
+      return false;
+  }
+  return DataManager::SetValue("tw_language", language, 1) == 0;
+}
 bool RecoverySavePreferences() { return SaveAeraPreferences(); }
 
 namespace {
@@ -600,6 +613,7 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "dock_transparency") DataManager::SetValue("aera_dock_transparency", value);
     else if (key == "dock_blur") DataManager::SetValue("aera_dock_blur", value);
     else if (key == "dock_hide_apps") DataManager::SetValue("aera_dock_hide_apps", value);
+    else if (key == "language") DataManager::SetValue("tw_language", value);
     else if (key == "haptic_touch") DataManager::SetValue("tw_button_vibrate", value);
     else if (key == "haptic_keyboard") DataManager::SetValue("tw_keyboard_vibrate", value);
     else if (key == "haptic_action") DataManager::SetValue("tw_action_vibrate", value);
@@ -643,6 +657,7 @@ bool SaveAeraPreferences() {
          << "dock_transparency=" << RecoveryDockTransparency() << '\n'
          << "dock_blur=" << RecoveryDockBlur() << '\n'
          << "dock_hide_apps=" << (RecoveryDockHideInApps() ? 1 : 0) << '\n'
+         << "language=" << RecoveryLanguage() << '\n'
          << "haptic_touch=" << DataManager::GetIntValue("tw_button_vibrate") << '\n'
          << "haptic_keyboard=" << DataManager::GetIntValue("tw_keyboard_vibrate") << '\n'
          << "haptic_action=" << DataManager::GetIntValue("tw_action_vibrate") << '\n'

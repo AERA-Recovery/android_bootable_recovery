@@ -77,7 +77,7 @@ struct GenericScene {
 };
 
 void SetStatus(GenericScene *scene, const std::string &status) {
-  if (scene->status) lv_label_set_text(scene->status, status.c_str());
+  if (scene->status) i18n::BindLabel(scene->status, status.c_str());
 }
 
 bool ModalVisible(lv_obj_t *screen) {

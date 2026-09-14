@@ -4,6 +4,8 @@
  */
 #include "plugin_manager.hpp"
 
+#include <recovery_ui2/i18n.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -149,6 +151,28 @@ bool ParseJson(const std::string &text, Json::Value &value) {
   return Json::parseFromStream(builder, stream, &value, &errors);
 }
 
+void ApplyLocalizedMetadata(const Json::Value &root, Plugin &plugin) {
+  const Json::Value &localizations = root["localizations"];
+  if (!localizations.isObject()) return;
+  std::string locale = i18n::CurrentLanguage();
+  std::array<std::string, 4> candidates{locale, locale, locale, locale};
+  std::replace(candidates[1].begin(), candidates[1].end(), '_', '-');
+  std::replace(candidates[2].begin(), candidates[2].end(), '-', '_');
+  const auto separator = locale.find_first_of("_-");
+  candidates[3] = locale.substr(0, separator);
+  for (const auto &candidate : candidates) {
+    if (!localizations.isMember(candidate) ||
+        !localizations[candidate].isObject()) continue;
+    const Json::Value &localized = localizations[candidate];
+    if (localized["name"].isString() &&
+        !localized["name"].asString().empty())
+      plugin.name = localized["name"].asString();
+    if (localized["description"].isString())
+      plugin.description = localized["description"].asString();
+    return;
+  }
+}
+
 bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
                  bool local_payload = false) {
   Json::Value root;
@@ -159,6 +183,7 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
   plugin.name = root["name"].asString();
   plugin.version = root["version"].asString();
   plugin.description = root["description"].asString();
+  ApplyLocalizedMetadata(root, plugin);
   plugin.type = root["type"].asString();
   plugin.entry = root["entry"].asString();
   plugin.payload_url = root["payload_url"].asString();
@@ -269,6 +294,7 @@ bool ParseCatalog(const std::string &text, std::vector<Plugin> &plugins,
     plugin.name = item["name"].asString();
     plugin.version = item["version"].asString();
     plugin.description = item["description"].asString();
+    ApplyLocalizedMetadata(item, plugin);
     plugin.manifest_url = item["manifest_url"].asString();
     plugin.signature_url = item["signature_url"].asString();
     plugin.package_url = item.get("package_url", "").asString();
@@ -281,7 +307,8 @@ bool ParseCatalog(const std::string &text, std::vector<Plugin> &plugins,
         ? plugin.package_size == 0 && plugin.package_sha256.empty()
         : OfficialUrl(plugin.package_url) && plugin.package_size > 0 &&
               plugin.package_size <= kMaxPackage && package_hash_ok;
-    if (!SafeId(plugin.id) || plugin.name.empty() || plugin.version.empty() ||
+    if (!SafeId(plugin.id) || plugin.name.empty() || plugin.name.size() > 80 ||
+        plugin.version.empty() || plugin.description.size() > 320 ||
         !OfficialUrl(plugin.manifest_url) || !OfficialUrl(plugin.signature_url) ||
         !package_complete) {
       error = "The signed catalog contains an invalid entry."; return false;
@@ -822,7 +849,10 @@ bool Install(const std::string &id, Location location, Progress &progress) {
   if (!RemoveTree(final) || rename(staging.c_str(), final.c_str())) {
     RemoveTree(staging); progress.error = "Could not publish the verified plugin."; return false;
   }
-  progress.status = plugin.name + " installed"; progress.value.store(100); return true;
+  progress.status =
+      i18n::Format("%s installed", plugin.name.c_str());
+  progress.value.store(100);
+  return true;
 }
 
 bool Remove(const std::string &id, Progress &progress) {

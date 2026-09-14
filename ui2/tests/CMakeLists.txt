@@ -12,17 +12,17 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LVGL_DIR}" lvgl)
 find_package(PNG REQUIRED)
 find_package(Threads REQUIRED)
-set(AERA_LATIN_FONTS
-  ../fonts/aera_latin_16.c ../fonts/aera_latin_18.c ../fonts/aera_latin_20.c
-  ../fonts/aera_latin_24.c ../fonts/aera_latin_28.c ../fonts/aera_latin_32.c
-  ../fonts/aera_latin_36.c ../fonts/aera_latin_40.c ../fonts/aera_latin_48.c)
 add_executable(ui_check ui_check.cpp ../about_scene.cpp ../aera_logo.cpp
   ../matrix_engraving.cpp
+  ../fonts/aera_fallback.cpp ../i18n.cpp ../i18n/catalog_generated.cpp
   ../tool_scene.cpp ../wifi_scene.cpp ../picture_decode.cpp
   ../picture_viewer.cpp ../operation_scene.cpp ../decrypt_scene.cpp
-  ../browser/web_scene.cpp ../browser/session.cpp ../browser/launcher.cpp
-  ${AERA_LATIN_FONTS})
+  ../browser/web_scene.cpp ../browser/session.cpp ../browser/launcher.cpp)
 target_include_directories(ui_check PRIVATE .. ../include)
+target_compile_definitions(ui_check PRIVATE AERA_DEFAULT_LANGUAGE="en")
+target_compile_definitions(ui_check PRIVATE
+  AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../../gui/theme/extra-languages/fonts"
+  AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../../gui/theme/common/fonts")
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG Threads::Threads)
 enable_testing()

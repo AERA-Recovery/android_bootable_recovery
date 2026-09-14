@@ -65,6 +65,12 @@ int RecoveryDockBlur() { return 24; }
 bool RecoverySetDockBlur(int) { return true; }
 bool RecoveryDockHideInApps() { return false; }
 bool RecoverySetDockHideInApps(bool) { return true; }
+std::string recovery_language = "en";
+std::string RecoveryLanguage() { return recovery_language; }
+bool RecoverySetLanguage(const std::string &language) {
+  recovery_language = language;
+  return true;
+}
 bool RecoverySavePreferences() { return save_succeeds; }
 bool RecoveryHapticsAvailable() { return true; }
 int RecoveryHapticDuration(Haptic haptic) {

@@ -79,11 +79,11 @@ void RefreshPattern(DecryptState *state) {
   lv_obj_invalidate(state->pattern_area);
 
   if (state->sequence_length == 0) {
-    lv_label_set_text(state->status, "Draw your unlock pattern");
+    i18n::BindLabel(state->status, "Draw your unlock pattern");
   } else {
-    char copy[64];
-    lv_snprintf(copy, sizeof(copy), "%d dots connected", state->sequence_length);
-    lv_label_set_text(state->status, copy);
+    const std::string copy =
+        i18n::Format("%d dots connected", state->sequence_length);
+    i18n::BindLabel(state->status, copy.c_str());
   }
 }
 
@@ -174,7 +174,7 @@ void PatternTouch(lv_event_t *event) {
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
     state->tracking = false;
     if (state->sequence_length > 0)
-      lv_label_set_text(state->status, "Pattern ready - swipe again to redraw");
+      i18n::BindLabel(state->status, "Pattern ready - swipe again to redraw");
   }
 }
 
@@ -385,11 +385,12 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   lv_obj_set_size(keyhole, 12, 28);
   lv_obj_center(keyhole);
 
+  const std::string target = user_name.empty()
+      ? i18n::Format("Android user %d", user_id)
+      : user_name;
   const std::string title_text = state->secondary
-      ? "Unlock " + (user_name.empty()
-                         ? "Android user " + std::to_string(user_id)
-                         : user_name)
-      : "Unlock your storage";
+      ? i18n::Format("Unlock %s", target.c_str())
+      : i18n::Translate("Unlock your storage");
   lv_obj_t *title =
       Label(screen, title_text.c_str(), &lv_font_montserrat_48, kText);
   lv_obj_set_width(title, 1280);
@@ -470,10 +471,10 @@ void SetDecryptBusy(const DecryptScene &scene) {
   auto *state = static_cast<DecryptState *>(scene.state);
   if (state == nullptr) return;
   state->busy = true;
-  lv_label_set_text(state->status, state->secondary
+  i18n::BindLabel(state->status, state->secondary
                                        ? "Unlocking Android user..."
                                        : "Unlocking and preparing /data...");
-  lv_label_set_text(state->submit_label, "Unlocking...");
+  i18n::BindLabel(state->submit_label, "Unlocking...");
   lv_obj_add_state(state->submit, LV_STATE_DISABLED);
   if (state->keyboard != nullptr) lv_obj_add_state(state->keyboard, LV_STATE_DISABLED);
 }
@@ -482,19 +483,19 @@ void CompleteDecryptAttempt(const DecryptScene &scene, bool success) {
   auto *state = static_cast<DecryptState *>(scene.state);
   if (state == nullptr) return;
   if (success) {
-    lv_label_set_text(state->status, state->secondary
+    i18n::BindLabel(state->status, state->secondary
                                          ? "Android user unlocked"
                                          : "Data unlocked successfully");
     lv_obj_set_style_text_color(state->status, kGreen, 0);
     return;
   }
   state->busy = false;
-  lv_label_set_text(state->status,
+  i18n::BindLabel(state->status,
                     state->secondary
                         ? "That credential did not unlock this user. Please try again."
                         : "That credential did not unlock data. Please try again.");
   lv_obj_set_style_text_color(state->status, kRed, 0);
-  lv_label_set_text(state->submit_label, "Try again");
+  i18n::BindLabel(state->submit_label, "Try again");
   lv_obj_remove_state(state->submit, LV_STATE_DISABLED);
   if (state->keyboard != nullptr) lv_obj_remove_state(state->keyboard, LV_STATE_DISABLED);
   if (state->input != nullptr) {

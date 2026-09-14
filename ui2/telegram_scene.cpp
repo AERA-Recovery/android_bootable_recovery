@@ -167,7 +167,7 @@ lv_obj_t *PasswordToggle(lv_obj_t *parent, lv_obj_t *input, int y) {
   OnClick(toggle, [input, icon] {
     const bool hidden = lv_textarea_get_password_mode(input);
     lv_textarea_set_password_mode(input, !hidden);
-    lv_label_set_text(icon, hidden ? LV_SYMBOL_EYE_CLOSE
+    i18n::BindLabel(icon, hidden ? LV_SYMBOL_EYE_CLOSE
                                    : LV_SYMBOL_EYE_OPEN);
   });
   return toggle;
@@ -288,13 +288,13 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
         [scene, first, confirmation, new_vault] {
           const std::string value = lv_textarea_get_text(first);
           if (value.size() < 8) {
-            lv_label_set_text(scene->detail,
+            i18n::BindLabel(scene->detail,
                               "Use at least 8 characters for the vault password.");
             return;
           }
           if (new_vault &&
               value != std::string(lv_textarea_get_text(confirmation))) {
-            lv_label_set_text(scene->detail,
+            i18n::BindLabel(scene->detail,
                               "The two passwords do not match. Please try again.");
             return;
           }
@@ -302,7 +302,7 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
           scene->using_cached_vault = false;
           if (!scene->Send(telegram::Kind::kConfigure, value, 0)) {
             SecureClear(scene->pending_vault_password);
-            lv_label_set_text(scene->detail,
+            i18n::BindLabel(scene->detail,
                               "Could not unlock the Telegram vault.");
             return;
           }
@@ -399,7 +399,7 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
           const std::string hash = second ? lv_textarea_get_text(second) : "";
           const std::string vault = third ? lv_textarea_get_text(third) : "";
           if (api_id <= 0 || hash.size() < 16 || vault.size() < 8) {
-            lv_label_set_text(scene->detail,
+            i18n::BindLabel(scene->detail,
                 "API ID/hash are available at my.telegram.org. Use at least 8 characters for the vault password.");
             return;
           }
@@ -531,8 +531,11 @@ void ShowAttachmentPicker(TelegramScene *scene, const std::string &requested) {
         return;
       }
       if (scene->Send(telegram::Kind::kSendFile, entry.path, scene->chat_id)) {
-        if (scene->detail)
-          lv_label_set_text_fmt(scene->detail, "Uploading %s", entry.name.c_str());
+        if (scene->detail) {
+          const std::string status =
+              i18n::Format("Uploading %s", entry.name.c_str());
+          i18n::BindLabel(scene->detail, status.c_str());
+        }
       }
       lv_obj_delete_async(overlay);
     });
@@ -618,7 +621,7 @@ void OpenChat(TelegramScene *scene, int64_t id, const std::string &title) {
     if (!text.empty() &&
         scene->Send(telegram::Kind::kSendText, text, scene->chat_id)) {
       lv_textarea_set_text(scene->composer, "");
-      lv_label_set_text(scene->detail, "Sending...");
+      i18n::BindLabel(scene->detail, "Sending...");
     }
   }, true);
   lv_obj_set_pos(scene->send_button, scene->landscape ? 2960 : 1288,
@@ -812,7 +815,7 @@ void Poll(TelegramScene *scene) {
         scene->using_cached_vault = false;
         ShowAuth(scene, telegram::AuthState::kNeedVault, message.text);
       } else if (scene->detail) {
-        lv_label_set_text(scene->detail, message.text);
+        i18n::BindLabel(scene->detail, message.text);
       }
     } else if (message.kind == telegram::Kind::kChat) {
       if (!scene->chat_id) AddChat(scene, message);
@@ -820,14 +823,15 @@ void Poll(TelegramScene *scene) {
       AddMessage(scene, message);
     } else if (message.kind == telegram::Kind::kStatus) {
       if (scene->detail && scene->chat_id)
-        lv_label_set_text(scene->detail, message.text);
+        i18n::BindLabel(scene->detail, message.text);
     } else if (message.kind == telegram::Kind::kChatsDone && scene->detail) {
-      lv_label_set_text(scene->detail, scene->item_y ? "Connected securely" :
+      i18n::BindLabel(scene->detail, scene->item_y ? "Connected securely" :
           "No chats were returned by Telegram.");
     } else if (message.kind == telegram::Kind::kMessagesDone && scene->detail) {
       scene->history_loading = false;
-      lv_label_set_text_fmt(scene->detail, "%u messages loaded securely",
-                            message.value);
+      const std::string status = i18n::Format(
+          "%u messages loaded securely", message.value);
+      i18n::BindLabel(scene->detail, status.c_str());
       if (scene->list)
         lv_obj_scroll_to_y(scene->list, scene->item_y, LV_ANIM_OFF);
     }
@@ -886,8 +890,8 @@ void BuildTelegramScene(lv_obj_t *screen, ActionCallback callback, void *context
       return;
     }
     if (!scene->preparation.verified) {
-      if (scene->title) lv_label_set_text(scene->title, "AERA Telegram unavailable");
-      if (scene->detail) lv_label_set_text(scene->detail, scene->preparation.error.c_str());
+      if (scene->title) i18n::BindLabel(scene->title, "AERA Telegram unavailable");
+      if (scene->detail) i18n::BindLabel(scene->detail, scene->preparation.error.c_str());
       return;
     }
     Launch(scene);

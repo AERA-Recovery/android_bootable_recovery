@@ -119,8 +119,8 @@ void OpenEntry(lv_event_t *event) {
   }
   if (!EndsWithInsensitive(entry.name, ".zip")) return;
   state->selected = entry.path;
-  lv_label_set_text(state->confirm_name, entry.name.c_str());
-  lv_label_set_text(state->confirm_path, entry.path.c_str());
+  i18n::BindLabel(state->confirm_name, entry.name.c_str());
+  i18n::BindLabel(state->confirm_path, entry.path.c_str());
   lv_obj_clear_flag(state->overlay, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_foreground(state->overlay);
 }
@@ -172,7 +172,7 @@ void AddEntryRow(BrowserState *state, const Entry &entry, size_t index,
 void Populate(BrowserState *state) {
   lv_obj_clean(state->list);
   state->entries.clear();
-  lv_label_set_text(state->path_label, state->path.c_str());
+  i18n::BindLabel(state->path_label, state->path.c_str());
 
   if (state->path != "/")
     state->entries.push_back({"..", ParentPath(state->path), true, 0});

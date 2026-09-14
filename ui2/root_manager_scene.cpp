@@ -122,10 +122,10 @@ void Start(RootUi *state, const root::Request &request) {
   lv_obj_t *bar = manager ? state->manager_progress : state->progress;
   lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN);
   lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-  lv_label_set_text(manager ? state->manager_status : state->patch_status,
-                    "Starting…");
-  lv_label_set_text(manager ? state->manager_detail : state->patch_detail,
-                    "AERA is preparing the root operation.");
+  i18n::BindLabel(manager ? state->manager_status : state->patch_status,
+                  "Starting…");
+  i18n::BindLabel(manager ? state->manager_detail : state->patch_detail,
+                  "AERA is preparing the root operation.");
   state->worker = std::thread([state, request] {
     const bool success = root::Run(request, state->work);
     LoadSnapshot(state);
@@ -143,19 +143,23 @@ void ConfirmPatch(RootUi *state) {
     return;
   }
   const auto release = root::CachedRelease(state->provider);
-  std::string text = "Provider\n";
-  text += root::ProviderName(state->provider);
-  text += "\n\nExact kernel interface\n" + state->device.kmi;
-  text += "\n\nTarget\ninit_boot_" + state->slot;
-  text += "\n\nAERA will verify the exact matching module, create a full rollback "
-          "image, let ksud patch "
-          "init_boot, verify it, and only then write the selected slot.";
+  std::string text = i18n::Format(
+      "Provider\n%s\n\nExact kernel interface\n%s\n\nTarget\n"
+      "init_boot_%s\n\nAERA will verify the exact matching module, create "
+      "a full rollback image, let ksud patch init_boot, verify it, and only "
+      "then write the selected slot.",
+      root::ProviderName(state->provider), state->device.kmi.c_str(),
+      state->slot.c_str());
   if (release.available) {
-    text += "\n\nSelected release\n" + release.version + " • " + release.asset_name;
-    text += release.bundled ? "\nBundled in recovery — no download required."
-                            : "\nOnline release — the verified asset will be downloaded.";
+    text += i18n::Format("\n\nSelected release\n%s • %s",
+                         release.version.c_str(), release.asset_name.c_str());
+    text += "\n";
+    text += i18n::Translate(
+        release.bundled ? "Bundled in recovery — no download required."
+                        : "Online release — the verified asset will be downloaded.");
   }
-  Sheet(state->screen, "Patch init_boot_" + state->slot + "?", text,
+  Sheet(state->screen,
+        i18n::Format("Patch init_boot_%s?", state->slot.c_str()), text,
         [state] {
           root::Request request;
           request.job = root::Job::kPatch;
@@ -166,7 +170,8 @@ void ConfirmPatch(RootUi *state) {
 }
 
 void ConfirmRollback(RootUi *state) {
-  Sheet(state->screen, "Restore init_boot_" + state->slot + "?",
+  Sheet(state->screen,
+        i18n::Format("Restore init_boot_%s?", state->slot.c_str()),
         "AERA will restore the newest verified full partition backup for this "
         "slot and verify the partition readback before reporting success.",
         [state] {
@@ -181,12 +186,13 @@ void ModuleAction(RootUi *state, const root::Module &module, root::Job job) {
   std::string title;
   std::string detail;
   if (job == root::Job::kUpdateModule) {
-    title = "Update " + module.name + "?";
-    detail = module.version + " → " + module.latest_version +
-        "\n\nThe module's own updateJson release URL will be downloaded, its "
-        "archive layout checked, then installed by ksud.";
+    title = i18n::Format("Update %s?", module.name.c_str());
+    detail = i18n::Format(
+        "%s → %s\n\nThe module's own updateJson release URL will be "
+        "downloaded, its archive layout checked, then installed by ksud.",
+        module.version.c_str(), module.latest_version.c_str());
   } else if (job == root::Job::kRemoveModule) {
-    title = "Remove " + module.name + "?";
+    title = i18n::Format("Remove %s?", module.name.c_str());
     detail = "ksud will mark this module for removal. The change completes on reboot.";
   } else {
     root::Request request;
@@ -206,10 +212,12 @@ void RenderModules(RootUi *state) {
   const auto modules = state->modules;
   const size_t updates = std::count_if(modules.begin(), modules.end(),
       [](const root::Module &module) { return module.update_available; });
-  std::string summary = std::to_string(modules.size()) +
-      (modules.size() == 1 ? " installed module" : " installed modules");
-  if (updates) summary += " • " + std::to_string(updates) + " updates";
-  lv_label_set_text(state->module_summary, summary.c_str());
+  std::string summary = modules.size() == 1
+      ? i18n::Format("%zu installed module", modules.size())
+      : i18n::Format("%zu installed modules", modules.size());
+  if (updates)
+    summary = i18n::Format("%s • %zu updates", summary.c_str(), updates);
+  i18n::BindLabel(state->module_summary, summary.c_str());
   int y = 0;
   for (const auto &module : modules) {
     auto *card = lv_obj_create(state->module_list);
@@ -250,8 +258,9 @@ void RenderModules(RootUi *state) {
     lv_obj_set_pos(remove, 1070, 24);
     lv_obj_set_size(remove, 150, 82);
     if (module.update_available) {
-      auto *update = Button(card,
-          (std::string(LV_SYMBOL_DOWNLOAD) + "  Update to " + module.latest_version).c_str(),
+      const std::string update_text = std::string(LV_SYMBOL_DOWNLOAD) + "  " +
+          i18n::Format("Update to %s", module.latest_version.c_str());
+      auto *update = Button(card, update_text.c_str(),
           [state, module] { ModuleAction(state, module, root::Job::kUpdateModule); }, true);
       lv_obj_set_pos(update, 24, 126);
       lv_obj_set_size(update, 1196, 90);
@@ -279,29 +288,37 @@ void RefreshUi(RootUi *state) {
   const bool supported = state->device.ksud_available && state->device.kmi_supported &&
                          state->device.init_boot_available;
   const std::string status = supported ? "Kernel compatible" : "Patching unavailable";
-  lv_label_set_text(state->hero_status, status.c_str());
+  i18n::BindLabel(state->hero_status, status.c_str());
   std::string detail = state->device.kernel_release;
-  if (!state->device.kmi.empty()) detail += "\nExact KMI: " + state->device.kmi;
-  detail += " • active slot _" + state->device.slot;
-  if (!state->device.storage_ready) detail += "\nInternal storage is locked";
-  lv_label_set_text(state->hero_detail, detail.c_str());
+  if (!state->device.kmi.empty())
+    detail += i18n::Format("\nExact KMI: %s", state->device.kmi.c_str());
+  detail += i18n::Format(" • active slot _%s", state->device.slot.c_str());
+  if (!state->device.storage_ready) {
+    detail += "\n";
+    detail += i18n::Translate("Internal storage is locked");
+  }
+  i18n::BindLabel(state->hero_detail, detail.c_str());
 
   for (size_t i = 0; i < 3; ++i)
     SetSelected(state->provider_buttons[i], static_cast<size_t>(state->provider) == i);
   SetSelected(state->slot_buttons[0], state->slot == "a");
   SetSelected(state->slot_buttons[1], state->slot == "b");
 
-  std::string patch_status = state->patch.patched ? "init_boot_" + state->slot + " is patched"
-                                                  : "init_boot_" + state->slot + " is stock";
-  lv_label_set_text(state->patch_status, patch_status.c_str());
+  std::string patch_status = i18n::Format(
+      state->patch.patched ? "init_boot_%s is patched"
+                           : "init_boot_%s is stock",
+      state->slot.c_str());
+  i18n::BindLabel(state->patch_status, patch_status.c_str());
   std::string patch_detail = state->patch.detail;
   const auto release = root::CachedRelease(state->provider);
   if (release.available && release.kmi == state->device.kmi) {
     if (!patch_detail.empty()) patch_detail += "\n";
-    patch_detail += std::string(root::ProviderName(state->provider)) + " " + release.version +
-        (release.bundled ? " • bundled and ready offline" : " • online release selected");
+    patch_detail += i18n::Format(
+        release.bundled ? "%s %s • bundled and ready offline"
+                        : "%s %s • online release selected",
+        root::ProviderName(state->provider), release.version.c_str());
   }
-  lv_label_set_text(state->patch_detail, patch_detail.c_str());
+  i18n::BindLabel(state->patch_detail, patch_detail.c_str());
   if (!supported || !state->device.storage_ready)
     lv_obj_add_state(state->patch_button, LV_STATE_DISABLED);
   else if (!state->busy.load())
@@ -312,11 +329,11 @@ void RefreshUi(RootUi *state) {
     lv_obj_remove_state(state->rollback_button, LV_STATE_DISABLED);
 
   const root::ManagerStatus manager = root::InspectManager(state->provider);
-  lv_label_set_text(state->manager_status,
+  i18n::BindLabel(state->manager_status,
       manager.installed ? "Manager installed" :
       manager.staged ? "Manager ready for Android" : "Manager app missing");
-  lv_label_set_text(state->manager_detail, manager.detail.c_str());
-  lv_label_set_text(lv_obj_get_child(state->manager_button, 0),
+  i18n::BindLabel(state->manager_detail, manager.detail.c_str());
+  i18n::BindLabel(lv_obj_get_child(state->manager_button, 0),
       manager.installed ? "Installed" :
       manager.staged ? "Ready on next boot" : "Download & install");
   if (manager.installed || manager.staged || !state->device.storage_ready)
@@ -343,11 +360,11 @@ void Poll(RootUi *state) {
     const std::string status = ProgressText(state->work, false);
     const std::string detail = ProgressText(state->work, true);
     if (!status.empty())
-      lv_label_set_text(manager ? state->manager_status : state->patch_status,
-                        status.c_str());
+      i18n::BindLabel(manager ? state->manager_status : state->patch_status,
+                      status.c_str());
     if (!detail.empty())
-      lv_label_set_text(manager ? state->manager_detail : state->patch_detail,
-                        detail.c_str());
+      i18n::BindLabel(manager ? state->manager_detail : state->patch_detail,
+                      detail.c_str());
   }
   if (state->busy.load() && state->done.exchange(false, std::memory_order_acq_rel)) {
     if (state->worker.joinable()) state->worker.join();

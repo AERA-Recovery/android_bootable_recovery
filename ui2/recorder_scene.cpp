@@ -52,19 +52,19 @@ void RefreshRecorder(RecorderScene *scene) {
       snapshot.state == recorder::State::kRecording ||
       snapshot.state == recorder::State::kFinalizing;
   const bool recording = snapshot.state == recorder::State::kRecording;
-  lv_label_set_text(scene->status, snapshot.status.c_str());
+  i18n::BindLabel(scene->status, snapshot.status.c_str());
   const std::string dimensions = snapshot.width && snapshot.height
-      ? std::to_string(snapshot.width) + " × " + std::to_string(snapshot.height) +
-            "  •  " + std::to_string(snapshot.fps) + " FPS"
+      ? i18n::Format("%d × %d  •  %d FPS", snapshot.width, snapshot.height,
+                     snapshot.fps)
       : "Screen capture stays outside the 100 MB recovery image.";
-  lv_label_set_text(scene->detail, dimensions.c_str());
-  lv_label_set_text(scene->timer, Duration(snapshot.elapsed_ms).c_str());
-  char metrics[96];
-  snprintf(metrics, sizeof(metrics), "%llu frames  •  %llu dropped",
-           static_cast<unsigned long long>(snapshot.frames),
-           static_cast<unsigned long long>(snapshot.dropped));
-  lv_label_set_text(scene->frames, metrics);
-  lv_label_set_text(scene->record_label,
+  i18n::BindLabel(scene->detail, dimensions.c_str());
+  i18n::BindLabel(scene->timer, Duration(snapshot.elapsed_ms).c_str());
+  const std::string metrics = i18n::Format(
+      "%llu frames  •  %llu dropped",
+      static_cast<unsigned long long>(snapshot.frames),
+      static_cast<unsigned long long>(snapshot.dropped));
+  i18n::BindLabel(scene->frames, metrics.c_str());
+  i18n::BindLabel(scene->record_label,
                     active ? (snapshot.state == recorder::State::kFinalizing
                         ? "Finalizing…" : "Stop recording") : "Start recording");
   lv_obj_set_style_bg_color(scene->record,

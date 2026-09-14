@@ -157,8 +157,9 @@ void ApplyTelemetry() {
   const std::string target = g_telemetry.target.empty()
       ? std::string("partition") : g_telemetry.target;
   if (failed) {
-    title = g_telemetry.target.empty() ? "Transfer failed"
-                                       : "Operation failed · " + target;
+    title = g_telemetry.target.empty()
+        ? i18n::Translate("Transfer failed")
+        : i18n::Format("Operation failed · %s", target.c_str());
     detail = "Fastbootd reported an error. Check the host output before retrying.";
     icon = LV_SYMBOL_CLOSE;
     color = kRed;
@@ -166,41 +167,50 @@ void ApplyTelemetry() {
     title = "Receiving image";
     detail = g_telemetry.total == 0
         ? "Receiving the image over USB. The target partition follows next."
-        : Bytes(g_telemetry.current) + " of " + Bytes(g_telemetry.total) +
-              " received over USB. The target partition follows next.";
+        : i18n::Format(
+              "%s of %s received over USB. The target partition follows next.",
+              Bytes(g_telemetry.current).c_str(),
+              Bytes(g_telemetry.total).c_str());
     icon = LV_SYMBOL_DOWNLOAD;
     show_progress = g_telemetry.total != 0;
   } else if (g_telemetry.phase == "received") {
     title = "Image received";
-    detail = Bytes(g_telemetry.total) +
-        " received. Waiting for the host to name the target partition.";
+    detail = i18n::Format(
+        "%s received. Waiting for the host to name the target partition.",
+        Bytes(g_telemetry.total).c_str());
     icon = LV_SYMBOL_OK;
     color = kGreen;
   } else if (g_telemetry.phase == "flashing") {
-    title = (finished ? "Flashed " : "Flashing ") + target;
+    title = i18n::Format(finished ? "Flashed %s" : "Flashing %s",
+                         target.c_str());
     detail = finished
         ? "The partition was written successfully."
-        : "Writing " + target + ". Keep the USB cable connected.";
+        : i18n::Format("Writing %s. Keep the USB cable connected.",
+                       target.c_str());
     icon = finished ? LV_SYMBOL_OK : LV_SYMBOL_SAVE;
     color = finished ? kGreen : kAccent;
     show_progress = g_telemetry.total != 0;
   } else if (g_telemetry.phase == "erasing") {
-    title = (finished ? "Erased " : "Erasing ") + target;
+    title = i18n::Format(finished ? "Erased %s" : "Erasing %s",
+                         target.c_str());
     detail = finished ? "The partition was erased successfully."
-                      : "Erasing " + target + ". Keep the USB cable connected.";
+                      : i18n::Format(
+                            "Erasing %s. Keep the USB cable connected.",
+                            target.c_str());
     icon = finished ? LV_SYMBOL_OK : LV_SYMBOL_TRASH;
     color = finished ? kGreen : kAccent;
   } else if (g_telemetry.phase == "updating") {
-    title = (finished ? "Updated " : "Updating ") + target;
+    title = i18n::Format(finished ? "Updated %s" : "Updating %s",
+                         target.c_str());
     detail = finished ? "Dynamic partition metadata was updated successfully."
                       : "Applying dynamic partition metadata. Do not disconnect USB.";
     icon = finished ? LV_SYMBOL_OK : LV_SYMBOL_REFRESH;
     color = finished ? kGreen : kAccent;
   }
 
-  lv_label_set_text(g_view.title, title.c_str());
-  lv_label_set_text(g_view.detail, detail.c_str());
-  lv_label_set_text(g_view.icon, icon);
+  i18n::BindLabel(g_view.title, title.c_str());
+  i18n::BindLabel(g_view.detail, detail.c_str());
+  i18n::BindLabel(g_view.icon, icon);
   lv_obj_set_style_text_color(g_view.icon, color, 0);
   lv_obj_set_style_border_color(g_view.pulse, color, 0);
   if (show_progress) {
@@ -209,7 +219,7 @@ void ApplyTelemetry() {
     lv_bar_set_value(g_view.progress, percent, LV_ANIM_ON);
     char value[8];
     snprintf(value, sizeof(value), "%d%%", percent);
-    lv_label_set_text(g_view.percent, value);
+    i18n::BindLabel(g_view.percent, value);
     lv_obj_remove_flag(g_view.progress, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(g_view.percent, LV_OBJ_FLAG_HIDDEN);
   } else {

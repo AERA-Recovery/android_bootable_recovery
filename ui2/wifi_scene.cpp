@@ -226,7 +226,9 @@ void PasswordDialog(WifiUi *state, const WifiNetwork &network) {
   auto *title = Label(sheet, network.ssid.c_str(), &lv_font_montserrat_48, kText);
   lv_obj_set_width(title, 1180);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-  auto *hint = Label(sheet, (network.security + " network password").c_str(),
+  const std::string password_hint =
+      i18n::Format("%s network password", network.security.c_str());
+  auto *hint = Label(sheet, password_hint.c_str(),
                      &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(hint, 0, 76);
 
@@ -366,10 +368,10 @@ void Populate(WifiUi *state) {
 void UpdateAutoLabels(WifiUi *state) {
   const bool enable = RecoveryWifiAutoEnable();
   const bool connect = RecoveryWifiAutoConnect();
-  lv_label_set_text(state->auto_enable_value, enable ? "On" : "Off");
+  i18n::BindLabel(state->auto_enable_value, enable ? "On" : "Off");
   lv_obj_set_style_text_color(state->auto_enable_value,
                               enable ? kAccent : kMutedStrong, 0);
-  lv_label_set_text(state->auto_connect_value, connect ? "On" : "Off");
+  i18n::BindLabel(state->auto_connect_value, connect ? "On" : "Off");
   lv_obj_set_style_text_color(state->auto_connect_value,
                               connect ? kAccent : kMutedStrong, 0);
 }
@@ -383,7 +385,7 @@ void Refresh(WifiUi *state, bool force) {
   const char *title = !status.supported ? "Unavailable" :
       busy ? busy_title.c_str() : status.connected ? "Connected" :
       status.enabled ? "Ready to connect" : "Wi-Fi is off";
-  lv_label_set_text(state->scene.status, title);
+  i18n::BindLabel(state->scene.status, title);
   std::string detail;
   if (status.connected) {
     detail = status.ssid;
@@ -396,8 +398,8 @@ void Refresh(WifiUi *state, bool force) {
   } else {
     detail = status.enabled ? "Choose a network below" : "Wireless radio is disabled";
   }
-  lv_label_set_text(state->scene.detail, detail.c_str());
-  lv_label_set_text(lv_obj_get_child(state->scene.toggle, 0),
+  i18n::BindLabel(state->scene.detail, detail.c_str());
+  i18n::BindLabel(lv_obj_get_child(state->scene.toggle, 0),
                     status.enabled ? "Turn Wi-Fi off" : "Turn Wi-Fi on");
   SetActivity(state, busy);
   // A successful connection should not ring the whole hero card in green;

@@ -9,7 +9,8 @@
 
 #include <lvgl.h>
 
-#include "fonts/aera_latin.hpp"
+#include "fonts/aera_fallback.hpp"
+#include <recovery_ui2/i18n.hpp>
 
 namespace recovery_ui2::design {
 
@@ -86,7 +87,7 @@ inline const lv_font_t *UiFont(const lv_font_t *font) {
     else if (font == &lv_font_montserrat_20) selected = &lv_font_montserrat_24;
     else if (font == &lv_font_montserrat_18) selected = &lv_font_montserrat_20;
   }
-  return fonts::WithLatinFallback(selected);
+  return fonts::WithLanguageFallback(selected);
 }
 
 inline bool IsLightMode() { return kLightMode; }
@@ -191,7 +192,7 @@ inline void Clear(lv_obj_t *object) {
 inline lv_obj_t *Label(lv_obj_t *parent, const char *text,
                        const lv_font_t *font, lv_color_t color) {
   lv_obj_t *label = lv_label_create(parent);
-  lv_label_set_text(label, text);
+  i18n::BindLabel(label, text);
   lv_obj_set_style_text_font(label, UiFont(font), 0);
   lv_obj_set_style_text_color(label, color, 0);
   return label;
@@ -205,6 +206,7 @@ inline void SingleLineLabel(lv_obj_t *label, int width,
 
 inline void Screen(lv_obj_t *screen) {
   NoScroll(screen);
+  i18n::ApplyDirection(screen);
   lv_obj_set_style_bg_color(screen, kCanvas, 0);
   lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 }

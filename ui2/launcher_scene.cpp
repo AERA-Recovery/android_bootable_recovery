@@ -138,9 +138,14 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
   // Small and up to 48 px for Large, keeping all three modes visibly distinct.
   auto *title = Label(card, name, &lv_font_montserrat_40, kText);
   lv_obj_set_pos(title, 36, 188);
+  FitLabelToLines(title, width - 72, 1,
+                  {&lv_font_montserrat_40, &lv_font_montserrat_36,
+                   &lv_font_montserrat_32, &lv_font_montserrat_28});
   auto *copy = Label(card, description, &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(copy, 36, 250);
-  lv_obj_set_width(copy, width - 110);
+  FitLabelToLines(copy, width - 110, 2,
+                  {&lv_font_montserrat_24, &lv_font_montserrat_20,
+                   &lv_font_montserrat_18, &lv_font_montserrat_16});
   auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_32, kDim);
   lv_obj_align(arrow, LV_ALIGN_TOP_RIGHT, -38, 74);
   return card;
@@ -175,9 +180,10 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   }
   MakeDecorationPassThrough(plate);
   auto *title = Label(card, plugin.name.c_str(), &lv_font_montserrat_32, kText);
-  lv_obj_set_width(title, width - 40);
+  FitLabelToLines(title, width - 40, 1,
+                  {&lv_font_montserrat_32, &lv_font_montserrat_28,
+                   &lv_font_montserrat_24, &lv_font_montserrat_20});
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 214);
   OnClick(card, std::move(action));
   return card;

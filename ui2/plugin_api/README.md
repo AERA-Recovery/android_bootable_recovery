@@ -51,6 +51,11 @@ seccomp, capability removal or resource limits to Host API 2 plugins. Leaving
 the scene terminates the plugin's process group and closes the channel. `PATH`
 contains both the plugin's `usr/bin` and recovery command directories, while
 `AERA_PLUGIN_ROOT` names the extracted runtime for bundled resources.
+`AERA_LOCALE` contains the selected recovery locale (for example `de_DE` or
+`zh_CN`) and `LANG` carries the matching UTF-8 locale. Runtime plugins own
+their visible strings and must fall back to English when a locale or string is
+missing. Relaunching a plugin after a language change supplies the new locale
+without changing the Host API 2 wire format.
 
 `AERA-settings-backup-plugin` is the reference implementation. It proves a new
 ID can render and request backup/restore without being added to recovery's

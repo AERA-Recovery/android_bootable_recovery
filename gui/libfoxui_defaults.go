@@ -237,10 +237,8 @@ func copyTheme(ctx android.BaseContext) bool {
 	var customThemeLoc string
 	localPath := ctx.ModuleDir()
 	directories = append(directories, "gui/theme/common/fonts/")
-	directories = append(directories, "gui/theme/common/languages/")
-	if getMakeVars(ctx, "TW_EXTRA_LANGUAGES") == "true" {
+	if getMakeVars(ctx, "AERA_EXTRA_LANGUAGES") == "true" {
 		directories = append(directories, "gui/theme/extra-languages/fonts/")
-		directories = append(directories, "gui/theme/extra-languages/languages/")
 	}
 	var theme = determineTheme(ctx)
 	directories = append(directories, "gui/theme/"+theme)
@@ -291,6 +289,32 @@ func globalFlags(ctx android.BaseContext) []string {
 			cflags = append(cflags, fmt.Sprintf("-D%s=%d", metric, parsed))
 		}
 	}
+	cflags = append(cflags, aeraUi2LanguageFlags(ctx)...)
+	return cflags
+}
+
+func aeraUi2LanguageFlags(ctx android.BaseContext) []string {
+	var cflags []string
+	defaultLanguage := strings.Trim(getMakeVars(ctx, "AERA_DEFAULT_LANGUAGE"), "\"")
+	if defaultLanguage == "" {
+		defaultLanguage = "en"
+	}
+	validLanguage := true
+	for _, r := range defaultLanguage {
+		if !(r == '_' || r == '-' || r >= 'a' && r <= 'z' ||
+			r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			validLanguage = false
+			break
+		}
+	}
+	if !validLanguage {
+		defaultLanguage = "en"
+	}
+	cflags = append(cflags,
+		fmt.Sprintf("-DAERA_DEFAULT_LANGUAGE=\"%s\"", defaultLanguage))
+	if getMakeVars(ctx, "AERA_EXTRA_LANGUAGES") == "true" {
+		cflags = append(cflags, "-DAERA_EXTRA_LANGUAGES=1")
+	}
 	return cflags
 }
 
@@ -336,11 +360,25 @@ func libGuiDefaults(ctx android.LoadHookContext) {
 }
 
 func init() {
+	android.RegisterModuleType("aera_ui2_defaults", aeraUi2DefaultsFactory)
 }
 
 func libGuiDefaultsFactory() android.Module {
 	module := cc.DefaultsFactory()
 	android.AddLoadHook(module, libGuiDefaults)
 
+	return module
+}
+
+func aeraUi2Defaults(ctx android.LoadHookContext) {
+	type props struct {
+		Cflags []string
+	}
+	ctx.AppendProperties(&props{Cflags: aeraUi2LanguageFlags(ctx)})
+}
+
+func aeraUi2DefaultsFactory() android.Module {
+	module := cc.DefaultsFactory()
+	android.AddLoadHook(module, aeraUi2Defaults)
 	return module
 }

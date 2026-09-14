@@ -320,7 +320,7 @@ void UpdateTimeline(MediaScene *scene, int64_t position) {
   scene->last_duration_second = duration_second;
   const std::string text = Time(position) + "  /  " +
       Time(scene->session.Duration());
-  lv_label_set_text(scene->time, text.c_str());
+  i18n::BindLabel(scene->time, text.c_str());
 }
 
 void LayoutViewer(MediaScene *scene) {
@@ -389,12 +389,12 @@ void Open(MediaScene *scene, const std::string &path) {
   // Unbinding and rebinding it between files leaves the OpenGL streaming unit
   // holding a stale draw source while the new player is being prepared.
   lv_obj_add_flag(scene->video, LV_OBJ_FLAG_HIDDEN);
-  lv_label_set_text(scene->empty,
+  i18n::BindLabel(scene->empty,
                     scene->session.Connected()
                         ? LV_SYMBOL_VIDEO "\nOpening video…"
                         : LV_SYMBOL_VIDEO "\nPreparing player…");
   lv_obj_remove_flag(scene->empty, LV_OBJ_FLAG_HIDDEN);
-  lv_label_set_text(scene->viewer_title,
+  i18n::BindLabel(scene->viewer_title,
                     path.substr(path.find_last_of('/') + 1).c_str());
   lv_slider_set_value(scene->progress, 0, LV_ANIM_OFF);
   UpdateTimeline(scene, 0);
@@ -552,8 +552,9 @@ void BuildMediaScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     return first.path > second.path;
   });
 
-  const std::string count = std::to_string(files.size()) +
-      (files.size() == 1 ? " ITEM" : " ITEMS");
+  const std::string count = files.size() == 1
+      ? i18n::Format("%zu ITEM", files.size())
+      : i18n::Format("%zu ITEMS", files.size());
   scene->status = Kicker(screen,
       ("PREPARING PLAYER  ·  " + count).c_str(), kMutedStrong);
   lv_obj_set_pos(scene->status, 80, landscape ? 306 : 426);
@@ -648,7 +649,7 @@ void BuildMediaScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     auto *scene = static_cast<MediaScene *>(lv_timer_get_user_data(timer));
     if (!scene->preparation.done.load(std::memory_order_acquire)) return;
     if (!scene->preparation.verified) {
-      lv_label_set_text(scene->status, scene->preparation.error.c_str());
+      i18n::BindLabel(scene->status, scene->preparation.error.c_str());
       return;
     }
     if (!scene->launched) {
@@ -659,11 +660,11 @@ void BuildMediaScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       if (!scene->process.Start(scene->preparation.directory, frame, control,
                                 error) ||
           !scene->session.Adopt(frame, control)) {
-        lv_label_set_text(scene->status,
+        i18n::BindLabel(scene->status,
             error.empty() ? scene->session.Status().c_str() : error.c_str());
         return;
       }
-      lv_label_set_text(scene->status, "PLAYER READY");
+      i18n::BindLabel(scene->status, "PLAYER READY");
     }
     if (!scene->session.Connected()) return;
     if (scene->pending_open) SendOpen(scene);
@@ -674,7 +675,7 @@ void BuildMediaScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       const uint8_t *pixels = scene->session.Pixels();
       if (!pixels || bytes > scene->frame_pixels.size()) {
         scene->session.Close();
-        lv_label_set_text(scene->status, "Media supplied an invalid frame.");
+        i18n::BindLabel(scene->status, "Media supplied an invalid frame.");
         return;
       }
       if (scene->session.FrameKind() == media::Kind::kThumbnailFrame) {

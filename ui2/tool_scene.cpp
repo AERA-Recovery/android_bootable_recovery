@@ -37,28 +37,35 @@ std::string WipeDescription(const std::string &path) {
   if (path == "INTERNAL") return "Deletes photos, downloads and files";
   if (path == "/data") return "Erase apps and settings on the data partition";
   if (path == "/metadata") return "Encryption metadata; may make data inaccessible";
-  return "Erase " + path;
+  return i18n::Format("Erase %s", path.c_str());
 }
 
 void UpdateSelection(Tools *state) {
   uint64_t bytes = 0;
   for (const auto &v : state->volumes)
     if (state->selected.count(v.path)) bytes += v.bytes;
-  std::string summary = std::to_string(state->selected.size()) + " selected";
-  if (state->tool == Action::kBackup) summary = "Estimated backup: " + Size(bytes);
-  lv_label_set_text(state->summary, summary.c_str());
+  std::string summary =
+      i18n::Format("%zu selected", state->selected.size());
+  if (state->tool == Action::kBackup)
+    summary = i18n::Format("Estimated backup: %s", Size(bytes).c_str());
+  i18n::BindLabel(state->summary, summary.c_str());
   if (state->review) {
     if (state->selected.empty()) lv_obj_add_state(state->review, LV_STATE_DISABLED);
     else lv_obj_remove_state(state->review, LV_STATE_DISABLED);
   }
   if (state->selection_detail) {
-    std::string detail = std::to_string(state->selected.size()) +
-        (state->selected.size() == 1 ? " partition selected" : " partitions selected");
-    if (state->tool == Action::kBackup)
-      detail += state->compression ? " / Before compression; archive size varies" : " / Archive overhead not included";
+    std::string detail = state->selected.size() == 1
+        ? i18n::Format("%zu partition selected", state->selected.size())
+        : i18n::Format("%zu partitions selected", state->selected.size());
+    if (state->tool == Action::kBackup) {
+      detail += " / ";
+      detail += i18n::Translate(state->compression
+          ? "Before compression; archive size varies"
+          : "Archive overhead not included");
+    }
     else if (!state->restore_folder.empty())
       detail = state->restore_folder.substr(state->restore_folder.find_last_of('/') + 1);
-    lv_label_set_text(state->selection_detail, detail.c_str());
+    i18n::BindLabel(state->selection_detail, detail.c_str());
   }
 }
 
@@ -196,8 +203,10 @@ void RestoreFolders(Tools *state) {
     closedir(directory);
   }
   std::sort(folders.rbegin(), folders.rend());
-  lv_label_set_text(state->summary, (std::to_string(folders.size()) + " saved backups").c_str());
-  if (state->selection_detail) lv_label_set_text(state->selection_detail, "Choose a backup, then select partitions to restore");
+  const std::string summary =
+      i18n::Format("%zu saved backups", folders.size());
+  i18n::BindLabel(state->summary, summary.c_str());
+  if (state->selection_detail) i18n::BindLabel(state->selection_detail, "Choose a backup, then select partitions to restore");
   for (size_t i = 0; i < folders.size(); ++i) {
     const auto path = folders[i];
     Row(state->list, static_cast<int>(i) * 190, LV_SYMBOL_SAVE,
@@ -379,14 +388,18 @@ void BuildPartitions(Tools *state) {
       lv_obj_set_pos(state->list, 64, 954);
       lv_obj_set_height(state->list, 1550);
     }
-    auto *storage = Button(state->screen, "Choose storage  " LV_SYMBOL_DOWN,
+    const std::string storage_action =
+        std::string(i18n::Translate("Choose storage")) + "  " LV_SYMBOL_DOWN;
+    auto *storage = Button(state->screen, storage_action.c_str(),
                             [state] { StorageChooser(state); });
     lv_obj_set_pos(storage, 64, landscape ? 490 : 608);
     lv_obj_set_size(storage, landscape ? 470 : 630, 112);
     std::string storage_text = RecoveryStorage();
     struct statvfs capacity{};
     if (statvfs(storage_text.c_str(), &capacity) == 0)
-      storage_text += " / " + Size(uint64_t(capacity.f_bavail) * capacity.f_frsize) + " free";
+      storage_text = i18n::Format(
+          "%s / %s free", storage_text.c_str(),
+          Size(uint64_t(capacity.f_bavail) * capacity.f_frsize).c_str());
     auto *path = Label(state->screen, storage_text.c_str(), &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(path, 80, landscape ? 630 : 746);
     lv_obj_set_width(path, landscape ? 940 : 1260);
@@ -399,7 +412,7 @@ void BuildPartitions(Tools *state) {
       auto *label = lv_obj_get_child(compression, 0);
       OnClick(compression, [state, label] {
         state->compression = !state->compression;
-        lv_label_set_text(label, state->compression ? "Compression: on" : "Compression: off");
+        i18n::BindLabel(label, state->compression ? "Compression: on" : "Compression: off");
         UpdateSelection(state);
       });
     } else {
@@ -552,7 +565,7 @@ void HapticSlider(Tools *state, int y, const char *title,
     RecoverySetHapticDuration(binding->haptic, duration);
     const std::string text = duration == 0 ? "Off" :
         std::to_string(duration) + " ms";
-    lv_label_set_text(binding->value, text.c_str());
+    i18n::BindLabel(binding->value, text.c_str());
     if (code == LV_EVENT_RELEASED) RecoveryVibrate(binding->haptic);
   }, LV_EVENT_ALL, binding);
 }
@@ -661,7 +674,7 @@ void UpdateAccentPicker(AccentPickerState *picker, double dx, double dy) {
       lv_color_luminance(color) < 118 ? Color(0xffffff) : Color(0x101318), 0);
   char value[16];
   std::snprintf(value, sizeof(value), "#%06X", picker->rgb);
-  lv_label_set_text(picker->hex, value);
+  i18n::BindLabel(picker->hex, value);
 }
 
 void UpdateAccentPickerFromTouch(AccentPickerState *picker) {
@@ -1131,7 +1144,7 @@ void BuildTheme(Tools *state) {
       }
       if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) return;
       const int value = lv_slider_get_value(lv_event_get_target_obj(event));
-      lv_label_set_text(binding->amount,
+      i18n::BindLabel(binding->amount,
                         (std::to_string(value) + "%").c_str());
       if (binding->blur) RecoverySetDockBlur(value);
       else RecoverySetDockTransparency(value);
@@ -1210,7 +1223,7 @@ void BuildPreferences(Tools *state) {
   lv_obj_add_event_cb(slider, [](lv_event_t *event) {
     auto *target = lv_event_get_target_obj(event);
     const int percent = lv_slider_get_value(target);
-    lv_label_set_text(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),
+    i18n::BindLabel(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),
                        (std::to_string(percent) + "%").c_str());
     RecoverySetBrightness(percent);
   }, LV_EVENT_VALUE_CHANGED, value);
@@ -1222,7 +1235,7 @@ void BuildPreferences(Tools *state) {
     const int offset = RecoveryUtcOffset(), magnitude = std::abs(offset);
     char text[64];
     snprintf(text, sizeof(text), "UTC %c%02d:%02d", offset < 0 ? '-' : '+', magnitude / 60, magnitude % 60);
-    lv_label_set_text(zone, text);
+    i18n::BindLabel(zone, text);
   };
   refresh_zone();
   auto *zone_hint = Label(state->list, "Fixed offset, 15-minute steps; no automatic DST.", &lv_font_montserrat_24, kMuted);
@@ -1257,7 +1270,7 @@ void BuildPreferences(Tools *state) {
   OnClick(mtp, [state, mtp_label] {
     if (!RecoverySetMtp(!RecoveryMtpEnabled()))
       Sheet(state->screen, "USB transfer unavailable", "Check that storage is unlocked and mounted.");
-    lv_label_set_text(mtp_label, RecoveryMtpEnabled() ? "USB file transfer: on" : "USB file transfer: off");
+    i18n::BindLabel(mtp_label, RecoveryMtpEnabled() ? "USB file transfer: on" : "USB file transfer: off");
   });
   lv_obj_set_pos(mtp, 32, 2010);
   lv_obj_set_size(mtp, 1248, 132);
@@ -1305,11 +1318,59 @@ void BuildLogs(Tools *state) {
   auto *text = Label(state->list, ReadLog().c_str(), &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_width(text, 1270);
   auto *refresh = Button(state->screen, "Refresh", [state, text] {
-    lv_label_set_text(text, ReadLog().c_str());
+    i18n::BindLabel(text, ReadLog().c_str());
     lv_obj_scroll_to_y(state->list, LV_COORD_MAX, LV_ANIM_OFF);
   });
   lv_obj_set_pos(refresh, 80, landscape ? 340 : 452);
   lv_obj_set_size(refresh, landscape ? 560 : 1280, 120);
+}
+
+void BuildLanguage(Tools *state) {
+  Header(state->screen, "Language", "Choose the language used by AERA Recovery.",
+         state->callback, state->context);
+  const bool landscape = Landscape(state->screen);
+  state->list = Scroll(state->screen, landscape ? 340 : 452,
+                       landscape ? 930 : 2290);
+  if (landscape) {
+    lv_obj_set_x(state->list, 884);
+    lv_obj_set_width(state->list, 1400);
+  }
+  lv_obj_update_layout(state->list);
+  const int row_width =
+      std::max(600, static_cast<int>(lv_obj_get_width(state->list)));
+  const auto &languages = i18n::AvailableLanguages();
+  for (size_t i = 0; i < languages.size(); ++i) {
+    const auto language = languages[i];
+    const bool selected =
+        std::string(i18n::CurrentLanguage()) == language.code;
+    auto *row = Button(state->list, "", [] {}, selected);
+    lv_obj_set_pos(row, 0, static_cast<int>(i) * 154);
+    lv_obj_set_size(row, row_width, 142);
+    lv_obj_set_style_radius(row, 22, 0);
+
+    auto *native = Label(row, language.native_name, &lv_font_montserrat_32,
+                         kText);
+    lv_obj_set_pos(native, 28, 20);
+    lv_obj_set_width(native, row_width - 180);
+    lv_label_set_long_mode(native, LV_LABEL_LONG_DOT);
+    auto *english = Label(row, language.name, &lv_font_montserrat_24, kMuted);
+    lv_obj_set_pos(english, 30, 80);
+    lv_obj_set_width(english, row_width - 180);
+    if (selected) {
+      auto *check = Label(row, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
+      lv_obj_align(check, LV_ALIGN_RIGHT_MID, -38, 0);
+    }
+    OnClick(row, [state, language] {
+      if (!RecoverySetLanguage(language.code) ||
+          !i18n::SetLanguage(language.code)) {
+        Sheet(state->screen, "Language unavailable",
+              "AERA could not apply the selected language.");
+        return;
+      }
+      RecoverySavePreferences();
+      Open(state, Action::kLanguage);
+    });
+  }
 }
 
 const char *CredentialName(int type) {
@@ -1340,8 +1401,8 @@ void BuildUsers(Tools *state) {
     lv_obj_set_pos(name, 28, 20);
     lv_obj_set_width(name, row_width - 330);
     lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
-    const std::string detail = "User " + std::to_string(user.id) + " / " +
-                               CredentialName(user.credential_type);
+    const std::string detail = i18n::Format(
+        "User %d / %s", user.id, CredentialName(user.credential_type));
     auto *credential =
         Label(row, detail.c_str(), &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(credential, 30, 82);
@@ -1382,7 +1443,7 @@ void BuildMenu(Tools *state) {
   state->list = Scroll(state->screen, landscape ? 340 : 452,
                        landscape ? 438 : 1900);
   struct Item { const char *icon, *title, *detail; Action action; };
-  const std::array<Item, 10> items{{
+  const std::array<Item, 11> items{{
     {LV_SYMBOL_DRIVE, "Mounts", "Mount or unmount recovery volumes", Action::kMounts},
     {LV_SYMBOL_LIST, "Recovery log", "Read output and troubleshoot operations", Action::kLogs},
     {LV_SYMBOL_WIFI, "Wi-Fi", "Networks, saved credentials and connection test", Action::kWifi},
@@ -1391,6 +1452,7 @@ void BuildMenu(Tools *state) {
     {LV_SYMBOL_KEYBOARD, "Android Users", "Unlock additional users on demand", Action::kUsers},
     {LV_SYMBOL_TINT, "Theme Engine", "Global accent colors and interface appearance", Action::kTheme},
     {LV_SYMBOL_SETTINGS, "Preferences", "Display, files, backups, time and USB", Action::kPreferences},
+    {"A", "Language", "Choose the recovery interface language", Action::kLanguage},
     {"A", "About AERA", "Project identity, contributors and build information", Action::kAbout},
     {LV_SYMBOL_POWER, "Reboot", "Android, recovery, bootloader or power off", Action::kOpenReboot}}};
   for (size_t i = 0; i < items.size(); ++i) {
@@ -1435,13 +1497,20 @@ void BuildMenu(Tools *state) {
                    pinned ? (landscape ? 36 : about ? 42 : 40) : 42);
     lv_obj_set_width(title, pinned ? (landscape ? 2750 : 1040)
                                   : card_width - 252);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+    FitLabelToLines(title,
+                    pinned ? (landscape ? 2750 : 1040)
+                           : card_width - 252,
+                    1, {&lv_font_montserrat_36, &lv_font_montserrat_32,
+                        &lv_font_montserrat_28, &lv_font_montserrat_24});
     auto *detail = Label(card, item.detail, &lv_font_montserrat_32, kMuted);
     lv_obj_set_pos(detail, pinned ? 152 : 30,
                    pinned ? (landscape ? 112 : about ? 122 : 126)
                           : (landscape ? 150 : 164));
-    lv_obj_set_width(detail, pinned ? (landscape ? 2750 : 1040)
-                                   : card_width - 100);
+    FitLabelToLines(detail,
+                    pinned ? (landscape ? 2750 : 1040)
+                           : card_width - 100,
+                    2, {&lv_font_montserrat_32, &lv_font_montserrat_28,
+                        &lv_font_montserrat_24, &lv_font_montserrat_20});
     auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_36,
                         reboot ? kRed : kMutedStrong);
     lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -30, 0);
@@ -1473,6 +1542,7 @@ void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void
   else if (tool == Action::kFormatData) BuildFormatData(state);
   else if (tool == Action::kMounts) BuildMounts(state);
   else if (tool == Action::kPreferences) BuildPreferences(state);
+  else if (tool == Action::kLanguage) BuildLanguage(state);
   else if (tool == Action::kTheme) BuildTheme(state);
   else if (tool == Action::kLogs) BuildLogs(state);
   else if (tool == Action::kUsers) BuildUsers(state);

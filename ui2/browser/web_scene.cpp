@@ -211,11 +211,13 @@ void RefreshDownloads(WebScene *s) {
     if (download.status == web::DownloadStatus::kActive) {
       detail = FormatBytes(download.received_bytes);
       if (download.total_bytes)
-        detail += " of " + FormatBytes(download.total_bytes);
-      detail += "  •  " + std::to_string(download.progress) + "%";
+        detail = i18n::Format("%s of %s", detail.c_str(),
+                              FormatBytes(download.total_bytes).c_str());
+      detail = i18n::Format("%s  •  %d%%", detail.c_str(),
+                            download.progress);
     } else if (download.status == web::DownloadStatus::kFinished) {
-      detail = "Saved to AERA/Downloads  •  " +
-          FormatBytes(download.received_bytes);
+      detail = i18n::Format("Saved to AERA/Downloads  •  %s",
+                            FormatBytes(download.received_bytes).c_str());
     } else if (download.status == web::DownloadStatus::kCancelled) {
       detail = "Download cancelled";
     } else {
@@ -324,15 +326,15 @@ void Prepare(WebScene *s) {
   HideKeyboard(s);
   if (s->started) return;
   if (!web::RuntimeInstalled()) {
-    lv_label_set_text(s->title, "Browser package unavailable");
-    lv_label_set_text(s->detail, "This image does not contain the expected browser payload.");
+    i18n::BindLabel(s->title, "Browser package unavailable");
+    i18n::BindLabel(s->detail, "This image does not contain the expected browser payload.");
     return;
   }
   s->started = true;
   lv_obj_add_state(s->prepare, LV_STATE_DISABLED);
   lv_obj_remove_flag(s->progress, LV_OBJ_FLAG_HIDDEN);
-  lv_label_set_text(s->title, "Preparing WebKit");
-  lv_label_set_text(s->detail,
+  i18n::BindLabel(s->title, "Preparing WebKit");
+  i18n::BindLabel(s->detail,
       "Verifying and expanding the engine in RAM. Preparation continues if you leave this page.");
   s->worker = std::thread([s] { web::PrepareRuntime(s->state); });
 }
@@ -596,7 +598,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(note, LV_ALIGN_TOP_MID, 0, landscape ? 850 : 1240);
   if (!web::RuntimeInstalled()) {
-    lv_label_set_text(s->title, "Browser package unavailable");
+    i18n::BindLabel(s->title, "Browser package unavailable");
     lv_obj_add_state(s->prepare, LV_STATE_DISABLED);
   }
   s->viewport = lv_obj_create(screen);
@@ -717,7 +719,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
       }
       if (visible && s->last_status != s->session.Status()) {
         s->last_status = s->session.Status();
-        lv_label_set_text(s->detail, s->last_status.c_str());
+        i18n::BindLabel(s->detail, s->last_status.c_str());
         // The editable field is the only address display. Track redirects,
         // history navigation and same-document URL changes unless the user is
         // actively replacing its contents.
@@ -739,8 +741,8 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
       s->showing_web = false;
       lv_obj_add_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
       lv_obj_remove_flag(s->area, LV_OBJ_FLAG_HIDDEN);
-      lv_label_set_text(s->title, "Browser stopped");
-      lv_label_set_text(s->detail,
+      i18n::BindLabel(s->title, "Browser stopped");
+      i18n::BindLabel(s->detail,
                         "The persistent WebKit session closed unexpectedly.");
     }
     if (!s->started || s->finished) return;
@@ -751,15 +753,15 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
     if (s->worker.joinable()) s->worker.join();
     if (!s->state.verified) {
       if (visible) {
-        lv_label_set_text(s->title, "Preparation failed");
-        lv_label_set_text(s->detail, s->state.error.c_str());
+        i18n::BindLabel(s->title, "Preparation failed");
+        i18n::BindLabel(s->detail, s->state.error.c_str());
       }
       return;
     }
     if (!s->auto_launch) {
       if (visible) {
-        lv_label_set_text(s->title, "Runtime verified");
-        lv_label_set_text(s->detail, web::LaunchBlockReason().c_str());
+        i18n::BindLabel(s->title, "Runtime verified");
+        i18n::BindLabel(s->detail, web::LaunchBlockReason().c_str());
       }
       return;
     }
@@ -769,15 +771,15 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
         !s->session.Adopt(frame, control)) {
       s->process.Stop();
       if (visible) {
-        lv_label_set_text(s->title, "Browser start failed");
-        lv_label_set_text(s->detail,
+        i18n::BindLabel(s->title, "Browser start failed");
+        i18n::BindLabel(s->detail,
             error.empty() ? s->session.Status().c_str() : error.c_str());
       }
       return;
     }
     if (visible) {
-      lv_label_set_text(s->title, "Starting private browser");
-      lv_label_set_text(s->detail, "Loading the built-in start page...");
+      i18n::BindLabel(s->title, "Starting private browser");
+      i18n::BindLabel(s->detail, "Loading the built-in start page...");
     }
   }, 8, s);
 
@@ -785,12 +787,12 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
     lv_obj_add_state(s->prepare, LV_STATE_DISABLED);
     lv_obj_remove_flag(s->progress, LV_OBJ_FLAG_HIDDEN);
     lv_bar_set_value(s->progress, s->state.progress.load(), LV_ANIM_OFF);
-    lv_label_set_text(s->title, "Preparing WebKit");
-    lv_label_set_text(s->detail,
+    i18n::BindLabel(s->title, "Preparing WebKit");
+    i18n::BindLabel(s->detail,
         "Verifying and expanding the persistent engine in RAM...");
   } else if (s->finished && !s->state.verified) {
-    lv_label_set_text(s->title, "Preparation failed");
-    lv_label_set_text(s->detail, s->state.error.c_str());
+    i18n::BindLabel(s->title, "Preparation failed");
+    i18n::BindLabel(s->detail, s->state.error.c_str());
   }
   if (s->session.Connected() && s->session.HasFrame()) {
     s->descriptor.data = s->session.Pixels();

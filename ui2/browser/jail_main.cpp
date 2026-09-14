@@ -324,9 +324,19 @@ int main(int argc, char **argv) {
   // Any failed mount, privilege drop or filter load terminates the helper.
   minijail_enter(jail);
   Check(prctl(PR_SET_DUMPABLE, 0, 0, 0, 0), "non-dumpable process");
+  std::string locale = getenv("AERA_LOCALE") ? getenv("AERA_LOCALE") : "en";
+  if (locale.empty() || locale.size() > 16 ||
+      !std::all_of(locale.begin(), locale.end(), [](unsigned char character) {
+        return std::isalnum(character) || character == '_' || character == '-';
+      })) {
+    locale = "en";
+  }
+  std::string locale_env = "AERA_LOCALE=" + locale;
+  std::string lang_env = "LANG=" + locale + ".UTF-8";
   char *const browser_environment[] = {
     const_cast<char *>("PATH=/usr/bin"), const_cast<char *>("HOME=/tmp"),
-    const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>("LANG=C.UTF-8"),
+    const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>(lang_env.c_str()),
+    const_cast<char *>(locale_env.c_str()),
     const_cast<char *>("XDG_RUNTIME_DIR=/run"), const_cast<char *>("XDG_CACHE_HOME=/tmp/cache"),
     const_cast<char *>("XDG_DATA_HOME=/tmp/data"), const_cast<char *>("XDG_CONFIG_HOME=/tmp/config"),
     const_cast<char *>("XDG_DATA_DIRS=/usr/share"), const_cast<char *>("GSETTINGS_BACKEND=memory"),
@@ -365,14 +375,16 @@ int main(int argc, char **argv) {
     nullptr};
   char *const retroarch_environment[] = {
     const_cast<char *>("PATH=/usr/bin"), const_cast<char *>("HOME=/tmp"),
-    const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>("LANG=C.UTF-8"),
+    const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>(lang_env.c_str()),
+    const_cast<char *>(locale_env.c_str()),
     const_cast<char *>("XDG_RUNTIME_DIR=/run"),
     const_cast<char *>("XDG_CACHE_HOME=/tmp/cache"),
     const_cast<char *>("XDG_DATA_HOME=/tmp/data"),
     const_cast<char *>("XDG_CONFIG_HOME=/tmp/config"), nullptr};
   char *const telegram_environment[] = {
     const_cast<char *>("PATH=/usr/bin"), const_cast<char *>("HOME=/state"),
-    const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>("LANG=C.UTF-8"),
+    const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>(lang_env.c_str()),
+    const_cast<char *>(locale_env.c_str()),
     nullptr};
   const char *program = probe ? "/usr/bin/aera-jail-probe" :
       retroarch ? "/usr/bin/retroarch" :

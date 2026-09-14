@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "operations.hpp"
+#include <recovery_ui2/i18n.hpp>
 
 #ifdef OF_ENABLE_WLAN
 #endif
@@ -483,8 +484,10 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
     }
     if (success)
       gMirrorMode.store(MirrorMode::kWifi, std::memory_order_release);
-    result = success ? "Wi-Fi mirror ready: http://" + address + "/"
-                     : "Could not start the AERA Wi-Fi mirror.";
+    result = success
+        ? i18n::Format("Wi-Fi mirror ready: http://%s/",
+                       address.c_str())
+        : "Could not start the AERA Wi-Fi mirror.";
     return success;
 #else
     result = "Wi-Fi mirroring is not available in this recovery build.";

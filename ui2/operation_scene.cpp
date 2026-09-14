@@ -156,14 +156,18 @@ FriendlyProgress Explain(const std::string &raw, Job job, int progress) {
     value.activity = "Reading the completed archive and validating its integrity.";
     value.step = 2;
   } else if (job == Job::kBackup || all.find("backing") != std::string::npos) {
-    value.title = "Backing up " + subject;
+    value.title = i18n::Format("Backing up %s", subject.c_str());
     value.explanation = "AERA is safely copying the selected data into your new backup.";
-    value.activity = "Copying files from " + subject + ". Large partitions can take a few minutes.";
+    value.activity = i18n::Format(
+        "Copying files from %s. Large partitions can take a few minutes.",
+        subject.c_str());
     value.step = progress > 1 ? 1 : 0;
   } else if (job == Job::kRestore || all.find("restor") != std::string::npos) {
-    value.title = "Restoring " + subject;
+    value.title = i18n::Format("Restoring %s", subject.c_str());
     value.explanation = "AERA is writing the selected backup data back to the device.";
-    value.activity = "Restoring files for " + subject + ". Do not reboot during this operation.";
+    value.activity = i18n::Format(
+        "Restoring files for %s. Do not reboot during this operation.",
+        subject.c_str());
     value.step = progress > 1 ? 1 : 0;
   } else if (job == Job::kFormatData || all.find("format") != std::string::npos) {
     value.title = "Formatting data";
@@ -171,15 +175,17 @@ FriendlyProgress Explain(const std::string &raw, Job job, int progress) {
     value.activity = "Removing encryption metadata and preparing a clean data volume.";
     value.step = progress > 1 ? 1 : 0;
   } else if (job == Job::kWipe || all.find("wip") != std::string::npos) {
-    value.title = "Wiping " + subject;
+    value.title = i18n::Format("Wiping %s", subject.c_str());
     value.explanation = "AERA is clearing the selected partition safely.";
-    value.activity = "Cleaning " + subject + " and preparing it for use.";
+    value.activity = i18n::Format(
+        "Cleaning %s and preparing it for use.", subject.c_str());
     value.step = progress > 1 ? 1 : 0;
   } else if (job == Job::kFlashImage) {
     value.title = progress > 1 ? "Flashing partition image" :
                                  "Preparing image flash";
-    value.explanation = "AERA is writing the selected image directly to " +
-                        subject + ".";
+    value.explanation = i18n::Format(
+        "AERA is writing the selected image directly to %s.",
+        subject.c_str());
     value.activity = "Do not reboot or disconnect the device while the image is being written.";
     value.step = progress > 1 ? 1 : 0;
   } else if (job == Job::kInstall) {
@@ -460,7 +466,7 @@ void RefreshOperationScene(const OperationScene &scene) {
   const int progress = RecoveryProgress();
   const bool indeterminate = scene.indeterminate_progress && progress <= 0;
   lv_bar_set_value(scene.progress, indeterminate ? 0 : progress, LV_ANIM_ON);
-  lv_label_set_text(scene.percent, indeterminate
+  i18n::BindLabel(scene.percent, indeterminate
       ? "Installing"
       : (std::to_string(progress) + "%").c_str());
   if (scene.progress_pulse && indeterminate) {
@@ -478,9 +484,9 @@ void RefreshOperationScene(const OperationScene &scene) {
   }
 
   const unsigned seconds = lv_tick_elaps(scene.started) / 1000;
-  char elapsed[32];
-  snprintf(elapsed, sizeof(elapsed), "%u:%02u elapsed", seconds / 60, seconds % 60);
-  lv_label_set_text(scene.elapsed, elapsed);
+  const std::string elapsed =
+      i18n::Format("%u:%02u elapsed", seconds / 60, seconds % 60);
+  i18n::BindLabel(scene.elapsed, elapsed.c_str());
 
   auto friendly = Explain(RecoveryOperationDetail(), scene.job, progress);
   if (scene.job == Job::kInstall) {
@@ -514,12 +520,12 @@ void RefreshOperationScene(const OperationScene &scene) {
       friendly.activity = "Waiting for installer output...";
     }
   }
-  lv_label_set_text(scene.status, friendly.title.c_str());
-  lv_label_set_text(scene.detail, friendly.explanation.c_str());
-  lv_label_set_text(scene.metrics,
+  i18n::BindLabel(scene.status, friendly.title.c_str());
+  i18n::BindLabel(scene.detail, friendly.explanation.c_str());
+  i18n::BindLabel(scene.metrics,
       friendly.amount.empty() ? "Working..." : friendly.amount.c_str());
-  lv_label_set_text(scene.files, friendly.files.c_str());
-  lv_label_set_text(scene.activity_summary, friendly.activity.c_str());
+  i18n::BindLabel(scene.files, friendly.files.c_str());
+  i18n::BindLabel(scene.activity_summary, friendly.activity.c_str());
 }
 
 void CompleteOperationScene(const OperationScene &scene, bool success,
@@ -533,7 +539,7 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
     lv_anim_delete(scene.progress_pulse, SetIndeterminateProgressX);
   if (success) {
     lv_bar_set_value(scene.progress, 100, LV_ANIM_ON);
-    lv_label_set_text(scene.percent, "100%");
+    i18n::BindLabel(scene.percent, "100%");
   }
   const auto result_color = success ? design::kGreen : design::kRed;
   lv_obj_set_style_bg_color(scene.activity,
@@ -542,7 +548,7 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
   lv_obj_set_style_border_opa(scene.activity, LV_OPA_50, 0);
   if (lv_obj_get_child_count(scene.activity) > 0) {
     auto *icon = lv_obj_get_child(scene.activity, 0);
-    lv_label_set_text(icon, success ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
+    i18n::BindLabel(icon, success ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
     lv_obj_set_style_text_color(icon, result_color, 0);
   }
   lv_obj_set_style_bg_color(scene.progress, result_color, LV_PART_INDICATOR);
@@ -555,22 +561,22 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
   } else if (scene.progress_pulse) {
     lv_obj_add_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
   }
-  lv_label_set_text(scene.status, success ? "Operation complete" : "Operation stopped");
+  i18n::BindLabel(scene.status, success ? "Operation complete" : "Operation stopped");
   lv_obj_set_style_text_color(scene.status, result_color, 0);
   lv_obj_set_style_text_color(scene.percent, result_color, 0);
   if (scene.format_data && success) {
-    lv_label_set_text(scene.detail, "Data was formatted successfully. Reboot recovery before using /data again.");
-    lv_label_set_text(scene.activity_summary,
+    i18n::BindLabel(scene.detail, "Data was formatted successfully. Reboot recovery before using /data again.");
+    i18n::BindLabel(scene.activity_summary,
         "Android may need a moment to recreate shared storage on the next boot.");
   } else {
-    lv_label_set_text(scene.detail, detail && *detail ? detail :
+    i18n::BindLabel(scene.detail, detail && *detail ? detail :
         success ? "Everything finished successfully." : "Open technical details to see what went wrong.");
-    lv_label_set_text(scene.activity_summary, success ?
+    i18n::BindLabel(scene.activity_summary, success ?
         "The requested operation completed successfully. It is now safe to continue." :
         "AERA could not finish this operation. Open technical details for troubleshooting information.");
   }
   if (scene.notice) {
-    lv_label_set_text(scene.notice, success ?
+    i18n::BindLabel(scene.notice, success ?
         LV_SYMBOL_OK "  Finished safely. You can now continue." :
         LV_SYMBOL_WARNING "  Review technical details before trying again.");
     lv_obj_set_style_text_color(scene.notice, result_color, 0);

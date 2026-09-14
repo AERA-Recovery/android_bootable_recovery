@@ -1,13 +1,12 @@
-# AERA Latin font fallback
+# AERA font fallbacks
 
-These generated LVGL fonts add `U+00A0-U+017F` and `U+20AC` to the
-built-in Montserrat sizes used by UI2. ASCII and LVGL symbols remain in
-LVGL's built-in fonts; `aera_latin_*.c` is used only as a glyph fallback.
+LVGL's built-in Montserrat fonts cover the compact ASCII UI. AERA chains
+FreeType fallbacks from `gui/theme/common/fonts` and
+`gui/theme/extra-languages/fonts` for translated text and filenames. Fallback
+faces are created lazily for each UI size so the full multilingual set does
+not inflate native code or eagerly consume recovery memory.
 
-The source font is LVGL's `scripts/built_in_font/Montserrat-Medium.ttf`.
-Regenerate each size with `lv_font_conv` using 4 bpp, no compression,
-no prefilter, fast kerning, and this range:
-
-```text
-0xA0-0x17F,0x20AC
-```
+`aera_fallback.cpp` keeps the active locale's script early in the chain while
+retaining coverage for every language shown by the language selector. Missing
+font files degrade to the preceding font instead of preventing recovery from
+starting.

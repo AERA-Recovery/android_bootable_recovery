@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "launcher.hpp"
 
+#include <recovery_ui2/i18n.hpp>
+
 #include <cerrno>
 #include <chrono>
 #include <fcntl.h>
@@ -34,6 +36,9 @@ bool Process::Start(const std::string &runtime, int &control_fd,
       "/usr/bin:/system/bin:/system/xbin:/vendor/bin:/vendor/xbin:/sbin";
   const std::string plugin_root = "AERA_PLUGIN_ROOT=" + runtime;
   const std::string data_dirs = "XDG_DATA_DIRS=" + runtime + "/usr/share";
+  const std::string locale = i18n::CurrentLanguage();
+  const std::string locale_env = "AERA_LOCALE=" + locale;
+  const std::string lang_env = "LANG=" + locale + ".UTF-8";
   struct stat loader_info{}, program_info{};
   if (lstat(program.c_str(), &program_info) != 0 ||
       !S_ISREG(program_info.st_mode) || program_info.st_uid != 0 ||
@@ -79,7 +84,8 @@ bool Process::Start(const std::string &runtime, int &control_fd,
         const_cast<char *>(path.c_str()),
         const_cast<char *>("HOME=/tmp"),
         const_cast<char *>("TMPDIR=/tmp"),
-        const_cast<char *>("LANG=C.UTF-8"),
+        const_cast<char *>(lang_env.c_str()),
+        const_cast<char *>(locale_env.c_str()),
         const_cast<char *>("AERA_PLUGIN_FD=4"),
         const_cast<char *>("AERA_HOST_API=2"),
         const_cast<char *>(plugin_root.c_str()),

@@ -157,8 +157,10 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
   Panel(current_slot, 22, kAccent);
   lv_obj_set_pos(current_slot, 12, 12);
   lv_obj_set_size(current_slot, mode_width, 112);
-  auto *current_label = Label(current_slot,
-      ("Current slot " + active_slot).c_str(), &lv_font_montserrat_24, kOnAccent);
+  const std::string current_slot_text =
+      i18n::Format("Current slot %s", active_slot.c_str());
+  auto *current_label = Label(current_slot, current_slot_text.c_str(),
+                              &lv_font_montserrat_24, kOnAccent);
   lv_obj_center(current_label);
   auto *both_slot_button = lv_button_create(slot_mode);
   Panel(both_slot_button, 22, kInset);
@@ -205,13 +207,17 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
       request.partitions = {target.path};
       request.both_slots = *both_slots;
       const std::string slot_destination = *both_slots
-          ? "Both slots A + B"
-          : "Current slot " + RecoverySlot();
-      const std::string warning =
-          "Image\n" + entry.name + "\n\nTarget\n" + target.name +
-          "  /  " + target.path + "\n\nDestination\n" + slot_destination +
-          "\n\nThis writes directly to the selected partition. An incorrect image or target can prevent the device from booting.";
-      Sheet(state->screen, "Flash to " + target.name + "?", warning,
+          ? i18n::Translate("Both slots A + B")
+          : i18n::Format("Current slot %s", RecoverySlot().c_str());
+      const std::string warning = i18n::Format(
+          "Image\n%s\n\nTarget\n%s  /  %s\n\nDestination\n%s\n\n"
+          "This writes directly to the selected partition. An incorrect image "
+          "or target can prevent the device from booting.",
+          entry.name.c_str(), target.name.c_str(), target.path.c_str(),
+          slot_destination.c_str());
+      const std::string title =
+          i18n::Format("Flash to %s?", target.name.c_str());
+      Sheet(state->screen, title, warning,
             [state, request] {
         SetJobRequest(request);
         state->callback(Action::kRunOperation, state->context);
@@ -279,8 +285,8 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
     Interactive(toggle, kMainSelected);
     lv_obj_set_pos(toggle, 0, 266);
     lv_obj_set_size(toggle, target_width, 120);
-    const std::string show_text = "Show " +
-        std::to_string(advanced_targets.size()) + " advanced partitions";
+    const std::string show_text = i18n::Format(
+        "Show %zu advanced partitions", advanced_targets.size());
     auto *toggle_label = Label(toggle, show_text.c_str(),
                                &lv_font_montserrat_24, kMutedStrong);
     lv_obj_align(toggle_label, LV_ALIGN_LEFT_MID, 32, 0);
@@ -291,12 +297,12 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
       const bool hidden = lv_obj_has_flag(advanced, LV_OBJ_FLAG_HIDDEN);
       if (hidden) {
         lv_obj_remove_flag(advanced, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(toggle_label, "Hide advanced partitions");
-        lv_label_set_text(toggle_icon, LV_SYMBOL_UP);
+        i18n::BindLabel(toggle_label, "Hide advanced partitions");
+        i18n::BindLabel(toggle_icon, LV_SYMBOL_UP);
       } else {
         lv_obj_add_flag(advanced, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(toggle_label, show_text.c_str());
-        lv_label_set_text(toggle_icon, LV_SYMBOL_DOWN);
+        i18n::BindLabel(toggle_label, show_text.c_str());
+        i18n::BindLabel(toggle_icon, LV_SYMBOL_DOWN);
         lv_obj_scroll_to_y(lv_obj_get_parent(advanced), 0, LV_ANIM_ON);
       }
     });
@@ -344,22 +350,27 @@ void OpenFile(Files *state, const Entry &entry) {
       SetPluginRequest(request);
       state->callback(Action::kInstallLocalPlugin, state->context);
     };
-    const std::string details = plugin.name + "\nVersion " + plugin.version +
-        "\n\n" + plugin.description + "\n\nPackage: " +
-        Size(entry.bytes) + "\nID: " + plugin.id;
+    const std::string details = i18n::Format(
+        "%s\nVersion %s\n\n%s\n\nPackage: %s\nID: %s",
+        plugin.name.c_str(), plugin.version.c_str(), plugin.description.c_str(),
+        Size(entry.bytes).c_str(), plugin.id.c_str());
     if (plugin.trust == plugins::Trust::kOfficial) {
       Sheet(state->screen, "Install official AERA app?",
-            "OFFICIAL / SIGNATURE VERIFIED\n\n" + details,
+            i18n::Format("OFFICIAL / SIGNATURE VERIFIED\n\n%s",
+                         details.c_str()),
             [install] { install(false); });
     } else {
-      Sheet(state->screen, "Unofficial app warning",
+      Sheet(state->screen, "Unofficial app warning", i18n::Format(
             "This package is not signed by AERA. Its code will run with "
-            "recovery privileges and may read, change, or erase device data.\n\n" +
-            details + "\n\nOnly continue if you trust where this file came from.",
+            "recovery privileges and may read, change, or erase device data."
+            "\n\n%s\n\nOnly continue if you trust where this file came from.",
+            details.c_str()),
             [state, details, install] {
         Sheet(state->screen, "Install unofficial app?",
-              "UNVERIFIED PUBLISHER\n\n" + details +
-              "\n\nAERA cannot verify the developer or guarantee this package is safe.",
+              i18n::Format(
+                  "UNVERIFIED PUBLISHER\n\n%s\n\nAERA cannot verify the "
+                  "developer or guarantee this package is safe.",
+                  details.c_str()),
               [install] { install(true); });
       });
     }
@@ -368,21 +379,23 @@ void OpenFile(Files *state, const Entry &entry) {
     request.job = Job::kInstall;
     request.title = "Install ZIP";
     request.path = entry.path;
-    Sheet(state->screen, "Install this package?",
-          entry.name + "\n\n" + Size(entry.bytes) + "\n" + entry.path +
-          "\n\nActive slot: " + RecoverySlot() +
-          "\n\nThe package's installer can modify your system and data."
-          "\nReview the file above before continuing.", [state, request] {
+    const std::string detail = i18n::Format(
+        "%s\n\n%s\n%s\n\nActive slot: %s\n\nThe package's installer "
+        "can modify your system and data.\nReview the file above before "
+        "continuing.",
+        entry.name.c_str(), Size(entry.bytes).c_str(), entry.path.c_str(),
+        RecoverySlot().c_str());
+    Sheet(state->screen, "Install this package?", detail, [state, request] {
       SetJobRequest(request);
       state->callback(Action::kRunOperation, state->context);
     });
   } else if (Image(entry.name)) {
     OpenImageTargetPicker(state, entry);
   } else {
-    Sheet(state->screen, entry.name,
-          entry.path + "\n\nSize: " + Size(entry.bytes) +
-          "\n\nOpen pictures, install ZIP packages, flash .img files, or install .aerap plugins. "
-          "This file type has no preview.");
+    Sheet(state->screen, entry.name, i18n::Format(
+          "%s\n\nSize: %s\n\nOpen pictures, install ZIP packages, flash "
+          ".img files, or install .aerap plugins. This file type has no preview.",
+          entry.path.c_str(), Size(entry.bytes).c_str()));
   }
 }
 
@@ -400,15 +413,22 @@ void RenderEntries(Files *state) {
   const size_t count = std::min(state->entries.size(), state->visible);
   for (size_t i = 0; i < count; ++i) {
     const auto entry = state->entries[i];
+    std::string detail;
+    if (entry.directory) {
+      detail = i18n::Translate("Folder");
+    } else {
+      const char *kind = plugins::IsPackageFile(entry.name)
+          ? "AERA plugin package"
+          : Zip(entry.name) ? "ZIP package"
+          : Image(entry.name) ? "Flashable image"
+          : IsPicture(entry.name) ? "Image preview" : "File";
+      detail = i18n::Format("%s  /  %s", Size(entry.bytes).c_str(),
+                            i18n::Translate(kind));
+    }
     Row(state->list, y, entry.directory ? LV_SYMBOL_DIRECTORY :
         IsPicture(entry.name) ? LV_SYMBOL_IMAGE :
         Image(entry.name) ? LV_SYMBOL_UPLOAD : LV_SYMBOL_FILE,
-        entry.name, entry.directory ? "Folder" :
-          Size(entry.bytes) + (plugins::IsPackageFile(entry.name) ?
-                              "  /  AERA plugin package" :
-                              Zip(entry.name) ? "  /  ZIP package" :
-                              Image(entry.name) ? "  /  Flashable image" :
-                              IsPicture(entry.name) ? "  /  Image preview" : "  /  File"),
+        entry.name, detail,
         [state, entry] { OpenFile(state, entry); });
     y += 180;
   }
@@ -422,7 +442,7 @@ void RenderEntries(Files *state) {
 
 void Populate(Files *state) {
   state->entries.clear();
-  lv_label_set_text(state->path_label, gDirectory.c_str());
+  i18n::BindLabel(state->path_label, gDirectory.c_str());
   DIR *directory = opendir(gDirectory.c_str());
   const int error = errno;
   if (directory) {
@@ -445,13 +465,15 @@ void Populate(Files *state) {
   struct statvfs storage{};
   std::string capacity;
   if (statvfs(gDirectory.c_str(), &storage) == 0)
-    capacity = Size(static_cast<uint64_t>(storage.f_bavail) * storage.f_frsize) + " available";
+    capacity = i18n::Format("%s available",
+        Size(static_cast<uint64_t>(storage.f_bavail) * storage.f_frsize).c_str());
   if (RecoveryDataLocked()) capacity = "Internal storage is locked";
-  lv_label_set_text(state->storage_label, capacity.c_str());
-  std::string summary = directory ? std::to_string(state->entries.size()) + " items" :
-      std::string("Cannot open folder: ") + strerror(error);
+  i18n::BindLabel(state->storage_label, capacity.c_str());
+  std::string summary = directory
+      ? i18n::Format("%zu items", state->entries.size())
+      : i18n::Format("Cannot open folder: %s", strerror(error));
   if (directory && state->entries.empty()) summary = "No files in this view";
-  lv_label_set_text(state->summary, summary.c_str());
+  i18n::BindLabel(state->summary, summary.c_str());
   RenderEntries(state);
   lv_obj_scroll_to_y(state->list, 0, LV_ANIM_OFF);
 }

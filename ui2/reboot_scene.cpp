@@ -54,17 +54,19 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
   for (int index = 0; index < 2; ++index) {
     const std::string slot(1, static_cast<char>('A' + index));
     const bool selected = active == slot;
-    auto *button = Button(slot_card, ("Slot " + slot).c_str(), [=] {
+    const std::string slot_label = i18n::Format("Slot %s", slot.c_str());
+    auto *button = Button(slot_card, slot_label.c_str(), [=] {
       if (selected) return;
-      const std::string title = "Switch to Slot " + slot + "?";
-      const std::string detail =
-          "AERA will mark Slot " + slot +
-          " active. This does not reboot the device yet.";
+      const std::string title =
+          i18n::Format("Switch to Slot %s?", slot.c_str());
+      const std::string detail = i18n::Format(
+          "AERA will mark Slot %s active. This does not reboot the device yet.",
+          slot.c_str());
       Sheet(screen, title.c_str(), detail.c_str(), [=] {
         if (RecoverySetActiveSlot(slot)) {
           callback(Action::kOpenReboot, context);
         } else {
-          lv_label_set_text(feedback,
+          i18n::BindLabel(feedback,
                             "Could not change the active boot slot.");
         }
       });

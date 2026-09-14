@@ -5,6 +5,7 @@
 
 #include "recovery_ui2/engine.hpp"
 #include "recovery_ui2/display_transform.hpp"
+#include "recovery_ui2/i18n.hpp"
 
 #include <algorithm>
 #include <array>
@@ -669,8 +670,7 @@ public:
     const char *symbol = percent == 0 ? LV_SYMBOL_CLOSE
                                       : (percent < 55 ? LV_SYMBOL_VOLUME_MID
                                                       : LV_SYMBOL_VOLUME_MAX);
-    char amount[32];
-    snprintf(amount, sizeof(amount), "Volume  %d%%", percent);
+    const std::string amount = i18n::Format("Volume  %d%%", percent);
 
     if (volume_overlay_ == nullptr) {
       auto *panel = lv_obj_create(lv_layer_top());
@@ -699,7 +699,7 @@ public:
       volume_icon_ = design::Label(panel, symbol, &lv_font_montserrat_48,
           percent == 0 ? design::kMuted : design::kAccent);
       lv_obj_set_pos(volume_icon_, 62, 54);
-      volume_label_ = design::Label(panel, amount, &lv_font_montserrat_32,
+      volume_label_ = design::Label(panel, amount.c_str(), &lv_font_montserrat_32,
                                     design::kText);
       lv_obj_set_pos(volume_label_, 150, 34);
       auto *track = lv_obj_create(panel);
@@ -717,8 +717,8 @@ public:
       lv_obj_set_width(volume_fill_, std::max(1, displayed_volume_ * 810 / 100));
 
     } else {
-      lv_label_set_text(volume_icon_, symbol);
-      lv_label_set_text(volume_label_, amount);
+      i18n::BindLabel(volume_icon_, symbol);
+      i18n::BindLabel(volume_label_, amount.c_str());
     }
 
     // Keep this top-layer subtree alive and fully opaque. Opacity/transform
@@ -843,7 +843,8 @@ public:
     auto *icon = design::Label(icon_plate, LV_SYMBOL_DOWNLOAD,
                                &lv_font_montserrat_40, design::kAccent);
     lv_obj_center(icon);
-    const std::string title = "AERA " + version + " is available";
+    const std::string title =
+        i18n::Format("AERA %s is available", version.c_str());
     auto *label = design::Label(panel, title.c_str(),
                                 &lv_font_montserrat_32, design::kText);
     lv_obj_set_pos(label, 184, 34);
@@ -876,6 +877,7 @@ public:
 
 private:
   void ApplyStoredAppearance() {
+    i18n::Initialize(RecoveryLanguage());
     design::ApplySurfaceMode(RecoveryLightMode());
     design::ApplyAccent(RecoveryAccentColor());
     design::ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
@@ -1233,7 +1235,8 @@ private:
         action == Action::kWipe || action == Action::kFormatData ||
         action == Action::kSettings ||
         action == Action::kMounts || action == Action::kLogs ||
-        action == Action::kPreferences || action == Action::kTheme ||
+        action == Action::kPreferences || action == Action::kLanguage ||
+        action == Action::kTheme ||
         action == Action::kWifi || action == Action::kUsers;
     if (action == Action::kOpenReboot || action == Action::kBackHome ||
         action == Action::kInstall || opens_tool) {

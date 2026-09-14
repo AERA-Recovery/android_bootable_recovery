@@ -365,11 +365,11 @@ void Refresh(NasUi *state) {
   const char *headline = !status.supported ? "Unavailable" :
       state->busy ? busy_title.c_str() : status.mounted ?
       (status.selected ? "Mounted and in use" : "Mounted") : "Not mounted";
-  lv_label_set_text(state->scene.status, headline);
+  i18n::BindLabel(state->scene.status, headline);
   std::string detail = status.status;
   if (detail.empty()) detail = status.mounted ? "/mnt/nas" :
       "Configure an SFTP or SMB connection below.";
-  lv_label_set_text(state->scene.detail, detail.c_str());
+  i18n::BindLabel(state->scene.detail, detail.c_str());
   SetActivity(state, state->busy);
   lv_obj_set_style_border_color(state->hero,
       status.mounted ? kGreen : state->busy ? kAccent : kMainLine, 0);
@@ -379,7 +379,7 @@ void Refresh(NasUi *state) {
       status.mounted ? kGreen : kAccent, 0);
 
   auto *primary_label = lv_obj_get_child(state->scene.primary, 0);
-  lv_label_set_text(primary_label,
+  i18n::BindLabel(primary_label,
       status.mounted ? (status.selected ? "NAS in use" : "Use NAS")
                      : "Mount & Use");
   if (!status.supported || state->busy || (status.mounted && status.selected))

@@ -172,6 +172,17 @@ std::set<std::string> UserPackages() {
   return result;
 }
 
+void FitCompactButtonText(lv_obj_t *label) {
+  if (label == nullptr) return;
+  auto *button = lv_obj_get_parent(label);
+  const int width =
+      std::max(40, static_cast<int>(lv_obj_get_width(button)) - 32);
+  FitLabelToLines(label, width, 1,
+                  {&lv_font_montserrat_24, &lv_font_montserrat_20,
+                   &lv_font_montserrat_18, &lv_font_montserrat_16});
+  lv_obj_center(label);
+}
+
 void AddCodePath(std::map<std::string, std::string> &result,
                  const std::string &path, const std::string &leaf) {
   const size_t split = leaf.find('-');
@@ -712,15 +723,17 @@ void UpdateSelected(State *state) {
   const size_t total = std::count_if(state->apps.begin(), state->apps.end(), visible);
   const size_t count = std::count_if(state->apps.begin(), state->apps.end(),
       [&](const App &app) { return visible(app) && app.selected; });
-  const std::string label = std::to_string(count) + " of " +
-      std::to_string(total) + " selected";
-  lv_label_set_text(state->selected, label.c_str());
+  const std::string label =
+      i18n::Format("%zu of %zu selected", count, total);
+  i18n::BindLabel(state->selected, label.c_str());
   if (state->system_filter_label)
-    lv_label_set_text(state->system_filter_label,
+    i18n::BindLabel(state->system_filter_label,
                       state->show_system ? "System apps  On" : "System apps  Off");
   if (state->select_all_label)
-    lv_label_set_text(state->select_all_label,
+    i18n::BindLabel(state->select_all_label,
                       total && count == total ? "Clear all" : "Select all");
+  FitCompactButtonText(state->system_filter_label);
+  FitCompactButtonText(state->select_all_label);
 }
 
 std::string UserName(const State *state, int user_id) {
@@ -728,7 +741,7 @@ std::string UserName(const State *state, int user_id) {
       state->users.begin(), state->users.end(),
       [user_id](const AndroidUser &user) { return user.id == user_id; });
   return found == state->users.end()
-             ? "Android user " + std::to_string(user_id)
+             ? i18n::Format("Android user %d", user_id)
              : found->name;
 }
 
@@ -737,10 +750,10 @@ void UpdateAppSummary(State *state) {
       state->apps.begin(), state->apps.end(),
       [](const App &app) { return !app.system; });
   const size_t system_apps = state->apps.size() - user_apps;
-  const std::string detail =
-      UserName(state, state->user_id) + " / " + std::to_string(user_apps) +
-      " user apps / " + std::to_string(system_apps) + " system apps hidden";
-  lv_label_set_text(state->detail, detail.c_str());
+  const std::string detail = i18n::Format(
+      "%s / %zu user apps / %zu system apps hidden",
+      UserName(state, state->user_id).c_str(), user_apps, system_apps);
+  i18n::BindLabel(state->detail, detail.c_str());
 }
 
 void RenderApps(State *state) {
@@ -813,7 +826,7 @@ void RenderApps(State *state) {
           selected_app.selected ? kAccent : kMainLine, 0);
       lv_obj_set_style_bg_color(indicator,
           selected_app.selected ? kAccent : kMainPanel, 0);
-      lv_label_set_text(mark, selected_app.selected ? LV_SYMBOL_OK : "");
+      i18n::BindLabel(mark, selected_app.selected ? LV_SYMBOL_OK : "");
       lv_obj_set_style_text_color(mark,
           selected_app.selected ? kOnAccent : kMuted, 0);
       UpdateSelected(state);
@@ -865,10 +878,10 @@ void StartDiscovery(State *state) {
   SetActions(state, false);
   lv_obj_remove_flag(state->progress, LV_OBJ_FLAG_HIDDEN);
   lv_bar_set_value(state->progress, 8, LV_ANIM_OFF);
-  const std::string title =
-      "Loading " + UserName(state, state->user_id) + " apps...";
-  lv_label_set_text(state->status, title.c_str());
-  lv_label_set_text(state->selected, "Discovering apps...");
+  const std::string title = i18n::Format(
+      "Loading %s apps...", UserName(state, state->user_id).c_str());
+  i18n::BindLabel(state->status, title.c_str());
+  i18n::BindLabel(state->selected, "Discovering apps...");
   state->worker =
       std::thread(Worker, state, Work::kDiscover,
                   std::vector<std::string>{}, state->user_id);
@@ -915,7 +928,7 @@ void StartWork(State *state, Work work) {
   const char *title = work == Work::kBackup ? "Backing up selected apps…" :
       work == Work::kRestore ? "Restoring latest snapshot…" :
       "Reading backups…";
-  lv_label_set_text(state->status, title);
+  i18n::BindLabel(state->status, title);
   state->worker =
       std::thread(Worker, state, work, std::move(paths), state->user_id);
 }
@@ -957,8 +970,10 @@ void ShowUserChooser(State *state) {
       lv_obj_delete_async(overlay);
       if (state->user_id == user.id) return;
       state->user_id = user.id;
-      const std::string label = "Android user: " + user.name;
-      lv_label_set_text(state->user_label, label.c_str());
+      const std::string label =
+          i18n::Format("Android user: %s", user.name.c_str());
+      i18n::BindLabel(state->user_label, label.c_str());
+      FitCompactButtonText(state->user_label);
       StartDiscovery(state);
     }, user.id == state->user_id);
     lv_obj_set_pos(row, 0, static_cast<int>(index) * 142);
@@ -969,7 +984,7 @@ void ShowUserChooser(State *state) {
     lv_obj_set_width(name, sheet_width - 310);
     lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
     const std::string detail =
-        "User " + std::to_string(user.id) + " / Unlocked";
+        i18n::Format("User %d / Unlocked", user.id);
     auto *status = Label(row, detail.c_str(), &lv_font_montserrat_20, kMuted);
     lv_obj_set_pos(status, 30, 72);
     if (user.id == state->user_id) {
@@ -985,9 +1000,9 @@ void UpdateSnapshotCount(const Snapshot &snapshot, lv_obj_t *label) {
   const size_t selected = std::count_if(
       snapshot.apps.begin(), snapshot.apps.end(),
       [](const SnapshotApp &app) { return app.selected; });
-  const std::string text = std::to_string(selected) + " of " +
-      std::to_string(snapshot.apps.size()) + " apps selected";
-  lv_label_set_text(label, text.c_str());
+  const std::string text = i18n::Format(
+      "%zu of %zu apps selected", selected, snapshot.apps.size());
+  i18n::BindLabel(label, text.c_str());
 }
 
 void ShowSnapshotApps(State *state, size_t snapshot_index) {
@@ -1105,7 +1120,7 @@ void ShowSnapshotApps(State *state, size_t snapshot_index) {
           app.selected ? kAccent : kMainLine, 0);
       lv_obj_set_style_bg_color(indicator,
           app.selected ? kAccent : kMainPanel, 0);
-      lv_label_set_text(mark, app.selected ? LV_SYMBOL_OK : "");
+      i18n::BindLabel(mark, app.selected ? LV_SYMBOL_OK : "");
       lv_obj_set_style_text_color(mark, app.selected ? kOnAccent : kMuted, 0);
       UpdateSnapshotCount(state->snapshot_items[snapshot_index], selected);
     });
@@ -1125,8 +1140,9 @@ void ShowSnapshotApps(State *state, size_t snapshot_index) {
         if (!count) return;
         state->restore_snapshot = item.id;
         lv_obj_delete_async(overlay);
-        const std::string message = "Restore " + std::to_string(count) +
-            " selected apps from " + SnapshotDate(item.time) + "?";
+        const std::string message = i18n::Format(
+            "Restore %zu selected apps from %s?", count,
+            SnapshotDate(item.time).c_str());
         Sheet(state->screen, "Restore selected apps?", message.c_str(),
               [state] { StartWork(state, Work::kRestore); });
       }, true);
@@ -1179,7 +1195,8 @@ void ShowSnapshotChooser(State *state) {
     auto *date = Label(card, SnapshotDate(snapshot.time).c_str(),
                        &lv_font_montserrat_36, kText);
     lv_obj_set_pos(date, 30, 24);
-    std::string detail = std::to_string(snapshot.apps.size()) + " apps";
+    std::string detail =
+        i18n::Format("%zu apps", snapshot.apps.size());
     if (snapshot.bytes) detail += " • " + HumanBytes(snapshot.bytes);
     auto *details = Label(card, detail.c_str(), &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(details, 32, 86);
@@ -1203,19 +1220,19 @@ void Poll(State *state) {
     if (state->prepare_thread.joinable()) state->prepare_thread.join();
     if (state->preparation.verified) {
       state->runtime = state->preparation.directory;
-      lv_label_set_text(state->status, "Ready");
+      i18n::BindLabel(state->status, "Ready");
       const size_t user_apps = std::count_if(state->apps.begin(), state->apps.end(),
           [](const App &app) { return !app.system; });
       const size_t system_apps = state->apps.size() - user_apps;
-      const std::string detail = std::to_string(user_apps) +
-          " user apps • " + std::to_string(system_apps) + " system apps hidden";
-      lv_label_set_text(state->detail, detail.c_str());
+      const std::string detail = i18n::Format(
+          "%zu user apps • %zu system apps hidden", user_apps, system_apps);
+      i18n::BindLabel(state->detail, detail.c_str());
       UpdateAppSummary(state);
       RenderApps(state);
       SetActions(state, !RecoveryDataLocked());
     } else {
-      lv_label_set_text(state->status, "Engine unavailable");
-      lv_label_set_text(state->detail, state->preparation.error.c_str());
+      i18n::BindLabel(state->status, "Engine unavailable");
+      i18n::BindLabel(state->detail, state->preparation.error.c_str());
       SetActions(state, false);
     }
   }
@@ -1232,26 +1249,28 @@ void Poll(State *state) {
     SetActions(state, true);
     lv_bar_set_value(state->progress, state->work_progress.load(), LV_ANIM_ON);
     if (state->work_success.load()) {
-      lv_label_set_text(state->status, result.c_str());
+      i18n::BindLabel(state->status, result.c_str());
     } else {
       const char *failure = state->work == Work::kBackup ? "App backup failed" :
           state->work == Work::kRestore ? "App restore failed" :
           state->work == Work::kDiscover ? "Could not read user apps" :
           "Could not read snapshots";
-      lv_label_set_text(state->status, failure);
-      lv_label_set_text(state->detail, result.c_str());
+      i18n::BindLabel(state->status, failure);
+      i18n::BindLabel(state->detail, result.c_str());
     }
     if (state->work_success.load() && state->work == Work::kDiscover) {
-      lv_label_set_text(state->status, "Ready");
+      i18n::BindLabel(state->status, "Ready");
       UpdateAppSummary(state);
       RenderApps(state);
       lv_obj_add_flag(state->progress, LV_OBJ_FLAG_HIDDEN);
     }
     if (state->work_success.load() && state->work == Work::kRefresh) {
-      std::string detail = std::to_string(state->snapshots) + " app backups";
+      std::string detail =
+          i18n::Format("%u app backups", state->snapshots);
       if (!state->latest_time.empty())
-        detail += " • latest " + SnapshotDate(state->latest_time);
-      lv_label_set_text(state->detail, detail.c_str());
+        detail = i18n::Format("%s • latest %s", detail.c_str(),
+                              SnapshotDate(state->latest_time).c_str());
+      i18n::BindLabel(state->detail, detail.c_str());
       if (state->browse_after_refresh) ShowSnapshotChooser(state);
     }
     state->browse_after_refresh = false;
@@ -1377,11 +1396,10 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_size(state->user_button, landscape ? 680 : 600, 82);
   lv_obj_set_style_radius(state->user_button, 24, 0);
   state->user_label = lv_obj_get_child(state->user_button, 0);
-  const std::string user_label =
-      "Android user: " + UserName(state, state->user_id);
-  lv_label_set_text(state->user_label, user_label.c_str());
-  lv_obj_set_style_text_font(state->user_label,
-                             UiFont(&lv_font_montserrat_24), 0);
+  const std::string user_label = i18n::Format(
+      "Android user: %s", UserName(state, state->user_id).c_str());
+  i18n::BindLabel(state->user_label, user_label.c_str());
+  FitCompactButtonText(state->user_label);
   state->list = lv_obj_create(apps_panel);
   Clear(state->list);
   lv_obj_set_pos(state->list, 24, 226);

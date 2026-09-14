@@ -2,6 +2,7 @@
 #include "runtime.hpp"
 #include <aera_browser_payload.hpp>
 #include "plugins/plugin_manager.hpp"
+#include <recovery_ui2/i18n.hpp>
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -275,8 +276,8 @@ void PreparePluginRuntime(Preparation &state, const char *id,
   struct stat info{};
   if (file.value < 0 || fstat(file.value, &info) || !S_ISREG(info.st_mode) ||
       static_cast<uint64_t>(info.st_size) != spec.compressed_bytes) {
-    state.error = name +
-        " payload is missing or has an unexpected size.";
+    state.error = i18n::Format(
+        "%s payload is missing or has an unexpected size.", name.c_str());
     return;
   }
   FD ram(open(parent, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
@@ -284,8 +285,8 @@ void PreparePluginRuntime(Preparation &state, const char *id,
   if (ram.value < 0 || fstatfs(ram.value, &filesystem) ||
       (static_cast<unsigned long>(filesystem.f_type) != kTmpfs &&
        static_cast<unsigned long>(filesystem.f_type) != kRamfs)) {
-    state.error = name +
-        " expansion requires RAM-backed temporary storage.";
+    state.error = i18n::Format(
+        "%s expansion requires RAM-backed temporary storage.", name.c_str());
     return;
   }
   const uint64_t reserve = spec.expanded_bytes + 96ULL * 1024 * 1024;
@@ -293,8 +294,8 @@ void PreparePluginRuntime(Preparation &state, const char *id,
       (static_cast<unsigned long>(filesystem.f_type) == kTmpfs &&
        (fstatvfs(ram.value, &capacity) ||
         uint64_t(capacity.f_bavail) * capacity.f_frsize < spec.expanded_bytes))) {
-    state.error = std::string("Not enough free RAM to prepare ") +
-        name + ".";
+    state.error =
+        i18n::Format("Not enough free RAM to prepare %s.", name.c_str());
     return;
   }
   void *mapped = mmap(nullptr, spec.compressed_bytes, PROT_READ, MAP_PRIVATE,
@@ -307,16 +308,16 @@ void PreparePluginRuntime(Preparation &state, const char *id,
   Hash compressed;
   for (uint64_t pos = 0; pos < spec.compressed_bytes; pos += 65536) {
     if (state.cancel.load()) {
-      state.error = name +
-          " preparation cancelled.";
+      state.error =
+          i18n::Format("%s preparation cancelled.", name.c_str());
       return;
     }
     compressed.Add(static_cast<const uint8_t *>(mapped) + pos,
         std::min<uint64_t>(65536, spec.compressed_bytes - pos));
   }
   if (!compressed.Matches(spec.compressed_hash.c_str())) {
-    state.error = name +
-        " payload integrity check failed.";
+    state.error =
+        i18n::Format("%s payload integrity check failed.", name.c_str());
     return;
   }
   std::string temporary = std::string(parent) +
@@ -332,9 +333,9 @@ void PreparePluginRuntime(Preparation &state, const char *id,
       state.cancel.load()) {
     RemoveRuntime(temporary);
     state.error = state.cancel.load()
-        ? name + " preparation cancelled."
-        : name +
-              " runtime validation or extraction failed.";
+        ? i18n::Format("%s preparation cancelled.", name.c_str())
+        : i18n::Format(
+              "%s runtime validation or extraction failed.", name.c_str());
     return;
   }
   state.directory = temporary;

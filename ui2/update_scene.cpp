@@ -148,11 +148,12 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
       [screen, callback, context] {
         const auto snapshot = update::GetSnapshot();
         if (!snapshot.available) return;
-        std::string copy = snapshot.release.version + "  /  " +
-            UpdateSize(snapshot.release.size) + "\n" +
-            BuildDate(snapshot.release.build_time) +
-            "\n\nThe package's included installer will control the target "
-            "partitions and slots.";
+        std::string copy = i18n::Format(
+            "%s  /  %s\n%s\n\nThe package's included installer will "
+            "control the target partitions and slots.",
+            snapshot.release.version.c_str(),
+            UpdateSize(snapshot.release.size).c_str(),
+            BuildDate(snapshot.release.build_time).c_str());
         Sheet(screen, "Install this recovery update?", copy,
               [callback, context] {
                 callback(Action::kDownloadUpdate, context);
@@ -198,7 +199,8 @@ void RefreshUpdateScene(const UpdateScene &scene) {
       status = "Checking for updates";
       break;
     case update::Phase::kAvailable:
-      status = snapshot.release.version + " is available";
+      status = i18n::Format("%s is available",
+                            snapshot.release.version.c_str());
       break;
     case update::Phase::kUpToDate:
       status = "AERA is up to date";
@@ -220,15 +222,15 @@ void RefreshUpdateScene(const UpdateScene &scene) {
       status = "Ready to check";
       break;
   }
-  lv_label_set_text(scene.status, status.c_str());
-  lv_label_set_text(scene.detail, snapshot.message.empty()
+  i18n::BindLabel(scene.status, status.c_str());
+  i18n::BindLabel(scene.detail, snapshot.message.empty()
       ? "Connect to Wi-Fi to check for a newer build."
       : snapshot.message.c_str());
 
   const std::string installed = snapshot.device.empty()
       ? "Current recovery"
       : snapshot.device + "  /  " + BuildDate(snapshot.local_build_time);
-  lv_label_set_text(scene.installed, installed.c_str());
+  i18n::BindLabel(scene.installed, installed.c_str());
 
   std::string release = "No newer build found";
   if (snapshot.release.build_time != 0) {
@@ -239,8 +241,8 @@ void RefreshUpdateScene(const UpdateScene &scene) {
     release += "\n" + snapshot.release.filename + "  /  " +
         UpdateSize(snapshot.release.size);
   }
-  lv_label_set_text(scene.release, release.c_str());
-  lv_label_set_text(scene.changelog, Notes(snapshot.release).c_str());
+  i18n::BindLabel(scene.release, release.c_str());
+  i18n::BindLabel(scene.changelog, Notes(snapshot.release).c_str());
 
   const bool busy = snapshot.phase == update::Phase::kChecking ||
                     snapshot.phase == update::Phase::kDownloading ||
@@ -282,8 +284,8 @@ void RefreshUpdateScene(const UpdateScene &scene) {
     }
     lv_bar_set_value(scene.progress, static_cast<int32_t>(stage_progress),
                      LV_ANIM_ON);
-    lv_label_set_text(scene.progress_value, value.c_str());
-    lv_label_set_text(scene.progress_amount, amount.c_str());
+    i18n::BindLabel(scene.progress_value, value.c_str());
+    i18n::BindLabel(scene.progress_amount, amount.c_str());
     lv_obj_remove_flag(scene.progress, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(scene.progress_value, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(scene.progress_amount, LV_OBJ_FLAG_HIDDEN);

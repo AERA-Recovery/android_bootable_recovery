@@ -31,6 +31,7 @@
 #include <mutex>
 
 #include "android_icon.hpp"
+#include <recovery_ui2/i18n.hpp>
 
 namespace recovery_ui2::root {
 namespace {
@@ -573,7 +574,9 @@ bool FetchRelease(Provider provider, const Status &device, Progress &progress,
   if (matches != 1 || release.version.empty() || !OfficialUrl(release.asset_url) ||
       release.size == 0 || release.size > kMaxAsset || !hash_ok) {
     release.error = matches == 0
-        ? "No exact " + device.kmi + " aarch64 module exists in the latest release."
+        ? i18n::Format(
+              "No exact %s aarch64 module exists in the latest release.",
+              device.kmi.c_str())
         : "The matching release asset is ambiguous or has no trusted SHA-256.";
     return false;
   }
@@ -625,7 +628,8 @@ Release LoadBundledRelease(Provider provider, const std::string &kmi) {
         release.error = "The exact bundled module failed its catalog size check.";
       return release;
     }
-    release.error = "No bundled module exists for exact KMI " + kmi + ".";
+    release.error = i18n::Format(
+        "No bundled module exists for exact KMI %s.", kmi.c_str());
     return release;
   }
   release.error = "The selected provider is missing from the bundled catalog.";
@@ -797,7 +801,8 @@ bool InstallManager(Provider provider, Progress &progress) {
   if (PackageListed(package_name)) {
     progress.value.store(100);
     SetText(progress, "Manager already installed",
-            std::string(ProviderName(provider)) + " is registered in Android.");
+            i18n::Format("%s is registered in Android.",
+                         ProviderName(provider)));
     return true;
   }
   if (access("/data/system/packages.xml", R_OK) || access("/data/app", W_OK)) {
@@ -858,10 +863,11 @@ bool InstallManager(Provider provider, Progress &progress) {
     return false;
   }
   progress.value.store(100);
-  SetText(progress, "Manager app ready",
-          std::string(ProviderName(provider)) + " " + release.version +
-          (direct ? " was placed in Android's app store. " : " was staged. ") +
-          "It will appear after booting Android.");
+  SetText(progress, "Manager app ready", i18n::Format(
+          direct ? "%s %s was placed in Android's app store. It will appear "
+                   "after booting Android."
+                 : "%s %s was staged. It will appear after booting Android.",
+          ProviderName(provider), release.version.c_str()));
   return true;
 }
 
@@ -954,7 +960,7 @@ bool Patch(const Request &request, Progress &progress) {
   }
   const std::string backup = std::string(kBackups) + "/init_boot_" + slot + "-" +
                              Stamp() + ".img";
-  SetText(progress, "Backing up init_boot_" + slot,
+  SetText(progress, i18n::Format("Backing up init_boot_%s", slot.c_str()),
           "A full rollback image is being saved before any write.");
   if (!CopyExact(block, backup, partition_size, progress, 46, 60)) {
     SetText(progress, "Backup failed", "Nothing was written to init_boot."); return false;
@@ -964,9 +970,9 @@ bool Patch(const Request &request, Progress &progress) {
     unlink(backup.c_str()); SetText(progress, "Backup verification failed"); return false;
   }
   unlink((std::string(kWork) + "/patched.img").c_str());
-  SetText(progress, "Patching with ksud",
-          std::string(ProviderName(request.provider)) + " " + release.version +
-          " • exact " + device.kmi + " module");
+  SetText(progress, "Patching with ksud", i18n::Format(
+          "%s %s • exact %s module", ProviderName(request.provider),
+          release.version.c_str(), device.kmi.c_str()));
   progress.value.store(64);
   std::string patch_log;
   const bool patched = RunCapture(
@@ -982,7 +988,7 @@ bool Patch(const Request &request, Progress &progress) {
     SetText(progress, "Patched image rejected",
             "The image was not a valid changed full-size init_boot image."); return false;
   }
-  SetText(progress, "Flashing init_boot_" + slot,
+  SetText(progress, i18n::Format("Flashing init_boot_%s", slot.c_str()),
           "Do not disconnect power. The verified backup remains on internal storage.");
   if (!CopyExact(image, block, partition_size, progress, 80, 98)) {
     SetText(progress, "Flash failed",
@@ -1023,9 +1029,10 @@ bool Patch(const Request &request, Progress &progress) {
     }
   }
   progress.value.store(100);
-  SetText(progress, "Root installed",
-          std::string(ProviderName(request.provider)) + " " + release.version +
-          " was installed to init_boot_" + slot + ". Backup: " + backup);
+  SetText(progress, "Root installed", i18n::Format(
+          "%s %s was installed to init_boot_%s. Backup: %s",
+          ProviderName(request.provider), release.version.c_str(),
+          slot.c_str(), backup.c_str()));
   return true;
 }
 
@@ -1050,10 +1057,12 @@ bool Rollback(const Request &request, Progress &progress) {
   const std::string block = BlockForSlot(slot);
   const uint64_t size = FileSize(block);
   if (backup.empty() || !size || FileSize(backup) != size) {
-    SetText(progress, "No rollback image", "No valid AERA init_boot_" + slot + " backup was found.");
+    SetText(progress, "No rollback image", i18n::Format(
+        "No valid AERA init_boot_%s backup was found.", slot.c_str()));
     return false;
   }
-  SetText(progress, "Restoring init_boot_" + slot, backup);
+  SetText(progress, i18n::Format("Restoring init_boot_%s", slot.c_str()),
+          backup);
   if (!CopyExact(backup, block, size, progress, 5, 95)) {
     SetText(progress, "Restore failed", "The partition write did not complete."); return false;
   }
@@ -1134,7 +1143,8 @@ bool RefreshModules(Progress &progress) {
     ++checked;
     progress.value.store(static_cast<unsigned>(checked * 100 / modules.size()));
     SetText(progress, "Checking module updates",
-            module.name + " • " + std::to_string(checked) + "/" + std::to_string(modules.size()));
+            i18n::Format("%s • %u/%zu", module.name.c_str(), checked,
+                         modules.size()));
     if (!SafeHttps(module.update_json)) continue;
     const std::string metadata = std::string(kWork) + "/module-" + module.id + ".json";
     if (!Download(module.update_json, metadata, kMaxMetadata, progress,
@@ -1161,7 +1171,8 @@ bool RefreshModules(Progress &progress) {
   const size_t updates = std::count_if(modules.begin(), modules.end(),
       [](const Module &module) { return module.update_available; });
   SetText(progress, "Module check complete",
-          updates ? std::to_string(updates) + " updates available" : "Everything is current");
+          updates ? i18n::Format("%zu updates available", updates)
+                  : "Everything is current");
   return true;
 }
 
@@ -1205,7 +1216,9 @@ bool UpdateModule(const Request &request, Progress &progress) {
   const bool ok = RunCapture({kKsud, "module", "install", zip}, &output);
   progress.value.store(100);
   SetText(progress, ok ? "Module update installed" : "Module installation failed",
-          ok ? module.name + " will be active after reboot." : Trim(output));
+          ok ? i18n::Format("%s will be active after reboot.",
+                            module.name.c_str())
+             : Trim(output));
   if (ok) LoadModules();
   return ok;
 }
@@ -1257,7 +1270,7 @@ PatchInfo InspectSlot(const std::string &requested_slot) {
   const std::string block = BlockForSlot(slot);
   const uint64_t size = FileSize(block);
   if (size < 1024 * 1024 || size > 64 * 1024 * 1024) {
-    info.detail = "init_boot_" + slot + " is unavailable.";
+    info.detail = i18n::Format("init_boot_%s is unavailable.", slot.c_str());
     return info;
   }
 
@@ -1273,15 +1286,17 @@ PatchInfo InspectSlot(const std::string &requested_slot) {
       info.provider = receipt["provider"].asString();
       info.version = receipt["version"].asString();
       info.kmi = receipt["kmi"].asString();
-      info.detail = "Verified AERA patch • " + info.provider + " " + info.version +
-                    " • " + info.kmi;
+      info.detail = i18n::Format("Verified AERA patch • %s %s • %s",
+          info.provider.c_str(), info.version.c_str(), info.kmi.c_str());
       return info;
     }
   }
 
   const std::string directory = std::string(kWork) + "/inspect-" + slot;
   if (!EnsureDirectory(kWork) || !EnsureDirectory(directory)) {
-    info.detail = "Could not inspect init_boot_" + slot + "."; return info;
+    info.detail =
+        i18n::Format("Could not inspect init_boot_%s.", slot.c_str());
+    return info;
   }
   const std::string image = directory + "/init_boot.img";
   const std::string cpio = directory + "/ramdisk.cpio";
@@ -1289,12 +1304,15 @@ PatchInfo InspectSlot(const std::string &requested_slot) {
   unlink(image.c_str()); unlink(cpio.c_str()); unlink(module.c_str());
   Progress copy;
   if (!CopyExact(block, image, size, copy, 0, 1)) {
-    info.detail = "Could not read init_boot_" + slot + "."; return info;
+    info.detail = i18n::Format("Could not read init_boot_%s.", slot.c_str());
+    return info;
   }
   std::string unpack;
   if (!RunCapture({kMagiskboot, "unpack", "init_boot.img"}, &unpack, -1,
                   directory.c_str())) {
-    info.detail = "init_boot_" + slot + " could not be unpacked."; return info;
+    info.detail =
+        i18n::Format("init_boot_%s could not be unpacked.", slot.c_str());
+    return info;
   }
   std::string listing;
   if (!RunCapture({kMagiskboot, "cpio", "ramdisk.cpio", "ls"}, &listing, -1,
@@ -1373,13 +1391,16 @@ ManagerStatus InspectManager(Provider provider) {
   status.installed = PackageListed(status.package_name);
   status.staged = access(ManagerStagingPath(provider).c_str(), R_OK) == 0;
   if (status.installed)
-    status.detail = std::string(ProviderName(provider)) + " is installed in Android.";
+    status.detail = i18n::Format("%s is installed in Android.",
+                                 ProviderName(provider));
   else if (status.staged)
-    status.detail = std::string(ProviderName(provider)) +
-        " is ready and will be installed when Android boots.";
+    status.detail = i18n::Format(
+        "%s is ready and will be installed when Android boots.",
+        ProviderName(provider));
   else
-    status.detail = std::string(ProviderName(provider)) +
-        " is not installed. Download the official manager app from GitHub.";
+    status.detail = i18n::Format(
+        "%s is not installed. Download the official manager app from GitHub.",
+        ProviderName(provider));
   return status;
 }
 
@@ -1391,8 +1412,9 @@ bool Run(const Request &request, Progress &progress) {
       const bool ok = FetchRelease(request.provider, Probe(), progress, release);
       if (!ok) SetText(progress, "No compatible release", release.error);
       else { progress.value.store(100); SetText(progress, "Ready to patch",
-          std::string(ProviderName(request.provider)) + " " + release.version +
-          " • online release • " + release.asset_name); }
+          i18n::Format("%s %s • online release • %s",
+              ProviderName(request.provider), release.version.c_str(),
+              release.asset_name.c_str())); }
       return ok;
     }
     case Job::kPatch: return Patch(request, progress);
