@@ -23,7 +23,11 @@ replace the runtime with a newer signed package. No browser runs at boot.
 - Native LVGL-side nonblocking session transport, double-buffered image slots,
   required memfd size seals, navigation controls, two-finger pinch zoom,
   download manager, touch scrolling and an ASCII keyboard.
-  Closing the page closes its channel; a lost/invalid channel shows an error.
+  After first launch, closing the page detaches only its LVGL presentation;
+  WebKit, navigation state and downloads remain alive in RAM until recovery
+  exits. Hidden frames are acknowledged without being displayed, allowing
+  downloads to continue without exposing the recovery framebuffer. A
+  lost/invalid channel shows an error when Browser is reopened.
   Host tests use a synthetic channel, not an unsandboxed WebKit process.
 
 ## Isolation boundary

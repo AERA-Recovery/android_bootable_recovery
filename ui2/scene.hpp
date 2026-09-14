@@ -112,6 +112,9 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
 // Consumes both native touch slots while the browser viewport owns input,
 // enabling pinch zoom without exposing recovery input devices to WebKit.
 bool BrowserHandlePointer(int slot, int x, int y, bool pressed);
+// Stops the persistent browser worker and releases its expanded RAM runtime.
+// The engine calls this before LVGL destroys the active display.
+void ShutdownWebRuntime();
 void BuildRetroArchScene(lv_obj_t *screen, ActionCallback callback,
                          void *context);
 void BuildTelegramScene(lv_obj_t *screen, ActionCallback callback,

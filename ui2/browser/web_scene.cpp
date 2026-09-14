@@ -24,7 +24,9 @@ constexpr int kBrowserImageScale =
 struct WebScene;
 void BrowserRefreshReady(lv_event_t *event);
 void HideKeyboard(WebScene *s);
+void ResetBrowserTouches(WebScene *s);
 WebScene *gWebScene = nullptr;
+WebScene *gPersistentWebScene = nullptr;
 
 struct WebScene {
   lv_obj_t *screen = nullptr, *address = nullptr, *keyboard = nullptr;
@@ -45,6 +47,7 @@ struct WebScene {
   web::Preparation state;
   std::thread worker;
   bool started = false, finished = false, auto_launch = true;
+  bool persistent = false;
   bool manager_open = false;
   bool frame_waiting_for_refresh = false;
   bool touch_pressed[2]{};
@@ -58,23 +61,49 @@ struct WebScene {
   int view_width = kBrowserViewportWidth;
   int view_height = kBrowserViewportHeight;
   ~WebScene() {
-    if (gWebScene == this) gWebScene = nullptr;
     if (timer) lv_timer_delete(timer);
-    if (display)
-      lv_display_remove_event_cb_with_user_data(
-          display, BrowserRefreshReady, this);
     state.cancel.store(true);
     if (worker.joinable()) worker.join();
-    if (image) {
-      lv_image_set_src(image, nullptr);
-      lv_image_cache_drop(&descriptor);
-    }
     if (session.Connected()) session.Send(web::Kind::kClose);
     process.Stop();
     session.Close();
     web::RemoveRuntime(state.directory);
   }
 };
+
+void DetachWebScene(WebScene *s) {
+  if (gWebScene == s) gWebScene = nullptr;
+  if (s->display)
+    lv_display_remove_event_cb_with_user_data(
+        s->display, BrowserRefreshReady, s);
+  if (s->frame_waiting_for_refresh) s->session.AcknowledgeFrame();
+  s->frame_waiting_for_refresh = false;
+  if (s->image) {
+    lv_image_set_src(s->image, nullptr);
+    lv_image_cache_drop(&s->descriptor);
+  }
+  s->screen = nullptr;
+  s->display = nullptr;
+  s->address = nullptr;
+  s->keyboard = nullptr;
+  s->navigation = nullptr;
+  s->title = nullptr;
+  s->detail = nullptr;
+  s->progress = nullptr;
+  s->prepare = nullptr;
+  s->area = nullptr;
+  s->viewport = nullptr;
+  s->image = nullptr;
+  s->web_progress = nullptr;
+  for (auto &control : s->controls) control = nullptr;
+  s->manager = nullptr;
+  s->download_list = nullptr;
+  s->descriptor = {};
+  s->showing_web = false;
+  s->web_keyboard = false;
+  s->manager_open = false;
+  ResetBrowserTouches(s);
+}
 
 std::string FormatBytes(uint64_t bytes) {
   char text[48];
@@ -303,7 +332,8 @@ void Prepare(WebScene *s) {
   lv_obj_add_state(s->prepare, LV_STATE_DISABLED);
   lv_obj_remove_flag(s->progress, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(s->title, "Preparing WebKit");
-  lv_label_set_text(s->detail, "Verifying and expanding the engine in RAM. You can leave this page to cancel.");
+  lv_label_set_text(s->detail,
+      "Verifying and expanding the engine in RAM. Preparation continues if you leave this page.");
   s->worker = std::thread([s] { web::PrepareRuntime(s->state); });
 }
 }  // namespace
@@ -401,18 +431,58 @@ bool BrowserHandlePointer(int slot, int x, int y, bool pressed) {
   return true;
 }
 
+void ShutdownWebRuntime() {
+  auto *s = gPersistentWebScene;
+  if (!s) return;
+  gPersistentWebScene = nullptr;
+  s->persistent = false;
+  if (s->timer) {
+    lv_timer_delete(s->timer);
+    s->timer = nullptr;
+  }
+  s->state.cancel.store(true);
+  if (s->worker.joinable()) s->worker.join();
+  if (s->session.Connected()) s->session.Send(web::Kind::kClose);
+  s->process.Stop();
+  s->session.Close();
+  web::RemoveRuntime(s->state.directory);
+  s->state.directory.clear();
+  if (!s->screen) delete s;
+}
+
 void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
                    int frame_fd, int control_fd, bool auto_launch) {
-  auto *s = new WebScene;
+  auto *s = auto_launch ? gPersistentWebScene : nullptr;
+  if (!s) {
+    s = new WebScene;
+    s->persistent = auto_launch;
+    if (auto_launch) gPersistentWebScene = s;
+  }
+  // Recreate only the LVGL presentation. The verified runtime, WebKit worker,
+  // navigation state and downloads deliberately survive between scenes.
   gWebScene = s;
   s->auto_launch = auto_launch;
   s->screen = screen;
   s->display = lv_obj_get_display(screen);
+  s->view_left = 24;
+  s->view_top = 460;
+  s->view_width = kBrowserViewportWidth;
+  s->view_height = kBrowserViewportHeight;
+  s->showing_web = false;
+  s->web_keyboard = false;
+  s->manager_open = false;
+  s->frame_waiting_for_refresh = false;
+  s->last_status.clear();
+  s->last_progress = 101;
+  s->last_download_revision = UINT32_MAX;
+  ResetBrowserTouches(s);
   lv_display_add_event_cb(
       s->display, BrowserRefreshReady, LV_EVENT_REFR_READY, s);
   if (frame_fd >= 0 || control_fd >= 0) s->session.Adopt(frame_fd, control_fd);
   lv_obj_add_event_cb(screen, [](lv_event_t *e) {
-    delete static_cast<WebScene *>(lv_event_get_user_data(e));
+    auto *s = static_cast<WebScene *>(lv_event_get_user_data(e));
+    DetachWebScene(s);
+    if (!s->persistent) delete s;
   }, LV_EVENT_DELETE, s);
   MainBackground(screen);
   AttachStatusBar(screen, callback, context, StatusBarAction::kNone, true);
@@ -519,7 +589,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
                   landscape ? 118 : 144);
   lv_obj_set_style_opa(s->prepare, LV_OPA_40, LV_STATE_DISABLED);
   lv_obj_align(s->prepare, LV_ALIGN_TOP_MID, 0, landscape ? 680 : 960);
-  auto *note = Label(area, "Wi-Fi setup is separate.\n\nNo browser runs during boot.\nLeaving this page releases the prepared runtime.\n\nDownloads are saved to AERA/Downloads.",
+  auto *note = Label(area, "Wi-Fi setup is separate.\n\nNo browser runs during boot.\nAfter its first launch, Browser stays ready in RAM.\nDownloads continue when you leave this page.\n\nDownloads are saved to AERA/Downloads.",
                      &lv_font_montserrat_32, kMuted);
   lv_obj_set_width(note, landscape ? s->view_width - 70 : 1090);
   lv_obj_set_style_text_line_space(note, 14, 0);
@@ -596,17 +666,25 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
       // Mode selectors are keyboard UI, never injected as strings into a page.
     }
   }, LV_EVENT_ALL, s);
-  s->timer = lv_timer_create([](lv_timer_t *timer) {
+  if (!s->timer) s->timer = lv_timer_create([](lv_timer_t *timer) {
     auto *s = static_cast<WebScene *>(lv_timer_get_user_data(timer));
-    if (s->session.Connected() || s->showing_web) {
+    const bool visible = s->screen != nullptr;
+    if (s->session.Connected()) {
       const bool new_frame = s->session.Poll();
       uint32_t keyboard_purpose = 0;
       const auto keyboard_request = s->session.TakeKeyboardRequest(&keyboard_purpose);
-      if (keyboard_request == web::KeyboardRequest::kShow)
+      if (!visible) {
+        // WebKit uses a two-buffer handshake. Consume and acknowledge hidden
+        // frames so its main loop and network downloads never stall merely
+        // because the Browser scene is not currently on screen.
+        if (new_frame) s->session.AcknowledgeFrame();
+      } else if (keyboard_request == web::KeyboardRequest::kShow) {
         ShowKeyboard(s, true, keyboard_purpose);
-      else if (keyboard_request == web::KeyboardRequest::kHide && s->web_keyboard)
+      } else if (keyboard_request == web::KeyboardRequest::kHide &&
+                 s->web_keyboard) {
         HideKeyboard(s);
-      if (new_frame) {
+      }
+      if (visible && new_frame) {
         s->descriptor.data = s->session.Pixels();
         lv_image_cache_drop(&s->descriptor);
         lv_image_set_src(s->image, &s->descriptor);
@@ -616,23 +694,28 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
         lv_obj_remove_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
         s->showing_web = true;
       }
-      for (int i = 0; i < 6; ++i) {
+      for (int i = 0; visible && i < 6; ++i) {
         const bool enabled = s->session.Connected() &&
             (i == 0 ? s->session.CanBack() : i == 1 ? s->session.CanForward() : true);
         if (enabled) lv_obj_remove_state(s->controls[i], LV_STATE_DISABLED);
         else lv_obj_add_state(s->controls[i], LV_STATE_DISABLED);
       }
       if (s->last_download_revision != s->session.DownloadRevision()) {
-        for (const auto &download : s->session.Downloads()) {
-          if (s->announced_downloads.insert(download.id).second) {
-            ShowDownloadStarted(s, download);
-            break;
+        if (visible) {
+          for (const auto &download : s->session.Downloads()) {
+            if (s->announced_downloads.insert(download.id).second) {
+              ShowDownloadStarted(s, download);
+              break;
+            }
           }
+          if (s->manager_open) RefreshDownloads(s);
+        } else {
+          for (const auto &download : s->session.Downloads())
+            s->announced_downloads.insert(download.id);
         }
-        if (s->manager_open) RefreshDownloads(s);
-        else s->last_download_revision = s->session.DownloadRevision();
+        s->last_download_revision = s->session.DownloadRevision();
       }
-      if (s->last_status != s->session.Status()) {
+      if (visible && s->last_status != s->session.Status()) {
         s->last_status = s->session.Status();
         lv_label_set_text(s->detail, s->last_status.c_str());
         // The editable field is the only address display. Track redirects,
@@ -643,35 +726,41 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
             !lv_obj_has_state(s->address, LV_STATE_FOCUSED))
           lv_textarea_set_text(s->address, current_address.c_str());
       }
-      if (s->session.Progress() != s->last_progress) {
+      if (visible && s->session.Progress() != s->last_progress) {
         s->last_progress = s->session.Progress();
         lv_bar_set_value(s->web_progress, s->last_progress, LV_ANIM_ON);
         if (s->last_progress < 100 && s->session.Connected())
           lv_obj_remove_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
       }
-      if (!s->session.Connected()) {
-        HideKeyboard(s);
-        lv_obj_add_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
-        s->showing_web = false;
-        lv_obj_add_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s->area, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(s->title, "Browser stopped");
-      }
+    } else if (visible && s->showing_web) {
+      HideKeyboard(s);
+      lv_obj_add_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
+      s->showing_web = false;
+      lv_obj_add_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_remove_flag(s->area, LV_OBJ_FLAG_HIDDEN);
+      lv_label_set_text(s->title, "Browser stopped");
+      lv_label_set_text(s->detail,
+                        "The persistent WebKit session closed unexpectedly.");
     }
     if (!s->started || s->finished) return;
-    lv_bar_set_value(s->progress, s->state.progress.load(), LV_ANIM_ON);
+    if (visible)
+      lv_bar_set_value(s->progress, s->state.progress.load(), LV_ANIM_ON);
     if (!s->state.done.load(std::memory_order_acquire)) return;
     s->finished = true;
     if (s->worker.joinable()) s->worker.join();
     if (!s->state.verified) {
-      lv_label_set_text(s->title, "Preparation failed");
-      lv_label_set_text(s->detail, s->state.error.c_str());
+      if (visible) {
+        lv_label_set_text(s->title, "Preparation failed");
+        lv_label_set_text(s->detail, s->state.error.c_str());
+      }
       return;
     }
     if (!s->auto_launch) {
-      lv_label_set_text(s->title, "Runtime verified");
-      lv_label_set_text(s->detail, web::LaunchBlockReason().c_str());
+      if (visible) {
+        lv_label_set_text(s->title, "Runtime verified");
+        lv_label_set_text(s->detail, web::LaunchBlockReason().c_str());
+      }
       return;
     }
     int frame = -1, control = -1;
@@ -679,13 +768,40 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
     if (!s->process.Start(s->state.directory, frame, control, error) ||
         !s->session.Adopt(frame, control)) {
       s->process.Stop();
-      lv_label_set_text(s->title, "Browser start failed");
-      lv_label_set_text(s->detail, error.empty() ? s->session.Status().c_str() : error.c_str());
+      if (visible) {
+        lv_label_set_text(s->title, "Browser start failed");
+        lv_label_set_text(s->detail,
+            error.empty() ? s->session.Status().c_str() : error.c_str());
+      }
       return;
     }
-    lv_label_set_text(s->title, "Starting private browser");
-    lv_label_set_text(s->detail, "Loading the built-in start page...");
+    if (visible) {
+      lv_label_set_text(s->title, "Starting private browser");
+      lv_label_set_text(s->detail, "Loading the built-in start page...");
+    }
   }, 8, s);
+
+  if (s->started && !s->finished) {
+    lv_obj_add_state(s->prepare, LV_STATE_DISABLED);
+    lv_obj_remove_flag(s->progress, LV_OBJ_FLAG_HIDDEN);
+    lv_bar_set_value(s->progress, s->state.progress.load(), LV_ANIM_OFF);
+    lv_label_set_text(s->title, "Preparing WebKit");
+    lv_label_set_text(s->detail,
+        "Verifying and expanding the persistent engine in RAM...");
+  } else if (s->finished && !s->state.verified) {
+    lv_label_set_text(s->title, "Preparation failed");
+    lv_label_set_text(s->detail, s->state.error.c_str());
+  }
+  if (s->session.Connected() && s->session.HasFrame()) {
+    s->descriptor.data = s->session.Pixels();
+    lv_image_set_src(s->image, &s->descriptor);
+    lv_obj_add_flag(s->area, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
+    s->showing_web = true;
+    const auto current_address = web::Address(s->session.Status());
+    if (!current_address.empty())
+      lv_textarea_set_text(s->address, current_address.c_str());
+  }
 
   // Opening Browser is the user's explicit request to use the engine. Begin
   // verification immediately instead of depending on a second tap in the

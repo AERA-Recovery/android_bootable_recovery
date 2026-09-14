@@ -209,6 +209,7 @@ public:
       plugin_thread_.join();
     if (update_thread_.joinable())
       update_thread_.join();
+    ShutdownWebRuntime();
     CancelEdgeSwipe();
     if (pointer_device_ != nullptr) {
       lv_indev_delete(pointer_device_);

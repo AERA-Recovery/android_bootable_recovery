@@ -45,6 +45,7 @@ class Session {
   bool Adopt(int frame_fd, int control_fd);
   void Close();
   bool Connected() const { return control_ >= 0; }
+  bool HasFrame() const { return sequence_ != 0; }
   bool Send(Kind kind, int x = 0, int y = 0, uint32_t value = 0, const char *text = "");
   bool SetZoom(unsigned percent);
   bool CancelDownload(uint32_t id);

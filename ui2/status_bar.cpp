@@ -579,7 +579,7 @@ void RefreshShade(StatusState *state) {
               ? std::to_string(download.active_count) + " downloads"
               : "Downloading " + download.name)
           : download.status == web::DownloadStatus::kFinished
-              ? "Download complete"
+              ? "Download finished"
               : download.status == web::DownloadStatus::kCancelled
                   ? "Download cancelled" : "Download failed";
       std::string detail = active
