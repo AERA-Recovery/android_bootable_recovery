@@ -9,9 +9,13 @@
 #include <epoxy/egl.h>
 #include <glib-unix.h>
 #include <algorithm>
+#include <cctype>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
+#include <memory>
+#include <string>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
@@ -76,6 +80,9 @@ struct Session {
   gint64 visual_activity_until_us = 0;
   bool media_playing = false;
   std::vector<uint8_t> staged;
+  struct DownloadRecord;
+  std::vector<std::unique_ptr<DownloadRecord>> downloads;
+  uint32_t next_download_id = 1;
 };
 static bool Send(Session *s, const Message &m) {
   if (send(4, &m, sizeof(m), MSG_DONTWAIT | MSG_NOSIGNAL) == sizeof(m)) return true;
@@ -128,6 +135,109 @@ static void Status(Session *s, const char *error = nullptr) {
   const char *text = error ? error : webkit_web_view_get_uri(s->web);
   g_strlcpy(m.text, text ? text : "", sizeof(m.text));
   Send(s, m);
+}
+struct Session::DownloadRecord {
+  Session *session = nullptr;
+  WebKitDownload *download = nullptr;
+  uint32_t id = 0;
+  std::string name = "Download";
+  gint64 last_progress_us = 0;
+  bool announced = false;
+  bool terminal = false;
+  ~DownloadRecord() { g_clear_object(&download); }
+};
+static std::string SafeDownloadName(const char *suggested) {
+  std::string name = suggested && *suggested ? suggested : "download";
+  if (name.size() > 120) name.resize(120);
+  for (char &value : name) {
+    const unsigned char c = static_cast<unsigned char>(value);
+    if (!(std::isalnum(c) || c == '.' || c == '-' || c == '_' || c == ' '))
+      value = '_';
+  }
+  while (!name.empty() && (name.front() == '.' || name.front() == ' '))
+    name.erase(name.begin());
+  if (name.empty()) name = "download";
+  return name;
+}
+static std::string UniqueDownloadName(const std::string &requested) {
+  if (access(("/downloads/" + requested).c_str(), F_OK)) return requested;
+  const auto dot = requested.find_last_of('.');
+  const std::string stem = dot == std::string::npos ? requested : requested.substr(0, dot);
+  const std::string extension = dot == std::string::npos ? "" : requested.substr(dot);
+  for (unsigned suffix = 2; suffix < 1000; ++suffix) {
+    const std::string candidate = stem + " (" + std::to_string(suffix) + ")" + extension;
+    if (access(("/downloads/" + candidate).c_str(), F_OK)) return candidate;
+  }
+  return std::to_string(g_get_real_time()) + "-" + requested;
+}
+static void SendDownload(Session::DownloadRecord *record, Kind kind,
+                         const char *error = nullptr) {
+  if (!record || !record->session) return;
+  const uint64_t received = webkit_download_get_received_data_length(record->download);
+  uint64_t total = 0;
+  if (auto *response = webkit_download_get_response(record->download))
+    total = webkit_uri_response_get_content_length(response);
+  const auto progress = static_cast<int>(std::clamp(
+      webkit_download_get_estimated_progress(record->download) * 100.0, 0.0, 100.0));
+  Message message;
+  message.kind = kind;
+  message.sequence = record->id;
+  message.x = progress;
+  message.y = static_cast<int32_t>(std::min<uint64_t>(total / 1024, INT32_MAX));
+  message.value = static_cast<uint32_t>(std::min<uint64_t>(received / 1024, UINT32_MAX));
+  g_strlcpy(message.text, error ? error : record->name.c_str(), sizeof(message.text));
+  Send(record->session, message);
+}
+static gboolean DownloadDestination(WebKitDownload *download,
+                                    const gchar *suggested, gpointer data) {
+  auto *record = static_cast<Session::DownloadRecord *>(data);
+  record->name = UniqueDownloadName(SafeDownloadName(suggested));
+  const std::string path = "/downloads/" + record->name;
+  webkit_download_set_allow_overwrite(download, FALSE);
+  // WPE WebKit takes an absolute native path here. Passing the file:// URI
+  // used by older GTK WebKit builds fails its g_path_is_absolute assertion
+  // and leaves the download announced but unable to create a destination.
+  webkit_download_set_destination(download, path.c_str());
+  record->announced = true;
+  SendDownload(record, Kind::kDownloadStarted);
+  return TRUE;
+}
+static void DownloadData(WebKitDownload *, guint64, gpointer data) {
+  auto *record = static_cast<Session::DownloadRecord *>(data);
+  const gint64 now = g_get_monotonic_time();
+  if (record->last_progress_us && now - record->last_progress_us < 100000) return;
+  record->last_progress_us = now;
+  SendDownload(record, Kind::kDownloadProgress);
+}
+static void DownloadFailed(WebKitDownload *, GError *error, gpointer data) {
+  auto *record = static_cast<Session::DownloadRecord *>(data);
+  if (record->terminal) return;
+  record->terminal = true;
+  const bool cancelled = error && error->domain == WEBKIT_DOWNLOAD_ERROR &&
+      error->code == WEBKIT_DOWNLOAD_ERROR_CANCELLED_BY_USER;
+  SendDownload(record, cancelled ? Kind::kDownloadCancelled : Kind::kDownloadFailed,
+               cancelled ? "Cancelled" : error ? error->message : "Download failed");
+}
+static void DownloadFinished(WebKitDownload *, gpointer data) {
+  auto *record = static_cast<Session::DownloadRecord *>(data);
+  if (record->terminal) return;
+  record->terminal = true;
+  SendDownload(record, Kind::kDownloadFinished);
+}
+static void DownloadStarted(WebKitNetworkSession *, WebKitDownload *download,
+                            gpointer data) {
+  auto *session = static_cast<Session *>(data);
+  auto record = std::make_unique<Session::DownloadRecord>();
+  record->session = session;
+  record->download = WEBKIT_DOWNLOAD(g_object_ref(download));
+  record->id = session->next_download_id++;
+  auto *raw = record.get();
+  g_signal_connect(download, "decide-destination",
+                   G_CALLBACK(DownloadDestination), raw);
+  g_signal_connect(download, "received-data", G_CALLBACK(DownloadData), raw);
+  g_signal_connect(download, "failed", G_CALLBACK(DownloadFailed), raw);
+  g_signal_connect(download, "finished", G_CALLBACK(DownloadFinished), raw);
+  session->downloads.push_back(std::move(record));
 }
 static bool SamePixels(const uint8_t *packed, const uint8_t *data, guint stride) {
   for (int y = 0; y < kHeight; ++y) {
@@ -264,6 +374,16 @@ static gboolean Input(gint fd, GIOCondition condition, gpointer data) {
     case Kind::kForward: webkit_web_view_go_forward(s->web); break;
     case Kind::kReload: webkit_web_view_reload(s->web); break;
     case Kind::kStop: webkit_web_view_stop_loading(s->web); break;
+    case Kind::kSetZoom:
+      webkit_web_view_set_zoom_level(s->web, m.value / 100.0);
+      break;
+    case Kind::kDownloadCancel:
+      for (const auto &record : s->downloads)
+        if (record->id == m.sequence && !record->terminal) {
+          webkit_download_cancel(record->download);
+          break;
+        }
+      break;
     case Kind::kClose: g_main_loop_quit(s->loop); break;
     case Kind::kAck:
       if (!s->pending || m.sequence != s->sequence) { g_main_loop_quit(s->loop); break; }
@@ -277,7 +397,8 @@ static gboolean Input(gint fd, GIOCondition condition, gpointer data) {
       const auto kind = m.kind == Kind::kTouchDown ? WPE_EVENT_TOUCH_DOWN :
                         m.kind == Kind::kTouchUp ? WPE_EVENT_TOUCH_UP : WPE_EVENT_TOUCH_MOVE;
       auto *event = wpe_event_touch_new(kind, s->view, WPE_INPUT_SOURCE_TOUCHSCREEN,
-          g_get_monotonic_time() / 1000, static_cast<WPEModifiers>(0), 1, m.x, m.y);
+          g_get_monotonic_time() / 1000, static_cast<WPEModifiers>(0),
+          m.value + 1, m.x, m.y);
       wpe_view_event(s->view, event); wpe_event_unref(event); break;
     }
     case Kind::kKey: {
@@ -375,12 +496,25 @@ int main(int argc, char **argv) {
       WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START, nullptr, nullptr);
   webkit_user_content_manager_add_script(content, media_script);
   webkit_user_script_unref(media_script);
+  // Many old or desktop-first pages omit a viewport declaration. Mobile
+  // browsers lay those pages out at device width instead of shrinking a
+  // roughly 980 CSS-pixel canvas into an unreadable strip.
+  static const char mobile_viewport[] = R"JS((()=>{
+    if(document.querySelector('meta[name="viewport"]'))return;
+    const meta=document.createElement('meta');
+    meta.name='viewport';
+    meta.content='width=device-width,initial-scale=1';
+    (document.head||document.documentElement).appendChild(meta);
+  })();)JS";
+  auto *viewport_script = webkit_user_script_new(mobile_viewport,
+      WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+      WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END, nullptr, nullptr);
+  webkit_user_content_manager_add_script(content, viewport_script);
+  webkit_user_script_unref(viewport_script);
   s.web = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "display", display,
       "settings", settings, "web-context", context, "network-session", network,
       "user-content-manager", content, nullptr));
-  g_signal_connect(network, "download-started", G_CALLBACK(+[](WebKitNetworkSession *, WebKitDownload *d, gpointer) {
-    webkit_download_cancel(d);
-  }), nullptr);
+  g_signal_connect(network, "download-started", G_CALLBACK(DownloadStarted), &s);
   g_signal_connect(s.web, "permission-request", G_CALLBACK(+[](WebKitWebView *, WebKitPermissionRequest *r, gpointer) -> gboolean {
     webkit_permission_request_deny(r); return TRUE;
   }), nullptr);

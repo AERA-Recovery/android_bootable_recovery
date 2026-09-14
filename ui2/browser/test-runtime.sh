@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 browser_sources=$(cd -- "$(dirname -- "$0")" && pwd)
-xz_sources=${AERA_XZ_SOURCE:-/home/koaan/android/fox_14.1/external/xz-embedded}
+xz_sources=${AERA_XZ_SOURCE:-/home/koaan/Desktop/AERA_16.0/external/xz-embedded}
 test_output=${1:-/tmp/aera-browser-tests}
 mkdir -p "$test_output"
 objects=()

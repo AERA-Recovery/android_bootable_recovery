@@ -109,6 +109,9 @@ void BuildBrowserScene(lv_obj_t *screen, ActionCallback callback, void *context)
 void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
                    int frame_fd = -1, int control_fd = -1,
                    bool auto_launch = true);
+// Consumes both native touch slots while the browser viewport owns input,
+// enabling pinch zoom without exposing recovery input devices to WebKit.
+bool BrowserHandlePointer(int slot, int x, int y, bool pressed);
 void BuildRetroArchScene(lv_obj_t *screen, ActionCallback callback,
                          void *context);
 void BuildTelegramScene(lv_obj_t *screen, ActionCallback callback,

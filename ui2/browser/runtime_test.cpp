@@ -34,6 +34,11 @@ int main(int argc, char **argv) {
   message = Message{}; message.kind = Kind::kKeyboardShow; message.value = 10;
   assert(Valid(message, true)); message.value = 11; assert(!Valid(message, true));
   message = Message{}; message.kind = Kind::kKeyboardHide; assert(Valid(message, true));
+  message = Message{}; message.kind = Kind::kSetZoom; message.value = 50;
+  assert(Valid(message, false)); message.value = 301; assert(!Valid(message, false));
+  message = Message{}; message.kind = Kind::kDownloadStarted;
+  message.sequence = 1; message.x = 42; message.y = 1024;
+  assert(Valid(message, true)); message.sequence = 0; assert(!Valid(message, true));
   memset(message.text, 'x', sizeof(message.text)); assert(!Valid(message, false));
   assert(LaunchBlockReason().find("unprivileged") != std::string::npos);
 

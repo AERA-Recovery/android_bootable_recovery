@@ -15,6 +15,7 @@
 #include <lvgl.h>
 
 #include "design.hpp"
+#include "browser/session.hpp"
 #include "plugin_api/operations.hpp"
 #include "recorder/service.hpp"
 #include "recovery_ui2/backend.hpp"
@@ -30,6 +31,7 @@ struct StatusState {
   lv_obj_t *bar = nullptr;
   lv_obj_t *clock = nullptr;
   lv_obj_t *mirror = nullptr;
+  lv_obj_t *download = nullptr;
   lv_obj_t *wifi = nullptr;
   lv_obj_t *recording_dot = nullptr;
   lv_obj_t *recording = nullptr;
@@ -50,6 +52,10 @@ struct StatusState {
   lv_obj_t *shade_update = nullptr;
   lv_obj_t *shade_update_title = nullptr;
   lv_obj_t *shade_update_detail = nullptr;
+  lv_obj_t *shade_download = nullptr;
+  lv_obj_t *shade_download_title = nullptr;
+  lv_obj_t *shade_download_detail = nullptr;
+  lv_obj_t *shade_download_progress = nullptr;
   lv_obj_t *brightness_value = nullptr;
   lv_obj_t *brightness_slider = nullptr;
   int battery = -1;
@@ -70,6 +76,12 @@ constexpr int kShadeHeight = 1390;
 int32_t gStatusBarHeight = 165;
 int32_t gStatusIndentLeft = 54;
 int32_t gStatusIndentRight = 54;
+lv_obj_t *gOpenShade = nullptr;
+
+void ShadeDeleted(lv_event_t *event) {
+  auto *shade = lv_event_get_target_obj(event);
+  if (gOpenShade == shade) gOpenShade = nullptr;
+}
 
 void PulseRecordingDot(void *target, int32_t opacity) {
   lv_obj_set_style_bg_opa(static_cast<lv_obj_t *>(target),
@@ -122,6 +134,10 @@ void AnimateShade(StatusState *state, bool open) {
     state->shade_update = nullptr;
     state->shade_update_title = nullptr;
     state->shade_update_detail = nullptr;
+    state->shade_download = nullptr;
+    state->shade_download_title = nullptr;
+    state->shade_download_detail = nullptr;
+    state->shade_download_progress = nullptr;
     state->brightness_value = nullptr;
     state->brightness_slider = nullptr;
     lv_obj_delete_delayed(closing, 250);
@@ -264,6 +280,8 @@ void BuildShade(StatusState *state) {
   state->shade_height = std::min(kShadeHeight, screen_height - 24);
   state->shade_visible = 0;
   state->shade = lv_obj_create(state->screen);
+  gOpenShade = state->shade;
+  lv_obj_add_event_cb(state->shade, ShadeDeleted, LV_EVENT_DELETE, nullptr);
   NoScroll(state->shade);
   lv_obj_set_pos(state->shade, 0, 0);
   lv_obj_set_size(state->shade, screen_width, screen_height);
@@ -360,6 +378,36 @@ void BuildShade(StatusState *state) {
                       LV_EVENT_RELEASED, state);
 
   const int update_y = landscape ? 735 : 855;
+  state->shade_download = lv_obj_create(state->sheet);
+  NoScroll(state->shade_download);
+  lv_obj_set_pos(state->shade_download, offset, update_y);
+  lv_obj_set_size(state->shade_download, content_width, 126);
+  lv_obj_set_style_radius(state->shade_download, 30, 0);
+  lv_obj_set_style_bg_color(state->shade_download, kMainPanel, 0);
+  lv_obj_set_style_bg_opa(state->shade_download, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(state->shade_download, 1, 0);
+  lv_obj_set_style_border_color(state->shade_download, kMainLine, 0);
+  auto *download_icon = Label(state->shade_download, LV_SYMBOL_DOWNLOAD,
+                              &lv_font_montserrat_36, kAccent);
+  lv_obj_align(download_icon, LV_ALIGN_LEFT_MID, 34, -9);
+  state->shade_download_title = Label(state->shade_download, "Downloading",
+                                      &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(state->shade_download_title, 104, 16);
+  lv_obj_set_width(state->shade_download_title, content_width - 190);
+  lv_label_set_long_mode(state->shade_download_title, LV_LABEL_LONG_DOT);
+  state->shade_download_detail = Label(state->shade_download, "",
+                                       &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(state->shade_download_detail, 104, 62);
+  lv_obj_set_width(state->shade_download_detail, content_width - 190);
+  lv_label_set_long_mode(state->shade_download_detail, LV_LABEL_LONG_DOT);
+  state->shade_download_progress = lv_bar_create(state->shade_download);
+  lv_obj_set_pos(state->shade_download_progress, 104, 102);
+  lv_obj_set_size(state->shade_download_progress, content_width - 142, 8);
+  lv_obj_set_style_bg_color(state->shade_download_progress, kMainLine, 0);
+  lv_obj_set_style_bg_color(state->shade_download_progress, kAccent,
+                            LV_PART_INDICATOR);
+  lv_obj_add_flag(state->shade_download, LV_OBJ_FLAG_HIDDEN);
+
   state->shade_update = lv_button_create(state->sheet);
   NoScroll(state->shade_update);
   lv_obj_set_user_data(state->shade_update,
@@ -466,6 +514,19 @@ bool ReadCharging() {
                   strncmp(status, "Full", 4) == 0);
 }
 
+std::string FormatDownloadSpeed(uint64_t bytes_per_second) {
+  char text[32];
+  if (bytes_per_second >= 1024ULL * 1024)
+    snprintf(text, sizeof(text), "%.1f MB/s",
+             bytes_per_second / (1024.0 * 1024));
+  else if (bytes_per_second >= 1024)
+    snprintf(text, sizeof(text), "%.0f KB/s", bytes_per_second / 1024.0);
+  else
+    snprintf(text, sizeof(text), "%llu B/s",
+             static_cast<unsigned long long>(bytes_per_second));
+  return text;
+}
+
 void RefreshShade(StatusState *state) {
   if (state == nullptr || state->shade == nullptr) return;
   const auto wifi = RecoveryWifiStatus();
@@ -509,7 +570,40 @@ void RefreshShade(StatusState *state) {
             recorder_installed || recorder_active);
 
   const auto update = update::GetSnapshot();
+  const auto download = web::CurrentDownloadSummary();
+  if (state->shade_download != nullptr) {
+    if (download.available) {
+      const bool active = download.active_count > 0;
+      const std::string title = active
+          ? (download.active_count > 1
+              ? std::to_string(download.active_count) + " downloads"
+              : "Downloading " + download.name)
+          : download.status == web::DownloadStatus::kFinished
+              ? "Download complete"
+              : download.status == web::DownloadStatus::kCancelled
+                  ? "Download cancelled" : "Download failed";
+      std::string detail = active
+          ? std::to_string(download.progress) + "%"
+          : download.name;
+      if (active && download.total_bytes)
+        detail += "  •  " + std::to_string(download.received_bytes / (1024 * 1024)) +
+                  " of " + std::to_string(download.total_bytes / (1024 * 1024)) + " MB";
+      if (active && download.speed_bytes_per_second)
+        detail += "  •  " + FormatDownloadSpeed(download.speed_bytes_per_second);
+      lv_label_set_text(state->shade_download_title, title.c_str());
+      lv_label_set_text(state->shade_download_detail, detail.c_str());
+      lv_bar_set_value(state->shade_download_progress,
+                       active ? download.progress :
+                       download.status == web::DownloadStatus::kFinished ? 100 : 0,
+                       LV_ANIM_ON);
+      lv_obj_remove_flag(state->shade_download, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(state->shade_download, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
   if (state->shade_update != nullptr) {
+    lv_obj_set_y(state->shade_update,
+                 (landscape ? 735 : 855) + (download.available ? 148 : 0));
     if (update.available) {
       const std::string title = "AERA " + update.release.version + " available";
       lv_label_set_text(state->shade_update_title, title.c_str());
@@ -550,13 +644,23 @@ void Refresh(StatusState *state, bool refresh_battery) {
     lv_label_set_text(state->mirror, text.c_str());
     lv_obj_align_to(state->mirror, state->clock, LV_ALIGN_OUT_RIGHT_MID, 26, 0);
     lv_obj_remove_flag(state->mirror, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_align(state->recording_dot, LV_ALIGN_LEFT_MID, 620, 0);
-    lv_obj_align(state->recording, LV_ALIGN_LEFT_MID, 650, 0);
   } else {
     lv_obj_add_flag(state->mirror, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_align(state->recording_dot, LV_ALIGN_LEFT_MID, 250, 0);
-    lv_obj_align(state->recording, LV_ALIGN_LEFT_MID, 280, 0);
   }
+
+  const auto download = web::CurrentDownloadSummary();
+  if (download.active_count) {
+    lv_obj_align(state->download, LV_ALIGN_LEFT_MID,
+                 mirror != plugin_api::MirrorMode::kOff ? 584 : 250, 0);
+    lv_obj_remove_flag(state->download, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(state->download, LV_OBJ_FLAG_HIDDEN);
+  }
+  const int activity_x = mirror != plugin_api::MirrorMode::kOff
+      ? (download.active_count ? 660 : 620)
+      : (download.active_count ? 330 : 250);
+  lv_obj_align(state->recording_dot, LV_ALIGN_LEFT_MID, activity_x, 0);
+  lv_obj_align(state->recording, LV_ALIGN_LEFT_MID, activity_x + 30, 0);
 
   const auto recording = recorder::GetSnapshot();
   if (recorder::Active()) {
@@ -653,6 +757,10 @@ int32_t StatusBarHeight() {
   return gStatusBarHeight;
 }
 
+bool StatusBarShadeOpen() {
+  return gOpenShade != nullptr;
+}
+
 void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
                      void *context, StatusBarAction action, bool soft_surface) {
   auto *state = new StatusState;
@@ -692,6 +800,11 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
   lv_label_set_long_mode(state->mirror, LV_LABEL_LONG_DOT);
   lv_obj_align_to(state->mirror, state->clock, LV_ALIGN_OUT_RIGHT_MID, 26, 0);
   lv_obj_add_flag(state->mirror, LV_OBJ_FLAG_HIDDEN);
+
+  state->download = Label(bar, LV_SYMBOL_DOWNLOAD,
+                          &lv_font_montserrat_32, kMutedStrong);
+  lv_obj_set_width(state->download, 64);
+  lv_obj_add_flag(state->download, LV_OBJ_FLAG_HIDDEN);
 
   state->recording_dot = lv_obj_create(bar);
   NoScroll(state->recording_dot);

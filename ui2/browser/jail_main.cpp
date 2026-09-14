@@ -71,6 +71,22 @@ static void PrepareRecorderStorage() {
   Check(fchmod(recordings, 0770), "recordings permissions");
   close(recordings);
 }
+static void PrepareBrowserStorage() {
+  int aera = open("/sdcard/AERA", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (aera < 0) Die("AERA storage directory");
+  if (mkdirat(aera, "Downloads", 0770) && errno != EEXIST)
+    Die("AERA downloads directory");
+  int downloads = openat(aera, "Downloads",
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  close(aera);
+  if (downloads < 0) Die("safe AERA downloads directory");
+  // WebKit keeps zero supplementary groups. Temporarily make only this
+  // directory writable by its dedicated UID; the trusted host restores
+  // media_rw ownership after each transfer and when the session closes.
+  Check(fchown(downloads, kBrowserUid, kBrowserUid), "downloads ownership");
+  Check(fchmod(downloads, 0700), "downloads permissions");
+  close(downloads);
+}
 static void WriteResolverConfig(int root) {
   const int etc = openat(root, "etc", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (etc < 0) Die("browser resolver directory");
@@ -172,6 +188,7 @@ int main(int argc, char **argv) {
   const bool telegram = !strcmp(argv[1], "--telegram");
   const bool media = !strcmp(argv[1], "--media");
   const bool recorder = !strcmp(argv[1], "--recorder");
+  const bool browser = !strcmp(argv[1], "--browser");
   const std::string root = argv[2];
   const size_t prefix = recorder ? 14 : media ? 16 :
       (retroarch || telegram) ? 13 : 14;
@@ -180,6 +197,7 @@ int main(int argc, char **argv) {
       recorder ? "/tmp/aera-rec-" : "/tmp/aera-web-";
   if (retroarch) PrepareRetroStorage();
   if (recorder) PrepareRecorderStorage();
+  if (browser) PrepareBrowserStorage();
   if (root.size() != prefix + 6 || root.compare(0, prefix, expected) ||
       !std::all_of(root.begin() + prefix, root.end(),
                    [](unsigned char c) { return std::isalnum(c); })) return 78;
@@ -188,7 +206,7 @@ int main(int argc, char **argv) {
   if (directory < 0 || fstat(directory, &info) || info.st_uid || (info.st_mode & 0777) != 0700 ||
       fstatfs(directory, &filesystem) ||
       (filesystem.f_type != 0x01021994 && filesystem.f_type != 0x858458f6)) Die("private RAM runtime");
-  for (const char *name : {"etc", "proc", "tmp", "dev", "run", "storage", "sdcard", "state", "recordings"}) {
+  for (const char *name : {"etc", "proc", "tmp", "dev", "run", "storage", "sdcard", "state", "recordings", "downloads"}) {
     if (mkdirat(directory, name, 0755) && errno != EEXIST) Die("runtime directory");
     struct stat child{};
     if (fstatat(directory, name, &child, AT_SYMLINK_NOFOLLOW) || !S_ISDIR(child.st_mode) || child.st_uid)
@@ -213,9 +231,10 @@ int main(int argc, char **argv) {
   Supervise(root, telegram ? "536870912" :
       (media || recorder) ? "1073741824" : "1610612736");
   Check(setsid(), "private browser process group");
+  const rlim_t file_limit = browser ? 16ULL << 30 :
+      recorder ? 2ULL << 30 : 64ULL << 20;
   rlimit files{512U, 512U}, processes{192U, 192U}, core{0, 0},
-      size{recorder ? 2ULL << 30 : 64ULL << 20,
-           recorder ? 2ULL << 30 : 64ULL << 20};
+      size{file_limit, file_limit};
   Check(setrlimit(RLIMIT_NOFILE, &files), "file descriptor limit");
   Check(setrlimit(RLIMIT_NPROC, &processes), "process limit");
   Check(setrlimit(RLIMIT_CORE, &core), "core limit");
@@ -256,6 +275,9 @@ int main(int argc, char **argv) {
           "browser GPU device");
     Check(minijail_bind(jail, "/dev/dma_heap/system", "/dev/dma_heap/system", 1),
           "browser system DMA heap");
+    if (browser)
+      Check(minijail_bind(jail, "/sdcard/AERA/Downloads", "/downloads", 1),
+            "writable AERA downloads");
   } else if (retroarch && !access("/sdcard/AERA", R_OK | W_OK)) {
     // RetroArch receives only AERA's directory, never the rest of /sdcard.
     // ROMs, saves, states and screenshots can persist under this narrow mount.

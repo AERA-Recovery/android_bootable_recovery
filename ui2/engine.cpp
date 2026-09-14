@@ -476,8 +476,27 @@ public:
   void SetPointer(const PointerEvent &event) {
     const int32_t logical_x = transform_.ToLogicalX(event.x);
     const int32_t logical_y = transform_.ToLogicalY(event.y);
+    // Global raw-input consumers live below lock/operation overlays. Keep
+    // those consumers from stealing contacts that belong to trusted AERA UI.
+    if (suspended_ || lock_overlay_ != nullptr || power_overlay_ != nullptr ||
+        !backend_ready_ ||
+        operation_running_ || wifi_running_ || nas_running_) {
+      if (event.slot != 0) return;
+      pointer_.x = logical_x;
+      pointer_.y = logical_y;
+      pointer_.pressed = event.pressed;
+      CancelEdgeSwipe();
+      return;
+    }
     if (PictureViewerHandlePointer(event.slot, logical_x, logical_y,
                                    event.pressed)) {
+      CancelEdgeSwipe();
+      pointer_.pressed = false;
+      if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
+      return;
+    }
+    if (BrowserHandlePointer(event.slot, logical_x, logical_y,
+                             event.pressed)) {
       CancelEdgeSwipe();
       pointer_.pressed = false;
       if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
@@ -488,12 +507,6 @@ public:
     pointer_.x = logical_x;
     pointer_.y = logical_y;
     pointer_.pressed = event.pressed;
-
-    if (suspended_ || lock_overlay_ != nullptr || !backend_ready_ ||
-        operation_running_ || wifi_running_ || nas_running_) {
-      CancelEdgeSwipe();
-      return;
-    }
 
     if (event.pressed && !was_pressed) {
       const int32_t edge = std::max(72, width_ / 20);

@@ -23,6 +23,9 @@ enum class StatusBarAction {
 void ConfigureStatusBar(int32_t height, int32_t left_indent,
                         int32_t right_indent);
 int32_t StatusBarHeight();
+// True while the pull-down shade (including its closing animation) owns
+// pointer input above the current scene.
+bool StatusBarShadeOpen();
 
 // Adds the persistent clock and battery chrome used by native recovery pages.
 void AttachStatusBar(_lv_obj_t *screen, void (*callback)(Action, void *),

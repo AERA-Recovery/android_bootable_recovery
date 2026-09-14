@@ -17,11 +17,12 @@ replace the runtime with a newer signed package. No browser runs at boot.
   The verified directory is not published until the whole stream validates.
 - ARM64 `aera-browser-worker` with a surfaceless WPE display. WebKit coordinated
   graphics is composited by Mesa EGL -> Zink -> Turnip -> Adreno KGSL, then WPE
-  publishes a bounded 1080x1920 ARGB SHM frame. One outstanding frame with
-  acknowledgement applies back-pressure. Downloads, file choosers, permissions
-  and new windows are denied.
-- Native LVGL-side nonblocking session transport, copied image buffers, required
-  memfd size seals, navigation controls, touch scrolling and an ASCII keyboard.
+  publishes a bounded 1080x2100 ARGB SHM frame. One outstanding frame with
+  acknowledgement applies back-pressure. Downloads are confined to AERA's
+  download directory; file choosers, permissions and new windows are denied.
+- Native LVGL-side nonblocking session transport, double-buffered image slots,
+  required memfd size seals, navigation controls, two-finger pinch zoom,
+  download manager, touch scrolling and an ASCII keyboard.
   Closing the page closes its channel; a lost/invalid channel shows an error.
   Host tests use a synthetic channel, not an unsandboxed WebKit process.
 
@@ -29,10 +30,10 @@ replace the runtime with a newer signed package. No browser runs at boot.
 
 The root-owned launcher creates a private filesystem and process tree, drops to
 UID 99090 with no capabilities, and installs a fail-closed seccomp filter. The
-browser sees its network route, temporary files, audio bridge, and only the
-`/dev/kgsl-3d0` GPU device plus `/dev/dma_heap/system`. It does not see recovery
-partitions, decrypted user storage, Binder, input devices, or the recovery
-framebuffer.
+browser sees its network route, temporary files, audio bridge, the
+`/dev/kgsl-3d0` GPU device plus `/dev/dma_heap/system`, and one writable bind at
+`/sdcard/AERA/Downloads`. It does not see recovery partitions, other decrypted
+user storage, Binder, input devices, or the recovery framebuffer.
 
 ## Build and tests
 

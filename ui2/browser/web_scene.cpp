@@ -4,10 +4,14 @@
 #include "protocol.hpp"
 #include "launcher.hpp"
 #include "../phone_keyboard.hpp"
+#include "recovery_ui2/status_bar.hpp"
 #include "runtime.hpp"
 #include "session.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
+#include <cmath>
+#include <cstdio>
 #include <thread>
+#include <unordered_set>
 #include <unistd.h>
 
 namespace recovery_ui2 {
@@ -19,6 +23,8 @@ constexpr int kBrowserImageScale =
     (kBrowserViewportWidth * 256 + web::kWidth / 2) / web::kWidth;
 struct WebScene;
 void BrowserRefreshReady(lv_event_t *event);
+void HideKeyboard(WebScene *s);
+WebScene *gWebScene = nullptr;
 
 struct WebScene {
   lv_obj_t *screen = nullptr, *address = nullptr, *keyboard = nullptr;
@@ -27,7 +33,8 @@ struct WebScene {
   lv_obj_t *title = nullptr, *detail = nullptr, *progress = nullptr, *prepare = nullptr;
   lv_obj_t *area = nullptr, *viewport = nullptr, *image = nullptr;
   lv_obj_t *web_progress = nullptr;
-  lv_obj_t *controls[5]{};
+  lv_obj_t *controls[6]{};
+  lv_obj_t *manager = nullptr, *download_list = nullptr;
   lv_image_dsc_t descriptor{};
   web::Session session;
   web::BrowserProcess process;
@@ -38,11 +45,20 @@ struct WebScene {
   web::Preparation state;
   std::thread worker;
   bool started = false, finished = false, auto_launch = true;
+  bool manager_open = false;
   bool frame_waiting_for_refresh = false;
+  bool touch_pressed[2]{};
+  bool touch_ignored[2]{};
+  bool pinch_active = false;
+  double pinch_start_distance = 0.0;
+  unsigned pinch_start_zoom = 100;
+  uint32_t last_download_revision = UINT32_MAX;
+  std::unordered_set<uint32_t> announced_downloads;
   int view_left = 24, view_top = 460;
   int view_width = kBrowserViewportWidth;
   int view_height = kBrowserViewportHeight;
   ~WebScene() {
+    if (gWebScene == this) gWebScene = nullptr;
     if (timer) lv_timer_delete(timer);
     if (display)
       lv_display_remove_event_cb_with_user_data(
@@ -54,11 +70,200 @@ struct WebScene {
       lv_image_cache_drop(&descriptor);
     }
     if (session.Connected()) session.Send(web::Kind::kClose);
-    session.Close();
     process.Stop();
+    session.Close();
     web::RemoveRuntime(state.directory);
   }
 };
+
+std::string FormatBytes(uint64_t bytes) {
+  char text[48];
+  if (bytes >= 1024ULL * 1024 * 1024)
+    snprintf(text, sizeof(text), "%.1f GB", bytes / (1024.0 * 1024 * 1024));
+  else if (bytes >= 1024ULL * 1024)
+    snprintf(text, sizeof(text), "%.1f MB", bytes / (1024.0 * 1024));
+  else if (bytes >= 1024)
+    snprintf(text, sizeof(text), "%.1f KB", bytes / 1024.0);
+  else
+    snprintf(text, sizeof(text), "%llu B",
+             static_cast<unsigned long long>(bytes));
+  return text;
+}
+
+void ShowDownloadStarted(WebScene *s, const web::DownloadItem &download) {
+  auto *toast = lv_obj_create(lv_layer_top());
+  NoScroll(toast);
+  Panel(toast, 48, kMainSheet);
+  const int width = std::clamp(lv_obj_get_width(s->screen) - 96, 680, 980);
+  const int resting_y = StatusBarHeight() + 24;
+  lv_obj_set_size(toast, width, 142);
+  lv_obj_align(toast, LV_ALIGN_TOP_MID, 0, -166);
+  lv_obj_set_style_border_width(toast, 1, 0);
+  lv_obj_set_style_border_color(toast, kAccent, 0);
+  lv_obj_set_style_border_opa(toast, LV_OPA_50, 0);
+  auto *icon = Label(toast, LV_SYMBOL_DOWNLOAD,
+                     &lv_font_montserrat_36, kAccent);
+  lv_obj_align(icon, LV_ALIGN_LEFT_MID, 42, 0);
+  auto *title = Label(toast, "Download started",
+                      &lv_font_montserrat_28, kText);
+  lv_obj_set_pos(title, 108, 28);
+  auto *name = Label(toast, download.name.c_str(),
+                     &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(name, 108, 78);
+  lv_obj_set_width(name, width - 150);
+  lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+  lv_anim_t enter;
+  lv_anim_init(&enter);
+  lv_anim_set_var(&enter, toast);
+  lv_anim_set_values(&enter, -166, resting_y);
+  lv_anim_set_duration(&enter, 210);
+  lv_anim_set_path_cb(&enter, lv_anim_path_ease_out);
+  lv_anim_set_exec_cb(&enter, [](void *target, int32_t y) {
+    lv_obj_set_y(static_cast<lv_obj_t *>(target), y);
+  });
+  lv_anim_start(&enter);
+  lv_obj_delete_delayed(toast, 1850);
+}
+
+void ResetBrowserTouches(WebScene *s) {
+  for (int slot = 0; slot < 2; ++slot) {
+    s->touch_pressed[slot] = false;
+    s->touch_ignored[slot] = false;
+  }
+  s->pinch_active = false;
+}
+
+void RefreshDownloads(WebScene *s) {
+  if (!s->manager || !s->download_list) return;
+  s->last_download_revision = s->session.DownloadRevision();
+  lv_obj_clean(s->download_list);
+  const auto &downloads = s->session.Downloads();
+  if (downloads.empty()) {
+    auto *icon = Label(s->download_list, LV_SYMBOL_DOWNLOAD,
+                       &lv_font_montserrat_48, kMutedStrong);
+    lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 130);
+    auto *empty = Label(s->download_list, "No downloads yet",
+                        &lv_font_montserrat_36, kText);
+    lv_obj_align(empty, LV_ALIGN_TOP_MID, 0, 220);
+    auto *hint = Label(s->download_list,
+        "Files downloaded from websites appear here.",
+        &lv_font_montserrat_24, kMutedStrong);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 282);
+    return;
+  }
+  const int width = lv_obj_get_width(s->download_list) - 12;
+  int y = 0;
+  for (const auto &download : downloads) {
+    auto *row = lv_obj_create(s->download_list);
+    NoScroll(row);
+    lv_obj_set_pos(row, 0, y);
+    lv_obj_set_size(row, width, 186);
+    lv_obj_set_style_radius(row, 34, 0);
+    lv_obj_set_style_bg_color(row, kMainPanel, 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, kMainLine, 0);
+    auto *icon = Label(row,
+        download.status == web::DownloadStatus::kFinished ? LV_SYMBOL_OK :
+        download.status == web::DownloadStatus::kFailed ? LV_SYMBOL_WARNING :
+        download.status == web::DownloadStatus::kCancelled ? LV_SYMBOL_CLOSE :
+        LV_SYMBOL_DOWNLOAD,
+        &lv_font_montserrat_36,
+        download.status == web::DownloadStatus::kFinished ? kGreen :
+        download.status == web::DownloadStatus::kFailed ? kRed : kAccent);
+    lv_obj_set_pos(icon, 28, 30);
+    auto *name = Label(row, download.name.c_str(),
+                       &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(name, 88, 24);
+    lv_obj_set_width(name, width -
+        (download.status == web::DownloadStatus::kActive ? 265 : 130));
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    std::string detail;
+    if (download.status == web::DownloadStatus::kActive) {
+      detail = FormatBytes(download.received_bytes);
+      if (download.total_bytes)
+        detail += " of " + FormatBytes(download.total_bytes);
+      detail += "  •  " + std::to_string(download.progress) + "%";
+    } else if (download.status == web::DownloadStatus::kFinished) {
+      detail = "Saved to AERA/Downloads  •  " +
+          FormatBytes(download.received_bytes);
+    } else if (download.status == web::DownloadStatus::kCancelled) {
+      detail = "Download cancelled";
+    } else {
+      detail = download.error.empty() ? "Download failed" : download.error;
+    }
+    auto *status = Label(row, detail.c_str(), &lv_font_montserrat_24,
+                         kMutedStrong);
+    lv_obj_set_pos(status, 88, 78);
+    lv_obj_set_width(status, width - 125);
+    lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
+    auto *progress = lv_bar_create(row);
+    lv_obj_set_pos(progress, 88, 137);
+    lv_obj_set_size(progress, width - 126, 10);
+    lv_obj_set_style_bg_color(progress, kMainLine, 0);
+    lv_obj_set_style_bg_opa(progress, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(progress,
+        download.status == web::DownloadStatus::kFinished ? kGreen : kAccent,
+        LV_PART_INDICATOR);
+    lv_bar_set_value(progress,
+        download.status == web::DownloadStatus::kFinished ? 100 :
+        static_cast<int>(download.progress), LV_ANIM_OFF);
+    if (download.status == web::DownloadStatus::kActive) {
+      auto *cancel = Button(row, LV_SYMBOL_CLOSE,
+          [s, id = download.id] { s->session.CancelDownload(id); });
+      lv_obj_set_pos(cancel, width - 146, 20);
+      lv_obj_set_size(cancel, 112, 82);
+      lv_obj_set_style_radius(cancel, 41, 0);
+    }
+    y += 204;
+  }
+}
+
+void SetDownloadManager(WebScene *s, bool visible) {
+  HideKeyboard(s);
+  ResetBrowserTouches(s);
+  if (!s->manager) {
+    s->manager = lv_obj_create(s->screen);
+    NoScroll(s->manager);
+    lv_obj_set_pos(s->manager, s->view_left, s->view_top);
+    lv_obj_set_size(s->manager, s->view_width, s->view_height);
+    lv_obj_set_style_radius(s->manager, 36, 0);
+    lv_obj_set_style_bg_color(s->manager, kMainCanvas, 0);
+    lv_obj_set_style_bg_opa(s->manager, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s->manager, 1, 0);
+    lv_obj_set_style_border_color(s->manager, kMainLine, 0);
+    auto *title = Label(s->manager, "Downloads",
+                        &lv_font_montserrat_48, kText);
+    lv_obj_set_pos(title, 38, 30);
+    auto *folder = Label(s->manager,
+        "Saved to /sdcard/AERA/Downloads",
+        &lv_font_montserrat_24, kMutedStrong);
+    lv_obj_set_pos(folder, 40, 96);
+    auto *close = Button(s->manager, LV_SYMBOL_CLOSE,
+                         [s] { SetDownloadManager(s, false); });
+    lv_obj_align(close, LV_ALIGN_TOP_RIGHT, -26, 22);
+    lv_obj_set_size(close, 108, 86);
+    lv_obj_set_style_radius(close, 43, 0);
+    s->download_list = lv_obj_create(s->manager);
+    lv_obj_set_pos(s->download_list, 24, 150);
+    lv_obj_set_size(s->download_list, s->view_width - 48,
+                    s->view_height - 174);
+    lv_obj_set_style_bg_opa(s->download_list, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s->download_list, 0, 0);
+    lv_obj_set_style_pad_all(s->download_list, 0, 0);
+    lv_obj_set_scroll_dir(s->download_list, LV_DIR_VER);
+    RefreshDownloads(s);
+  }
+  s->manager_open = visible;
+  if (visible) {
+    lv_obj_add_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(s->manager, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s->manager);
+  } else {
+    lv_obj_add_flag(s->manager, LV_OBJ_FLAG_HIDDEN);
+    if (s->showing_web) lv_obj_remove_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
+  }
+}
 
 void BrowserRefreshReady(lv_event_t *event) {
   auto *s = static_cast<WebScene *>(lv_event_get_user_data(event));
@@ -76,6 +281,7 @@ void HideKeyboard(WebScene *s) {
   s->web_keyboard = false;
 }
 void ShowKeyboard(WebScene *s, bool web_keyboard, uint32_t purpose = 0) {
+  ResetBrowserTouches(s);
   s->web_keyboard = web_keyboard;
   lv_keyboard_set_mode(s->keyboard,
       web_keyboard && (purpose == 2 || purpose == 9)
@@ -102,9 +308,103 @@ void Prepare(WebScene *s) {
 }
 }  // namespace
 
+bool BrowserHandlePointer(int slot, int x, int y, bool pressed) {
+  auto *s = gWebScene;
+  if (!s || slot < 0 || slot > 1 || !s->showing_web ||
+      !s->session.Connected() || s->manager_open ||
+      (s->keyboard && !lv_obj_has_flag(s->keyboard, LV_OBJ_FLAG_HIDDEN)))
+    return false;
+  // Quick Settings is a child overlay of the active browser screen. It must
+  // exclusively own every new tap/drag until its closing animation is gone.
+  if (StatusBarShadeOpen()) {
+    ResetBrowserTouches(s);
+    return false;
+  }
+  const bool inside = x >= s->view_left && y >= s->view_top &&
+      x < s->view_left + s->view_width &&
+      y < s->view_top + s->view_height;
+  const bool was_pressed = s->touch_pressed[slot];
+  // Once another UI surface owns a contact (status shade, edge gesture,
+  // navigation, etc.), Browser must not capture that same finger when it
+  // later crosses into the web viewport. Release is the ownership boundary.
+  if (s->touch_ignored[slot]) {
+    if (!pressed) s->touch_ignored[slot] = false;
+    return false;
+  }
+  if (pressed && !was_pressed) {
+    const int screen_width = lv_obj_get_width(s->screen);
+    const int edge = std::max(72, screen_width / 20);
+    if (!inside || (slot == 0 && (x <= edge || x >= screen_width - edge))) {
+      s->touch_ignored[slot] = true;
+      return false;
+    }
+    s->touch_pressed[slot] = true;
+    if (slot == 0) {
+      const int browser_x = std::clamp(
+          (x - s->view_left) * web::kViewWidth / s->view_width,
+          0, web::kViewWidth - 1);
+      const int browser_y = std::clamp(
+          (y - s->view_top) * web::kViewHeight / s->view_height,
+          0, web::kViewHeight - 1);
+      s->session.Send(web::Kind::kTouchDown, browser_x, browser_y, 0);
+    }
+  } else if (!s->touch_pressed[slot]) {
+    return false;
+  }
+
+  static int touch_x[2]{};
+  static int touch_y[2]{};
+  touch_x[slot] = x;
+  touch_y[slot] = y;
+
+  if (!s->pinch_active && s->touch_pressed[0] && s->touch_pressed[1]) {
+    const double dx = touch_x[1] - touch_x[0];
+    const double dy = touch_y[1] - touch_y[0];
+    s->pinch_start_distance = std::max(24.0, std::hypot(dx, dy));
+    s->pinch_start_zoom = s->session.ZoomPercent();
+    s->pinch_active = true;
+    const int browser_x = std::clamp(
+        (touch_x[0] - s->view_left) * web::kViewWidth / s->view_width,
+        0, web::kViewWidth - 1);
+    const int browser_y = std::clamp(
+        (touch_y[0] - s->view_top) * web::kViewHeight / s->view_height,
+        0, web::kViewHeight - 1);
+    s->session.Send(web::Kind::kTouchUp, browser_x, browser_y, 0);
+  }
+
+  if (s->pinch_active) {
+    if (pressed && s->touch_pressed[0] && s->touch_pressed[1]) {
+      const double dx = touch_x[1] - touch_x[0];
+      const double dy = touch_y[1] - touch_y[0];
+      const unsigned zoom = static_cast<unsigned>(std::clamp(
+          std::lround(s->pinch_start_zoom *
+                      std::hypot(dx, dy) / s->pinch_start_distance),
+          50L, 300L));
+      if (zoom != s->session.ZoomPercent()) s->session.SetZoom(zoom);
+    }
+    if (!pressed) s->touch_pressed[slot] = false;
+    if (!s->touch_pressed[0] && !s->touch_pressed[1]) s->pinch_active = false;
+    return true;
+  }
+
+  if (slot == 0) {
+    const int browser_x = std::clamp(
+        (x - s->view_left) * web::kViewWidth / s->view_width,
+        0, web::kViewWidth - 1);
+    const int browser_y = std::clamp(
+        (y - s->view_top) * web::kViewHeight / s->view_height,
+        0, web::kViewHeight - 1);
+    s->session.Send(pressed ? web::Kind::kTouchMove : web::Kind::kTouchUp,
+                    browser_x, browser_y, 0);
+  }
+  if (!pressed) s->touch_pressed[slot] = false;
+  return true;
+}
+
 void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
                    int frame_fd, int control_fd, bool auto_launch) {
   auto *s = new WebScene;
+  gWebScene = s;
   s->auto_launch = auto_launch;
   s->screen = screen;
   s->display = lv_obj_get_display(screen);
@@ -165,11 +465,14 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   lv_obj_set_size(go, landscape ? 304 : 206, 112);
   lv_obj_set_style_radius(go, 56, 0);
   const char *controls[] = {LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT,
-                            LV_SYMBOL_REFRESH, LV_SYMBOL_CLOSE, LV_SYMBOL_KEYBOARD};
-  for (int i = 0; i < 5; ++i) {
+                            LV_SYMBOL_REFRESH, LV_SYMBOL_CLOSE,
+                            LV_SYMBOL_DOWNLOAD, LV_SYMBOL_KEYBOARD};
+  for (int i = 0; i < 6; ++i) {
     auto *button = Button(screen, controls[i], [s, i] {
       if (!s->session.Connected()) return;
       if (i == 4) {
+        SetDownloadManager(s, !s->manager_open);
+      } else if (i == 5) {
         ShowKeyboard(s, true);
       } else {
         const web::Kind kinds[] = {web::Kind::kBack, web::Kind::kForward,
@@ -179,8 +482,8 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
     });
     s->controls[i] = button;
     lv_obj_set_pos(button, (landscape ? 760 : 24) +
-                     i * (landscape ? 469 : 278), 334);
-    lv_obj_set_size(button, landscape ? 445 : 254, 106);
+                     i * (landscape ? 394 : 236), 334);
+    lv_obj_set_size(button, landscape ? 370 : 212, 106);
     lv_obj_set_style_radius(button, 53, 0);
     lv_obj_set_style_text_font(lv_obj_get_child(button, 0),
                                UiFont(&lv_font_montserrat_48), 0);
@@ -216,7 +519,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
                   landscape ? 118 : 144);
   lv_obj_set_style_opa(s->prepare, LV_OPA_40, LV_STATE_DISABLED);
   lv_obj_align(s->prepare, LV_ALIGN_TOP_MID, 0, landscape ? 680 : 960);
-  auto *note = Label(area, "Wi-Fi setup is separate.\n\nNo browser runs during boot.\nLeaving this page releases the prepared runtime.\n\nDownloads and file access are not enabled.",
+  auto *note = Label(area, "Wi-Fi setup is separate.\n\nNo browser runs during boot.\nLeaving this page releases the prepared runtime.\n\nDownloads are saved to AERA/Downloads.",
                      &lv_font_montserrat_32, kMuted);
   lv_obj_set_width(note, landscape ? s->view_width - 70 : 1090);
   lv_obj_set_style_text_line_space(note, 14, 0);
@@ -313,11 +616,21 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
         lv_obj_remove_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
         s->showing_web = true;
       }
-      for (int i = 0; i < 5; ++i) {
+      for (int i = 0; i < 6; ++i) {
         const bool enabled = s->session.Connected() &&
             (i == 0 ? s->session.CanBack() : i == 1 ? s->session.CanForward() : true);
         if (enabled) lv_obj_remove_state(s->controls[i], LV_STATE_DISABLED);
         else lv_obj_add_state(s->controls[i], LV_STATE_DISABLED);
+      }
+      if (s->last_download_revision != s->session.DownloadRevision()) {
+        for (const auto &download : s->session.Downloads()) {
+          if (s->announced_downloads.insert(download.id).second) {
+            ShowDownloadStarted(s, download);
+            break;
+          }
+        }
+        if (s->manager_open) RefreshDownloads(s);
+        else s->last_download_revision = s->session.DownloadRevision();
       }
       if (s->last_status != s->session.Status()) {
         s->last_status = s->session.Status();

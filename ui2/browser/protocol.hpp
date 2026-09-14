@@ -21,8 +21,11 @@ constexpr uint32_t FrameSlot(uint32_t sequence) {
   return sequence % kFrameSlots;
 }
 enum class Kind : uint32_t { kOpen = 1, kBack, kForward, kReload, kStop,
-  kTouchDown, kTouchMove, kTouchUp, kKey, kAck, kClose,
-  kFrame = 32, kStatus, kError, kKeyboardShow, kKeyboardHide };
+  kTouchDown, kTouchMove, kTouchUp, kKey, kAck, kClose, kSetZoom,
+  kDownloadCancel,
+  kFrame = 32, kStatus, kError, kKeyboardShow, kKeyboardHide,
+  kDownloadStarted, kDownloadProgress, kDownloadFinished,
+  kDownloadFailed, kDownloadCancelled };
 struct Message {
   uint32_t magic = kMagic;
   Kind kind = Kind::kStatus;
@@ -41,10 +44,19 @@ inline bool Valid(const Message &m, bool from_worker) {
             m.x >= 0 && m.x <= 1 && m.y >= 0 && m.y <= 1) ||
            m.kind == Kind::kError ||
            (m.kind == Kind::kKeyboardShow && m.value <= 10) ||
-           m.kind == Kind::kKeyboardHide;
+           m.kind == Kind::kKeyboardHide ||
+           ((m.kind == Kind::kDownloadStarted ||
+             m.kind == Kind::kDownloadProgress ||
+             m.kind == Kind::kDownloadFinished ||
+             m.kind == Kind::kDownloadFailed ||
+             m.kind == Kind::kDownloadCancelled) &&
+            m.sequence > 0 && m.x >= 0 && m.x <= 100 && m.y >= 0);
   switch (m.kind) {
     case Kind::kTouchDown: case Kind::kTouchMove: case Kind::kTouchUp:
-      return m.x >= 0 && m.y >= 0 && m.x < kViewWidth && m.y < kViewHeight;
+      return m.x >= 0 && m.y >= 0 && m.x < kViewWidth &&
+             m.y < kViewHeight && m.value < 2;
+    case Kind::kSetZoom: return m.value >= 50 && m.value <= 300;
+    case Kind::kDownloadCancel: return m.sequence > 0;
     case Kind::kOpen: case Kind::kBack: case Kind::kForward: case Kind::kReload:
     case Kind::kStop: case Kind::kKey: case Kind::kAck: case Kind::kClose: return true;
     default: return false;
