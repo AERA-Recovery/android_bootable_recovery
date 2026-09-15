@@ -58,43 +58,82 @@ static bool gr_capture_source(GGLSurface *source)
            source->height != 0 && source->stride != 0;
 }
 
-static bool gr_rgb_row(const GGLSurface *source, uint32_t source_y,
-                       uint32_t output_width, uint8_t *destination)
+static bool gr_rgb_pixel(const GGLSurface *source, uint32_t source_x,
+                         uint32_t source_y, uint8_t *destination)
 {
     const uint32_t pixel_bytes =
         source->format == GGL_PIXEL_FORMAT_RGB_565 ? 2 : 4;
-    const uint8_t *source_row = source->data +
-        (size_t)source_y * source->stride * pixel_bytes;
-    uint8_t *dst = destination;
+    const uint8_t *src = source->data +
+        ((size_t)source_y * source->stride + source_x) * pixel_bytes;
+    if (source->format == GGL_PIXEL_FORMAT_BGRA_8888) {
+        destination[0] = src[2]; destination[1] = src[1]; destination[2] = src[0];
+    } else if (source->format == GGL_PIXEL_FORMAT_RGBA_8888 ||
+               source->format == GGL_PIXEL_FORMAT_RGBX_8888) {
+        destination[0] = src[0]; destination[1] = src[1]; destination[2] = src[2];
+    } else if (source->format == GGL_PIXEL_FORMAT_RGB_565) {
+        const uint16_t pixel = src[0] | ((uint16_t)src[1] << 8);
+        destination[0] = (uint8_t)(((pixel >> 11) & 0x1f) * 255 / 31);
+        destination[1] = (uint8_t)(((pixel >> 5) & 0x3f) * 255 / 63);
+        destination[2] = (uint8_t)((pixel & 0x1f) * 255 / 31);
+    } else {
+        return false;
+    }
+    return true;
+}
+
+static bool gr_rgb_row(const GGLSurface *source, uint32_t source_y,
+                       uint32_t output_width, uint8_t *destination)
+{
     for (uint32_t x = 0; x < output_width; ++x) {
         const uint32_t source_x = (uint32_t)((uint64_t)x * source->width /
                                               output_width);
-        const uint8_t *src = source_row + (size_t)source_x * pixel_bytes;
-        if (source->format == GGL_PIXEL_FORMAT_BGRA_8888) {
-            dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0];
-        } else if (source->format == GGL_PIXEL_FORMAT_RGBA_8888 ||
-                   source->format == GGL_PIXEL_FORMAT_RGBX_8888) {
-            dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2];
-        } else if (source->format == GGL_PIXEL_FORMAT_RGB_565) {
-            const uint16_t pixel = src[0] | ((uint16_t)src[1] << 8);
-            dst[0] = (uint8_t)(((pixel >> 11) & 0x1f) * 255 / 31);
-            dst[1] = (uint8_t)(((pixel >> 5) & 0x3f) * 255 / 63);
-            dst[2] = (uint8_t)((pixel & 0x1f) * 255 / 31);
-        } else {
+        if (!gr_rgb_pixel(source, source_x, source_y, destination + x * 3))
             return false;
+    }
+    return true;
+}
+
+static bool gr_rgb_row_rotated(const GGLSurface *source, uint32_t output_y,
+                               uint32_t output_width, uint32_t output_height,
+                               unsigned int rotation, uint8_t *destination)
+{
+    const uint32_t rotated_width =
+        rotation == 90 || rotation == 270 ? source->height : source->width;
+    const uint32_t rotated_height =
+        rotation == 90 || rotation == 270 ? source->width : source->height;
+    const uint32_t ry = (uint32_t)((uint64_t)output_y * rotated_height /
+                                    output_height);
+    for (uint32_t x = 0; x < output_width; ++x) {
+        const uint32_t rx = (uint32_t)((uint64_t)x * rotated_width /
+                                       output_width);
+        uint32_t sx = rx;
+        uint32_t sy = ry;
+        if (rotation == 90) {
+            sx = ry;
+            sy = source->height - rx - 1;
+        } else if (rotation == 180) {
+            sx = source->width - rx - 1;
+            sy = source->height - ry - 1;
+        } else if (rotation == 270) {
+            sx = source->width - ry - 1;
+            sy = rx;
         }
-        dst += 3;
+        if (!gr_rgb_pixel(source, sx, sy, destination + x * 3))
+            return false;
     }
     return true;
 }
 
 static int gr_save_screenshot_internal(const char *dest,
                                        unsigned int max_width,
-                                       bool fast)
+                                       bool fast,
+                                       unsigned int rotation)
 {
     uint32_t y;
     uint32_t output_width = 0;
     uint32_t output_height = 0;
+    uint32_t oriented_width = 0;
+    uint32_t oriented_height = 0;
     volatile int res = -1;
     uint8_t * volatile png_row = NULL;
     FILE * volatile fp = NULL;
@@ -109,12 +148,19 @@ static int gr_save_screenshot_internal(const char *dest,
     if (!gr_capture_source(&capture_source))
         goto exit;
 
-    output_width = max_width > 0 && capture_source.width > max_width
-        ? max_width : capture_source.width;
-    output_height = output_width == capture_source.width
-        ? capture_source.height
-        : (uint32_t)(((uint64_t)capture_source.height * output_width +
-                      capture_source.width / 2) / capture_source.width);
+    if (!(rotation == 0 || rotation == 90 || rotation == 180 ||
+          rotation == 270))
+        goto exit;
+    oriented_width = rotation == 90 || rotation == 270
+        ? capture_source.height : capture_source.width;
+    oriented_height = rotation == 90 || rotation == 270
+        ? capture_source.width : capture_source.height;
+    output_width = max_width > 0 && oriented_width > max_width
+        ? max_width : oriented_width;
+    output_height = output_width == oriented_width
+        ? oriented_height
+        : (uint32_t)(((uint64_t)oriented_height * output_width +
+                      oriented_width / 2) / oriented_width);
 
     fp = fopen(dest, "wb");
     if(!fp)
@@ -152,10 +198,9 @@ static int gr_save_screenshot_internal(const char *dest,
     // LVGL/Adreno UI owns direct scanout. The old GGL path either returned an
     // empty image or dereferenced a null legacy draw surface.
     for (y = 0; y < output_height; ++y) {
-        const uint32_t source_y = (uint32_t)((uint64_t)y * capture_source.height /
-                                              output_height);
-        if (!gr_rgb_row(&capture_source, source_y, output_width,
-                        (uint8_t *)png_row))
+        if (!gr_rgb_row_rotated(&capture_source, y, output_width,
+                                output_height, rotation,
+                                (uint8_t *)png_row))
             goto exit;
         png_write_row(png_ptr, (png_bytep)png_row);
     }
@@ -179,12 +224,17 @@ exit:
 
 int gr_save_screenshot(const char *dest)
 {
-    return gr_save_screenshot_internal(dest, 0, false);
+    return gr_save_screenshot_internal(dest, 0, false, 0);
+}
+
+int gr_save_screenshot_rotated(const char *dest, unsigned int rotation)
+{
+    return gr_save_screenshot_internal(dest, 0, false, rotation);
 }
 
 int gr_save_screenshot_scaled_fast(const char *dest, unsigned int max_width)
 {
-    return gr_save_screenshot_internal(dest, max_width, true);
+    return gr_save_screenshot_internal(dest, max_width, true, 0);
 }
 
 int gr_save_screenshot_scaled_jpeg(const char *dest, unsigned int max_width,

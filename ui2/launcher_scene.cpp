@@ -105,6 +105,7 @@ const char *PluginSummary(const plugins::Plugin &plugin) {
   if (plugin.entry == "telegram") return "Secure messaging and file sharing.";
   if (plugin.entry == "gallery") return "Browse, preview and zoom your photos.";
   if (plugin.entry == "media") return "Play music and video from storage.";
+  if (plugin.entry == "streams") return "Stream videos and music without ads.";
   if (plugin.entry == "recorder") return "Record the recovery screen to video.";
   if (plugin.entry == "appvault") return "Back up and restore installed apps.";
   if (plugin.id == "mirror") return "View and control AERA from another screen.";
@@ -316,6 +317,9 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       else if (plugin.entry == "media")
         add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
             kAccent, Action::kMedia);
+      else if (plugin.entry == "streams")
+        add(LV_SYMBOL_VIDEO, plugin.name.c_str(), plugin.description.c_str(),
+            kAccent, Action::kStreams);
       else if (plugin.entry == "recorder")
         add(LV_SYMBOL_VIDEO, plugin.name.c_str(), plugin.description.c_str(),
             kAccent, Action::kRecorder);
@@ -398,6 +402,10 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     } else if (plugin.entry == "media") {
       action = Action::kMedia;
       icon = LV_SYMBOL_PLAY;
+      accent = kAccent;
+    } else if (plugin.entry == "streams") {
+      action = Action::kStreams;
+      icon = LV_SYMBOL_VIDEO;
       accent = kAccent;
     } else if (plugin.entry == "recorder") {
       action = Action::kRecorder;

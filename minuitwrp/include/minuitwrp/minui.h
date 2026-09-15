@@ -108,6 +108,7 @@ int gr_free_surface(gr_surface surface);
 
 // Functions in graphics_utils.c
 int gr_save_screenshot(const char *dest);
+int gr_save_screenshot_rotated(const char *dest, unsigned int rotation);
 int gr_save_screenshot_scaled_fast(const char *dest, unsigned int max_width);
 int gr_save_screenshot_scaled_jpeg(const char *dest, unsigned int max_width,
                                    int quality);

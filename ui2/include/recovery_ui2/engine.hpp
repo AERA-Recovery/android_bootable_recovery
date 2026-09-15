@@ -43,6 +43,7 @@ enum class Action {
     kTelegram,
     kGallery,
     kMedia,
+    kStreams,
     kRecorder,
     kAppVault,
     kRootManager,
@@ -55,6 +56,7 @@ enum class Action {
     kUnlock,
     kQuickWifiToggle,
     kToggleRotation,
+    kToggleVideoRotation,
     kNas,
     kRunNasOperation,
     kToggleRecording,
@@ -135,6 +137,7 @@ class Engine final {
 
     int32_t Width() const;
     int32_t Height() const;
+    bool IsLandscape() const;
     bool IsInitialized() const;
 
   private:

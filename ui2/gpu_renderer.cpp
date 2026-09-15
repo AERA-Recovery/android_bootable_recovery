@@ -17,6 +17,7 @@
 #include "drivers/opengles/glad/include/glad/gles2.h"
 #include "drivers/opengles/lv_opengles_driver.h"
 #include "drivers/opengles/lv_opengles_texture.h"
+#include "drivers/opengles/lv_opengles_texture_private.h"
 
 namespace recovery_ui2 {
 namespace {
@@ -78,6 +79,29 @@ bool HasExtension(const char* extensions, const char* wanted) {
     match += wanted_length;
   }
   return false;
+}
+
+void DisplayResolutionChanged(lv_event_t* event) {
+  auto* display = static_cast<lv_display_t*>(lv_event_get_target(event));
+  auto* texture = static_cast<lv_opengles_texture_t*>(
+      lv_display_get_driver_data(display));
+  if (texture == nullptr) return;
+  const int32_t width = lv_display_get_horizontal_resolution(display);
+  const int32_t height = lv_display_get_vertical_resolution(display);
+  if (width <= 0 || height <= 0 ||
+      lv_opengles_texture_reshape(texture, display, width, height) !=
+          LV_RESULT_OK) {
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                        "failed to reshape LVGL texture to %dx%d", width,
+                        height);
+    return;
+  }
+  const GLuint texture_id = lv_opengles_texture_get_texture_id(display);
+  glBindTexture(GL_TEXTURE_2D, texture_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                      "reshaped LVGL texture to %dx%d", width, height);
 }
 
 }  // namespace
@@ -343,6 +367,13 @@ lv_display_t* GpuRenderer::CreateDisplay(int32_t logical_width,
     // filtering keeps text and curves clean instead of exposing pixel steps.
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    // The OpenGL texture driver does not resize itself when LVGL swaps the
+    // logical dimensions for 90/270-degree rotation. A fixed portrait texture
+    // clips and folds a landscape scene, especially mutable video images.
+    // Keep the backing texture equal to the current logical viewport and let
+    // lv_opengles_render_display_texture rotate it once into native scanout.
+    lv_display_add_event_cb(display, DisplayResolutionChanged,
+                            LV_EVENT_RESOLUTION_CHANGED, nullptr);
   }
   return display;
 }

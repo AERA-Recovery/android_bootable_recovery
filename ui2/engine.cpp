@@ -150,12 +150,8 @@ public:
                              LV_DISPLAY_RENDER_MODE_FULL);
     }
     lv_display_set_flush_cb(display_, FlushDisplay);
-    // The OpenGL texture remains in the panel's native portrait dimensions.
-    // Let LVGL transform landscape draw coordinates into that texture instead
-    // of relying on a flush callback to rotate pixels. The latter leaves stale
-    // portrait regions because the OpenGL texture driver does not rotate them.
-    if (gpu_accelerated_)
-      lv_display_set_matrix_rotation(display_, true);
+    // GpuRenderer reshapes its LVGL texture to the rotated logical viewport;
+    // the final OpenGL scanout pass applies the one required panel rotation.
 
     pointer_device_ = lv_indev_create();
     if (pointer_device_ == nullptr) {
@@ -478,26 +474,43 @@ public:
   void SetPointer(const PointerEvent &event) {
     const int32_t logical_x = transform_.ToLogicalX(event.x);
     const int32_t logical_y = transform_.ToLogicalY(event.y);
+    // The Qualcomm OpenGL scanout presents LVGL's 90-degree texture in the
+    // opposite quarter-turn from lv_display_rotate_point().  Keep AERA's
+    // pointer state in the coordinates that are actually visible on screen;
+    // ReadPointer() converts them back to LVGL's pre-rotation coordinate
+    // space below.  Doing this here also gives the browser, picture viewer,
+    // and edge gestures the same landscape coordinates as normal LVGL UI.
+    int32_t visible_x = logical_x;
+    int32_t visible_y = logical_y;
+    if (landscape_) {
+      if (gpu_accelerated_) {
+        visible_x = logical_y;
+        visible_y = width_ - logical_x - 1;
+      } else {
+        visible_x = height_ - logical_y - 1;
+        visible_y = logical_x;
+      }
+    }
     // Global raw-input consumers live below lock/operation overlays. Keep
     // those consumers from stealing contacts that belong to trusted AERA UI.
     if (suspended_ || lock_overlay_ != nullptr || power_overlay_ != nullptr ||
         !backend_ready_ ||
         operation_running_ || wifi_running_ || nas_running_) {
       if (event.slot != 0) return;
-      pointer_.x = logical_x;
-      pointer_.y = logical_y;
+      pointer_.x = visible_x;
+      pointer_.y = visible_y;
       pointer_.pressed = event.pressed;
       CancelEdgeSwipe();
       return;
     }
-    if (PictureViewerHandlePointer(event.slot, logical_x, logical_y,
+    if (PictureViewerHandlePointer(event.slot, visible_x, visible_y,
                                    event.pressed)) {
       CancelEdgeSwipe();
       pointer_.pressed = false;
       if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
       return;
     }
-    if (BrowserHandlePointer(event.slot, logical_x, logical_y,
+    if (BrowserHandlePointer(event.slot, visible_x, visible_y,
                              event.pressed)) {
       CancelEdgeSwipe();
       pointer_.pressed = false;
@@ -506,22 +519,24 @@ public:
     }
     if (event.slot != 0) return;
     const bool was_pressed = pointer_.pressed;
-    pointer_.x = logical_x;
-    pointer_.y = logical_y;
+    pointer_.x = visible_x;
+    pointer_.y = visible_y;
     pointer_.pressed = event.pressed;
 
     if (event.pressed && !was_pressed) {
-      const int32_t edge = std::max(72, width_ / 20);
+      const int32_t visible_width = landscape_ ? height_ : width_;
+      const int32_t edge = std::max(72, visible_width / 20);
       if (pointer_.x <= edge)
         BeginEdgeSwipe(false);
-      else if (pointer_.x >= width_ - edge)
+      else if (pointer_.x >= visible_width - edge)
         BeginEdgeSwipe(true);
       return;
     }
 
     if (event.pressed && swipe_active_) {
       const int32_t vertical = std::abs(pointer_.y - swipe_start_y_);
-      if (vertical > height_ / 8) {
+      const int32_t visible_height = landscape_ ? width_ : height_;
+      if (vertical > visible_height / 8) {
         CancelEdgeSwipe();
         return;
       }
@@ -539,7 +554,8 @@ public:
       // is released. Validate direction with the last coordinate seen while
       // the contact was still active.
       const int32_t vertical = std::abs(swipe_last_y_ - swipe_start_y_);
-      const bool accepted = swipe_max_inward_ >= width_ / 6 &&
+      const int32_t visible_width = landscape_ ? height_ : width_;
+      const bool accepted = swipe_max_inward_ >= visible_width / 6 &&
                             swipe_max_inward_ > vertical * 2;
       const bool right_edge = swipe_right_edge_;
       FinishEdgeSwipe(accepted);
@@ -555,6 +571,7 @@ public:
 
   int32_t Width() const { return width_; }
   int32_t Height() const { return height_; }
+  bool IsLandscape() const { return landscape_; }
   bool IsInitialized() const { return initialized_; }
 
   void SetSuspended(bool suspended) {
@@ -999,7 +1016,8 @@ private:
       return;
     }
 
-    if (action == Action::kToggleRotation) {
+    if (action == Action::kToggleRotation ||
+        action == Action::kToggleVideoRotation) {
       self->landscape_ = !self->landscape_;
       self->pointer_.pressed = false;
       if (self->pointer_device_ != nullptr)
@@ -1010,7 +1028,8 @@ private:
       __android_log_print(ANDROID_LOG_INFO, kLogTag,
                           "display orientation changed to %s",
                           self->landscape_ ? "landscape" : "portrait");
-      self->ShowHome();
+      if (action == Action::kToggleRotation)
+        self->ShowHome();
       return;
     }
 
@@ -1165,6 +1184,16 @@ private:
       self->current_tool_ = action;
       lv_obj_t *screen = lv_obj_create(nullptr);
       BuildMediaScene(screen, HandleSceneAction, self);
+      lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
+      return;
+    }
+
+    if (action == Action::kStreams) {
+      self->TrackScene(action);
+      self->on_home_ = false;
+      self->current_tool_ = action;
+      lv_obj_t *screen = lv_obj_create(nullptr);
+      BuildStreamsScene(screen, HandleSceneAction, self);
       lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
       return;
     }
@@ -1850,8 +1879,16 @@ private:
     auto *self = static_cast<Impl *>(lv_indev_get_user_data(input));
     if (self == nullptr)
       return;
-    data->point.x = self->pointer_.x;
-    data->point.y = self->pointer_.y;
+    if (self->landscape_) {
+      // LVGL rotates pointer coordinates after this callback.  Supply the
+      // inverse of that built-in transform so its result is precisely the
+      // visible-screen coordinate stored in pointer_.
+      data->point.x = self->pointer_.y;
+      data->point.y = self->height_ - self->pointer_.x - 1;
+    } else {
+      data->point.x = self->pointer_.x;
+      data->point.y = self->pointer_.y;
+    }
     data->state = self->pointer_.pressed ? LV_INDEV_STATE_PRESSED
                                          : LV_INDEV_STATE_RELEASED;
   }
@@ -1989,6 +2026,7 @@ void Engine::ShowScreenshotResult(bool success) {
 }
 int32_t Engine::Width() const { return impl_->Width(); }
 int32_t Engine::Height() const { return impl_->Height(); }
+bool Engine::IsLandscape() const { return impl_->IsLandscape(); }
 bool Engine::IsInitialized() const { return impl_->IsInitialized(); }
 
 } // namespace recovery_ui2

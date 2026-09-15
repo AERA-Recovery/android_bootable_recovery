@@ -237,7 +237,9 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
       (plugin.id == "recorder" && plugin.type == "app-runtime" &&
        plugin.entry == "recorder") ||
       (plugin.id == "appvault" && plugin.type == "app-runtime" &&
-       plugin.entry == "appvault");
+       plugin.entry == "appvault") ||
+      (plugin.id == "streams" && plugin.type == "app-runtime" &&
+       plugin.entry == "streams");
   const bool generic_entry = plugin.type == "ui-runtime" &&
       plugin.entry == "main" && plugin.protocol_version == 2 &&
       plugin.min_host_api == 2 &&

@@ -229,14 +229,24 @@ void CaptureHardwareScreenshot(Engine& engine) {
             strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
         const std::string path =
             std::string("/sdcard/AERA/screenshots/AERA-") + stamp + ".png";
-        saved = gr_save_screenshot(path.c_str()) == 0;
+        // AERA's GPU landscape mode keeps the physical KMS scanout in panel
+        // orientation. Export a counter-clockwise view so the PNG matches
+        // what the user sees while holding the device in landscape.
+        saved = (engine.IsLandscape()
+                     ? gr_save_screenshot_rotated(path.c_str(), 270)
+                     : gr_save_screenshot(path.c_str())) == 0;
         if (saved) {
             __android_log_print(ANDROID_LOG_INFO, kLogTag,
                                 "hardware screenshot saved to %s", path.c_str());
         }
     }
-    if (!saved)
-        gr_save_screenshot("/tmp/AERA-Screenshot.png");
+    if (!saved) {
+        if (engine.IsLandscape()) {
+            gr_save_screenshot_rotated("/tmp/AERA-Screenshot.png", 270);
+        } else {
+            gr_save_screenshot("/tmp/AERA-Screenshot.png");
+        }
+    }
     engine.ShowScreenshotResult(saved);
 }
 

@@ -123,6 +123,8 @@ void BuildGalleryScene(lv_obj_t *screen, ActionCallback callback,
                        void *context);
 void BuildMediaScene(lv_obj_t *screen, ActionCallback callback,
                      void *context);
+void BuildStreamsScene(lv_obj_t *screen, ActionCallback callback,
+                       void *context);
 void BuildRecorderScene(lv_obj_t *screen, ActionCallback callback,
                         void *context);
 void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
