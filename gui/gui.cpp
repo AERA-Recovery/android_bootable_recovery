@@ -98,6 +98,11 @@ static inline long long nowMs() { struct timeval t; gettimeofday(&t, NULL); retu
 // runtime environment switch to select it.
 static bool gUseRecoveryUi2 = true;
 
+extern "C" int gui_is_recovery_ui2_active(void)
+{
+	return gUseRecoveryUi2 ? 1 : 0;
+}
+
 #ifndef AERA_STATUS_INDENT_LEFT
 #define AERA_STATUS_INDENT_LEFT 54
 #endif

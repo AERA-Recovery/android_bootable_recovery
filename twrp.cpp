@@ -643,9 +643,15 @@ int main(int argc, char **argv) {
 		process_recovery_mode(adb_bu_fifo, startup.Should_Skip_Decryption());
 	}
 #ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
-	// Language
-	PageManager::LoadLanguage(DataManager::GetStrValue("tw_language"));
-	GUIConsole::Translate_Now();
+	// The native AERA path intentionally skips loading the legacy XML page
+	// package in gui_loadResources(). PageManager::LoadLanguage() requires that
+	// package and dereferences mCurrentSet, so calling it here would dereference
+	// null immediately after decryption. Native scenes own their strings; keep
+	// this legacy translation step only for the XML fallback.
+	if (!gui_is_recovery_ui2_active()) {
+		PageManager::LoadLanguage(DataManager::GetStrValue("tw_language"));
+		GUIConsole::Translate_Now();
+	}
 #endif
 	// Fox extra setup
   	TWFunc::Setup_Verity_Forced_Encryption();
