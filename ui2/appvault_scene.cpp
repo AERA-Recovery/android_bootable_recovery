@@ -1424,6 +1424,13 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
     const int column = index % columns;
     lv_obj_set_pos(*target, column * (width + gap), row * 146);
     lv_obj_set_size(*target, width, 116);
+    auto *label = lv_obj_get_child(*target, 0);
+    FitLabelToLines(label, width - 48, 2,
+                    {&lv_font_montserrat_32, &lv_font_montserrat_28,
+                     &lv_font_montserrat_24, &lv_font_montserrat_20,
+                     &lv_font_montserrat_18, &lv_font_montserrat_16});
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(label);
   };
   add(&state->backup, "Back up selected", 0,
       [state] { StartWork(state, Work::kBackup); }, true);

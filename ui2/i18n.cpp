@@ -53,6 +53,7 @@ const std::vector<Language> kLanguages = {
     {"ro_RO", "Romanian", "Română", false},
     {"ru", "Russian", "Русский", false},
     {"sr_Cyrl", "Serbian", "Српски", false},
+    {"sv_SE", "Swedish", "Svenska", false},
     {"th_TH", "Thai", "ไทย", false},
     {"tr_TR", "Turkish", "Türkçe", false},
     {"uk_UA", "Ukrainian", "Українська", false},

@@ -182,7 +182,8 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   auto *title = Label(card, plugin.name.c_str(), &lv_font_montserrat_32, kText);
   FitLabelToLines(title, width - 40, 1,
                   {&lv_font_montserrat_32, &lv_font_montserrat_28,
-                   &lv_font_montserrat_24, &lv_font_montserrat_20});
+                   &lv_font_montserrat_24, &lv_font_montserrat_20,
+                   &lv_font_montserrat_18, &lv_font_montserrat_16});
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 214);
   OnClick(card, std::move(action));

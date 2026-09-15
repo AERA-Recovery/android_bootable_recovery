@@ -93,7 +93,7 @@ inline void FitButtonLabel(lv_obj_t *button) {
   FitLabelToLines(label, width, 1,
                   {&lv_font_montserrat_32, &lv_font_montserrat_28,
                    &lv_font_montserrat_24, &lv_font_montserrat_20,
-                   &lv_font_montserrat_18});
+                   &lv_font_montserrat_18, &lv_font_montserrat_16});
   lv_obj_center(label);
 }
 

@@ -1326,18 +1326,24 @@ void BuildLogs(Tools *state) {
 }
 
 void BuildLanguage(Tools *state) {
-  Header(state->screen, "Language", "Choose the language used by AERA Recovery.",
+  Header(state->screen, "Language",
+         "Mostly machine-translated. Please report mistakes.",
          state->callback, state->context);
   const bool landscape = Landscape(state->screen);
   state->list = Scroll(state->screen, landscape ? 340 : 452,
                        landscape ? 930 : 2290);
+  lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_ON);
+  lv_obj_set_style_width(state->list, 14, LV_PART_SCROLLBAR);
+  lv_obj_set_style_bg_opa(state->list, LV_OPA_COVER, LV_PART_SCROLLBAR);
+  lv_obj_set_style_radius(state->list, LV_RADIUS_CIRCLE,
+                          LV_PART_SCROLLBAR);
   if (landscape) {
     lv_obj_set_x(state->list, 884);
     lv_obj_set_width(state->list, 1400);
   }
   lv_obj_update_layout(state->list);
   const int row_width =
-      std::max(600, static_cast<int>(lv_obj_get_width(state->list)));
+      std::max(600, static_cast<int>(lv_obj_get_width(state->list)) - 28);
   const auto &languages = i18n::AvailableLanguages();
   for (size_t i = 0; i < languages.size(); ++i) {
     const auto language = languages[i];
@@ -1501,7 +1507,9 @@ void BuildMenu(Tools *state) {
                     pinned ? (landscape ? 2750 : 1040)
                            : card_width - 252,
                     1, {&lv_font_montserrat_36, &lv_font_montserrat_32,
-                        &lv_font_montserrat_28, &lv_font_montserrat_24});
+                        &lv_font_montserrat_28, &lv_font_montserrat_24,
+                        &lv_font_montserrat_20, &lv_font_montserrat_18,
+                        &lv_font_montserrat_16});
     auto *detail = Label(card, item.detail, &lv_font_montserrat_32, kMuted);
     lv_obj_set_pos(detail, pinned ? 152 : 30,
                    pinned ? (landscape ? 112 : about ? 122 : 126)
@@ -1510,7 +1518,8 @@ void BuildMenu(Tools *state) {
                     pinned ? (landscape ? 2750 : 1040)
                            : card_width - 100,
                     2, {&lv_font_montserrat_32, &lv_font_montserrat_28,
-                        &lv_font_montserrat_24, &lv_font_montserrat_20});
+                        &lv_font_montserrat_24, &lv_font_montserrat_20,
+                        &lv_font_montserrat_18, &lv_font_montserrat_16});
     auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_36,
                         reboot ? kRed : kMutedStrong);
     lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -30, 0);

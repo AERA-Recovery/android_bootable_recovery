@@ -12,8 +12,8 @@ LOCALES = [
     "en", "ar_SA", "bg_BG", "bn_BD", "ca_ES", "cs_CZ", "de_DE",
     "el_GR", "es-ES", "fa_IR", "fr_FR", "he_IL", "hi_IN", "hu",
     "id_ID", "it_IT", "ja_JP", "ko_KR", "nl_NL", "no_NO", "pl_PL",
-    "pt_BR", "pt_PT", "ro_RO", "ru", "sr_Cyrl", "th_TH", "tr_TR",
-    "uk_UA", "vi_VN", "zh_CN", "zh_TW",
+    "pt_BR", "pt_PT", "ro_RO", "ru", "sr_Cyrl", "sv_SE", "th_TH",
+    "tr_TR", "uk_UA", "vi_VN", "zh_CN", "zh_TW",
 ]
 
 
