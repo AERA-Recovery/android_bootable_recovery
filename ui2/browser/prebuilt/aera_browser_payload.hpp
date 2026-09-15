@@ -2,9 +2,9 @@
 #pragma once
 #include <cstdint>
 namespace recovery_ui2::web {
-constexpr uint64_t kCompressedBytes = 40929656ULL;
-constexpr uint64_t kExpandedBytes = 210783525ULL;
-constexpr char kCompressedHash[] = "b864b385e1430886f35d10dd267fdada836379f79d7746953dfb8f13bba16c8a";
-constexpr char kExpandedHash[] = "31a22af3f4b95c44823239f17ad4517adce619bb6b78e19dd3878492f1821684";
+constexpr uint64_t kCompressedBytes = 40956556ULL;
+constexpr uint64_t kExpandedBytes = 210785213ULL;
+constexpr char kCompressedHash[] = "1e32fb8f722785ca35e02d8961cfe70c492f064adbd03c7efbae27c998afde62";
+constexpr char kExpandedHash[] = "99409fd40046bb18658126686019665252e12a5e59283f82a53398710c7b9c2e";
 constexpr uint32_t kMemberCount = 445;
 }

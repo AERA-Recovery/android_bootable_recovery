@@ -538,6 +538,38 @@ bool RecoverySetLanguage(const std::string &language) {
   }
   return DataManager::SetValue("tw_language", language, 1) == 0;
 }
+std::string RecoveryBrowserHomepage() {
+  LoadAeraPreferencesIfAvailable();
+  const std::string value = DataManager::GetStrValue("aera_browser_homepage");
+  return value.empty() ? "aera://start" : value;
+}
+bool RecoverySetBrowserHomepage(const std::string &homepage) {
+  if (homepage.empty() || homepage.size() > 2040 ||
+      std::any_of(homepage.begin(), homepage.end(),
+                  [](unsigned char c) { return c < 32 || c == 127; }))
+    return false;
+  return DataManager::SetValue("aera_browser_homepage", homepage, 1) == 0;
+}
+int RecoveryBrowserZoom() {
+  LoadAeraPreferencesIfAvailable();
+  const std::string stored = DataManager::GetStrValue("aera_browser_zoom");
+  return stored.empty() ? 100 : std::clamp(atoi(stored.c_str()), 50, 300);
+}
+bool RecoverySetBrowserZoom(int percent) {
+  if (percent < 50 || percent > 300) return false;
+  return DataManager::SetValue("aera_browser_zoom", percent, 1) == 0;
+}
+BrowserCookiePolicy RecoveryBrowserCookiePolicy() {
+  LoadAeraPreferencesIfAvailable();
+  const std::string stored = DataManager::GetStrValue("aera_browser_cookies");
+  const int value = stored.empty() ? 1 : std::clamp(atoi(stored.c_str()), 0, 2);
+  return static_cast<BrowserCookiePolicy>(value);
+}
+bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy policy) {
+  const int value = static_cast<int>(policy);
+  if (value < 0 || value > 2) return false;
+  return DataManager::SetValue("aera_browser_cookies", value, 1) == 0;
+}
 bool RecoverySavePreferences() { return SaveAeraPreferences(); }
 
 namespace {
@@ -614,6 +646,9 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "dock_blur") DataManager::SetValue("aera_dock_blur", value);
     else if (key == "dock_hide_apps") DataManager::SetValue("aera_dock_hide_apps", value);
     else if (key == "language") DataManager::SetValue("tw_language", value);
+    else if (key == "browser_homepage") DataManager::SetValue("aera_browser_homepage", value);
+    else if (key == "browser_zoom") DataManager::SetValue("aera_browser_zoom", value);
+    else if (key == "browser_cookies") DataManager::SetValue("aera_browser_cookies", value);
     else if (key == "haptic_touch") DataManager::SetValue("tw_button_vibrate", value);
     else if (key == "haptic_keyboard") DataManager::SetValue("tw_keyboard_vibrate", value);
     else if (key == "haptic_action") DataManager::SetValue("tw_action_vibrate", value);
@@ -658,6 +693,10 @@ bool SaveAeraPreferences() {
          << "dock_blur=" << RecoveryDockBlur() << '\n'
          << "dock_hide_apps=" << (RecoveryDockHideInApps() ? 1 : 0) << '\n'
          << "language=" << RecoveryLanguage() << '\n'
+         << "browser_homepage=" << RecoveryBrowserHomepage() << '\n'
+         << "browser_zoom=" << RecoveryBrowserZoom() << '\n'
+         << "browser_cookies="
+         << static_cast<int>(RecoveryBrowserCookiePolicy()) << '\n'
          << "haptic_touch=" << DataManager::GetIntValue("tw_button_vibrate") << '\n'
          << "haptic_keyboard=" << DataManager::GetIntValue("tw_keyboard_vibrate") << '\n'
          << "haptic_action=" << DataManager::GetIntValue("tw_action_vibrate") << '\n'

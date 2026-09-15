@@ -110,7 +110,7 @@ inline std::vector<sock_filter> Policy() {
     SYS_rt_sigsuspend, SYS_rt_sigtimedwait, SYS_restart_syscall,
     SYS_getpid, SYS_getppid, SYS_gettid, SYS_getuid, SYS_geteuid, SYS_getgid,
     SYS_getegid, SYS_getresuid, SYS_getresgid, SYS_getgroups, SYS_getpgid,
-    SYS_getsid, SYS_uname, SYS_sysinfo, SYS_getrandom, SYS_capget,
+    SYS_getsid, SYS_uname, SYS_sysinfo, SYS_getrandom, SYS_getcpu, SYS_capget,
     SYS_futex, SYS_set_tid_address, SYS_set_robust_list, SYS_get_robust_list,
     SYS_sched_yield, SYS_sched_getaffinity, SYS_sched_setaffinity,
     SYS_sched_setscheduler,

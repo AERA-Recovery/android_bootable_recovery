@@ -105,6 +105,7 @@ void Session::ResetState() {
   keyboard_request_ = KeyboardRequest::kNone; keyboard_purpose_ = 0;
   frame_pending_ = false;
   downloads_.clear(); download_revision_ = 0; zoom_percent_ = 100;
+  settings_notice_.clear(); settings_revision_ = 0;
   PublishDownloads();
 }
 void Session::Close() {
@@ -258,6 +259,13 @@ bool Session::Poll() {
         RestoreDownloadStorage(&found->name);
       ++download_revision_;
       PublishDownloads();
+    } else if (message.kind == Kind::kBrowsingDataCleared ||
+               message.kind == Kind::kBrowsingDataFailed) {
+      settings_notice_ = message.text[0] ? message.text :
+          message.kind == Kind::kBrowsingDataCleared
+              ? "Cookies and site data cleared."
+              : "Could not clear browsing data.";
+      ++settings_revision_;
     } else status_ = message.text;
   }
   return changed;

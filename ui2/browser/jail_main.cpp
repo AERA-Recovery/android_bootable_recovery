@@ -86,6 +86,36 @@ static void PrepareBrowserStorage() {
   Check(fchown(downloads, kBrowserUid, kBrowserUid), "downloads ownership");
   Check(fchmod(downloads, 0700), "downloads permissions");
   close(downloads);
+
+  // Keep browser identity outside shared/MTP storage. Only the final profile
+  // directory is writable by WebKit; every parent remains root-owned and is
+  // opened without following symlinks.
+  int parent = open("/data", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (parent < 0) Die("browser profile data root");
+  // /data/recovery is deliberately media_rw-owned on AERA devices, so it
+  // cannot be part of the trusted parent chain for private browser identity.
+  // Use a dedicated root-owned subtree directly below /data instead.
+  for (const char *name : {"aera-recovery", "browser"}) {
+    if (mkdirat(parent, name, 0700) && errno != EEXIST)
+      Die("browser profile parent");
+    int child = openat(parent, name,
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    close(parent);
+    if (child < 0) Die("safe browser profile parent");
+    struct stat info{};
+    if (fstat(child, &info) || !S_ISDIR(info.st_mode) || info.st_uid)
+      Die("unsafe browser profile parent");
+    parent = child;
+  }
+  if (mkdirat(parent, "profile", 0700) && errno != EEXIST)
+    Die("browser profile directory");
+  int profile = openat(parent, "profile",
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  close(parent);
+  if (profile < 0) Die("safe browser profile directory");
+  Check(fchown(profile, kBrowserUid, kBrowserUid), "browser profile ownership");
+  Check(fchmod(profile, 0700), "browser profile permissions");
+  close(profile);
 }
 static void WriteResolverConfig(int root) {
   const int etc = openat(root, "etc", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -120,7 +150,11 @@ static void WriteResolverConfig(int root) {
 // job is to bound memory and reclaim this exact process tree, even if WebKit
 // crashes or the native UI disappears. No PID/user namespace is required.
 static void Supervise(const std::string &root, const char *memory_limit) {
-  const std::string name = root.substr(5);
+  // A Streams scene keeps its media worker alive while launching short-lived
+  // extractor queries from the same runtime directory. A root-only group name
+  // makes those independent supervisors collide at mkdir(), so use the trusted
+  // launcher PID to give every process tree its own bounded resource group.
+  const std::string name = root.substr(5) + "-" + std::to_string(getpid());
   const std::string tasks = "/dev/cg2_bpf/" + name;
   const std::string memory = "/dev/memcg/" + name;
   Check(mkdir(tasks.c_str(), 0700), "private browser task group");
@@ -177,11 +211,14 @@ static void Supervise(const std::string &root, const char *memory_limit) {
   _exit(!stopping && WIFEXITED(status) ? WEXITSTATUS(status) : 78);
 }
 int main(int argc, char **argv) {
-  if (argc != 3 || (strcmp(argv[1], "--probe") &&
+  const bool streams_engine_mode = argc >= 4 && argc <= 6 &&
+      !strcmp(argv[1], "--streams-engine");
+  if ((!streams_engine_mode && argc != 3) || (strcmp(argv[1], "--probe") &&
       strcmp(argv[1], "--browser") && strcmp(argv[1], "--retroarch") &&
       strcmp(argv[1], "--telegram") && strcmp(argv[1], "--media") &&
-      strcmp(argv[1], "--recorder")) || getuid() || geteuid()) {
-    fprintf(stderr, "Usage (root recovery only): aera-browser-jail --probe|--browser|--retroarch|--telegram|--media|--recorder RUNTIME\n");
+      strcmp(argv[1], "--recorder") && strcmp(argv[1], "--streams-media") &&
+      strcmp(argv[1], "--streams-engine")) || getuid() || geteuid()) {
+    fprintf(stderr, "Usage (root recovery only): aera-browser-jail MODE RUNTIME [COMMAND [ARGUMENT]]\n");
     return 78;
   }
   const bool retroarch = !strcmp(argv[1], "--retroarch");
@@ -189,12 +226,17 @@ int main(int argc, char **argv) {
   const bool media = !strcmp(argv[1], "--media");
   const bool recorder = !strcmp(argv[1], "--recorder");
   const bool browser = !strcmp(argv[1], "--browser");
+  const bool streams_media = !strcmp(argv[1], "--streams-media");
+  const bool streams_engine = !strcmp(argv[1], "--streams-engine");
   const std::string root = argv[2];
-  const size_t prefix = recorder ? 14 : media ? 16 :
+  const size_t prefix = (streams_media || streams_engine) ? 18 :
+      recorder ? 14 : media ? 16 :
       (retroarch || telegram) ? 13 : 14;
   const char *expected = retroarch ? "/tmp/aera-ra-" :
       telegram ? "/tmp/aera-tg-" : media ? "/tmp/aera-media-" :
-      recorder ? "/tmp/aera-rec-" : "/tmp/aera-web-";
+      recorder ? "/tmp/aera-rec-" :
+      (streams_media || streams_engine) ? "/tmp/aera-streams-" :
+      "/tmp/aera-web-";
   if (retroarch) PrepareRetroStorage();
   if (recorder) PrepareRecorderStorage();
   if (browser) PrepareBrowserStorage();
@@ -203,10 +245,12 @@ int main(int argc, char **argv) {
                    [](unsigned char c) { return std::isalnum(c); })) return 78;
   int directory = open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   struct stat info{}; struct statfs filesystem{};
-  if (directory < 0 || fstat(directory, &info) || info.st_uid || (info.st_mode & 0777) != 0700 ||
+  if (directory < 0 || fstat(directory, &info)) Die("private RAM runtime");
+  const mode_t runtime_mode = info.st_mode & 0777;
+  if (info.st_uid || (runtime_mode != 0700 && runtime_mode != 0755) ||
       fstatfs(directory, &filesystem) ||
       (filesystem.f_type != 0x01021994 && filesystem.f_type != 0x858458f6)) Die("private RAM runtime");
-  for (const char *name : {"etc", "proc", "tmp", "dev", "run", "storage", "sdcard", "state", "recordings", "downloads"}) {
+  for (const char *name : {"etc", "proc", "tmp", "dev", "run", "storage", "sdcard", "state", "recordings", "downloads", "profile"}) {
     if (mkdirat(directory, name, 0755) && errno != EEXIST) Die("runtime directory");
     struct stat child{};
     if (fstatat(directory, name, &child, AT_SYMLINK_NOFOLLOW) || !S_ISDIR(child.st_mode) || child.st_uid)
@@ -224,12 +268,12 @@ int main(int argc, char **argv) {
       Die("RetroArch compatibility mount point");
     close(storage);
   }
-  if (!retroarch && !media && !recorder)
+  if (!retroarch && !media && !recorder && !streams_media)
     WriteResolverConfig(directory);
   Check(fchmod(directory, 0755), "runtime root permissions");
   close(directory);
   Supervise(root, telegram ? "536870912" :
-      (media || recorder) ? "1073741824" : "1610612736");
+      (media || recorder || streams_media) ? "1073741824" : "1610612736");
   Check(setsid(), "private browser process group");
   const rlim_t file_limit = browser ? 16ULL << 30 :
       recorder ? 2ULL << 30 : 64ULL << 20;
@@ -250,8 +294,10 @@ int main(int argc, char **argv) {
   // dedicated UID inside its chroot with no capabilities and a socket-filtered
   // seccomp policy; it cannot listen, open raw sockets, or alter routes.
   Check(minijail_namespace_set_hostname(jail,
-        retroarch ? "aera-retroarch" :
-        telegram ? "aera-telegram" : media ? "aera-media" :
+      retroarch ? "aera-retroarch" :
+      telegram ? "aera-telegram" : media ? "aera-media" :
+        streams_media ? "aera-streams-media" :
+        streams_engine ? "aera-streams-engine" :
         recorder ? "aera-recorder" : "aera-browser"), "private hostname");
   Check(minijail_enter_chroot(jail, root.c_str()), "private filesystem");
   Check(minijail_bind(jail, root.c_str(), "/", 0), "read-only runtime");
@@ -270,7 +316,8 @@ int main(int argc, char **argv) {
   // Turnip needs for Vulkan external-memory file descriptors. It receives no
   // display, input, camera, Binder or storage devices; exposing the wider host
   // /dev tree or Android's vendor EGL stack is unnecessary.
-  if (!retroarch && !telegram && !media && !recorder) {
+  if (!retroarch && !telegram && !media && !recorder &&
+      !streams_media && !streams_engine) {
     Check(minijail_bind(jail, "/dev/kgsl-3d0", "/dev/kgsl-3d0", 1),
           "browser GPU device");
     Check(minijail_bind(jail, "/dev/dma_heap/system", "/dev/dma_heap/system", 1),
@@ -278,6 +325,10 @@ int main(int argc, char **argv) {
     if (browser)
       Check(minijail_bind(jail, "/sdcard/AERA/Downloads", "/downloads", 1),
             "writable AERA downloads");
+    if (browser)
+      Check(minijail_bind(jail, "/data/aera-recovery/browser/profile",
+                          "/profile", 1),
+            "private browser profile");
   } else if (retroarch && !access("/sdcard/AERA", R_OK | W_OK)) {
     // RetroArch receives only AERA's directory, never the rest of /sdcard.
     // ROMs, saves, states and screenshots can persist under this narrow mount.
@@ -304,14 +355,17 @@ int main(int argc, char **argv) {
   Check(minijail_mount_with_data(jail, "tmpfs", "/dev/shm", "tmpfs", flags,
                                 "size=128M,mode=1777"), "private shared memory");
   minijail_change_uid(jail, telegram ? kTelegramUid :
-      media ? kMediaUid : recorder ? kRecorderUid :
+      (media || streams_media || streams_engine) ? kMediaUid :
+      recorder ? kRecorderUid :
       kBrowserUid);
   minijail_change_gid(jail, telegram ? kTelegramUid :
-      media ? kMediaUid : recorder ? kRecorderUid :
+      (media || streams_media || streams_engine) ? kMediaUid :
+      recorder ? kRecorderUid :
       kBrowserUid);
   // Android 16 annotates the list parameter as non-null even when a zero
   // length requests that minijail clear all supplementary groups.
-  const bool media_access = retroarch || telegram || media || recorder;
+  const bool media_access = retroarch || telegram || media || recorder ||
+      streams_media || streams_engine;
   const gid_t group = media_access ? kMediaRwGid : 0;
   minijail_set_supplementary_gids(jail, media_access ? 1 : 0, &group);
   minijail_use_caps(jail, 0);
@@ -389,7 +443,10 @@ int main(int argc, char **argv) {
   const char *program = probe ? "/usr/bin/aera-jail-probe" :
       retroarch ? "/usr/bin/retroarch" :
       telegram ? "/usr/bin/aera-telegram" :
-      media ? "/usr/bin/aera-media" : recorder ? "/usr/bin/aera-recorder" :
+      media ? "/usr/bin/aera-media" :
+      streams_media ? "/usr/bin/aera-streams-media" :
+      streams_engine ? "/usr/lib/jvm/java-17-openjdk/bin/java" :
+      recorder ? "/usr/bin/aera-recorder" :
       "/usr/bin/aera-browser-worker";
   char *const browser_args[] = {const_cast<char *>(program),
     const_cast<char *>(probe ? "--inside" : "--isolated-ipc-v1"), nullptr};
@@ -399,9 +456,17 @@ int main(int argc, char **argv) {
   char *const telegram_args[] = {const_cast<char *>(program),
     const_cast<char *>("--isolated-ipc-v1"), nullptr};
   char *const media_args[] = {const_cast<char *>(program), nullptr};
+  char *const streams_media_args[] = {const_cast<char *>(program), nullptr};
+  char *streams_engine_args[] = {
+    const_cast<char *>(program), const_cast<char *>("-jar"),
+    const_cast<char *>("/usr/share/aera-streams/engine.jar"),
+    argc >= 4 ? argv[3] : nullptr, argc >= 5 ? argv[4] : nullptr,
+    argc >= 6 ? argv[5] : nullptr, nullptr};
   char *const recorder_args[] = {const_cast<char *>(program), nullptr};
   execve(program, retroarch ? retroarch_args :
          telegram ? telegram_args : media ? media_args :
+         streams_media ? streams_media_args :
+         streams_engine ? streams_engine_args :
          recorder ? recorder_args : browser_args,
          retroarch ? retroarch_environment :
          telegram ? telegram_environment :

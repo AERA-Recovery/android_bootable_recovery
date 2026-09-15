@@ -11,6 +11,7 @@ struct Preparation {
   std::atomic<bool> done{false};
   bool verified = false;
   std::string directory;
+  std::string version;
   std::string error;
 };
 bool RuntimeInstalled();

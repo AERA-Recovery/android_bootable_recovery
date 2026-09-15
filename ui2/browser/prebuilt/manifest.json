@@ -152,8 +152,8 @@
   {
     "path": "usr/bin/aera-browser-worker",
     "mode": 493,
-    "size": 44328,
-    "sha256": "87331a61f4ae6231f4fcb752f119dd2d179685e39f08d213933c6df57d476574"
+    "size": 46016,
+    "sha256": "f75b31d74dfee071e48afbaff261bdb1b8bdf35f215368410648b8b3a2a1a46b"
   },
   {
     "path": "usr/bin/bwrap",

@@ -53,6 +53,18 @@ int main() {
   assert(session.CancelDownload(7));
   assert(recv(channel[1], &ack, sizeof(ack), MSG_DONTWAIT) == sizeof(ack));
   assert(ack.kind == Kind::kDownloadCancel && ack.sequence == 7);
+  assert(session.Send(Kind::kSetCookiePolicy, 0, 0, 1));
+  assert(recv(channel[1], &ack, sizeof(ack), MSG_DONTWAIT) == sizeof(ack));
+  assert(ack.kind == Kind::kSetCookiePolicy && ack.value == 1);
+  assert(session.Send(Kind::kClearBrowsingData));
+  assert(recv(channel[1], &ack, sizeof(ack), MSG_DONTWAIT) == sizeof(ack));
+  assert(ack.kind == Kind::kClearBrowsingData);
+  message = Message{}; message.kind = Kind::kBrowsingDataCleared;
+  strcpy(message.text, "Cookies and site data cleared.");
+  assert(send(channel[1], &message, sizeof(message), 0) == sizeof(message));
+  assert(!session.Poll());
+  assert(session.SettingsRevision() == 1);
+  assert(session.SettingsNotice() == "Cookies and site data cleared.");
   message = Message{}; message.kind = Kind::kDownloadStarted;
   message.sequence = 7; message.x = 4; message.y = 2048; message.value = 80;
   strcpy(message.text, "recovery.zip");

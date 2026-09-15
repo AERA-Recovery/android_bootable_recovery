@@ -66,6 +66,7 @@ static void aera_display_class_init(AERADisplayClass *klass) {
 struct Session {
   GMainLoop *loop = nullptr;
   WebKitWebView *web = nullptr;
+  WebKitNetworkSession *network = nullptr;
   WPEView *view = nullptr;
   uint8_t *shared = nullptr;
   WPEBuffer *latest = nullptr;
@@ -84,6 +85,30 @@ struct Session {
   std::vector<std::unique_ptr<DownloadRecord>> downloads;
   uint32_t next_download_id = 1;
 };
+static bool Send(Session *s, const Message &m);
+static WebKitCookieAcceptPolicy CookiePolicy(uint32_t value) {
+  return value == 0 ? WEBKIT_COOKIE_POLICY_ACCEPT_NEVER :
+      value == 2 ? WEBKIT_COOKIE_POLICY_ACCEPT_ALWAYS :
+                   WEBKIT_COOKIE_POLICY_ACCEPT_NO_THIRD_PARTY;
+}
+static void BrowsingDataCleared(GObject *object, GAsyncResult *result,
+                                gpointer data) {
+  auto *s = static_cast<Session *>(data);
+  GError *error = nullptr;
+  Message message;
+  if (webkit_website_data_manager_clear_finish(
+          WEBKIT_WEBSITE_DATA_MANAGER(object), result, &error)) {
+    message.kind = Kind::kBrowsingDataCleared;
+    g_strlcpy(message.text, "Cookies and site data cleared.",
+              sizeof(message.text));
+  } else {
+    message.kind = Kind::kBrowsingDataFailed;
+    g_strlcpy(message.text, error ? error->message :
+        "Could not clear cookies and site data.", sizeof(message.text));
+  }
+  g_clear_error(&error);
+  Send(s, message);
+}
 static bool Send(Session *s, const Message &m) {
   if (send(4, &m, sizeof(m), MSG_DONTWAIT | MSG_NOSIGNAL) == sizeof(m)) return true;
   // Never stall WebKit or accumulate an unbounded queue behind recovery.
@@ -384,6 +409,16 @@ static gboolean Input(gint fd, GIOCondition condition, gpointer data) {
           break;
         }
       break;
+    case Kind::kSetCookiePolicy:
+      webkit_cookie_manager_set_accept_policy(
+          webkit_network_session_get_cookie_manager(s->network),
+          CookiePolicy(m.value));
+      break;
+    case Kind::kClearBrowsingData:
+      webkit_website_data_manager_clear(
+          webkit_network_session_get_website_data_manager(s->network),
+          WEBKIT_WEBSITE_DATA_ALL, 0, nullptr, BrowsingDataCleared, s);
+      break;
     case Kind::kClose: g_main_loop_quit(s->loop); break;
     case Kind::kAck:
       if (!s->pending || m.sequence != s->sequence) { g_main_loop_quit(s->loop); break; }
@@ -469,7 +504,19 @@ int main(int argc, char **argv) {
         webkit_uri_scheme_request_finish(request, stream, strlen(html), "text/html");
         g_object_unref(stream);
       }, nullptr, nullptr);
-  auto *network = webkit_network_session_new_ephemeral();
+  const bool persistent_profile = !access("/profile", R_OK | W_OK);
+  auto *network = persistent_profile
+      ? webkit_network_session_new("/profile/data", "/tmp/cache")
+      : webkit_network_session_new_ephemeral();
+  s.network = network;
+  webkit_network_session_set_itp_enabled(network, TRUE);
+  auto *cookie_manager = webkit_network_session_get_cookie_manager(network);
+  if (persistent_profile)
+    webkit_cookie_manager_set_persistent_storage(
+        cookie_manager, "/profile/cookies.sqlite",
+        WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
+  webkit_cookie_manager_set_accept_policy(
+      cookie_manager, WEBKIT_COOKIE_POLICY_ACCEPT_NO_THIRD_PARTY);
   webkit_network_session_set_tls_errors_policy(network, WEBKIT_TLS_ERRORS_POLICY_FAIL);
   auto *content = webkit_user_content_manager_new();
   g_signal_connect(content, "script-message-received::aeraMedia",
@@ -565,7 +612,7 @@ int main(int argc, char **argv) {
   g_object_unref(s.web);
   webkit_user_content_manager_unregister_script_message_handler(
       content, "aeraMedia", nullptr);
-  g_object_unref(content); g_object_unref(network); g_object_unref(context);
+  g_object_unref(content); s.network = nullptr; g_object_unref(network); g_object_unref(context);
   g_object_unref(settings); g_object_unref(display); g_main_loop_unref(s.loop);
   munmap(s.shared, kSharedBytes); close(4);
   return 0;

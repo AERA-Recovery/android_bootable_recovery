@@ -98,6 +98,17 @@ bool RecoveryDockHideInApps();
 bool RecoverySetDockHideInApps(bool enabled);
 std::string RecoveryLanguage();
 bool RecoverySetLanguage(const std::string &language);
+enum class BrowserCookiePolicy {
+  kBlockAll = 0,
+  kFirstParty = 1,
+  kAllowAll = 2,
+};
+std::string RecoveryBrowserHomepage();
+bool RecoverySetBrowserHomepage(const std::string &homepage);
+int RecoveryBrowserZoom();
+bool RecoverySetBrowserZoom(int percent);
+BrowserCookiePolicy RecoveryBrowserCookiePolicy();
+bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy policy);
 bool RecoverySavePreferences();
 enum class Haptic { kTouch, kKeyboard, kAction };
 bool RecoveryHapticsAvailable();

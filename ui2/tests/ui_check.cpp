@@ -71,6 +71,14 @@ bool RecoverySetLanguage(const std::string &language) {
   recovery_language = language;
   return true;
 }
+std::string RecoveryBrowserHomepage() { return "aera://start"; }
+bool RecoverySetBrowserHomepage(const std::string &) { return true; }
+int RecoveryBrowserZoom() { return 100; }
+bool RecoverySetBrowserZoom(int) { return true; }
+BrowserCookiePolicy RecoveryBrowserCookiePolicy() {
+  return BrowserCookiePolicy::kFirstParty;
+}
+bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy) { return true; }
 bool RecoverySavePreferences() { return save_succeeds; }
 bool RecoveryHapticsAvailable() { return true; }
 int RecoveryHapticDuration(Haptic haptic) {

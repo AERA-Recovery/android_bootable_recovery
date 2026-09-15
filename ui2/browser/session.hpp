@@ -62,6 +62,8 @@ class Session {
   unsigned ZoomPercent() const { return zoom_percent_; }
   const std::vector<DownloadItem> &Downloads() const { return downloads_; }
   uint32_t DownloadRevision() const { return download_revision_; }
+  const std::string &SettingsNotice() const { return settings_notice_; }
+  uint32_t SettingsRevision() const { return settings_revision_; }
   KeyboardRequest TakeKeyboardRequest(uint32_t *purpose = nullptr);
  private:
   bool Write(const Message &message);
@@ -78,6 +80,8 @@ class Session {
   unsigned zoom_percent_ = 100;
   std::vector<DownloadItem> downloads_;
   uint32_t download_revision_ = 0;
+  std::string settings_notice_;
+  uint32_t settings_revision_ = 0;
   KeyboardRequest keyboard_request_ = KeyboardRequest::kNone;
   bool can_back_ = false, can_forward_ = false;
   bool frame_pending_ = false;

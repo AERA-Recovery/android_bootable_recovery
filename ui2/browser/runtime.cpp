@@ -226,8 +226,11 @@ void RemoveRuntime(const std::string &directory) {
   const bool media = leaf.size() == 17 && leaf.compare(0, 11, "aera-media-") == 0;
   const bool recorder = leaf.size() == 15 && leaf.compare(0, 9, "aera-rec-") == 0;
   const bool appvault = leaf.size() == 17 && leaf.compare(0, 11, "aera-vault-") == 0;
+  const bool streams = leaf.size() == 24 &&
+      leaf.compare(0, 18, "aera-streams-") == 0;
   const bool plugin_v2 = leaf.size() == 14 && leaf.compare(0, 8, "aera-p2-") == 0;
   if (!browser && !retroarch && !telegram && !media && !recorder && !appvault &&
+      !streams &&
       !plugin_v2) return;
   FD root(open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
   if (root.value < 0) return;
@@ -253,9 +256,12 @@ void PreparePluginRuntime(Preparation &state, const char *id,
       !strcmp(type, "app-runtime") && !strcmp(entry, "recorder");
   const bool appvault = id && type && entry && !strcmp(id, "appvault") &&
       !strcmp(type, "app-runtime") && !strcmp(entry, "appvault");
+  const bool streams = id && type && entry && !strcmp(id, "streams") &&
+      !strcmp(type, "app-runtime") && !strcmp(entry, "streams");
   const bool plugin_v2 = id && type && entry &&
       !strcmp(type, "ui-runtime") && !strcmp(entry, "main");
   if (!retroarch && !telegram && !media && !recorder && !appvault &&
+      !streams &&
       !plugin_v2) {
     state.error = "AERA rejected an unsupported plugin entry point.";
     return;
@@ -323,6 +329,7 @@ void PreparePluginRuntime(Preparation &state, const char *id,
   std::string temporary = std::string(parent) +
       (telegram ? "/aera-tg-XXXXXX" : media ? "/aera-media-XXXXXX" :
        recorder ? "/aera-rec-XXXXXX" : appvault ? "/aera-vault-XXXXXX" :
+       streams ? "/aera-streams-XXXXXX" :
        plugin_v2 ? "/aera-p2-XXXXXX" :
        "/aera-ra-XXXXXX");
   if (!mkdtemp(temporary.data())) return;
@@ -360,6 +367,7 @@ void PrepareRuntime(Preparation &state, const char *payload, const char *parent)
       state.error = error.empty() ? "Install AERA Browser from Plugin Manager first." : error;
       return;
     }
+    state.version = plugin.version;
     spec = {plugin.payload_size, plugin.expanded_size, plugin.member_count,
             plugin.payload_sha256, plugin.expanded_sha256};
   }

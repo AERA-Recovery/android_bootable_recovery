@@ -36,6 +36,12 @@ int main(int argc, char **argv) {
   message = Message{}; message.kind = Kind::kKeyboardHide; assert(Valid(message, true));
   message = Message{}; message.kind = Kind::kSetZoom; message.value = 50;
   assert(Valid(message, false)); message.value = 301; assert(!Valid(message, false));
+  message = Message{}; message.kind = Kind::kSetCookiePolicy; message.value = 2;
+  assert(Valid(message, false)); message.value = 3; assert(!Valid(message, false));
+  message = Message{}; message.kind = Kind::kClearBrowsingData;
+  assert(Valid(message, false));
+  message = Message{}; message.kind = Kind::kBrowsingDataCleared;
+  assert(Valid(message, true));
   message = Message{}; message.kind = Kind::kDownloadStarted;
   message.sequence = 1; message.x = 42; message.y = 1024;
   assert(Valid(message, true)); message.sequence = 0; assert(!Valid(message, true));

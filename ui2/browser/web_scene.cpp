@@ -25,6 +25,7 @@ struct WebScene;
 void BrowserRefreshReady(lv_event_t *event);
 void HideKeyboard(WebScene *s);
 void ResetBrowserTouches(WebScene *s);
+void ShowBrowserSettings(WebScene *s);
 WebScene *gWebScene = nullptr;
 WebScene *gPersistentWebScene = nullptr;
 
@@ -49,6 +50,7 @@ struct WebScene {
   bool started = false, finished = false, auto_launch = true;
   bool persistent = false;
   bool manager_open = false;
+  bool settings_open = false;
   bool frame_waiting_for_refresh = false;
   bool touch_pressed[2]{};
   bool touch_ignored[2]{};
@@ -56,6 +58,8 @@ struct WebScene {
   double pinch_start_distance = 0.0;
   unsigned pinch_start_zoom = 100;
   uint32_t last_download_revision = UINT32_MAX;
+  uint32_t last_settings_revision = UINT32_MAX;
+  lv_obj_t *settings_status = nullptr;
   std::unordered_set<uint32_t> announced_downloads;
   int view_left = 24, view_top = 460;
   int view_width = kBrowserViewportWidth;
@@ -98,10 +102,12 @@ void DetachWebScene(WebScene *s) {
   for (auto &control : s->controls) control = nullptr;
   s->manager = nullptr;
   s->download_list = nullptr;
+  s->settings_status = nullptr;
   s->descriptor = {};
   s->showing_web = false;
   s->web_keyboard = false;
   s->manager_open = false;
+  s->settings_open = false;
   ResetBrowserTouches(s);
 }
 
@@ -311,17 +317,244 @@ void HideKeyboard(WebScene *s) {
     lv_obj_remove_flag(s->navigation, LV_OBJ_FLAG_HIDDEN);
   s->web_keyboard = false;
 }
-void ShowKeyboard(WebScene *s, bool web_keyboard, uint32_t purpose = 0) {
+void ShowKeyboard(WebScene *s, bool web_keyboard, uint32_t purpose = 0,
+                  lv_obj_t *target = nullptr) {
   ResetBrowserTouches(s);
   s->web_keyboard = web_keyboard;
   lv_keyboard_set_mode(s->keyboard,
       web_keyboard && (purpose == 2 || purpose == 9)
           ? LV_KEYBOARD_MODE_NUMBER : LV_KEYBOARD_MODE_TEXT_LOWER);
-  lv_keyboard_set_textarea(s->keyboard, web_keyboard ? nullptr : s->address);
+  lv_keyboard_set_textarea(s->keyboard,
+                           web_keyboard ? nullptr : target ? target : s->address);
   if (s->navigation) lv_obj_add_flag(s->navigation, LV_OBJ_FLAG_HIDDEN);
   lv_obj_remove_flag(s->keyboard, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_foreground(s->keyboard);
 }
+
+bool SupportsPersistentBrowserSettings(const WebScene *s) {
+  unsigned major = 0, minor = 0;
+  return sscanf(s->state.version.c_str(), "%u.%u", &major, &minor) == 2 &&
+      (major > 1 || (major == 1 && minor >= 5));
+}
+
+struct BrowserSettingsUi {
+  WebScene *scene = nullptr;
+  lv_obj_t *overlay = nullptr;
+  lv_obj_t *homepage = nullptr;
+  lv_obj_t *zoom_value = nullptr;
+  lv_obj_t *cookie_buttons[3]{};
+  int zoom = 100;
+  BrowserCookiePolicy cookies = BrowserCookiePolicy::kFirstParty;
+};
+
+void StyleCookieChoice(BrowserSettingsUi *settings) {
+  const int selected = static_cast<int>(settings->cookies);
+  for (int i = 0; i < 3; ++i) {
+    const bool active = i == selected;
+    lv_obj_set_style_bg_color(settings->cookie_buttons[i],
+                              active ? kAccentSoft : kMainPanel, 0);
+    lv_obj_set_style_border_width(settings->cookie_buttons[i], 1, 0);
+    lv_obj_set_style_border_color(settings->cookie_buttons[i],
+                                  active ? kAccent : kMainLine, 0);
+    auto *label = lv_obj_get_child(settings->cookie_buttons[i], 0);
+    if (label) lv_obj_set_style_text_color(label, active ? kAccent : kText, 0);
+  }
+}
+
+void CloseBrowserSettings(BrowserSettingsUi *settings) {
+  HideKeyboard(settings->scene);
+  settings->scene->settings_open = false;
+  settings->scene->settings_status = nullptr;
+  lv_obj_delete_async(settings->overlay);
+}
+
+void ShowBrowserSettings(WebScene *s) {
+  HideKeyboard(s);
+  ResetBrowserTouches(s);
+  if (s->settings_open) return;
+  s->settings_open = true;
+
+  auto *settings = new BrowserSettingsUi;
+  settings->scene = s;
+  settings->zoom = RecoveryBrowserZoom();
+  settings->cookies = RecoveryBrowserCookiePolicy();
+  settings->overlay = lv_obj_create(s->screen);
+  auto *overlay = settings->overlay;
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_pos(overlay, 0, StatusBarHeight());
+  lv_obj_set_size(overlay, lv_obj_get_width(s->screen),
+                  lv_obj_get_height(s->screen) - StatusBarHeight());
+  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
+    auto *settings = static_cast<BrowserSettingsUi *>(
+        lv_event_get_user_data(event));
+    settings->scene->settings_open = false;
+    settings->scene->settings_status = nullptr;
+    delete settings;
+  }, LV_EVENT_DELETE, settings);
+
+  auto *close = Button(overlay, LV_SYMBOL_LEFT,
+                       [settings] { CloseBrowserSettings(settings); });
+  lv_obj_set_pos(close, 36, 30);
+  lv_obj_set_size(close, 106, 92);
+  lv_obj_set_style_radius(close, 46, 0);
+  auto *title = Label(overlay, "Browser settings",
+                      &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 174, 46);
+  auto *subtitle = Label(overlay,
+      "Homepage, page scale and private website data",
+      &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(subtitle, 176, 106);
+
+  const int content_width = std::min(1280, lv_obj_get_width(overlay) - 80);
+  auto *content = lv_obj_create(overlay);
+  Clear(content);
+  lv_obj_set_pos(content, (lv_obj_get_width(overlay) - content_width) / 2, 176);
+  lv_obj_set_size(content, content_width, lv_obj_get_height(overlay) - 360);
+  lv_obj_set_scroll_dir(content, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
+
+  auto *home_title = Label(content, "Homepage",
+                           &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(home_title, 4, 12);
+  auto *home_hint = Label(content,
+      "Opened at first launch and by the Home button",
+      &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(home_hint, 4, 60);
+  settings->homepage = lv_textarea_create(content);
+  lv_obj_set_pos(settings->homepage, 4, 108);
+  lv_obj_set_size(settings->homepage, content_width - 8, 112);
+  lv_textarea_set_one_line(settings->homepage, true);
+  lv_textarea_set_max_length(settings->homepage, 2040);
+  lv_textarea_set_text(settings->homepage,
+                       RecoveryBrowserHomepage().c_str());
+  lv_obj_set_style_text_font(settings->homepage,
+                             UiFont(&lv_font_montserrat_28), 0);
+  lv_obj_set_style_text_color(settings->homepage, kText, 0);
+  lv_obj_set_style_bg_color(settings->homepage, kMainPanel, 0);
+  lv_obj_set_style_border_color(settings->homepage, kMainLine, 0);
+  lv_obj_set_style_border_width(settings->homepage, 1, 0);
+  lv_obj_set_style_radius(settings->homepage, 42, 0);
+  lv_obj_set_style_pad_all(settings->homepage, 25, 0);
+  lv_obj_add_event_cb(settings->homepage, [](lv_event_t *event) {
+    auto *settings = static_cast<BrowserSettingsUi *>(
+        lv_event_get_user_data(event));
+    ShowKeyboard(settings->scene, false, 0, settings->homepage);
+  }, LV_EVENT_CLICKED, settings);
+  auto *use_current = Button(content, "Use current page", [settings] {
+    const auto address = web::Address(settings->scene->session.Status());
+    if (!address.empty()) lv_textarea_set_text(settings->homepage,
+                                                address.c_str());
+  });
+  lv_obj_set_pos(use_current, 4, 240);
+  lv_obj_set_size(use_current, content_width - 8, 104);
+  lv_obj_set_style_radius(use_current, 46, 0);
+
+  auto *zoom_title = Label(content, "Default zoom",
+                           &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(zoom_title, 4, 408);
+  settings->zoom_value = Label(content, "", &lv_font_montserrat_28, kAccent);
+  lv_obj_align_to(settings->zoom_value, zoom_title,
+                  LV_ALIGN_OUT_RIGHT_MID, 24, 0);
+  char zoom_text[16];
+  snprintf(zoom_text, sizeof(zoom_text), "%d%%", settings->zoom);
+  lv_label_set_text(settings->zoom_value, zoom_text);
+  auto *zoom = lv_slider_create(content);
+  lv_obj_set_pos(zoom, 18, 490);
+  lv_obj_set_size(zoom, content_width - 36, 28);
+  lv_slider_set_range(zoom, 50, 300);
+  lv_slider_set_value(zoom, settings->zoom, LV_ANIM_OFF);
+  lv_obj_set_style_bg_color(zoom, kMainLine, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(zoom, kAccent, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(zoom, kAccent, LV_PART_KNOB);
+  lv_obj_set_style_pad_all(zoom, 14, LV_PART_KNOB);
+  lv_obj_add_event_cb(zoom, [](lv_event_t *event) {
+    auto *settings = static_cast<BrowserSettingsUi *>(
+        lv_event_get_user_data(event));
+    settings->zoom = lv_slider_get_value(lv_event_get_target_obj(event));
+    char text[16];
+    snprintf(text, sizeof(text), "%d%%", settings->zoom);
+    lv_label_set_text(settings->zoom_value, text);
+  }, LV_EVENT_VALUE_CHANGED, settings);
+
+  auto *cookie_title = Label(content, "Cookies & privacy",
+                             &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(cookie_title, 4, 604);
+  auto *cookie_hint = Label(content,
+      SupportsPersistentBrowserSettings(s)
+          ? "Stored privately in recovery; first-party only is recommended"
+          : "Install Browser 1.5 or newer to enable persistent cookies",
+      &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(cookie_hint, 4, 652);
+  lv_obj_set_width(cookie_hint, content_width - 8);
+  const char *cookie_names[] = {"Block all", "First-party", "Allow all"};
+  const int choice_gap = 16;
+  const int choice_width = (content_width - 8 - choice_gap * 2) / 3;
+  for (int i = 0; i < 3; ++i) {
+    settings->cookie_buttons[i] = Button(content, cookie_names[i],
+        [settings, i] {
+          settings->cookies = static_cast<BrowserCookiePolicy>(i);
+          StyleCookieChoice(settings);
+        });
+    lv_obj_set_pos(settings->cookie_buttons[i],
+                   4 + i * (choice_width + choice_gap), 724);
+    lv_obj_set_size(settings->cookie_buttons[i], choice_width, 108);
+    lv_obj_set_style_radius(settings->cookie_buttons[i], 48, 0);
+  }
+  StyleCookieChoice(settings);
+
+  auto *clear = Button(content, "Clear cookies & site data", [settings] {
+    if (!SupportsPersistentBrowserSettings(settings->scene)) {
+      lv_label_set_text(settings->scene->settings_status,
+                        "Browser 1.5 or newer is required.");
+      return;
+    }
+    if (settings->scene->session.Send(web::Kind::kClearBrowsingData))
+      lv_label_set_text(settings->scene->settings_status,
+                        "Clearing website data...");
+  });
+  lv_obj_set_pos(clear, 4, 862);
+  lv_obj_set_size(clear, content_width - 8, 110);
+  lv_obj_set_style_radius(clear, 48, 0);
+  s->settings_status = Label(content, "", &lv_font_montserrat_24,
+                             kMutedStrong);
+  lv_obj_set_pos(s->settings_status, 12, 992);
+  lv_obj_set_width(s->settings_status, content_width - 24);
+  lv_obj_set_style_text_align(s->settings_status, LV_TEXT_ALIGN_CENTER, 0);
+
+  auto *save = Button(overlay, "Save browser settings", [settings] {
+    auto homepage = web::Address(lv_textarea_get_text(settings->homepage));
+    if (homepage.empty()) {
+      lv_label_set_text(settings->scene->settings_status,
+                        "Enter a valid HTTP or HTTPS homepage.");
+      return;
+    }
+    const bool ok = RecoverySetBrowserHomepage(homepage) &&
+        RecoverySetBrowserZoom(settings->zoom) &&
+        RecoverySetBrowserCookiePolicy(settings->cookies) &&
+        RecoverySavePreferences();
+    if (!ok) {
+      lv_label_set_text(settings->scene->settings_status,
+                        "Could not save browser settings.");
+      return;
+    }
+    settings->scene->session.SetZoom(settings->zoom);
+    if (SupportsPersistentBrowserSettings(settings->scene))
+      settings->scene->session.Send(web::Kind::kSetCookiePolicy, 0, 0,
+                                    static_cast<uint32_t>(settings->cookies));
+    auto *screen = settings->scene->screen;
+    CloseBrowserSettings(settings);
+    Sheet(screen, "Browser settings saved",
+          "Homepage, default zoom and cookie policy were updated.");
+  }, true);
+  lv_obj_set_size(save, content_width, 116);
+  lv_obj_align(save, LV_ALIGN_BOTTOM_MID, 0, -32);
+  lv_obj_set_style_radius(save, 50, 0);
+  lv_obj_move_foreground(overlay);
+}
+
 void Prepare(WebScene *s) {
   HideKeyboard(s);
   if (s->started) return;
@@ -343,7 +576,7 @@ void Prepare(WebScene *s) {
 bool BrowserHandlePointer(int slot, int x, int y, bool pressed) {
   auto *s = gWebScene;
   if (!s || slot < 0 || slot > 1 || !s->showing_web ||
-      !s->session.Connected() || s->manager_open ||
+      !s->session.Connected() || s->manager_open || s->settings_open ||
       (s->keyboard && !lv_obj_has_flag(s->keyboard, LV_OBJ_FLAG_HIDDEN)))
     return false;
   // Quick Settings is a child overlay of the active browser screen. It must
@@ -477,6 +710,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   s->last_status.clear();
   s->last_progress = 101;
   s->last_download_revision = UINT32_MAX;
+  s->last_settings_revision = UINT32_MAX;
   ResetBrowserTouches(s);
   lv_display_add_event_cb(
       s->display, BrowserRefreshReady, LV_EVENT_REFR_READY, s);
@@ -505,12 +739,14 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   lv_obj_set_style_bg_color(s->web_progress, kAccent, LV_PART_INDICATOR);
   lv_obj_add_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
   s->address = lv_textarea_create(screen);
+  // LVGL's one-line setter derives a compact height. Apply it before the
+  // explicit browser-bar geometry so the field and Go button stay aligned.
+  lv_textarea_set_one_line(s->address, true);
   lv_obj_set_pos(s->address, landscape ? 760 : 24, 188);
   lv_obj_set_size(s->address, landscape ? 2020 : 1168, 112);
-  lv_textarea_set_one_line(s->address, true);
   lv_textarea_set_max_length(s->address, 2040);
   lv_textarea_set_placeholder_text(s->address, "Enter website address");
-  lv_obj_set_style_text_font(s->address, UiFont(&lv_font_montserrat_32), 0);
+  lv_obj_set_style_text_font(s->address, UiFont(&lv_font_montserrat_36), 0);
   lv_obj_set_style_text_color(s->address, kText, 0);
   lv_obj_set_style_bg_color(s->address, kMainPanel, 0);
   lv_obj_set_style_bg_opa(s->address, LV_OPA_COVER, 0);
@@ -518,6 +754,8 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   lv_obj_set_style_border_width(s->address, 1, 0);
   lv_obj_set_style_radius(s->address, 56, 0);
   lv_obj_set_style_pad_all(s->address, 26, 0);
+  lv_obj_set_style_pad_top(s->address, 34, 0);
+  lv_obj_set_style_pad_bottom(s->address, 18, 0);
   auto *go = Button(screen, "Go", [s] {
     auto address = web::Address(lv_textarea_get_text(s->address));
     if (address.empty()) {
@@ -537,18 +775,22 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   lv_obj_set_size(go, landscape ? 304 : 206, 112);
   lv_obj_set_style_radius(go, 56, 0);
   const char *controls[] = {LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT,
-                            LV_SYMBOL_REFRESH, LV_SYMBOL_CLOSE,
-                            LV_SYMBOL_DOWNLOAD, LV_SYMBOL_KEYBOARD};
+                            LV_SYMBOL_REFRESH, LV_SYMBOL_HOME,
+                            LV_SYMBOL_DOWNLOAD, LV_SYMBOL_SETTINGS};
   for (int i = 0; i < 6; ++i) {
     auto *button = Button(screen, controls[i], [s, i] {
       if (!s->session.Connected()) return;
-      if (i == 4) {
+      if (i == 3) {
+        const auto homepage = web::Address(RecoveryBrowserHomepage());
+        if (!homepage.empty())
+          s->session.Send(web::Kind::kOpen, 0, 0, 0, homepage.c_str());
+      } else if (i == 4) {
         SetDownloadManager(s, !s->manager_open);
       } else if (i == 5) {
-        ShowKeyboard(s, true);
+        ShowBrowserSettings(s);
       } else {
         const web::Kind kinds[] = {web::Kind::kBack, web::Kind::kForward,
-                                   web::Kind::kReload, web::Kind::kStop};
+                                   web::Kind::kReload};
         s->session.Send(kinds[i]);
       }
     });
@@ -717,6 +959,17 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
         }
         s->last_download_revision = s->session.DownloadRevision();
       }
+      if (s->last_settings_revision != s->session.SettingsRevision()) {
+        s->last_settings_revision = s->session.SettingsRevision();
+        if (visible && !s->session.SettingsNotice().empty()) {
+          if (s->settings_status)
+            lv_label_set_text(s->settings_status,
+                              s->session.SettingsNotice().c_str());
+          else
+            Sheet(s->screen, "Browser privacy",
+                  s->session.SettingsNotice());
+        }
+      }
       if (visible && s->last_status != s->session.Status()) {
         s->last_status = s->session.Status();
         i18n::BindLabel(s->detail, s->last_status.c_str());
@@ -777,6 +1030,14 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
       }
       return;
     }
+    const int zoom = RecoveryBrowserZoom();
+    s->session.SetZoom(zoom);
+    if (SupportsPersistentBrowserSettings(s))
+      s->session.Send(web::Kind::kSetCookiePolicy, 0, 0,
+                      static_cast<uint32_t>(RecoveryBrowserCookiePolicy()));
+    const auto homepage = web::Address(RecoveryBrowserHomepage());
+    if (!homepage.empty())
+      s->session.Send(web::Kind::kOpen, 0, 0, 0, homepage.c_str());
     if (visible) {
       i18n::BindLabel(s->title, "Starting private browser");
       i18n::BindLabel(s->detail, "Loading the built-in start page...");
