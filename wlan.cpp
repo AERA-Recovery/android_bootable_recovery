@@ -2,10 +2,13 @@
 
 #include <arpa/inet.h>
 #include <cctype>
+#include <cstdint>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <dirent.h>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
@@ -109,6 +112,12 @@ static bool OF_GetEncryptedSavedSsids(std::vector<std::string>& ssids)
 }
 
 bool Wlan::Init() {
+    // Qualcomm selects the interface MAC while the WLAN module is loading.
+    // Prepare its config and firmware file now, before post-decrypt modules
+    // create wlan0. Runtime SIOCSIFHWADDR is rejected by newer QCA drivers.
+    if (!PrepareStableMacFirmware())
+        LOGERR("WLAN: stable MAC firmware was not prepared; driver fallback remains available\n");
+
     DataManager::SetValue("tw_wlan_enabled", 0);
     DataManager::SetValue("tw_wlan_connected", 0);
     DataManager::SetValue("wlan_connected_name", "");
@@ -1457,6 +1466,168 @@ bool Wlan::StartSupplicant() {
     EnsureSupplicantConf();
     MkdirRecursive(GetCtrlDir());
     return StartInitSupplicantService();
+}
+
+bool Wlan::PrepareStableMacFirmware() {
+    char serial_prop[PROPERTY_VALUE_MAX] = {0};
+    property_get("ro.serialno", serial_prop, "");
+    std::string serial = serial_prop;
+    if (serial.empty()) {
+        property_get("ro.boot.serialno", serial_prop, "");
+        serial = serial_prop;
+    }
+
+    if (serial.empty()) {
+        LOGERR("WLAN: cannot derive stable MAC: device serial is empty\n");
+        return false;
+    }
+
+    /*
+     * Qualcomm CNSS normally obtains the factory WLAN MAC from DMS. Recovery
+     * does not run that vendor service, so the driver falls back to a
+     * different default MAC on every boot. Derive a deterministic,
+     * recovery-only address from the device serial instead. FNV-1a is enough
+     * here because this is a stable identifier, not a cryptographic secret.
+     * Keep the original OrangeFox salt so devices that used the earlier fix
+     * retain the same recovery MAC after moving to AERA.
+     */
+    uint64_t hash = UINT64_C(1469598103934665603);
+    const std::string material = "OrangeFox-WLAN:" + serial;
+    for (unsigned char c : material) {
+        hash ^= c;
+        hash *= UINT64_C(1099511628211);
+    }
+
+    unsigned char mac[6];
+    mac[0] = 0x02;  // Locally administered, unicast.
+    for (int i = 1; i < 6; ++i)
+        mac[i] = static_cast<unsigned char>(hash >> ((i - 1) * 8));
+
+    std::ostringstream compact_address;
+    compact_address << std::uppercase << std::hex << std::setfill('0');
+    for (int i = 0; i < 6; ++i)
+        compact_address << std::setw(2) << static_cast<unsigned int>(mac[i]);
+
+    const std::string mac_file =
+        "Intf0MacAddress=" + compact_address.str() + "\nEND\n";
+    const std::vector<std::string> config_roots = {
+        "/vendor/etc/wifi",
+        "/odm/etc/wifi",
+        "/vendor/odm/etc/wifi",
+        "/vendor/firmware/wlan/qca_cld",
+        "/odm/firmware/wlan/qca_cld",
+        "/system/etc/firmware/wlan/qca_cld",
+    };
+
+    std::set<std::string> config_paths;
+    std::set<std::string> chip_names;
+    for (const std::string& root : config_roots) {
+        const std::string direct = root + "/WCNSS_qcom_cfg.ini";
+        if (FileExists(direct))
+            config_paths.insert(direct);
+
+        DIR* dir = opendir(root.c_str());
+        if (dir == nullptr)
+            continue;
+
+        while (dirent* entry = readdir(dir)) {
+            const std::string name = entry->d_name;
+            if (name == "." || name == "..")
+                continue;
+
+            const std::string candidate =
+                root + "/" + name + "/WCNSS_qcom_cfg.ini";
+            if (FileExists(candidate)) {
+                config_paths.insert(candidate);
+                chip_names.insert(name);
+            }
+        }
+        closedir(dir);
+    }
+
+    const std::vector<std::string> legacy_configs = {
+        "/system/etc/firmware/wlan/WCNSS_qcom_cfg.ini",
+        "/vendor/etc/wifi/WCNSS_qcom_cfg.ini",
+        "/vendor/odm/etc/wifi/WCNSS_qcom_cfg.ini",
+    };
+    for (const std::string& path : legacy_configs) {
+        if (FileExists(path))
+            config_paths.insert(path);
+    }
+
+    const std::string firmware_image_root = "/vendor/firmware_mnt/image";
+    DIR* firmware_dirs = opendir(firmware_image_root.c_str());
+    if (firmware_dirs != nullptr) {
+        while (dirent* entry = readdir(firmware_dirs)) {
+            const std::string chip = entry->d_name;
+            if (chip == "." || chip == "..")
+                continue;
+
+            const std::string candidate = firmware_image_root + "/" + chip +
+                                          "/wlan/WCNSS_qcom_cfg.ini";
+            if (FileExists(candidate)) {
+                config_paths.insert(candidate);
+                chip_names.insert(chip);
+            }
+        }
+        closedir(firmware_dirs);
+    }
+
+    bool configured = false;
+    const std::string setting = "read_mac_addr_from_mac_file";
+    for (const std::string& path : config_paths) {
+        std::string config;
+        if (!ReadFile(path, config))
+            continue;
+
+        std::istringstream input(config);
+        std::ostringstream output;
+        std::string line;
+        bool inserted_setting = false;
+        while (std::getline(input, line)) {
+            const std::string trimmed = Trim(line);
+            if (trimmed.compare(0, setting.size(), setting) == 0)
+                continue;
+            if (!inserted_setting && trimmed == "END") {
+                output << setting << "=1\n";
+                inserted_setting = true;
+            }
+            output << line << '\n';
+        }
+        if (!inserted_setting)
+            output << setting << "=1\n";
+
+        if (WriteFile(path, output.str())) {
+            configured = true;
+        } else {
+            LOGERR("WLAN: cannot enable MAC file in %s\n", path.c_str());
+        }
+    }
+
+    std::set<std::string> mac_paths = {
+        "/vendor/firmware/wlan/qca_cld/wlan_mac.bin",
+        "/system/etc/firmware/wlan/qca_cld/wlan_mac.bin",
+    };
+    for (const std::string& chip : chip_names) {
+        mac_paths.insert("/vendor/firmware/wlan/qca_cld/" + chip + "/wlan_mac.bin");
+        mac_paths.insert("/system/etc/firmware/wlan/qca_cld/" + chip + "/wlan_mac.bin");
+    }
+
+    bool firmware_written = false;
+    for (const std::string& path : mac_paths) {
+        const size_t slash = path.find_last_of('/');
+        if (slash == std::string::npos || !MkdirRecursive(path.substr(0, slash)))
+            continue;
+        if (WriteFile(path, mac_file))
+            firmware_written = true;
+    }
+
+    if (!configured || !firmware_written)
+        return false;
+
+    LOGINFO("WLAN: prepared deterministic MAC %s for %zu Qualcomm profile(s)\n",
+            compact_address.str().c_str(), chip_names.size());
+    return true;
 }
 
 bool Wlan::StartDhcp() {

@@ -58,6 +58,7 @@ private:
 
     static bool StartSupplicant();
     static bool StopSupplicant();
+    static bool PrepareStableMacFirmware();
     static bool WaitForProperty(const std::string& key, const std::string& expected, int timeout_ms);
     static bool StartInitSupplicantService();
     static bool StopInitSupplicantService();
