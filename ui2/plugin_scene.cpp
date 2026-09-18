@@ -78,6 +78,9 @@ void Render(State *state) {
   lv_obj_clean(state->scene.list);
   const auto catalog = plugins::Catalog();
   const auto installed = plugins::Installed();
+  // The list has only just been created on the first visit. Force its layout
+  // before reading the width so the initial cards do not collapse to 600 px.
+  lv_obj_update_layout(state->scene.list);
   const int card_width = std::max(600, static_cast<int>(
       lv_obj_get_width(state->scene.list)));
   int y = 0;
@@ -139,7 +142,7 @@ void Render(State *state) {
                     if (action == Action::kPluginApp) SetSelectedPluginId(id);
                     state->callback(action, state->context);
                   }, true);
-        const bool update = local->version != plugin.version;
+        const bool update = plugins::IsUpdateAvailable(*local, plugin);
         AddButton(card, update ? "Update on storage" : "Reinstall",
                   34 + third + gap, third,
                   [state, id = plugin.id] {
@@ -150,7 +153,7 @@ void Render(State *state) {
                     Request(state, plugins::Job::kRemove, id);
                   });
       } else {
-        const bool update = local->version != plugin.version;
+        const bool update = plugins::IsUpdateAvailable(*local, plugin);
         const int gap = 24;
         const int half = (card_width - 68 - gap) / 2;
         AddButton(card, update ? "Update on storage" : "Reinstall", 34,
@@ -287,6 +290,56 @@ PluginScene BuildPluginScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_size(refresh, 380, 116);
   lv_obj_set_style_radius(refresh, 34, 0);
   state->scene.refresh = refresh;
+  auto *automatic = lv_button_create(screen);
+  Panel(automatic, 34, kMainPanel);
+  Interactive(automatic, kMainSelected);
+  lv_obj_set_pos(automatic, landscape ? 2300 : 600,
+                 landscape ? 292 : 414);
+  lv_obj_set_size(automatic, landscape ? 388 : 360, 116);
+  lv_obj_set_style_border_width(automatic, 1, 0);
+  lv_obj_set_style_border_color(automatic, kMainLine, 0);
+  lv_obj_set_style_border_opa(automatic, LV_OPA_40, 0);
+  auto *automatic_label = Label(automatic, "Auto-update",
+                                &lv_font_montserrat_24, kText);
+  FitLabelToLines(automatic_label, landscape ? 210 : 182, 1,
+                  {&lv_font_montserrat_24, &lv_font_montserrat_20,
+                   &lv_font_montserrat_18, &lv_font_montserrat_16});
+  lv_obj_align(automatic_label, LV_ALIGN_LEFT_MID, 28, 0);
+  auto *automatic_toggle = lv_switch_create(automatic);
+  lv_obj_set_size(automatic_toggle, 108, 60);
+  lv_obj_align(automatic_toggle, LV_ALIGN_RIGHT_MID, -24, 0);
+  lv_obj_remove_flag(automatic_toggle, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_opa(automatic_toggle, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(automatic_toggle, kMainLine, LV_PART_MAIN);
+  lv_obj_set_style_radius(automatic_toggle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(automatic_toggle, LV_OPA_COVER,
+                          LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(automatic_toggle, kAccent,
+                            LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_radius(automatic_toggle, LV_RADIUS_CIRCLE,
+                          LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(automatic_toggle, kText, LV_PART_KNOB);
+  lv_obj_set_style_bg_opa(automatic_toggle, LV_OPA_COVER, LV_PART_KNOB);
+  lv_obj_set_style_pad_all(automatic_toggle, -8, LV_PART_KNOB);
+  if (RecoveryPreference(Preference::kPluginAutoUpdate))
+    lv_obj_add_state(automatic_toggle, LV_STATE_CHECKED);
+  OnClick(automatic, [state, automatic_toggle] {
+    const bool enabled =
+        !RecoveryPreference(Preference::kPluginAutoUpdate);
+    if (!RecoverySetPreference(Preference::kPluginAutoUpdate, enabled) ||
+        !RecoverySavePreferences()) {
+      RecoverySetPreference(Preference::kPluginAutoUpdate, !enabled);
+      Sheet(state->screen, "Setting unavailable",
+            "This setting could not be changed.");
+      return;
+    }
+    if (enabled)
+      lv_obj_add_state(automatic_toggle, LV_STATE_CHECKED);
+    else
+      lv_obj_remove_state(automatic_toggle, LV_STATE_CHECKED);
+    if (enabled)
+      state->callback(Action::kApplyPluginAutoUpdates, state->context);
+  });
   state->scene.progress = lv_bar_create(screen);
   lv_obj_set_pos(state->scene.progress, 80, landscape ? 426 : 560);
   lv_obj_set_size(state->scene.progress,
@@ -302,6 +355,11 @@ PluginScene BuildPluginScene(lv_obj_t *screen, ActionCallback callback,
   Navigation(screen, Action::kNone, callback, context);
   Render(state);
   return state->scene;
+}
+
+void RefreshPluginScene(const PluginScene &scene) {
+  auto *state = static_cast<State *>(scene.state);
+  if (state != nullptr && !state->busy) Render(state);
 }
 
 void SetPluginBusy(const PluginScene &scene, const plugins::Request &request) {

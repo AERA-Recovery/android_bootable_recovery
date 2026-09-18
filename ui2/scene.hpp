@@ -182,6 +182,7 @@ PluginScene BuildPluginScene(lv_obj_t *screen, ActionCallback callback,
                              void *context);
 plugins::Request GetPluginRequest();
 void SetPluginRequest(const plugins::Request &request);
+void RefreshPluginScene(const PluginScene &scene);
 void SetPluginBusy(const PluginScene &scene, const plugins::Request &request);
 void UpdatePluginProgress(const PluginScene &scene, unsigned value,
                           uint64_t downloaded_bytes, uint64_t total_bytes);

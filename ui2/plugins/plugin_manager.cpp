@@ -15,6 +15,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <json/json.h>
+#include <limits>
 #include <mutex>
 #include <openssl/evp.h>
 #include <poll.h>
@@ -50,6 +51,60 @@ constexpr std::array<uint8_t, 32> kSigningKey{{
 
 std::mutex gCatalogMutex;
 std::vector<Plugin> gCatalog;
+
+bool ParseVersion(const std::string &version, std::vector<uint64_t> &parts,
+                  std::string &prerelease) {
+  size_t offset = (!version.empty() &&
+                   (version.front() == 'v' || version.front() == 'V')) ? 1 : 0;
+  if (offset == version.size()) return false;
+  while (offset < version.size()) {
+    if (!std::isdigit(static_cast<unsigned char>(version[offset]))) return false;
+    uint64_t value = 0;
+    do {
+      const unsigned digit = static_cast<unsigned>(version[offset] - '0');
+      if (value > (std::numeric_limits<uint64_t>::max() - digit) / 10)
+        return false;
+      value = value * 10 + digit;
+      ++offset;
+    } while (offset < version.size() &&
+             std::isdigit(static_cast<unsigned char>(version[offset])));
+    parts.push_back(value);
+    if (parts.size() > 8) return false;
+    if (offset == version.size() || version[offset] == '-' ||
+        version[offset] == '+') break;
+    if (version[offset++] != '.' || offset == version.size()) return false;
+  }
+  if (offset < version.size() && version[offset] == '-') {
+    const size_t end = version.find('+', offset + 1);
+    prerelease = version.substr(offset + 1, end - offset - 1);
+    if (prerelease.empty()) return false;
+    offset = end == std::string::npos ? version.size() : end;
+  }
+  if (offset < version.size() && version[offset] == '+') {
+    if (++offset == version.size()) return false;
+    offset = version.size();
+  }
+  return offset == version.size() && !parts.empty();
+}
+
+int CompareVersions(const std::string &left, const std::string &right) {
+  std::vector<uint64_t> left_parts;
+  std::vector<uint64_t> right_parts;
+  std::string left_prerelease;
+  std::string right_prerelease;
+  if (!ParseVersion(left, left_parts, left_prerelease) ||
+      !ParseVersion(right, right_parts, right_prerelease)) return 0;
+  const size_t count = std::max(left_parts.size(), right_parts.size());
+  for (size_t index = 0; index < count; ++index) {
+    const uint64_t lhs = index < left_parts.size() ? left_parts[index] : 0;
+    const uint64_t rhs = index < right_parts.size() ? right_parts[index] : 0;
+    if (lhs != rhs) return lhs > rhs ? 1 : -1;
+  }
+  if (left_prerelease.empty() != right_prerelease.empty())
+    return left_prerelease.empty() ? 1 : -1;
+  if (left_prerelease == right_prerelease) return 0;
+  return left_prerelease > right_prerelease ? 1 : -1;
+}
 
 bool SafeId(const std::string &id) {
   if (id.empty() || id.size() > 64 || id.front() == '.' || id.back() == '.')
@@ -895,6 +950,31 @@ std::vector<Plugin> Installed() {
     if (!shadowed) memory.push_back(std::move(plugin));
   }
   return memory;
+}
+
+bool IsUpdateAvailable(const Plugin &installed, const Plugin &available) {
+  return installed.id == available.id &&
+         installed.trust == Trust::kOfficial &&
+         CompareVersions(available.version, installed.version) > 0;
+}
+
+std::vector<PluginUpdate> AvailableUpdates() {
+  return AvailableUpdates(Installed());
+}
+
+std::vector<PluginUpdate> AvailableUpdates(
+    const std::vector<Plugin> &installed) {
+  const auto catalog = Catalog();
+  std::vector<PluginUpdate> updates;
+  for (const auto &available : catalog) {
+    const auto found = std::find_if(
+        installed.begin(), installed.end(), [&](const Plugin &plugin) {
+          return plugin.id == available.id;
+        });
+    if (found != installed.end() && IsUpdateAvailable(*found, available))
+      updates.push_back({*found, available});
+  }
+  return updates;
 }
 
 bool FindInstalled(const std::string &id, Plugin &plugin) {

@@ -69,7 +69,14 @@ bool RecoveryFlashlightEnabled();
 bool RecoverySetFlashlight(bool enabled);
 bool RecoveryMtpEnabled();
 bool RecoverySetMtp(bool enabled);
-enum class Preference { kClock24, kHiddenFiles, kCompression, kSha256, kVerifyZip };
+enum class Preference {
+  kClock24,
+  kHiddenFiles,
+  kCompression,
+  kSha256,
+  kVerifyZip,
+  kPluginAutoUpdate,
+};
 bool RecoveryPreference(Preference preference);
 bool RecoverySetPreference(Preference preference, bool enabled);
 bool RecoverySha256Available();

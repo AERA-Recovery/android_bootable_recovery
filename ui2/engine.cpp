@@ -53,6 +53,13 @@ enum class UpdateTask {
   kDownload,
 };
 
+enum class PluginTask {
+  kNone,
+  kInteractive,
+  kBackgroundRefresh,
+  kAutomaticInstall,
+};
+
 uint32_t MonotonicMilliseconds() {
   timespec now{};
   clock_gettime(CLOCK_MONOTONIC, &now);
@@ -239,6 +246,9 @@ public:
     wifi_scene_report_ = false;
     nas_running_ = false;
     plugin_running_ = false;
+    plugin_task_ = PluginTask::kNone;
+    plugin_auto_queue_.clear();
+    plugin_connection_seen_ = false;
     update_running_ = false;
     update_task_ = UpdateTask::kNone;
     update_installing_ = false;
@@ -322,10 +332,28 @@ public:
       if (plugin_thread_.joinable()) plugin_thread_.join();
       const bool success = plugin_result_.load(std::memory_order_acquire) == 0;
       const std::string message = success ? plugin_progress_.status : plugin_progress_.error;
-      CompletePluginOperation(plugin_scene_, success, message.c_str());
+      const PluginTask completed = plugin_task_;
+      const plugins::Job completed_job = plugin_job_;
       plugin_running_ = false;
+      plugin_task_ = PluginTask::kNone;
+      if (completed == PluginTask::kInteractive &&
+          current_scene_ == Action::kPlugins) {
+        CompletePluginOperation(plugin_scene_, success, message.c_str());
+        if (success && completed_job == plugins::Job::kRefresh &&
+            RecoveryPreference(Preference::kPluginAutoUpdate))
+          BeginAutomaticPluginUpdates();
+      } else if (completed == PluginTask::kBackgroundRefresh) {
+        if (success)
+          BeginAutomaticPluginUpdates();
+        else
+          RefreshPluginSurfaces();
+      } else if (completed == PluginTask::kAutomaticInstall) {
+        StartNextAutomaticPluginUpdate();
+      }
     }
-    if (plugin_running_ && MonotonicMilliseconds() - last_plugin_update_ >= 120) {
+    if (plugin_running_ && plugin_task_ == PluginTask::kInteractive &&
+        current_scene_ == Action::kPlugins &&
+        MonotonicMilliseconds() - last_plugin_update_ >= 120) {
       last_plugin_update_ = MonotonicMilliseconds();
       UpdatePluginProgress(plugin_scene_, plugin_progress_.value.load(),
                            plugin_progress_.downloaded_bytes.load(),
@@ -1060,6 +1088,11 @@ private:
       return;
     }
 
+    if (action == Action::kApplyPluginAutoUpdates) {
+      self->BeginAutomaticPluginUpdates();
+      return;
+    }
+
     if (action == Action::kDecryptUser) {
       const auto request = GetUserDecryptRequest();
       if (request.user.decrypted) {
@@ -1428,10 +1461,12 @@ private:
     });
   }
 
-  void StartPlugin(const plugins::Request &request) {
+  void StartPlugin(const plugins::Request &request,
+                   PluginTask task = PluginTask::kInteractive) {
     if (plugin_running_ || operation_running_ || wifi_running_ || nas_running_)
       return;
-    SetPluginBusy(plugin_scene_, request);
+    if (task == PluginTask::kInteractive)
+      SetPluginBusy(plugin_scene_, request);
     plugin_progress_.value.store(0);
     plugin_progress_.downloaded_bytes.store(0);
     plugin_progress_.total_bytes.store(0);
@@ -1439,6 +1474,8 @@ private:
     plugin_progress_.status.clear();
     plugin_progress_.error.clear();
     plugin_running_ = true;
+    plugin_task_ = task;
+    plugin_job_ = request.job;
     plugin_result_.store(-1, std::memory_order_release);
     plugin_complete_.store(false, std::memory_order_release);
     plugin_thread_ = std::thread([this, request]() {
@@ -1446,6 +1483,45 @@ private:
       plugin_result_.store(result ? 0 : -1, std::memory_order_release);
       plugin_complete_.store(true, std::memory_order_release);
     });
+  }
+
+  void RefreshPluginSurfaces() {
+    if (current_scene_ == Action::kPlugins)
+      RefreshPluginScene(plugin_scene_);
+    if (on_home_)
+      ShowHome();
+  }
+
+  void BeginAutomaticPluginUpdates() {
+    plugin_auto_queue_.clear();
+    if (!RecoveryPreference(Preference::kPluginAutoUpdate)) {
+      RefreshPluginSurfaces();
+      return;
+    }
+    for (const auto &update : plugins::AvailableUpdates()) {
+      if (update.installed.location == plugins::Location::kStorage)
+        plugin_auto_queue_.push_back(update.available.id);
+    }
+    StartNextAutomaticPluginUpdate();
+  }
+
+  void StartNextAutomaticPluginUpdate() {
+    if (!RecoveryPreference(Preference::kPluginAutoUpdate))
+      plugin_auto_queue_.clear();
+    if (plugin_auto_queue_.empty()) {
+      RefreshPluginSurfaces();
+      return;
+    }
+    if (plugin_running_ || operation_running_ || wifi_running_ || nas_running_)
+      return;
+    if (!RecoveryWifiConnection().connected)
+      return;
+    const std::string id = plugin_auto_queue_.front();
+    plugin_auto_queue_.erase(plugin_auto_queue_.begin());
+    plugins::Request request;
+    request.job = plugins::Job::kInstallStorage;
+    request.id = id;
+    StartPlugin(request, PluginTask::kAutomaticInstall);
   }
 
   void StartUpdateCheck(bool manual) {
@@ -1503,10 +1579,23 @@ private:
     last_update_connection_poll_ = now;
     const bool connected = RecoveryWifiConnection().connected;
     if (!connected) return;
-    if (update_connection_seen_ || update_running_ || wifi_running_ ||
-        operation_running_) return;
-    update_connection_seen_ = true;
-    StartUpdateCheck(false);
+    if (!plugin_auto_queue_.empty() && !plugin_running_ &&
+        !update_running_ && !wifi_running_ && !nas_running_ &&
+        !operation_running_) {
+      StartNextAutomaticPluginUpdate();
+      return;
+    }
+    if (!update_connection_seen_) {
+      if (update_running_ || wifi_running_ || operation_running_) return;
+      update_connection_seen_ = true;
+      StartUpdateCheck(false);
+      return;
+    }
+    if (plugin_connection_seen_ || update_running_ || plugin_running_ ||
+        wifi_running_ || nas_running_ || operation_running_) return;
+    plugin_connection_seen_ = true;
+    StartPlugin({plugins::Job::kRefresh, ""},
+                PluginTask::kBackgroundRefresh);
   }
 
   static double SmoothStep(double value) {
@@ -1945,6 +2034,7 @@ private:
   std::atomic<int> update_result_{-1};
   std::atomic<bool> update_complete_{false};
   plugins::Progress plugin_progress_{};
+  std::vector<std::string> plugin_auto_queue_;
   Action pending_action_ = Action::kNone;
   DecryptionCompletion decryption_completion_ = DecryptionCompletion::kNone;
   uint32_t submit_window_start_ms_ = 0;
@@ -1973,6 +2063,9 @@ private:
   bool wifi_scene_report_ = false;
   bool nas_running_ = false;
   bool plugin_running_ = false;
+  bool plugin_connection_seen_ = false;
+  PluginTask plugin_task_ = PluginTask::kNone;
+  plugins::Job plugin_job_ = plugins::Job::kRefresh;
   bool update_running_ = false;
   bool update_manual_ = false;
   bool update_installing_ = false;

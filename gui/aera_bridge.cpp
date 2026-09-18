@@ -396,6 +396,7 @@ static const char *PreferenceVariable(Preference preference) {
     case Preference::kCompression: return TW_USE_COMPRESSION_VAR;
     case Preference::kSha256: return TW_USE_SHA2;
     case Preference::kVerifyZip: return TW_SIGNED_ZIP_VERIFY_VAR;
+    case Preference::kPluginAutoUpdate: return "aera_plugin_auto_update";
   }
   return nullptr;
 }
@@ -634,6 +635,7 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "compression") DataManager::SetValue(TW_USE_COMPRESSION_VAR, value);
     else if (key == "sha256") DataManager::SetValue(TW_USE_SHA2, value);
     else if (key == "verify_zip") DataManager::SetValue(TW_SIGNED_ZIP_VERIFY_VAR, value);
+    else if (key == "plugin_auto_update") DataManager::SetValue("aera_plugin_auto_update", value);
     else if (key == "timezone") DataManager::SetValue(TW_TIME_ZONE_VAR, value);
     else if (key == "brightness") DataManager::SetValue("tw_brightness_pct", value);
     else if (key == "accent") DataManager::SetValue("aera_theme_accent", value);
@@ -679,6 +681,7 @@ bool SaveAeraPreferences() {
          << "compression=" << DataManager::GetIntValue(TW_USE_COMPRESSION_VAR) << '\n'
          << "sha256=" << DataManager::GetIntValue(TW_USE_SHA2) << '\n'
          << "verify_zip=" << DataManager::GetIntValue(TW_SIGNED_ZIP_VERIFY_VAR) << '\n'
+         << "plugin_auto_update=" << DataManager::GetIntValue("aera_plugin_auto_update") << '\n'
          << "timezone=" << DataManager::GetStrValue(TW_TIME_ZONE_VAR) << '\n'
          << "brightness=" << DataManager::GetIntValue("tw_brightness_pct") << '\n'
          << "accent=" << DataManager::GetStrValue("aera_theme_accent") << '\n'

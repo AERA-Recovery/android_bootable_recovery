@@ -112,6 +112,35 @@ const char *PluginSummary(const plugins::Plugin &plugin) {
   return plugin.description.c_str();
 }
 
+void MarkUpdateAvailable(lv_obj_t *card, bool compact = false) {
+  if (card == nullptr) return;
+  lv_obj_set_style_border_width(card, 3, 0);
+  lv_obj_set_style_border_color(card, kAccent, 0);
+  lv_obj_set_style_border_opa(card, LV_OPA_60, 0);
+  auto *badge = Kicker(card, "UPDATE AVAILABLE", kAccent);
+  if (compact)
+    lv_obj_align(badge, LV_ALIGN_BOTTOM_MID, 0, -18);
+  else
+    lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -36, 28);
+  MakeDecorationPassThrough(badge);
+
+  // Draw attention once when Home opens without leaving a permanently
+  // blinking control behind.
+  lv_anim_t pulse;
+  lv_anim_init(&pulse);
+  lv_anim_set_var(&pulse, card);
+  lv_anim_set_values(&pulse, LV_OPA_60, LV_OPA_COVER);
+  lv_anim_set_duration(&pulse, 520);
+  lv_anim_set_delay(&pulse, 360);
+  lv_anim_set_playback_duration(&pulse, 620);
+  lv_anim_set_path_cb(&pulse, lv_anim_path_ease_in_out);
+  lv_anim_set_exec_cb(&pulse, [](void *target, int32_t opacity) {
+    lv_obj_set_style_border_opa(static_cast<lv_obj_t *>(target),
+                                static_cast<lv_opa_t>(opacity), 0);
+  });
+  lv_anim_start(&pulse);
+}
+
 lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
                   const char *icon, const char *name, const char *description,
                   lv_color_t accent, Handler action,
@@ -262,6 +291,13 @@ void PluginPagerEvent(lv_event_t *event) {
 void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   Header(screen, "Home", "Your recovery apps, files and extensions.", callback, context);
   const auto installed = plugins::Installed();
+  const auto updates = plugins::AvailableUpdates(installed);
+  const auto has_update = [&](const std::string &id) {
+    return std::any_of(updates.begin(), updates.end(),
+                       [&](const plugins::PluginUpdate &update) {
+                         return update.installed.id == id;
+                       });
+  };
   const bool landscape = lv_obj_get_width(screen) > lv_obj_get_height(screen);
   if (landscape) {
     auto *apps = Label(screen, "AERA APPS", &lv_font_montserrat_18, kMuted);
@@ -272,7 +308,8 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     auto add = [&](const char *icon, const char *name, const char *description,
                    lv_color_t accent, Action action, bool retro_icon = false,
                    const std::string &plugin_id = std::string(),
-                   bool webkit_icon = false) {
+                   bool webkit_icon = false,
+                   bool update_available = false) {
       if (index >= 8) return;
       constexpr int kWidth = 736;
       constexpr int kGap = 16;
@@ -288,6 +325,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
                            },
                            retro_icon, action == Action::kTerminal,
                            webkit_icon);
+      if (update_available) MarkUpdateAvailable(card);
       AnimateEnter(card, 20 + index * 22, 12);
       ++index;
     };
@@ -295,8 +333,11 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
         "Browse storage, preview images and install ZIPs.", kAccent,
         Action::kFiles);
     add(LV_SYMBOL_DOWNLOAD, "Plugin Manager",
-        "Discover and install signed AERA extensions.", kAccent,
-        Action::kPlugins);
+        updates.empty() ? "Discover and install signed AERA extensions."
+                        : i18n::Format("%zu updates available",
+                                       updates.size()).c_str(),
+        kAccent, Action::kPlugins, false, std::string(), false,
+        !updates.empty());
     add(LV_SYMBOL_EDIT, "Terminal",
         "A real recovery shell built into AERA.", kAccent,
         Action::kTerminal);
@@ -304,32 +345,40 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       if (index >= 8) break;
       if (plugin.entry == "browser")
         add(LV_SYMBOL_GPS, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kWeb, false, std::string(), true);
+            kAccent, Action::kWeb, false, plugin.id, true,
+            has_update(plugin.id));
       else if (plugin.entry == "retroarch")
         add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kRetroArch, true);
+            kAccent, Action::kRetroArch, true, plugin.id, false,
+            has_update(plugin.id));
       else if (plugin.entry == "telegram")
         add(LV_SYMBOL_GPS, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kTelegram);
+            kAccent, Action::kTelegram, false, plugin.id, false,
+            has_update(plugin.id));
       else if (plugin.entry == "gallery")
         add(LV_SYMBOL_IMAGE, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kGallery);
+            kAccent, Action::kGallery, false, plugin.id, false,
+            has_update(plugin.id));
       else if (plugin.entry == "media")
         add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kMedia);
+            kAccent, Action::kMedia, false, plugin.id, false,
+            has_update(plugin.id));
       else if (plugin.entry == "streams")
         add(LV_SYMBOL_VIDEO, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kStreams);
+            kAccent, Action::kStreams, false, plugin.id, false,
+            has_update(plugin.id));
       else if (plugin.entry == "recorder")
         add(LV_SYMBOL_VIDEO, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kRecorder);
+            kAccent, Action::kRecorder, false, plugin.id, false,
+            has_update(plugin.id));
       else if (plugin.entry == "appvault")
         add(LV_SYMBOL_SAVE, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kAppVault);
+            kAccent, Action::kAppVault, false, plugin.id, false,
+            has_update(plugin.id));
       else if (plugins::IsGeneric(plugin))
         add(GenericPluginIcon(plugin), plugin.name.c_str(),
             plugin.description.c_str(), kAccent, Action::kPluginApp, false,
-            plugin.id);
+            plugin.id, false, has_update(plugin.id));
     }
     Navigation(screen, Action::kBackHome, callback, context);
     return;
@@ -340,9 +389,11 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   auto *files = AppCard(screen, 64, 484, 636, LV_SYMBOL_DIRECTORY, "Files",
                         "Browse storage, preview images and install ZIPs.",
                         kAccent, [=] { callback(Action::kFiles, context); });
+  const std::string store_summary = updates.empty()
+      ? "Discover signed apps and install them to storage or RAM."
+      : i18n::Format("%zu updates available", updates.size());
   auto *store = AppCard(screen, 740, 484, 636, LV_SYMBOL_DOWNLOAD,
-                        "Plugin Manager",
-                        "Discover signed apps and install them to storage or RAM.",
+                        "Plugin Manager", store_summary.c_str(),
                         kAccent, [=] { callback(Action::kPlugins, context); });
   auto *terminal = AppCard(screen, 64, 884, 1312, LV_SYMBOL_EDIT, "Terminal",
                            "Run recovery commands in the built-in AERA shell.",
@@ -351,6 +402,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   AnimateEnter(files, 20, 14);
   AnimateEnter(store, 55, 14);
   AnimateEnter(terminal, 80, 14);
+  if (!updates.empty()) MarkUpdateAvailable(store);
 
   auto *extensions = Label(screen, "INSTALLED PLUGINS", &lv_font_montserrat_18, kMuted);
   lv_obj_set_style_text_letter_space(extensions, 3, 0);
@@ -441,6 +493,8 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
                                 SetSelectedPluginId(plugin.id);
                               callback(action, context);
                             }, plugin.entry == "retroarch");
+    if (has_update(plugin.id))
+      MarkUpdateAvailable(card, tile_width < 600);
     AnimateEnter(card, 90 + slot * 18, 10);
     ++visible_index;
   }

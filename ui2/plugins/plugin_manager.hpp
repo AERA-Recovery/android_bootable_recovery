@@ -61,6 +61,11 @@ struct Plugin {
   Trust trust = Trust::kOfficial;
 };
 
+struct PluginUpdate {
+  Plugin installed;
+  Plugin available;
+};
+
 struct Request {
   Job job = Job::kRefresh;
   std::string id;
@@ -79,6 +84,10 @@ struct Progress {
 
 std::vector<Plugin> Catalog();
 std::vector<Plugin> Installed();
+std::vector<PluginUpdate> AvailableUpdates();
+std::vector<PluginUpdate> AvailableUpdates(
+    const std::vector<Plugin> &installed);
+bool IsUpdateAvailable(const Plugin &installed, const Plugin &available);
 bool FindInstalled(const std::string &id, Plugin &plugin);
 bool Run(const Request &request, Progress &progress);
 bool InspectLocalPackage(const std::string &path, Plugin &plugin,

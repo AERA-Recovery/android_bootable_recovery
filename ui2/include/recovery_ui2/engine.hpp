@@ -51,6 +51,7 @@ enum class Action {
     kRunWifiOperation,
     kPlugins,
     kRunPluginOperation,
+    kApplyPluginAutoUpdates,
     kInstallLocalPlugin,
     kPluginApp,
     kUnlock,
