@@ -36,8 +36,6 @@ struct TelemetryState {
 
 struct TelemetryView {
   lv_obj_t *screen = nullptr;
-  lv_obj_t *pulse = nullptr;
-  lv_obj_t *icon = nullptr;
   lv_obj_t *title = nullptr;
   lv_obj_t *detail = nullptr;
   lv_obj_t *progress = nullptr;
@@ -148,8 +146,6 @@ void ApplyTelemetry() {
   std::string detail =
       "Use the fastboot client on your computer to flash, erase, resize or\n"
       "inspect dynamic partitions. Keep the USB cable connected during writes.";
-  const char *icon = LV_SYMBOL_USB;
-  lv_color_t color = kAccent;
   bool show_progress = false;
 
   const bool failed = g_telemetry.result == 1;
@@ -161,8 +157,6 @@ void ApplyTelemetry() {
         ? i18n::Translate("Transfer failed")
         : i18n::Format("Operation failed · %s", target.c_str());
     detail = "Fastbootd reported an error. Check the host output before retrying.";
-    icon = LV_SYMBOL_CLOSE;
-    color = kRed;
   } else if (g_telemetry.phase == "receiving") {
     title = "Receiving image";
     detail = g_telemetry.total == 0
@@ -171,15 +165,12 @@ void ApplyTelemetry() {
               "%s of %s received over USB. The target partition follows next.",
               Bytes(g_telemetry.current).c_str(),
               Bytes(g_telemetry.total).c_str());
-    icon = LV_SYMBOL_DOWNLOAD;
     show_progress = g_telemetry.total != 0;
   } else if (g_telemetry.phase == "received") {
     title = "Image received";
     detail = i18n::Format(
         "%s received. Waiting for the host to name the target partition.",
         Bytes(g_telemetry.total).c_str());
-    icon = LV_SYMBOL_OK;
-    color = kGreen;
   } else if (g_telemetry.phase == "flashing") {
     title = i18n::Format(finished ? "Flashed %s" : "Flashing %s",
                          target.c_str());
@@ -187,8 +178,6 @@ void ApplyTelemetry() {
         ? "The partition was written successfully."
         : i18n::Format("Writing %s. Keep the USB cable connected.",
                        target.c_str());
-    icon = finished ? LV_SYMBOL_OK : LV_SYMBOL_SAVE;
-    color = finished ? kGreen : kAccent;
     show_progress = g_telemetry.total != 0;
   } else if (g_telemetry.phase == "erasing") {
     title = i18n::Format(finished ? "Erased %s" : "Erasing %s",
@@ -197,26 +186,22 @@ void ApplyTelemetry() {
                       : i18n::Format(
                             "Erasing %s. Keep the USB cable connected.",
                             target.c_str());
-    icon = finished ? LV_SYMBOL_OK : LV_SYMBOL_TRASH;
-    color = finished ? kGreen : kAccent;
   } else if (g_telemetry.phase == "updating") {
     title = i18n::Format(finished ? "Updated %s" : "Updating %s",
                          target.c_str());
     detail = finished ? "Dynamic partition metadata was updated successfully."
                       : "Applying dynamic partition metadata. Do not disconnect USB.";
-    icon = finished ? LV_SYMBOL_OK : LV_SYMBOL_REFRESH;
-    color = finished ? kGreen : kAccent;
   }
 
   i18n::BindLabel(g_view.title, title.c_str());
   i18n::BindLabel(g_view.detail, detail.c_str());
-  i18n::BindLabel(g_view.icon, icon);
-  lv_obj_set_style_text_color(g_view.icon, color, 0);
-  lv_obj_set_style_border_color(g_view.pulse, color, 0);
   if (show_progress) {
     const int percent = static_cast<int>(std::min<uint64_t>(
         100, g_telemetry.current * 100 / std::max<uint64_t>(1, g_telemetry.total)));
-    lv_bar_set_value(g_view.progress, percent, LV_ANIM_ON);
+    // Telemetry arrives about every 50 ms. Applying each sample directly
+    // keeps the indicator in lockstep with the percentage instead of
+    // repeatedly restarting LVGL's value animation.
+    lv_bar_set_value(g_view.progress, percent, LV_ANIM_OFF);
     char value[8];
     snprintf(value, sizeof(value), "%d%%", percent);
     i18n::BindLabel(g_view.percent, value);
@@ -226,13 +211,6 @@ void ApplyTelemetry() {
     lv_obj_add_flag(g_view.progress, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(g_view.percent, LV_OBJ_FLAG_HIDDEN);
   }
-}
-
-void Pulse(void *object, int32_t value) {
-  auto *target = static_cast<lv_obj_t *>(object);
-  lv_obj_set_style_transform_scale(target, value, 0);
-  lv_obj_set_style_opa(target,
-      static_cast<lv_opa_t>(std::clamp(360 - value / 2, 80, 230)), 0);
 }
 
 }  // namespace
@@ -268,33 +246,9 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_style_border_color(hero, kMainLine, 0);
   lv_obj_set_style_border_opa(hero, LV_OPA_50, 0);
 
-  auto *pulse = lv_obj_create(hero);
-  Clear(pulse);
-  lv_obj_set_size(pulse, 300, 300);
-  lv_obj_align(pulse, LV_ALIGN_TOP_MID, 0, landscape ? 90 : 160);
-  lv_obj_set_style_radius(pulse, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(pulse, kAccentSoft, 0);
-  lv_obj_set_style_bg_opa(pulse, LV_OPA_60, 0);
-  lv_obj_set_style_border_width(pulse, 3, 0);
-  lv_obj_set_style_border_color(pulse, kAccent, 0);
-  lv_obj_set_style_border_opa(pulse, LV_OPA_40, 0);
-  auto *usb = Label(pulse, LV_SYMBOL_USB, &lv_font_montserrat_48, kAccent);
-  lv_obj_center(usb);
-
-  lv_anim_t animation;
-  lv_anim_init(&animation);
-  lv_anim_set_var(&animation, pulse);
-  lv_anim_set_values(&animation, 244, 262);
-  lv_anim_set_duration(&animation, 1050);
-  lv_anim_set_playback_duration(&animation, 1050);
-  lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
-  lv_anim_set_path_cb(&animation, lv_anim_path_ease_in_out);
-  lv_anim_set_exec_cb(&animation, Pulse);
-  lv_anim_start(&animation);
-
   auto *ready = Label(hero, "Ready for fastboot commands",
                       &lv_font_montserrat_48, kText);
-  lv_obj_align(ready, LV_ALIGN_TOP_MID, 0, landscape ? 440 : 540);
+  lv_obj_align(ready, LV_ALIGN_TOP_MID, 0, landscape ? 190 : 320);
   auto *detail = Label(
       hero,
       "Use the fastboot client on your computer to flash, erase, resize or\n"
@@ -302,23 +256,25 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
       &lv_font_montserrat_24, kMuted);
   lv_obj_set_width(detail, landscape ? 1120 : 1160);
   lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, landscape ? 520 : 630);
+  lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, landscape ? 285 : 425);
 
   auto *progress = lv_bar_create(hero);
   lv_obj_set_size(progress, landscape ? 1080 : 1120, 24);
-  lv_obj_align(progress, LV_ALIGN_TOP_MID, 0, landscape ? 628 : 770);
+  lv_obj_align(progress, LV_ALIGN_TOP_MID, 0, landscape ? 430 : 590);
+  lv_bar_set_range(progress, 0, 100);
   lv_obj_set_style_radius(progress, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(progress, kInset, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(progress, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(progress, kAccent, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(progress, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_obj_set_style_radius(progress, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
   lv_bar_set_value(progress, 0, LV_ANIM_OFF);
   lv_obj_add_flag(progress, LV_OBJ_FLAG_HIDDEN);
   auto *percent = Label(hero, "0%", &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_align(percent, LV_ALIGN_TOP_MID, 0, landscape ? 666 : 812);
+  lv_obj_align(percent, LV_ALIGN_TOP_MID, 0, landscape ? 472 : 635);
   lv_obj_add_flag(percent, LV_OBJ_FLAG_HIDDEN);
 
-  g_view = {screen, pulse, usb, ready, detail, progress, percent};
+  g_view = {screen, ready, detail, progress, percent};
   g_telemetry.dirty = true;
   lv_obj_add_event_cb(screen, [](lv_event_t *event) {
     if (g_view.screen == lv_event_get_target_obj(event)) g_view = {};
@@ -326,8 +282,6 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   PollFastbootTelemetry();
 
   const std::string slot = RecoverySlot();
-  auto *transport = Kicker(hero, "USB TRANSPORT  ACTIVE", kGreen);
-  lv_obj_align(transport, LV_ALIGN_BOTTOM_LEFT, 58, -54);
   auto *slot_label = Kicker(
       hero, ("ACTIVE SLOT  " + (slot.empty() ? std::string("—") : slot)).c_str(),
       kMutedStrong);
