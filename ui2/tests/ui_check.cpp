@@ -25,6 +25,7 @@ static std::string active_slot = "A";
 static bool wifi_auto_enable = false;
 static bool wifi_auto_connect = false;
 static WifiRequest wifi_request;
+static SideloadStatus sideload_status;
 static int callback_count = 0;
 static Action last_action = Action::kNone;
 static void RecordAction(Action action, void*) { ++callback_count; last_action = action; }
@@ -99,6 +100,7 @@ void AttachStatusBar(lv_obj_t *screen, void (*)(Action,void*),void*,StatusBarAct
   lv_obj_set_pos(label,54,65);
 }
 int32_t StatusBarHeight() { return 165; }
+bool StatusBarShadeOpen() { return false; }
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
   if (kind == "wipe") return {{"Dalvik / ART cache","DALVIK",0},{"Data","/data",23000000000},
     {"Internal storage","INTERNAL",12000000000},{"Metadata","/metadata",40960000}};
@@ -133,6 +135,11 @@ std::string installer_status;
 int RecoveryProgress() { return recovery_progress; }
 std::string RecoveryOperationDetail() { return "Backing up / Boot\n38MB of 100MB (38%)"; }
 std::string RecoveryInstallerStatus() { return installer_status; }
+SideloadStatus RecoverySideloadStatus() { return sideload_status; }
+bool RecoveryCancelSideload() {
+  sideload_status.cancel_requested = true;
+  return true;
+}
 void RecoveryWifiInitialize() {}
 WifiStatus RecoveryWifiStatus() {
   WifiStatus status;
@@ -411,6 +418,25 @@ int main(int argc,char **argv) {
   auto *reboot_options=Find(format_job,"Reboot options"); assert(reboot_options);
   lv_obj_send_event(reboot_options,LV_EVENT_CLICKED,nullptr); assert(last_action==Action::kOpenReboot);
   lv_screen_load(screen); lv_obj_delete(format_job);
+  auto *sideload=lv_obj_create(nullptr);
+  BuildSideloadScene(sideload,RecordAction,nullptr);
+  lv_screen_load(sideload); Tick();
+  assert(Find(sideload,"Start ADB sideload"));
+  assert(Find(sideload,"adb sideload package.zip"));
+  assert(Find(sideload,"No partition or persistent file will be modified.")==nullptr);
+  lv_screen_load(screen); lv_obj_delete(sideload);
+  sideload_status={true,false,32ULL*1024*1024,64ULL*1024*1024};
+  installer_status="Reading test package";
+  auto *sideload_job=lv_obj_create(nullptr);
+  JobRequest sideload_request; sideload_request.job=Job::kSideload;
+  sideload_request.title="ADB Sideload";
+  auto receiving=BuildJobScene(sideload_job,sideload_request,RecordAction,nullptr);
+  lv_screen_load(sideload_job); RefreshOperationScene(receiving); Tick();
+  assert(Find(sideload_job,"50%"));
+  assert(Find(sideload_job,"32.0 MB / 64.0 MB"));
+  assert(Find(sideload_job,"Reading test package"));
+  lv_screen_load(screen); lv_obj_delete(sideload_job);
+  installer_status.clear(); sideload_status={};
   auto *about=lv_obj_create(nullptr);
   BuildAboutScene(about,RecordAction,nullptr);
   lv_screen_load(about); Tick();

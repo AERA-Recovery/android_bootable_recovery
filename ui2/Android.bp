@@ -61,6 +61,7 @@ cc_library_static {
         "reboot_scene.cpp",
         "root_manager.cpp",
         "root_manager_scene.cpp",
+        "sideload_scene.cpp",
         "retroarch_icon.cpp",
         "retroarch_scene.cpp",
         "retroarch/launcher.cpp",

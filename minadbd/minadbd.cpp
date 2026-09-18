@@ -21,6 +21,8 @@
 #include <stdlib.h>
 #include <strings.h>
 
+#include <string>
+
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
 
@@ -35,16 +37,29 @@ using namespace std::string_literals;
 
 int main(int argc, char** argv) {
   android::base::InitLogging(argv, &android::base::StderrLogger);
-  // TODO(xunchang) implement a command parser
-  if ((argc != 3 && argc != 4) || argv[1] != "--socket_fd"s ||
-      (argc == 4 && argv[3] != "--rescue"s)) {
-    LOG(ERROR) << "minadbd has invalid arguments, argc: " << argc;
-    exit(kMinadbdArgumentsParsingError);
+  int socket_fd = -1;
+  int progress_fd = -1;
+  bool rescue = false;
+  for (int i = 1; i < argc; ++i) {
+    const std::string option = argv[i];
+    if ((option == "--socket_fd" || option == "--progress_fd") &&
+        i + 1 < argc) {
+      int value = -1;
+      if (!android::base::ParseInt(argv[++i], &value)) {
+        LOG(ERROR) << "Failed to parse fd for " << option;
+        exit(kMinadbdArgumentsParsingError);
+      }
+      if (option == "--socket_fd") socket_fd = value;
+      else progress_fd = value;
+    } else if (option == "--rescue") {
+      rescue = true;
+    } else {
+      LOG(ERROR) << "minadbd has invalid argument " << option;
+      exit(kMinadbdArgumentsParsingError);
+    }
   }
-
-  int socket_fd;
-  if (!android::base::ParseInt(argv[2], &socket_fd)) {
-    LOG(ERROR) << "Failed to parse int in " << argv[2];
+  if (socket_fd < 0) {
+    LOG(ERROR) << "minadbd requires --socket_fd";
     exit(kMinadbdArgumentsParsingError);
   }
   if (fcntl(socket_fd, F_GETFD, 0) == -1) {
@@ -52,8 +67,15 @@ int main(int argc, char** argv) {
     exit(kMinadbdSocketIOError);
   }
   SetMinadbdSocketFd(socket_fd);
+  if (progress_fd >= 0) {
+    if (fcntl(progress_fd, F_GETFD, 0) == -1) {
+      PLOG(ERROR) << "Failed to get sideload progress socket";
+      exit(kMinadbdSocketIOError);
+    }
+    SetSideloadProgressFd(progress_fd);
+  }
 
-  if (argc == 4) {
+  if (rescue) {
     SetMinadbdRescueMode(true);
     adb_device_banner = "rescue";
   } else {

@@ -18,13 +18,21 @@
 
 #include <stdint.h>
 
+#include <vector>
+
 #include "fuse_provider.h"
 
 // This class reads data from adb server.
 class FuseAdbDataProvider : public FuseDataProvider {
  public:
-  FuseAdbDataProvider(int fd, uint64_t file_size, uint32_t block_size)
-      : FuseDataProvider(file_size, block_size), fd_(fd) {}
+  FuseAdbDataProvider(int fd, uint64_t file_size, uint32_t block_size,
+                      int progress_fd = -1)
+      : FuseDataProvider(file_size, block_size),
+        fd_(fd),
+        progress_fd_(progress_fd),
+        seen_blocks_(block_size == 0 ? 0 :
+            file_size / block_size + (file_size % block_size == 0 ? 0 : 1),
+            0) {}
 
   bool ReadBlockAlignedData(uint8_t* buffer, uint32_t fetch_size,
                             uint32_t start_block) const override;
@@ -34,6 +42,12 @@ class FuseAdbDataProvider : public FuseDataProvider {
   }
 
  private:
+  void ReportProgress(uint32_t start_block, uint32_t fetch_size) const;
+
   // The underlying source to read data from (i.e. the one that talks to the host).
   int fd_;
+  mutable int progress_fd_;
+  mutable std::vector<uint8_t> seen_blocks_;
+  mutable uint64_t received_bytes_ = 0;
+  mutable uint32_t reported_percent_ = UINT32_MAX;
 };

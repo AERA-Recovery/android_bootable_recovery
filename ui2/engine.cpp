@@ -201,6 +201,8 @@ public:
   void Shutdown() {
     plugin_progress_.cancel.store(true);
     update::Cancel();
+    if (operation_running_ && operation_scene_.job == Job::kSideload)
+      RecoveryCancelSideload();
     if (operation_thread_.joinable())
       operation_thread_.join();
     if (decrypt_thread_.joinable())
@@ -288,10 +290,16 @@ public:
         if (success) update::MarkInstalled();
         update_installing_ = false;
       }
+      const bool sideload_cancelled =
+          operation_scene_.job == Job::kSideload &&
+          RecoverySideloadStatus().cancel_requested;
       CompleteOperationScene(
           operation_scene_, success,
-          success ? "The requested operation completed. Review its output below."
-                  : "The backend reported an error. Review the recovery log below.");
+          sideload_cancelled
+              ? "ADB sideload was cancelled. Normal ADB has been restored."
+              : success
+                    ? "The requested operation completed. Review its output below."
+                    : "The backend reported an error. Review the recovery log below.");
       operation_running_ = false;
     }
     if (operation_running_ && MonotonicMilliseconds() - last_operation_update_ >= 500) {
@@ -982,6 +990,13 @@ private:
     if (!self->backend_ready_)
       return;
 
+    if (action == Action::kCancelSideload && self->operation_running_ &&
+        self->operation_scene_.job == Job::kSideload) {
+      RecoveryCancelSideload();
+      RefreshOperationScene(self->operation_scene_);
+      return;
+    }
+
     if (action == Action::kBack) {
       // UI back controls already provide their touch haptic. Hardware Back
       // and edge gestures call NavigateBack() directly with feedback enabled.
@@ -1122,6 +1137,25 @@ private:
       lv_obj_t *screen = lv_obj_create(nullptr);
       BuildFilesScene(screen, HandleSceneAction, self);
       lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+      return;
+    }
+
+    if (action == Action::kSideload) {
+      self->TrackScene(action);
+      self->on_home_ = false;
+      self->current_tool_ = action;
+      lv_obj_t *screen = lv_obj_create(nullptr);
+      BuildSideloadScene(screen, HandleSceneAction, self);
+      lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
+      return;
+    }
+
+    if (action == Action::kStartSideload) {
+      JobRequest request;
+      request.job = Job::kSideload;
+      request.title = "ADB Sideload";
+      request.present_before_run = true;
+      self->StartJob(request);
       return;
     }
 

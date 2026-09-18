@@ -3,6 +3,7 @@
 #include <recovery_ui2/backend.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdlib>
 #include <ctime>
@@ -25,6 +26,7 @@
 #include "gui.hpp"
 #include "objects.hpp"
 #include <twinstall.h>
+#include <twinstall/adb_install.h>
 
 #ifdef OF_ENABLE_WLAN
 #include "../nas/NasManager.hpp"
@@ -78,6 +80,10 @@ namespace recovery_ui2 {
 namespace {
 void LoadAeraPreferencesIfAvailable();
 bool SaveAeraPreferences();
+std::atomic<bool> gSideloadActive{false};
+std::atomic<bool> gSideloadCancelRequested{false};
+std::atomic<uint64_t> gSideloadReceivedBytes{0};
+std::atomic<uint64_t> gSideloadTotalBytes{0};
 }
 
 std::vector<AndroidUser> RecoveryAndroidUsers() {
@@ -194,11 +200,52 @@ std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder) {
   return RecoveryVolumes("restore");
 }
 
+SideloadStatus RecoverySideloadStatus() {
+  SideloadStatus status;
+  status.active = gSideloadActive.load(std::memory_order_acquire);
+  status.cancel_requested =
+      gSideloadCancelRequested.load(std::memory_order_acquire);
+  status.received_bytes =
+      gSideloadReceivedBytes.load(std::memory_order_acquire);
+  status.total_bytes = gSideloadTotalBytes.load(std::memory_order_acquire);
+  return status;
+}
+
+bool RecoveryCancelSideload() {
+  if (!gSideloadActive.load(std::memory_order_acquire)) return false;
+  gSideloadCancelRequested.store(true, std::memory_order_release);
+  return CancelAdbSideload();
+}
+
+int RecoveryRunSideload() {
+  gSideloadReceivedBytes.store(0, std::memory_order_release);
+  gSideloadTotalBytes.store(0, std::memory_order_release);
+  gSideloadCancelRequested.store(false, std::memory_order_release);
+  gSideloadActive.store(true, std::memory_order_release);
+
+  const bool mtp_was_enabled = TWFunc::Toggle_MTP(false);
+  TWFunc::SetPerformanceMode(true);
+  Device::BuiltinAction reboot_action = Device::REBOOT_BOOTLOADER;
+  const int result = twrp_sideload(
+      "/", &reboot_action, [](uint64_t received, uint64_t total) {
+        gSideloadTotalBytes.store(total, std::memory_order_release);
+        gSideloadReceivedBytes.store(received, std::memory_order_release);
+      });
+  TWFunc::Fox_Property_Set("ctl.start", "adbd");
+  TWFunc::Toggle_MTP(mtp_was_enabled);
+  PartitionManager.Update_System_Details();
+  TWFunc::SetPerformanceMode(false);
+  gSideloadActive.store(false, std::memory_order_release);
+  return result == 0 ? 0 : 1;
+}
+
 int RecoveryRunJob(const JobRequest &request) {
   if (request.job == Job::kFormatData && !FormatDataAuthorized(request)) return 1;
   DataManager::SetValue("ui_progress", 0);
   DataManager::SetValue("ui_portion_start", 0.0f);
-  DataManager::SetValue("ui_portion_size", request.job == Job::kInstall ? 0.0f : 1.0f);
+  DataManager::SetValue("ui_portion_size",
+      request.job == Job::kInstall || request.job == Job::kSideload
+          ? 0.0f : 1.0f);
   DataManager::SetValue("ui_progress_portion", 0);
   DataManager::SetValue("ui_progress_frames", 0);
   DataManager::SetValue("tw_operation", request.title);
@@ -207,6 +254,7 @@ int RecoveryRunJob(const JobRequest &request) {
   DataManager::SetValue("tw_file_progress", "");
   DataManager::SetValue("aera_install_status", "");
   if (request.job == Job::kInstall) return recovery_ui2_install_package(request.path.c_str());
+  if (request.job == Job::kSideload) return RecoveryRunSideload();
   if (request.job == Job::kFlashImage) {
     if (request.partitions.size() != 1 || request.path.empty() ||
         request.path.find_first_of("'\r\n") != std::string::npos) return 1;

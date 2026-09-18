@@ -62,6 +62,24 @@ std::string CleanMetric(std::string value) {
   return value;
 }
 
+std::string DataSize(uint64_t bytes) {
+  char text[64];
+  if (bytes >= 1024ULL * 1024 * 1024) {
+    snprintf(text, sizeof(text), "%.2f GB",
+             static_cast<double>(bytes) / (1024.0 * 1024 * 1024));
+  } else if (bytes >= 1024ULL * 1024) {
+    snprintf(text, sizeof(text), "%.1f MB",
+             static_cast<double>(bytes) / (1024.0 * 1024));
+  } else if (bytes >= 1024ULL) {
+    snprintf(text, sizeof(text), "%.1f KB",
+             static_cast<double>(bytes) / 1024.0);
+  } else {
+    snprintf(text, sizeof(text), "%llu bytes",
+             static_cast<unsigned long long>(bytes));
+  }
+  return text;
+}
+
 std::string CleanInstallerStatus(std::string value) {
   while (!value.empty() &&
          std::isspace(static_cast<unsigned char>(value.front())))
@@ -93,6 +111,7 @@ std::string CleanInstallerHistory(const std::string &value,
 
 const char *InitialTitle(Job job) {
   switch (job) {
+    case Job::kSideload: return "Waiting for package";
     case Job::kFlashImage: return "Preparing image flash";
     case Job::kBackup: return "Preparing your backup";
     case Job::kRestore: return "Preparing to restore";
@@ -106,6 +125,7 @@ const char *InitialTitle(Job job) {
 
 const char *OperationSymbol(Job job) {
   switch (job) {
+    case Job::kSideload: return LV_SYMBOL_USB;
     case Job::kFlashImage: return LV_SYMBOL_UPLOAD;
     case Job::kBackup: return LV_SYMBOL_SAVE;
     case Job::kRestore: return LV_SYMBOL_REFRESH;
@@ -188,6 +208,13 @@ FriendlyProgress Explain(const std::string &raw, Job job, int progress) {
         subject.c_str());
     value.activity = "Do not reboot or disconnect the device while the image is being written.";
     value.step = progress > 1 ? 1 : 0;
+  } else if (job == Job::kSideload) {
+    value.title = "Waiting for package";
+    value.explanation =
+        "Run adb sideload package.zip on the connected computer.";
+    value.activity =
+        "Normal ADB is paused while the dedicated sideload service is active.";
+    value.step = 0;
   } else if (job == Job::kInstall) {
     value.title = progress > 1 ? "Installing package" : "Preparing installation";
     value.explanation = "AERA is applying the selected package to your device.";
@@ -260,7 +287,8 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   OperationScene result;
   result.job = request.job;
   result.format_data = request.job == Job::kFormatData;
-  result.indeterminate_progress = request.job == Job::kInstall;
+  result.indeterminate_progress =
+      request.job == Job::kInstall || request.job == Job::kSideload;
   result.started = lv_tick_get();
   const bool landscape = Landscape(screen);
 
@@ -370,14 +398,17 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_style_text_align(result.files, LV_TEXT_ALIGN_RIGHT, 0);
 
   const bool network = request.path.find("/mnt/nas") != std::string::npos;
-  const std::string destination = network ? "Destination  /  Network Storage" :
+  const std::string destination = request.job == Job::kSideload
+      ? "Source  /  ADB over USB"
+      : network ? "Destination  /  Network Storage" :
       request.path.empty() ? "Destination  /  Recovery storage" : "Destination  /  " + request.path;
   result.destination = Label(card, destination.c_str(), &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(result.destination, 48, 650);
   lv_obj_set_width(result.destination, 1216);
   lv_label_set_long_mode(result.destination, LV_LABEL_LONG_DOT);
 
-  const bool installer = request.job == Job::kInstall;
+  const bool installer =
+      request.job == Job::kInstall || request.job == Job::kSideload;
   const int activity_y = landscape ? 340 : 1230;
   const int activity_height = installer
       ? std::max(500, static_cast<int>(lv_obj_get_height(screen)) -
@@ -392,7 +423,8 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_style_border_color(activity_card, kMainLine, 0);
   lv_obj_set_style_border_opa(activity_card, LV_OPA_20, 0);
   auto *activity_title = Label(activity_card,
-      installer ? "INSTALLER OUTPUT" : "WHAT'S HAPPENING",
+      request.job == Job::kSideload ? "SIDELOAD & INSTALLER OUTPUT" :
+          installer ? "INSTALLER OUTPUT" : "WHAT'S HAPPENING",
       &lv_font_montserrat_24, kAccent);
   lv_obj_set_pos(activity_title, 48, 42);
   lv_obj_set_style_text_letter_space(activity_title, 3, 0);
@@ -448,6 +480,18 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   result.done_label = lv_obj_get_child(result.done, 0);
   lv_obj_add_flag(result.done, LV_OBJ_FLAG_HIDDEN);
 
+  if (request.job == Job::kSideload) {
+    result.cancel = Button(
+        screen, "Cancel sideload",
+        [callback, context] {
+          callback(Action::kCancelSideload, context);
+        });
+    lv_obj_set_size(result.cancel, landscape ? 1100 : 1280,
+                    landscape ? 116 : 150);
+    lv_obj_align(result.cancel, LV_ALIGN_BOTTOM_MID, 0,
+                 landscape ? -70 : -130);
+  }
+
   AnimateEnter(card, 45, 24);
   AnimateEnter(activity_card, 85, 24);
   return result;
@@ -463,11 +507,19 @@ OperationScene BuildOperationScene(lv_obj_t *screen, const char *path,
 }
 
 void RefreshOperationScene(const OperationScene &scene) {
-  const int progress = RecoveryProgress();
-  const bool indeterminate = scene.indeterminate_progress && progress <= 0;
+  const bool sideload = scene.job == Job::kSideload;
+  const auto sideload_status = sideload ? RecoverySideloadStatus()
+                                       : SideloadStatus{};
+  const int progress = sideload && sideload_status.total_bytes > 0
+      ? std::clamp(static_cast<int>(
+            sideload_status.received_bytes * 100ULL /
+            sideload_status.total_bytes), 0, 100)
+      : RecoveryProgress();
+  const bool indeterminate = scene.indeterminate_progress &&
+      (sideload ? sideload_status.total_bytes == 0 : progress <= 0);
   lv_bar_set_value(scene.progress, indeterminate ? 0 : progress, LV_ANIM_ON);
   i18n::BindLabel(scene.percent, indeterminate
-      ? "Installing"
+      ? (sideload ? "Waiting" : "Installing")
       : (std::to_string(progress) + "%").c_str());
   if (scene.progress_pulse && indeterminate) {
     lv_obj_remove_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
@@ -489,7 +541,48 @@ void RefreshOperationScene(const OperationScene &scene) {
   i18n::BindLabel(scene.elapsed, elapsed.c_str());
 
   auto friendly = Explain(RecoveryOperationDetail(), scene.job, progress);
-  if (scene.job == Job::kInstall) {
+  if (sideload) {
+    const std::string history =
+        CleanInstallerHistory(RecoveryInstallerStatus(),
+                              std::max(1U, scene.installer_lines));
+    const auto installer_lines = Lines(history);
+    const std::string installer =
+        installer_lines.empty() ? "" : installer_lines.back();
+    if (sideload_status.cancel_requested) {
+      friendly.title = "Cancelling sideload";
+      friendly.explanation =
+          "Stopping the package stream and restoring normal ADB.";
+      friendly.amount = sideload_status.total_bytes == 0
+          ? "No package received"
+          : DataSize(sideload_status.received_bytes) + " / " +
+                DataSize(sideload_status.total_bytes);
+      friendly.activity = "Waiting for the sideload service to stop safely...";
+      if (scene.cancel) {
+        lv_obj_add_state(scene.cancel, LV_STATE_DISABLED);
+        if (lv_obj_get_child_count(scene.cancel) > 0)
+          i18n::BindLabel(lv_obj_get_child(scene.cancel, 0), "Cancelling...");
+      }
+    } else if (sideload_status.total_bytes == 0) {
+      friendly.title = "Waiting for package";
+      friendly.explanation =
+          "Run adb sideload package.zip on the connected computer.";
+      friendly.amount = "USB sideload is ready";
+      friendly.activity =
+          "AERA is waiting for the computer to begin sending a package.";
+    } else {
+      friendly.title = installer.empty()
+          ? "Receiving package" : "Receiving and installing package";
+      friendly.explanation = installer.empty()
+          ? "Package blocks are streaming directly into the AERA installer."
+          : installer;
+      friendly.amount = DataSize(sideload_status.received_bytes) + " / " +
+                        DataSize(sideload_status.total_bytes);
+      friendly.files = std::to_string(progress) + "% received";
+      friendly.activity = history.empty()
+          ? "Keep the USB cable connected until sideload completes."
+          : history;
+    }
+  } else if (scene.job == Job::kInstall) {
     const std::string history =
         CleanInstallerHistory(RecoveryInstallerStatus(),
                               std::max(1U, scene.installer_lines));
@@ -530,6 +623,9 @@ void RefreshOperationScene(const OperationScene &scene) {
 
 void CompleteOperationScene(const OperationScene &scene, bool success,
                             const char *detail) {
+  const bool sideload_cancelled =
+      scene.job == Job::kSideload &&
+      RecoverySideloadStatus().cancel_requested;
   RecoveryVibrate(Haptic::kAction);
   RefreshOperationScene(scene);
   lv_anim_delete(scene.activity, SetActivityBorderOpacity);
@@ -561,13 +657,21 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
   } else if (scene.progress_pulse) {
     lv_obj_add_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
   }
-  i18n::BindLabel(scene.status, success ? "Operation complete" : "Operation stopped");
+  i18n::BindLabel(scene.status,
+      sideload_cancelled ? "Sideload cancelled" :
+      success ? "Operation complete" : "Operation stopped");
   lv_obj_set_style_text_color(scene.status, result_color, 0);
   lv_obj_set_style_text_color(scene.percent, result_color, 0);
   if (scene.format_data && success) {
     i18n::BindLabel(scene.detail, "Data was formatted successfully. Reboot recovery before using /data again.");
     i18n::BindLabel(scene.activity_summary,
         "Android may need a moment to recreate shared storage on the next boot.");
+  } else if (sideload_cancelled) {
+    i18n::BindLabel(scene.detail,
+                    "Normal ADB and the previous USB mode were restored.");
+    i18n::BindLabel(
+        scene.activity_summary,
+        "The sideload session ended without completing the package.");
   } else {
     i18n::BindLabel(scene.detail, detail && *detail ? detail :
         success ? "Everything finished successfully." : "Open technical details to see what went wrong.");
@@ -583,6 +687,8 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
   }
   if (scene.details)
     lv_obj_remove_flag(scene.details, LV_OBJ_FLAG_HIDDEN);
+  if (scene.cancel)
+    lv_obj_add_flag(scene.cancel, LV_OBJ_FLAG_HIDDEN);
   lv_obj_remove_flag(scene.done, LV_OBJ_FLAG_HIDDEN);
 }
 

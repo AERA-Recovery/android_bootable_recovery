@@ -21,11 +21,13 @@
 
 #include <string>
 
+#include <android-base/file.h>
 #include <android-base/unique_fd.h>
 #include <gtest/gtest.h>
 
 #include "adb_io.h"
 #include "fuse_adb_provider.h"
+#include "minadbd/types.h"
 
 TEST(fuse_adb_provider, read_block_adb) {
   android::base::unique_fd device_socket;
@@ -82,4 +84,53 @@ TEST(fuse_adb_provider, read_block_adb_fail_write) {
 
   char buf[1];
   ASSERT_FALSE(data.ReadBlockAlignedData(reinterpret_cast<uint8_t*>(buf), 1, 0));
+}
+
+TEST(fuse_adb_provider, reports_unique_block_progress) {
+  android::base::unique_fd device_socket;
+  android::base::unique_fd host_socket;
+  android::base::unique_fd progress_reader;
+  android::base::unique_fd progress_writer;
+
+  ASSERT_TRUE(android::base::Socketpair(AF_UNIX, SOCK_STREAM, 0,
+                                        &device_socket, &host_socket));
+  ASSERT_TRUE(android::base::Socketpair(AF_UNIX, SOCK_STREAM, 0,
+                                        &progress_reader, &progress_writer));
+  FuseAdbDataProvider data(std::move(device_socket), 12, 6,
+                           progress_writer.get());
+
+  const char expected_data[] = "foobar";
+  uint8_t block_data[sizeof(expected_data) - 1] = {};
+  char block_request[8] = {};
+
+  ASSERT_TRUE(WriteFdExactly(host_socket, expected_data,
+                             sizeof(expected_data) - 1));
+  ASSERT_TRUE(data.ReadBlockAlignedData(block_data, sizeof(block_data), 0));
+  ASSERT_TRUE(ReadFdExactly(host_socket, block_request, sizeof(block_request)));
+
+  SideloadProgressMessage progress{};
+  ASSERT_TRUE(android::base::ReadFully(progress_reader, &progress,
+                                       sizeof(progress)));
+  EXPECT_EQ(6U, progress.received_bytes);
+  EXPECT_EQ(12U, progress.total_bytes);
+
+  ASSERT_TRUE(WriteFdExactly(host_socket, expected_data,
+                             sizeof(expected_data) - 1));
+  ASSERT_TRUE(data.ReadBlockAlignedData(block_data, sizeof(block_data), 0));
+  ASSERT_TRUE(ReadFdExactly(host_socket, block_request, sizeof(block_request)));
+  ASSERT_NE(-1, fcntl(progress_reader, F_SETFL, O_NONBLOCK));
+  char unexpected;
+  errno = 0;
+  EXPECT_EQ(-1, read(progress_reader, &unexpected, 1));
+  EXPECT_EQ(EWOULDBLOCK, errno);
+  ASSERT_NE(-1, fcntl(progress_reader, F_SETFL, 0));
+
+  ASSERT_TRUE(WriteFdExactly(host_socket, expected_data,
+                             sizeof(expected_data) - 1));
+  ASSERT_TRUE(data.ReadBlockAlignedData(block_data, sizeof(block_data), 1));
+  ASSERT_TRUE(ReadFdExactly(host_socket, block_request, sizeof(block_request)));
+  ASSERT_TRUE(android::base::ReadFully(progress_reader, &progress,
+                                       sizeof(progress)));
+  EXPECT_EQ(12U, progress.received_bytes);
+  EXPECT_EQ(12U, progress.total_bytes);
 }

@@ -20,6 +20,8 @@
 
 void SetMinadbdSocketFd(int socket_fd);
 
+void SetSideloadProgressFd(int progress_fd);
+
 void SetMinadbdRescueMode(bool);
 
 void SetSideloadMountPoint(const std::string& path);

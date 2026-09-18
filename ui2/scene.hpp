@@ -35,6 +35,7 @@ struct OperationScene {
   lv_obj_t *activity = nullptr;
   lv_obj_t *metrics = nullptr;
   lv_obj_t *destination = nullptr;
+  lv_obj_t *cancel = nullptr;
   uint32_t started = 0;
   unsigned installer_lines = 0;
   Job job = Job::kInstall;
@@ -137,6 +138,8 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback,
                            void *context);
 void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
+                        void *context);
+void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
                         void *context);
 void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,

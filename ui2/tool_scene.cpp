@@ -1449,8 +1449,9 @@ void BuildMenu(Tools *state) {
   state->list = Scroll(state->screen, landscape ? 340 : 452,
                        landscape ? 438 : 1900);
   struct Item { const char *icon, *title, *detail; Action action; };
-  const std::array<Item, 11> items{{
+  const std::array<Item, 12> items{{
     {LV_SYMBOL_DRIVE, "Mounts", "Mount or unmount recovery volumes", Action::kMounts},
+    {LV_SYMBOL_USB, "ADB Sideload", "Receive and install a ZIP package over USB", Action::kSideload},
     {LV_SYMBOL_LIST, "Recovery log", "Read output and troubleshoot operations", Action::kLogs},
     {LV_SYMBOL_WIFI, "Wi-Fi", "Networks, saved credentials and connection test", Action::kWifi},
     {LV_SYMBOL_SHUFFLE, "Network Storage", "Connect and mount SFTP or SMB storage", Action::kNas},

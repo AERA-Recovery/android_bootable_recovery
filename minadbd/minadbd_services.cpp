@@ -50,11 +50,16 @@
 #include "sysdeps.h"
 
 static int minadbd_socket = -1;
+static int sideload_progress_fd = -1;
 static bool rescue_mode = false;
 static std::string sideload_mount_point = FUSE_SIDELOAD_HOST_MOUNTPOINT;
 
 void SetMinadbdSocketFd(int socket_fd) {
   minadbd_socket = socket_fd;
+}
+
+void SetSideloadProgressFd(int progress_fd) {
+  sideload_progress_fd = progress_fd;
 }
 
 void SetMinadbdRescueMode(bool rescue) {
@@ -114,7 +119,8 @@ static MinadbdErrorCode RunAdbFuseSideload(int sfd, const std::string& args,
     return kMinadbdSocketIOError;
   }
 
-  auto adb_data_reader = std::make_unique<FuseAdbDataProvider>(sfd, file_size, block_size);
+  auto adb_data_reader = std::make_unique<FuseAdbDataProvider>(
+      sfd, file_size, block_size, sideload_progress_fd);
   if (int result = run_fuse_sideload(std::move(adb_data_reader), sideload_mount_point.c_str());
       result != 0) {
     LOG(ERROR) << "Failed to start fuse";

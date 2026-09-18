@@ -24,6 +24,13 @@ constexpr size_t kMinadbdMessageSize = 8;
 constexpr char const kMinadbdCommandPrefix[] = "COMD";
 constexpr char const kMinadbdStatusPrefix[] = "STAT";
 
+// Sent over a dedicated socket so progress can never block or interleave with
+// the command/status protocol above.
+struct SideloadProgressMessage {
+  uint64_t received_bytes;
+  uint64_t total_bytes;
+};
+
 enum MinadbdErrorCode : int {
   kMinadbdSuccess = 0,
   kMinadbdArgumentsParsingError = 1,

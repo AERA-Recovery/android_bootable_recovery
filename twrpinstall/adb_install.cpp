@@ -33,6 +33,7 @@
 #include <atomic>
 #include <functional>
 #include <map>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -58,10 +59,35 @@
 // always be sent to the minadbd side.
 using CommandFunction = std::function<std::pair<bool, bool>()>;
 
-pid_t child;
+std::atomic<pid_t> child{0};
+std::atomic<bool> sideload_cancel_requested{false};
 
 pid_t GetMiniAdbdPid() {
-  return child;
+  return child.load(std::memory_order_acquire);
+}
+
+bool CancelAdbSideload() {
+  sideload_cancel_requested.store(true, std::memory_order_release);
+  const pid_t pid = GetMiniAdbdPid();
+  if (pid <= 0) return true;
+  struct stat st {};
+  stat(FUSE_SIDELOAD_HOST_EXIT_PATHNAME, &st);
+  if (kill(pid, SIGTERM) == 0) return true;
+  return errno == ESRCH;
+}
+
+static void ListenForSideloadProgress(
+    android::base::unique_fd progress_socket,
+    SideloadProgressCallback progress_callback) {
+  SideloadProgressMessage message{};
+  while (android::base::ReadFully(progress_socket, &message,
+                                  sizeof(message))) {
+    if (message.total_bytes == 0 ||
+        message.received_bytes > message.total_bytes) {
+      continue;
+    }
+    progress_callback(message.received_bytes, message.total_bytes);
+  }
 }
 
 static bool SetUsbConfig(const std::string& state) {
@@ -281,7 +307,8 @@ static void ListenAndExecuteMinadbdCommands(
 //
 static void CreateMinadbdServiceAndExecuteCommands(
     const std::map<MinadbdCommand, CommandFunction>& command_map,
-    bool rescue_mode __unused, std::string install_file __unused) {
+    bool rescue_mode __unused, std::string install_file __unused,
+    const SideloadProgressCallback& progress_callback) {
   signal(SIGPIPE, SIG_IGN);
 
   android::base::unique_fd recovery_socket;
@@ -291,18 +318,33 @@ static void CreateMinadbdServiceAndExecuteCommands(
     return;
   }
 
-  child = fork();
-  if (child == -1) {
+  android::base::unique_fd progress_reader;
+  android::base::unique_fd progress_writer;
+  if (progress_callback &&
+      !android::base::Socketpair(AF_UNIX, SOCK_STREAM, 0,
+                                 &progress_reader, &progress_writer)) {
+    PLOG(ERROR) << "Failed to create sideload progress socket";
+    return;
+  }
+
+  const pid_t minadbd_pid = fork();
+  if (minadbd_pid == -1) {
     PLOG(ERROR) << "Failed to fork child process";
     return;
   }
-  if (child == 0) {
+  if (minadbd_pid == 0) {
     recovery_socket.reset();
+    progress_reader.reset();
     std::vector<std::string> minadbd_commands = {
       "/system/bin/minadbd",
       "--socket_fd",
       std::to_string(minadbd_socket.release()),
     };
+    if (progress_writer.get() >= 0) {
+      minadbd_commands.push_back("--progress_fd");
+      minadbd_commands.push_back(
+          std::to_string(progress_writer.release()));
+    }
     // if (rescue_mode) {
     //   minadbd_commands.push_back("--rescue");
     // }
@@ -310,28 +352,50 @@ static void CreateMinadbdServiceAndExecuteCommands(
     execv(exec_args[0], exec_args.data());
     _exit(EXIT_FAILURE);
   }
+  child.store(minadbd_pid, std::memory_order_release);
+  if (sideload_cancel_requested.load(std::memory_order_acquire)) {
+    kill(minadbd_pid, SIGTERM);
+    waitpid(minadbd_pid, nullptr, 0);
+    child.store(0, std::memory_order_release);
+    return;
+  }
 
   minadbd_socket.reset();
+  progress_writer.reset();
+
+  std::thread progress_thread;
+  if (progress_reader.get() >= 0) {
+    progress_thread = std::thread(ListenForSideloadProgress,
+                                  std::move(progress_reader),
+                                  progress_callback);
+  }
 
   // We need to call SetUsbConfig() after forking minadbd service. Because the function waits for
   // the usb state to be updated, which depends on sys.usb.ffs.ready=1 set in the adb daemon.
   if (!SetUsbConfig("sideload")) {
     LOG(ERROR) << "Failed to set usb config to sideload";
+    kill(minadbd_pid, SIGTERM);
+    waitpid(minadbd_pid, nullptr, 0);
+    child.store(0, std::memory_order_release);
+    if (progress_thread.joinable()) progress_thread.join();
     return;
   }
 
-  std::thread listener_thread(ListenAndExecuteMinadbdCommands, child,
+  std::thread listener_thread(ListenAndExecuteMinadbdCommands, minadbd_pid,
                               std::move(recovery_socket), std::ref(command_map));
   if (listener_thread.joinable()) {
     listener_thread.join();
   }
 
   int status;
-  waitpid(child, &status, 0);
+  waitpid(minadbd_pid, &status, 0);
+  child.store(0, std::memory_order_release);
+  if (progress_thread.joinable()) progress_thread.join();
   if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-    if (WEXITSTATUS(status) == MinadbdErrorCode::kMinadbdAdbVersionError) {
+    if (WIFEXITED(status) &&
+        WEXITSTATUS(status) == MinadbdErrorCode::kMinadbdAdbVersionError) {
       LOG(ERROR) << "\nYou need adb 1.0.32 or newer to sideload\nto this device.\n";
-    } else if (!WIFSIGNALED(status)) {
+    } else if (WIFEXITED(status)) {
       LOG(ERROR) << "\n(adbd status " << WEXITSTATUS(status) << ")";
     }
   }
@@ -339,13 +403,16 @@ static void CreateMinadbdServiceAndExecuteCommands(
   signal(SIGPIPE, SIG_DFL);
 }
 
-  int twrp_sideload(const char* install_file, Device::BuiltinAction* reboot_action) {
+int twrp_sideload(const char* install_file,
+                  Device::BuiltinAction* reboot_action,
+                  const SideloadProgressCallback& progress_callback) {
 
   // Save the usb state to restore after the sideload operation.
   std::string usb_state = android::base::GetProperty("sys.usb.state", "none");
   // Clean up state and stop adbd.
   if (usb_state != "none" && !SetUsbConfig("none")) {
     LOG(ERROR) << "Failed to clear USB config";
+    sideload_cancel_requested.store(false, std::memory_order_release);
     return INSTALL_ERROR;
   }
 
@@ -365,7 +432,8 @@ static void CreateMinadbdServiceAndExecuteCommands(
     std::bind(&AdbRebootHandler, MinadbdCommand::kRebootRescue, &install_result, reboot_action) },
 };
 
-  CreateMinadbdServiceAndExecuteCommands(command_map, false, install_file);
+  CreateMinadbdServiceAndExecuteCommands(command_map, false, install_file,
+                                         progress_callback);
 
   // Clean up before switching to the older state, for example setting the state
   // to none sets sys/class/android_usb/android0/enable to 0.
@@ -379,5 +447,6 @@ static void CreateMinadbdServiceAndExecuteCommands(
     }
   }
 
+  sideload_cancel_requested.store(false, std::memory_order_release);
   return install_result;
 }

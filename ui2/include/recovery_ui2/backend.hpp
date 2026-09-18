@@ -8,6 +8,7 @@
 namespace recovery_ui2 {
 enum class Job {
   kInstall,
+  kSideload,
   kFlashImage,
   kBackup,
   kRestore,
@@ -59,6 +60,14 @@ bool RecoveryDataLocked();
 std::vector<AndroidUser> RecoveryAndroidUsers();
 bool RecoverySetStorage(const std::string &path);
 int RecoveryRunJob(const JobRequest &request);
+struct SideloadStatus {
+  bool active = false;
+  bool cancel_requested = false;
+  uint64_t received_bytes = 0;
+  uint64_t total_bytes = 0;
+};
+SideloadStatus RecoverySideloadStatus();
+bool RecoveryCancelSideload();
 int RecoveryProgress();
 std::string RecoveryOperationDetail();
 std::string RecoveryInstallerStatus();

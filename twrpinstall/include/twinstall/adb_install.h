@@ -16,10 +16,19 @@
 
 #pragma once
 
+#include <cstdint>
+#include <functional>
+
 #include <recovery_ui/device.h>
+
+using SideloadProgressCallback =
+    std::function<void(uint64_t received_bytes, uint64_t total_bytes)>;
 
 // Applies a package via `adb sideload` or `adb rescue`. Returns the install result (in `enum
 // InstallResult`). When a reboot has been requested, INSTALL_REBOOT will be the return value, with
 // the reboot target set in reboot_action.
-int twrp_sideload(const char* install_file, Device::BuiltinAction* reboot_action);
+int twrp_sideload(
+    const char* install_file, Device::BuiltinAction* reboot_action,
+    const SideloadProgressCallback& progress_callback = {});
 pid_t GetMiniAdbdPid();
+bool CancelAdbSideload();
