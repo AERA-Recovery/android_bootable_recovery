@@ -26,6 +26,11 @@ struct Tools {
   lv_obj_t *format_input = nullptr, *format_submit = nullptr;
 };
 
+lv_obj_t *WorkflowModeCard(lv_obj_t *parent, int x, int y, int width,
+                           const char *icon, const char *title,
+                           const char *description, bool active,
+                           Handler action);
+
 void Open(Tools *state, Action action) { state->callback(action, state->context); }
 void Run(Tools *state, const JobRequest &request) {
   SetJobRequest(request);
@@ -262,12 +267,15 @@ void StorageChooser(Tools *state) {
 void WipeTabs(Tools *state) {
   const bool format = state->tool == Action::kFormatData;
   const bool landscape = Landscape(state->screen);
-  auto *wipe = Button(state->screen, "Wipe partitions", [state] { Open(state, Action::kWipe); }, !format);
-  lv_obj_set_pos(wipe, 64, landscape ? 330 : 458);
-  lv_obj_set_size(wipe, landscape ? 470 : 642, 112);
-  auto *data = Button(state->screen, "Format Data", [state] { Open(state, Action::kFormatData); }, format);
-  lv_obj_set_pos(data, landscape ? 550 : 734, landscape ? 330 : 458);
-  lv_obj_set_size(data, landscape ? 470 : 642, 112);
+  const int card_y = landscape ? 310 : 430;
+  WorkflowModeCard(state->screen, 64, card_y, landscape ? 470 : 630,
+                   LV_SYMBOL_LIST, "Wipe partitions",
+                   "Choose individual partitions to erase.", !format,
+                   [state] { Open(state, Action::kWipe); });
+  WorkflowModeCard(state->screen, landscape ? 550 : 714, card_y,
+                   landscape ? 470 : 662, LV_SYMBOL_TRASH, "Format Data",
+                   "Erase internal storage and reset encryption.", format,
+                   [state] { Open(state, Action::kFormatData); });
 }
 
 void UpdateFormatConfirmation(Tools *state) {
@@ -287,25 +295,27 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
          fastboot_mode ? nullptr : state->context);
   if (!fastboot_mode) WipeTabs(state);
   const bool landscape = Landscape(state->screen);
+  const int mode_offset = fastboot_mode ? 0 : (landscape ? 80 : 56);
   auto *title = Label(state->screen, "Erase all internal data", &lv_font_montserrat_48, kRed);
-  lv_obj_set_pos(title, 80, landscape ? 480 : 654);
+  lv_obj_set_pos(title, 80, (landscape ? 480 : 654) + mode_offset);
   auto *warning = Label(state->screen,
       "Formatting /data deletes apps, files, photos, videos\n"
       "and backups stored in internal storage.\n\n"
       "This cannot be undone.", &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(warning, 80, landscape ? 560 : 744);
+  lv_obj_set_pos(warning, 80, (landscape ? 560 : 744) + mode_offset);
   lv_obj_set_width(warning, landscape ? 980 : 1270);
   lv_obj_set_style_text_line_space(warning, 12, 0);
   auto *encryption = Label(state->screen,
       "Resets storage encryption; Android may encrypt it again.\n"
       "Adopted storage, if present, may also be erased.", &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_pos(encryption, 80, landscape ? 770 : 1040);
+  lv_obj_set_pos(encryption, 80, (landscape ? 770 : 1040) + mode_offset);
   lv_obj_set_width(encryption, landscape ? 980 : 1270);
   lv_obj_set_style_text_line_space(encryption, 12, 0);
   auto *prompt = Label(state->screen, "Type yes to enable Format Data", &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(prompt, 80, landscape ? 900 : 1228);
+  lv_obj_set_pos(prompt, 80, (landscape ? 900 : 1228) + mode_offset);
   state->format_input = TextArea(state->screen);
-  lv_obj_set_pos(state->format_input, 80, landscape ? 960 : 1310);
+  lv_obj_set_pos(state->format_input, 80,
+                 (landscape ? 960 : 1310) + mode_offset);
   lv_obj_set_size(state->format_input, landscape ? 940 : 1280, 150);
   lv_textarea_set_one_line(state->format_input, true);
   // Don't truncate to three letters: "yesplease" must not become "yes".
@@ -340,7 +350,8 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
     lv_textarea_set_text(state->format_input, "");
     Run(state, request);
   });
-  lv_obj_set_pos(state->format_submit, 80, landscape ? 1140 : 2600);
+  lv_obj_set_pos(state->format_submit, 80,
+                 (landscape ? 1140 : 2600) + (landscape ? mode_offset : 0));
   lv_obj_set_size(state->format_submit, landscape ? 450 : 1280, 132);
   lv_obj_set_style_bg_color(state->format_submit, kRed, 0);
   lv_obj_set_style_bg_color(state->format_submit, kRedSoft, LV_STATE_PRESSED);
@@ -353,14 +364,15 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
   auto *cancel = Button(state->screen, "Cancel", [state, fastboot_mode] {
     Open(state, fastboot_mode ? Action::kBack : Action::kWipe);
   });
-  lv_obj_set_pos(cancel, landscape ? 570 : 80, landscape ? 1140 : 2770);
+  lv_obj_set_pos(cancel, landscape ? 570 : 80,
+                 (landscape ? 1140 : 2770) + (landscape ? mode_offset : 0));
   lv_obj_set_size(cancel, landscape ? 450 : 1280, landscape ? 132 : 112);
 }
 
-lv_obj_t *BackupModeCard(lv_obj_t *parent, int x, int y, int width,
-                         const char *icon, const char *title,
-                         const char *description, bool active,
-                         Handler action) {
+lv_obj_t *WorkflowModeCard(lv_obj_t *parent, int x, int y, int width,
+                           const char *icon, const char *title,
+                           const char *description, bool active,
+                           Handler action) {
   auto *card = lv_button_create(parent);
   Clear(card);
   lv_obj_set_pos(card, x, y);
@@ -411,14 +423,14 @@ void BuildPartitions(Tools *state) {
 
   if (backup || restore) {
     const int card_y = landscape ? 310 : 430;
-    BackupModeCard(state->screen, 64, card_y, landscape ? 470 : 630,
-                   LV_SYMBOL_UPLOAD, "Create backup",
-                   "Save selected partitions to recovery storage.", backup,
-                   [state] { Open(state, Action::kBackup); });
-    BackupModeCard(state->screen, landscape ? 550 : 714, card_y,
-                   landscape ? 470 : 662, LV_SYMBOL_REFRESH,
-                   "Restore backup", "Recover partitions from a saved backup.",
-                   restore, [state] { Open(state, Action::kRestore); });
+    WorkflowModeCard(state->screen, 64, card_y, landscape ? 470 : 630,
+                     LV_SYMBOL_UPLOAD, "Create backup",
+                     "Save selected partitions to recovery storage.", backup,
+                     [state] { Open(state, Action::kBackup); });
+    WorkflowModeCard(state->screen, landscape ? 550 : 714, card_y,
+                     landscape ? 470 : 662, LV_SYMBOL_REFRESH,
+                     "Restore backup", "Recover partitions from a saved backup.",
+                     restore, [state] { Open(state, Action::kRestore); });
 
     auto *storage_heading = Label(state->screen,
         backup ? "BACKUP DESTINATION" : "BACKUP LIBRARY",
@@ -472,16 +484,16 @@ void BuildPartitions(Tools *state) {
     WipeTabs(state);
     auto *notice = Label(state->screen,
         "Only selected partitions will be wiped.", &lv_font_montserrat_32, kAmber);
-    lv_obj_set_pos(notice, 80, landscape ? 500 : 642);
+    lv_obj_set_pos(notice, 80, landscape ? 570 : 690);
     lv_obj_set_width(notice, landscape ? 940 : 1250);
     auto *hint = Label(state->screen,
         "To erase all internal data and reset encryption, use Format Data.",
         &lv_font_montserrat_24, kMutedStrong);
-    lv_obj_set_pos(hint, 80, landscape ? 590 : 710);
+    lv_obj_set_pos(hint, 80, landscape ? 650 : 758);
     lv_obj_set_width(hint, landscape ? 940 : 1270);
-    lv_obj_set_pos(state->summary, 80, landscape ? 760 : 818);
+    lv_obj_set_pos(state->summary, 80, landscape ? 760 : 866);
     if (!landscape) {
-      lv_obj_set_pos(state->list, 64, 900);
+      lv_obj_set_pos(state->list, 64, 948);
       lv_obj_set_height(state->list, 1650);
     }
   }
