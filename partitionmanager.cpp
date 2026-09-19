@@ -22,10 +22,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/vfs.h>
 #include <unistd.h>
+#include <algorithm>
 #include <map>
+#include <set>
 #include <vector>
 #include <dirent.h>
 #include <time.h>
@@ -43,6 +46,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/system_properties.h>
 #include <linux/types.h>
 #include <linux/netlink.h>
 #include <android-base/chrono_utils.h>
@@ -129,6 +133,173 @@ using android::fs_mgr::DestroyLogicalPartition;
 using android::fs_mgr::Fstab;
 using android::fs_mgr::FstabEntry;
 using android::fs_mgr::MetadataBuilder;
+
+namespace {
+
+struct InitServiceProcess {
+	std::string name;
+	pid_t pid;
+};
+
+void CollectInitServicePid(void* cookie, const char* name, const char* value, uint32_t) {
+	constexpr const char* prefix = "init.svc_debug_pid.";
+	auto* services = static_cast<std::vector<InitServiceProcess>*>(cookie);
+	if (strncmp(name, prefix, strlen(prefix)) != 0 || value[0] == '\0')
+		return;
+
+	char* end = nullptr;
+	long pid = strtol(value, &end, 10);
+	if (end == value || *end != '\0' || pid <= 1)
+		return;
+	services->push_back({name + strlen(prefix), static_cast<pid_t>(pid)});
+}
+
+void VisitInitServicePid(const prop_info* property, void* cookie) {
+	__system_property_read_callback(property, CollectInitServicePid, cookie);
+}
+
+std::string ReadLink(const std::string& path) {
+	std::vector<char> target(PATH_MAX + 1, '\0');
+	ssize_t length = readlink(path.c_str(), target.data(), PATH_MAX);
+	if (length <= 0)
+		return {};
+	target[length] = '\0';
+	return target.data();
+}
+
+bool PathUsesMount(const std::string& path, const std::vector<std::string>& mounts) {
+	for (const auto& mount : mounts) {
+		if (path == mount ||
+			(path.size() > mount.size() && path.compare(0, mount.size(), mount) == 0 &&
+			 path[mount.size()] == '/'))
+			return true;
+	}
+	return false;
+}
+
+bool ProcessUsesMount(pid_t pid, const std::vector<std::string>& mounts) {
+	const std::string proc = "/proc/" + std::to_string(pid);
+	for (const auto& link : {"exe", "cwd", "root"}) {
+		if (PathUsesMount(ReadLink(proc + "/" + link), mounts))
+			return true;
+	}
+
+	std::string maps;
+	if (android::base::ReadFileToString(proc + "/maps", &maps)) {
+		for (const auto& mount : mounts) {
+			if (maps.find(mount) != std::string::npos)
+				return true;
+		}
+	}
+
+	DIR* descriptors = opendir((proc + "/fd").c_str());
+	if (descriptors == nullptr)
+		return false;
+	bool uses_mount = false;
+	while (dirent* entry = readdir(descriptors)) {
+		if (entry->d_name[0] == '.')
+			continue;
+		if (PathUsesMount(ReadLink(proc + "/fd/" + entry->d_name), mounts)) {
+			uses_mount = true;
+			break;
+		}
+	}
+	closedir(descriptors);
+	return uses_mount;
+}
+
+std::set<std::string> DynamicMapperDevices() {
+	std::set<std::string> devices;
+	DIR* mapper = opendir("/dev/block/mapper");
+	if (mapper == nullptr)
+		return devices;
+	while (dirent* entry = readdir(mapper)) {
+		if (entry->d_name[0] == '.' || strcmp(entry->d_name, "userdata") == 0)
+			continue;
+		const std::string path = "/dev/block/mapper/" + std::string(entry->d_name);
+		devices.insert(path);
+		char resolved[PATH_MAX] = {};
+		if (realpath(path.c_str(), resolved) != nullptr)
+			devices.insert(resolved);
+	}
+	closedir(mapper);
+	return devices;
+}
+
+bool DynamicPartitionMounts(std::vector<std::string>* mounts) {
+	const auto devices = DynamicMapperDevices();
+	std::string mounts_file;
+	std::set<std::string> targets;
+	// /proc/mounts is a symlink, which android-base intentionally refuses to
+	// follow by default. Use the process-specific file so mount discovery does
+	// not silently return an empty list.
+	if (!android::base::ReadFileToString("/proc/self/mounts", &mounts_file)) {
+		LOGERR("Unable to read the recovery mount table before Super unmap: %s\n",
+			strerror(errno));
+		return false;
+	}
+
+	for (const auto& line : android::base::Split(mounts_file, "\n")) {
+		const auto fields = android::base::Split(line, " ");
+		if (fields.size() < 2)
+			continue;
+		std::string source = fields[0];
+		char resolved[PATH_MAX] = {};
+		if (realpath(source.c_str(), resolved) != nullptr)
+			source = resolved;
+		if (devices.count(fields[0]) != 0 || devices.count(source) != 0)
+			targets.insert(fields[1]);
+	}
+
+	mounts->assign(targets.begin(), targets.end());
+	std::sort(mounts->begin(), mounts->end(), [](const auto& left, const auto& right) {
+		return left.size() > right.size();
+	});
+	return true;
+}
+
+bool QuiesceDynamicPartitionUsers() {
+	std::vector<std::string> mounts;
+	if (!DynamicPartitionMounts(&mounts))
+		return false;
+	LOGINFO("Found %zu dynamic-partition-backed mounts before Super unmap\n", mounts.size());
+	if (mounts.empty())
+		return true;
+
+	std::vector<InitServiceProcess> services;
+	__system_property_foreach(VisitInitServicePid, &services);
+	for (const auto& service : services) {
+		if (service.name == "recovery" || !ProcessUsesMount(service.pid, mounts))
+			continue;
+		LOGINFO("Stopping init service %s before unmapping dynamic partitions\n",
+			service.name.c_str());
+		property_set("ctl.stop", service.name.c_str());
+		bool stopped = false;
+		for (int attempt = 0; attempt < 50; ++attempt) {
+			if (android::base::GetProperty("init.svc." + service.name, "") == "stopped") {
+				stopped = true;
+				break;
+			}
+			usleep(100000);
+		}
+		if (!stopped) {
+			LOGERR("Init service %s did not stop; refusing to force-remove dynamic partitions\n",
+				service.name.c_str());
+			return false;
+		}
+	}
+
+	for (const auto& mount : mounts) {
+		LOGINFO("Unmounting dynamic-partition dependency: %s\n", mount.c_str());
+		if (umount2(mount.c_str(), 0) != 0 && errno != EINVAL && errno != ENOENT) {
+			LOGERR("Unable to unmount %s: %s\n", mount.c_str(), strerror(errno));
+			return false;
+		}
+	}
+	return true;
+}
+
+}  // namespace
 
 extern bool datamedia;
 std::vector<users_struct> Users_List;
@@ -4917,6 +5088,8 @@ bool TWPartitionManager::Unmap_Super_Devices() {
 	twrpApex apex;
 	apex.Unmount();
 #endif
+	if (!QuiesceDynamicPartitionUsers())
+		return false;
 	LOGINFO("Unmap_Super_Devices\n");
 	for (auto iter = Partitions.begin(); iter != Partitions.end();) {
 		LOGINFO("Checking partition: %s\n", (*iter)->Get_Mount_Point().c_str());
