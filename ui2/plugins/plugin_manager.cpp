@@ -283,6 +283,8 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
        plugin.entry == "browser") ||
       (plugin.id == "retroarch" && plugin.type == "app-runtime" &&
        plugin.entry == "retroarch") ||
+      (plugin.id == "doom" && plugin.type == "app-runtime" &&
+       plugin.entry == "doom") ||
       (plugin.id == "telegram" && plugin.type == "app-runtime" &&
        plugin.entry == "telegram") ||
       (plugin.id == "gallery" && plugin.type == "app-runtime" &&

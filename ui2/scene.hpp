@@ -120,6 +120,7 @@ bool BrowserHandlePointer(int slot, int x, int y, bool pressed);
 void ShutdownWebRuntime();
 void BuildRetroArchScene(lv_obj_t *screen, ActionCallback callback,
                          void *context);
+void BuildDoomScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildTelegramScene(lv_obj_t *screen, ActionCallback callback,
                         void *context);
 void BuildGalleryScene(lv_obj_t *screen, ActionCallback callback,

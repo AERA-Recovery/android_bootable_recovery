@@ -43,6 +43,7 @@ enum class Action {
     kFormatData,
     kWeb,
     kRetroArch,
+    kDoom,
     kTelegram,
     kGallery,
     kMedia,

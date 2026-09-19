@@ -23,6 +23,7 @@ static constexpr uid_t kBrowserUid = 99090;
 static constexpr uid_t kTelegramUid = 99091;
 static constexpr uid_t kMediaUid = 99092;
 static constexpr uid_t kRecorderUid = 99093;
+static constexpr uid_t kDoomUid = 99094;
 static constexpr gid_t kMediaRwGid = 1023;
 static void Die(const char *message) { perror(message); _exit(78); }
 static void Check(int result, const char *what) { if (result < 0) Die(what); }
@@ -57,6 +58,25 @@ static void PrepareRetroStorage() {
     close(child);
   }
   close(retro);
+}
+static void PrepareDoomStorage() {
+  // Internal storage can be unavailable before decryption. The bundled WAD
+  // remains playable; persistent saves and user WADs become available once
+  // /sdcard is mounted.
+  int aera = open("/sdcard/AERA",
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (aera < 0) return;
+  if (mkdirat(aera, "Doom", 0770) && errno != EEXIST) {
+    close(aera);
+    return;
+  }
+  int doom = openat(aera, "Doom",
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  close(aera);
+  if (doom < 0) return;
+  Check(fchown(doom, 0, kMediaRwGid), "Doom storage ownership");
+  Check(fchmod(doom, 0770), "Doom storage permissions");
+  close(doom);
 }
 static void PrepareRecorderStorage() {
   int aera = open("/sdcard/AERA", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -215,6 +235,7 @@ int main(int argc, char **argv) {
       !strcmp(argv[1], "--streams-engine");
   if ((!streams_engine_mode && argc != 3) || (strcmp(argv[1], "--probe") &&
       strcmp(argv[1], "--browser") && strcmp(argv[1], "--retroarch") &&
+      strcmp(argv[1], "--doom") &&
       strcmp(argv[1], "--telegram") && strcmp(argv[1], "--media") &&
       strcmp(argv[1], "--recorder") && strcmp(argv[1], "--streams-media") &&
       strcmp(argv[1], "--streams-engine")) || getuid() || geteuid()) {
@@ -222,6 +243,7 @@ int main(int argc, char **argv) {
     return 78;
   }
   const bool retroarch = !strcmp(argv[1], "--retroarch");
+  const bool doom = !strcmp(argv[1], "--doom");
   const bool telegram = !strcmp(argv[1], "--telegram");
   const bool media = !strcmp(argv[1], "--media");
   const bool recorder = !strcmp(argv[1], "--recorder");
@@ -230,14 +252,16 @@ int main(int argc, char **argv) {
   const bool streams_engine = !strcmp(argv[1], "--streams-engine");
   const std::string root = argv[2];
   const size_t prefix = (streams_media || streams_engine) ? 18 :
-      recorder ? 14 : media ? 16 :
+      doom ? 15 : recorder ? 14 : media ? 16 :
       (retroarch || telegram) ? 13 : 14;
   const char *expected = retroarch ? "/tmp/aera-ra-" :
+      doom ? "/tmp/aera-doom-" :
       telegram ? "/tmp/aera-tg-" : media ? "/tmp/aera-media-" :
       recorder ? "/tmp/aera-rec-" :
       (streams_media || streams_engine) ? "/tmp/aera-streams-" :
       "/tmp/aera-web-";
   if (retroarch) PrepareRetroStorage();
+  if (doom) PrepareDoomStorage();
   if (recorder) PrepareRecorderStorage();
   if (browser) PrepareBrowserStorage();
   if (root.size() != prefix + 6 || root.compare(0, prefix, expected) ||
@@ -250,7 +274,7 @@ int main(int argc, char **argv) {
   if (info.st_uid || (runtime_mode != 0700 && runtime_mode != 0755) ||
       fstatfs(directory, &filesystem) ||
       (filesystem.f_type != 0x01021994 && filesystem.f_type != 0x858458f6)) Die("private RAM runtime");
-  for (const char *name : {"etc", "proc", "tmp", "dev", "run", "storage", "sdcard", "state", "recordings", "downloads", "profile"}) {
+  for (const char *name : {"etc", "proc", "tmp", "dev", "run", "storage", "sdcard", "state", "recordings", "downloads", "profile", "doom"}) {
     if (mkdirat(directory, name, 0755) && errno != EEXIST) Die("runtime directory");
     struct stat child{};
     if (fstatat(directory, name, &child, AT_SYMLINK_NOFOLLOW) || !S_ISDIR(child.st_mode) || child.st_uid)
@@ -268,11 +292,11 @@ int main(int argc, char **argv) {
       Die("RetroArch compatibility mount point");
     close(storage);
   }
-  if (!retroarch && !media && !recorder && !streams_media)
+  if (!retroarch && !doom && !media && !recorder && !streams_media)
     WriteResolverConfig(directory);
   Check(fchmod(directory, 0755), "runtime root permissions");
   close(directory);
-  Supervise(root, telegram ? "536870912" :
+  Supervise(root, (telegram || doom) ? "536870912" :
       (media || recorder || streams_media) ? "1073741824" : "1610612736");
   Check(setsid(), "private browser process group");
   const rlim_t file_limit = browser ? 16ULL << 30 :
@@ -295,6 +319,7 @@ int main(int argc, char **argv) {
   // seccomp policy; it cannot listen, open raw sockets, or alter routes.
   Check(minijail_namespace_set_hostname(jail,
       retroarch ? "aera-retroarch" :
+      doom ? "aera-doom" :
       telegram ? "aera-telegram" : media ? "aera-media" :
         streams_media ? "aera-streams-media" :
         streams_engine ? "aera-streams-engine" :
@@ -316,7 +341,7 @@ int main(int argc, char **argv) {
   // Turnip needs for Vulkan external-memory file descriptors. It receives no
   // display, input, camera, Binder or storage devices; exposing the wider host
   // /dev tree or Android's vendor EGL stack is unnecessary.
-  if (!retroarch && !telegram && !media && !recorder &&
+  if (!retroarch && !doom && !telegram && !media && !recorder &&
       !streams_media && !streams_engine) {
     Check(minijail_bind(jail, "/dev/kgsl-3d0", "/dev/kgsl-3d0", 1),
           "browser GPU device");
@@ -339,6 +364,9 @@ int main(int argc, char **argv) {
     // AERA directory; neither exposes the remainder of /sdcard.
     Check(minijail_bind(jail, "/sdcard/AERA", "/storage/AERA", 1),
           "legacy AERA emulation path");
+  } else if (doom && !access("/sdcard/AERA/Doom", R_OK | W_OK)) {
+    Check(minijail_bind(jail, "/sdcard/AERA/Doom", "/doom", 1),
+          "writable Doom data");
   } else if (telegram) {
     Check(minijail_bind(jail, "/data/recovery/AERA/telegram", "/state", 1),
           "encrypted Telegram state");
@@ -357,14 +385,16 @@ int main(int argc, char **argv) {
   minijail_change_uid(jail, telegram ? kTelegramUid :
       (media || streams_media || streams_engine) ? kMediaUid :
       recorder ? kRecorderUid :
+      doom ? kDoomUid :
       kBrowserUid);
   minijail_change_gid(jail, telegram ? kTelegramUid :
       (media || streams_media || streams_engine) ? kMediaUid :
       recorder ? kRecorderUid :
+      doom ? kDoomUid :
       kBrowserUid);
   // Android 16 annotates the list parameter as non-null even when a zero
   // length requests that minijail clear all supplementary groups.
-  const bool media_access = retroarch || telegram || media || recorder ||
+  const bool media_access = retroarch || doom || telegram || media || recorder ||
       streams_media || streams_engine;
   const gid_t group = media_access ? kMediaRwGid : 0;
   minijail_set_supplementary_gids(jail, media_access ? 1 : 0, &group);
@@ -435,6 +465,10 @@ int main(int argc, char **argv) {
     const_cast<char *>("XDG_CACHE_HOME=/tmp/cache"),
     const_cast<char *>("XDG_DATA_HOME=/tmp/data"),
     const_cast<char *>("XDG_CONFIG_HOME=/tmp/config"), nullptr};
+  char *const doom_environment[] = {
+    const_cast<char *>("PATH=/usr/bin"), const_cast<char *>("HOME=/doom"),
+    const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>(lang_env.c_str()),
+    const_cast<char *>(locale_env.c_str()), nullptr};
   char *const telegram_environment[] = {
     const_cast<char *>("PATH=/usr/bin"), const_cast<char *>("HOME=/state"),
     const_cast<char *>("TMPDIR=/tmp"), const_cast<char *>(lang_env.c_str()),
@@ -442,6 +476,7 @@ int main(int argc, char **argv) {
     nullptr};
   const char *program = probe ? "/usr/bin/aera-jail-probe" :
       retroarch ? "/usr/bin/retroarch" :
+      doom ? "/usr/bin/aera-doom" :
       telegram ? "/usr/bin/aera-telegram" :
       media ? "/usr/bin/aera-media" :
       streams_media ? "/usr/bin/aera-streams-media" :
@@ -453,6 +488,7 @@ int main(int argc, char **argv) {
   char *const retroarch_args[] = {const_cast<char *>(program),
     const_cast<char *>("--config"), const_cast<char *>("/etc/retroarch.cfg"),
     const_cast<char *>("--menu"), nullptr};
+  char *const doom_args[] = {const_cast<char *>(program), nullptr};
   char *const telegram_args[] = {const_cast<char *>(program),
     const_cast<char *>("--isolated-ipc-v1"), nullptr};
   char *const media_args[] = {const_cast<char *>(program), nullptr};
@@ -463,12 +499,12 @@ int main(int argc, char **argv) {
     argc >= 4 ? argv[3] : nullptr, argc >= 5 ? argv[4] : nullptr,
     argc >= 6 ? argv[5] : nullptr, nullptr};
   char *const recorder_args[] = {const_cast<char *>(program), nullptr};
-  execve(program, retroarch ? retroarch_args :
+  execve(program, retroarch ? retroarch_args : doom ? doom_args :
          telegram ? telegram_args : media ? media_args :
          streams_media ? streams_media_args :
          streams_engine ? streams_engine_args :
          recorder ? recorder_args : browser_args,
-         retroarch ? retroarch_environment :
+         retroarch ? retroarch_environment : doom ? doom_environment :
          telegram ? telegram_environment :
          browser_environment);
   Die("exec isolated browser");

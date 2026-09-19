@@ -222,6 +222,7 @@ void RemoveRuntime(const std::string &directory) {
   const auto leaf = directory.substr(directory.find_last_of('/') + 1);
   const bool browser = leaf.size() == 15 && leaf.compare(0, 9, "aera-web-") == 0;
   const bool retroarch = leaf.size() == 14 && leaf.compare(0, 8, "aera-ra-") == 0;
+  const bool doom = leaf.size() == 16 && leaf.compare(0, 10, "aera-doom-") == 0;
   const bool telegram = leaf.size() == 14 && leaf.compare(0, 8, "aera-tg-") == 0;
   const bool media = leaf.size() == 17 && leaf.compare(0, 11, "aera-media-") == 0;
   const bool recorder = leaf.size() == 15 && leaf.compare(0, 9, "aera-rec-") == 0;
@@ -229,7 +230,7 @@ void RemoveRuntime(const std::string &directory) {
   const bool streams = leaf.size() == 24 &&
       leaf.compare(0, 18, "aera-streams-") == 0;
   const bool plugin_v2 = leaf.size() == 14 && leaf.compare(0, 8, "aera-p2-") == 0;
-  if (!browser && !retroarch && !telegram && !media && !recorder && !appvault &&
+  if (!browser && !retroarch && !doom && !telegram && !media && !recorder && !appvault &&
       !streams &&
       !plugin_v2) return;
   FD root(open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
@@ -248,6 +249,8 @@ void PreparePluginRuntime(Preparation &state, const char *id,
   state.error = "Plugin runtime could not be prepared.";
   const bool retroarch = id && type && entry && !strcmp(id, "retroarch") &&
       !strcmp(type, "app-runtime") && !strcmp(entry, "retroarch");
+  const bool doom = id && type && entry && !strcmp(id, "doom") &&
+      !strcmp(type, "app-runtime") && !strcmp(entry, "doom");
   const bool telegram = id && type && entry && !strcmp(id, "telegram") &&
       !strcmp(type, "app-runtime") && !strcmp(entry, "telegram");
   const bool media = id && type && entry && !strcmp(id, "media") &&
@@ -260,7 +263,7 @@ void PreparePluginRuntime(Preparation &state, const char *id,
       !strcmp(type, "app-runtime") && !strcmp(entry, "streams");
   const bool plugin_v2 = id && type && entry &&
       !strcmp(type, "ui-runtime") && !strcmp(entry, "main");
-  if (!retroarch && !telegram && !media && !recorder && !appvault &&
+  if (!retroarch && !doom && !telegram && !media && !recorder && !appvault &&
       !streams &&
       !plugin_v2) {
     state.error = "AERA rejected an unsupported plugin entry point.";
@@ -327,7 +330,8 @@ void PreparePluginRuntime(Preparation &state, const char *id,
     return;
   }
   std::string temporary = std::string(parent) +
-      (telegram ? "/aera-tg-XXXXXX" : media ? "/aera-media-XXXXXX" :
+      (doom ? "/aera-doom-XXXXXX" :
+       telegram ? "/aera-tg-XXXXXX" : media ? "/aera-media-XXXXXX" :
        recorder ? "/aera-rec-XXXXXX" : appvault ? "/aera-vault-XXXXXX" :
        streams ? "/aera-streams-XXXXXX" :
        plugin_v2 ? "/aera-p2-XXXXXX" :

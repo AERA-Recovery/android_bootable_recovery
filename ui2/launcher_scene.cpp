@@ -102,6 +102,7 @@ const char *GenericPluginIcon(const plugins::Plugin &plugin) {
 const char *PluginSummary(const plugins::Plugin &plugin) {
   if (plugin.entry == "browser") return "Browse the web with mobile WebKit.";
   if (plugin.entry == "retroarch") return "Play classic games with RetroArch.";
+  if (plugin.entry == "doom") return "Play native Doom with touch controls.";
   if (plugin.entry == "telegram") return "Secure messaging and file sharing.";
   if (plugin.entry == "gallery") return "Browse, preview and zoom your photos.";
   if (plugin.entry == "media") return "Play music and video from storage.";
@@ -351,6 +352,10 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
         add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
             kAccent, Action::kRetroArch, true, plugin.id, false,
             has_update(plugin.id));
+      else if (plugin.entry == "doom")
+        add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
+            kAccent, Action::kDoom, false, plugin.id, false,
+            has_update(plugin.id));
       else if (plugin.entry == "telegram")
         add(LV_SYMBOL_GPS, plugin.name.c_str(), plugin.description.c_str(),
             kAccent, Action::kTelegram, false, plugin.id, false,
@@ -441,6 +446,10 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       accent = kAccent;
     } else if (plugin.entry == "retroarch") {
       action = Action::kRetroArch;
+      icon = LV_SYMBOL_PLAY;
+      accent = kAccent;
+    } else if (plugin.entry == "doom") {
+      action = Action::kDoom;
       icon = LV_SYMBOL_PLAY;
       accent = kAccent;
     } else if (plugin.entry == "telegram") {

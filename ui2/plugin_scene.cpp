@@ -101,7 +101,8 @@ void Render(State *state) {
     const auto accent = kAccent;
     const char *symbol = plugin.id == "browser" ? LV_SYMBOL_GPS :
         plugin.id == "gallery" ? LV_SYMBOL_IMAGE :
-        plugin.id == "media" ? LV_SYMBOL_PLAY : LV_SYMBOL_SETTINGS;
+        (plugin.id == "media" || plugin.id == "doom") ? LV_SYMBOL_PLAY :
+        LV_SYMBOL_SETTINGS;
     auto *plate = plugin.id == "retroarch"
         ? RetroArchIconPlate(card, kText, 92)
         : IconPlate(card, symbol, accent, kMainSheet, 92);
@@ -125,11 +126,13 @@ void Render(State *state) {
       auto *badge = Kicker(card, installed.c_str(), kGreen);
       lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -34, 40);
       if (local->entry == "browser" || local->entry == "retroarch" ||
+          local->entry == "doom" ||
           local->entry == "telegram" || local->entry == "gallery" ||
           local->entry == "media" || local->entry == "recorder" ||
           local->entry == "appvault" || plugins::IsGeneric(*local)) {
         const auto action = local->entry == "browser" ? Action::kWeb :
             local->entry == "retroarch" ? Action::kRetroArch :
+            local->entry == "doom" ? Action::kDoom :
             local->entry == "telegram" ? Action::kTelegram :
             local->entry == "gallery" ? Action::kGallery :
             local->entry == "media" ? Action::kMedia :
@@ -200,7 +203,8 @@ void Render(State *state) {
       lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
       const char *symbol = plugin.entry == "browser" ? LV_SYMBOL_GPS :
           plugin.entry == "gallery" ? LV_SYMBOL_IMAGE :
-          plugin.entry == "media" ? LV_SYMBOL_PLAY : LV_SYMBOL_SETTINGS;
+          (plugin.entry == "media" || plugin.entry == "doom") ?
+              LV_SYMBOL_PLAY : LV_SYMBOL_SETTINGS;
       auto *plate = plugin.entry == "retroarch"
           ? RetroArchIconPlate(card, kText, 92)
           : IconPlate(card, symbol, kAmber, kMainSheet, 92);
@@ -225,6 +229,7 @@ void Render(State *state) {
       Action action = Action::kNone;
       if (plugin.entry == "browser") action = Action::kWeb;
       else if (plugin.entry == "retroarch") action = Action::kRetroArch;
+      else if (plugin.entry == "doom") action = Action::kDoom;
       else if (plugin.entry == "telegram") action = Action::kTelegram;
       else if (plugin.entry == "gallery") action = Action::kGallery;
       else if (plugin.entry == "media") action = Action::kMedia;
