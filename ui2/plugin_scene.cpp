@@ -293,15 +293,15 @@ PluginScene BuildPluginScene(lv_obj_t *screen, ActionCallback callback,
   auto *automatic = lv_button_create(screen);
   Panel(automatic, 34, kMainPanel);
   Interactive(automatic, kMainSelected);
-  lv_obj_set_pos(automatic, landscape ? 2300 : 600,
-                 landscape ? 292 : 414);
-  lv_obj_set_size(automatic, landscape ? 388 : 360, 116);
+  lv_obj_set_pos(automatic, landscape ? 2724 : 996,
+                 landscape ? 152 : 278);
+  lv_obj_set_size(automatic, 380, 116);
   lv_obj_set_style_border_width(automatic, 1, 0);
   lv_obj_set_style_border_color(automatic, kMainLine, 0);
   lv_obj_set_style_border_opa(automatic, LV_OPA_40, 0);
   auto *automatic_label = Label(automatic, "Auto-update",
                                 &lv_font_montserrat_24, kText);
-  FitLabelToLines(automatic_label, landscape ? 210 : 182, 1,
+  FitLabelToLines(automatic_label, 202, 1,
                   {&lv_font_montserrat_24, &lv_font_montserrat_20,
                    &lv_font_montserrat_18, &lv_font_montserrat_16});
   lv_obj_align(automatic_label, LV_ALIGN_LEFT_MID, 28, 0);
@@ -320,6 +320,7 @@ PluginScene BuildPluginScene(lv_obj_t *screen, ActionCallback callback,
                           LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(automatic_toggle, kText, LV_PART_KNOB);
   lv_obj_set_style_bg_opa(automatic_toggle, LV_OPA_COVER, LV_PART_KNOB);
+  lv_obj_set_style_radius(automatic_toggle, LV_RADIUS_CIRCLE, LV_PART_KNOB);
   lv_obj_set_style_pad_all(automatic_toggle, -8, LV_PART_KNOB);
   if (RecoveryPreference(Preference::kPluginAutoUpdate))
     lv_obj_add_state(automatic_toggle, LV_STATE_CHECKED);

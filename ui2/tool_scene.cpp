@@ -491,7 +491,7 @@ void BuildMounts(Tools *state) {
     const std::string title = std::string(i18n::Translate(heading)) + "  " +
         std::to_string(volumes.size());
     auto *section = Label(state->list, title.c_str(), &lv_font_montserrat_28,
-                          is_mounted ? kGreen : kMutedStrong);
+                          is_mounted ? kAccent : kMutedStrong);
     lv_obj_set_pos(section, 24, y + 12);
     lv_obj_set_width(section, row_width - 48);
     y += 72;
@@ -513,7 +513,7 @@ void BuildMounts(Tools *state) {
       lv_obj_set_style_bg_color(row, kMainPanel, 0);
       lv_obj_set_style_bg_opa(row, LV_OPA_40, 0);
       lv_obj_set_style_border_width(row, 1, 0);
-      lv_obj_set_style_border_color(row, is_mounted ? kGreen : kMainLine, 0);
+      lv_obj_set_style_border_color(row, is_mounted ? kAccent : kMainLine, 0);
       lv_obj_set_style_border_opa(row, is_mounted ? LV_OPA_40 : LV_OPA_30, 0);
 
       auto *rail = lv_obj_create(row);
@@ -522,11 +522,11 @@ void BuildMounts(Tools *state) {
       lv_obj_set_pos(rail, 0, 20);
       lv_obj_set_size(rail, 6, 126);
       lv_obj_set_style_radius(rail, 3, 0);
-      lv_obj_set_style_bg_color(rail, is_mounted ? kGreen : kMainLine, 0);
+      lv_obj_set_style_bg_color(rail, is_mounted ? kAccent : kMainLine, 0);
       lv_obj_set_style_bg_opa(rail, LV_OPA_COVER, 0);
 
       auto *icon = Label(row, LV_SYMBOL_DRIVE, &lv_font_montserrat_32,
-                         is_mounted ? kGreen : kMutedStrong);
+                         is_mounted ? kAccent : kMutedStrong);
       lv_obj_set_pos(icon, 32, 65);
 
       auto *name = Label(row, volume.name.c_str(), &lv_font_montserrat_32, kText);
@@ -540,7 +540,7 @@ void BuildMounts(Tools *state) {
 
       auto *status = Label(row, is_mounted ? "Mounted" : "Not mounted",
                            &lv_font_montserrat_24,
-                           is_mounted ? kGreen : kMutedStrong);
+                           is_mounted ? kAccent : kMutedStrong);
       SingleLineLabel(status, 220, &lv_font_montserrat_24);
       lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_RIGHT, 0);
       lv_obj_align(status, LV_ALIGN_RIGHT_MID, -154, 0);
@@ -554,7 +554,7 @@ void BuildMounts(Tools *state) {
       lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
       lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER,
                               LV_PART_INDICATOR | LV_STATE_CHECKED);
-      lv_obj_set_style_bg_color(toggle, kGreen,
+      lv_obj_set_style_bg_color(toggle, kAccent,
                                LV_PART_INDICATOR | LV_STATE_CHECKED);
       lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
       lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_KNOB);
