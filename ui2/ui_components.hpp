@@ -481,8 +481,7 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   Clear(overlay);
   lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(overlay,
-                          compact_glass ? LV_OPA_30 : LV_OPA_60, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_30, 0);
   if (dismiss_on_backdrop) {
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(
@@ -508,8 +507,7 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   lv_obj_set_style_bg_grad_dir(sheet, LV_GRAD_DIR_NONE, 0);
   lv_obj_set_style_border_width(sheet, 1, 0);
   lv_obj_set_style_border_color(sheet, kMainLine, 0);
-  lv_obj_set_style_border_opa(sheet,
-                              compact_glass ? LV_OPA_50 : LV_OPA_20, 0);
+  lv_obj_set_style_border_opa(sheet, LV_OPA_50, 0);
   const bool landscape = Landscape(screen);
   const int sheet_width = compact_glass
       ? (landscape
@@ -527,17 +525,15 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   lv_obj_set_size(sheet, sheet_width, sheet_height);
   lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -40);
   lv_obj_set_style_pad_all(sheet, compact_glass ? 48 : 56, 0);
-  if (compact_glass) {
-    lv_obj_set_style_bg_opa(sheet,
-        IsLightMode() ? LV_OPA_90 : LV_OPA_80, 0);
-    lv_obj_set_style_blur_backdrop(sheet, true, 0);
-    lv_obj_set_style_blur_radius(sheet, 18, 0);
-    lv_obj_set_style_blur_quality(sheet, LV_BLUR_QUALITY_SPEED, 0);
-    lv_obj_set_style_shadow_color(sheet, lv_color_black(), 0);
-    lv_obj_set_style_shadow_width(sheet, 40, 0);
-    lv_obj_set_style_shadow_offset_y(sheet, 10, 0);
-    lv_obj_set_style_shadow_opa(sheet, LV_OPA_30, 0);
-  }
+  lv_obj_set_style_bg_opa(sheet,
+      IsLightMode() ? LV_OPA_90 : LV_OPA_80, 0);
+  lv_obj_set_style_blur_backdrop(sheet, true, 0);
+  lv_obj_set_style_blur_radius(sheet, 18, 0);
+  lv_obj_set_style_blur_quality(sheet, LV_BLUR_QUALITY_SPEED, 0);
+  lv_obj_set_style_shadow_color(sheet, lv_color_black(), 0);
+  lv_obj_set_style_shadow_width(sheet, 40, 0);
+  lv_obj_set_style_shadow_offset_y(sheet, 10, 0);
+  lv_obj_set_style_shadow_opa(sheet, LV_OPA_30, 0);
 
   auto *grabber = lv_obj_create(sheet);
   Clear(grabber);
