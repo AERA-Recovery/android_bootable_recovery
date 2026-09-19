@@ -85,6 +85,7 @@ enum class Preference {
   kSha256,
   kVerifyZip,
   kPluginAutoUpdate,
+  kUpdateNightly,
 };
 bool RecoveryPreference(Preference preference);
 bool RecoverySetPreference(Preference preference, bool enabled);

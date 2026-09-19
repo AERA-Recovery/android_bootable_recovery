@@ -10,6 +10,11 @@
 
 namespace recovery_ui2::update {
 
+enum class Channel {
+  kStable,
+  kNightly,
+};
+
 enum class Phase {
   kIdle,
   kChecking,
@@ -47,6 +52,8 @@ struct Snapshot {
 };
 
 const char *CatalogUrl();
+Channel GetChannel();
+bool SetChannel(Channel channel);
 Snapshot GetSnapshot();
 bool Check();
 bool PrepareDownload();

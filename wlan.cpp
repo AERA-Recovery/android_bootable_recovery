@@ -61,6 +61,7 @@ static const char* BIN_DHCPTOOL        = "/system/bin/dhcptool";
 
 static const char* WLAN_SUPP_SERVICE   = "wpa_supplicant";
 static const char* WLAN_SUPP_SVC_PROP  = "init.svc.wpa_supplicant";
+static constexpr int WLAN_SUPP_READY_TIMEOUT_MS = 60000;
 /* Set to "1" to fire the `on property:sys.aera.wlan.up=1` block in
  * init.recovery.wifi.rc, which brings up the QCA6490 driver on demand and then
  * `start`s the wpa_supplicant service. The bring-up used to live in a shell
@@ -2165,7 +2166,7 @@ bool Wlan::StartInitSupplicantService() {
     std::string state = value;
     if (state == "running" || state == "restarting") {
         LOGINFO("WLAN: supplicant service already active (%s)\n", state.c_str());
-        return WaitForSupplicantReady(10000);
+        return WaitForSupplicantReady(WLAN_SUPP_READY_TIMEOUT_MS);
     }
 
     LOGINFO("WLAN: triggering supplicant bring-up (%s)\n", WLAN_SUPP_PREP_PROP);
@@ -2180,7 +2181,10 @@ bool Wlan::StartInitSupplicantService() {
         return false;
     }
 
-    return WaitForSupplicantReady(10000);
+    // Qualcomm may expose wlan0 and mark the service running while CNSS is
+    // still completing its DMS fallback. The control socket appears only
+    // after that cold-start sequence, which can take more than 20 seconds.
+    return WaitForSupplicantReady(WLAN_SUPP_READY_TIMEOUT_MS);
 }
 
 bool Wlan::StopInitSupplicantService() {

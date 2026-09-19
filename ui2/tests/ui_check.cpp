@@ -18,7 +18,7 @@
 using namespace recovery_ui2;
 static std::string backup_root;
 static std::string file_root;
-static bool preferences[6] = {true, false, true, true, false, false};
+static bool preferences[7] = {true, false, true, true, false, false, false};
 static int utc_offset = 120;
 static uint32_t accent_color = design::kDefaultAccentRgb;
 static bool light_mode = false;

@@ -57,6 +57,15 @@ void SetDisabled(lv_obj_t *object, bool disabled) {
   else lv_obj_remove_state(object, LV_STATE_DISABLED);
 }
 
+void SetChannelSelected(lv_obj_t *button, bool selected) {
+  if (button == nullptr) return;
+  lv_obj_set_style_bg_color(button, selected ? kAccent : kMainPanel, 0);
+  if (lv_obj_get_child_count(button) != 0) {
+    lv_obj_set_style_text_color(lv_obj_get_child(button, 0),
+                                selected ? kOnAccent : kText, 0);
+  }
+}
+
 }  // namespace
 
 UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
@@ -85,12 +94,42 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
 
   result.status = Label(summary, "Ready to check", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(result.status, 204, 42);
-  lv_obj_set_width(result.status, landscape ? 1160 : 1040);
+  const int channel_width = landscape ? 440 : 400;
+  const int channel_x = (landscape ? 1450 : 1312) - 46 - channel_width;
+  lv_obj_set_width(result.status, channel_x - 224);
   lv_label_set_long_mode(result.status, LV_LABEL_LONG_DOT);
   result.detail = Label(summary, "", &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_pos(result.detail, 204, 112);
+  lv_obj_set_pos(result.detail, 204, 132);
   lv_obj_set_width(result.detail, landscape ? 1160 : 1040);
   lv_label_set_long_mode(result.detail, LV_LABEL_LONG_WRAP);
+
+  constexpr int channel_gap = 12;
+  const int channel_button_width = (channel_width - channel_gap) / 2;
+  result.stable = Button(summary, "Stable", [screen, callback, context] {
+    if (update::GetChannel() == update::Channel::kStable) return;
+    if (!update::SetChannel(update::Channel::kStable)) {
+      Sheet(screen, "Setting unavailable",
+            "This setting could not be changed.");
+      return;
+    }
+    callback(Action::kCheckUpdates, context);
+  });
+  lv_obj_set_pos(result.stable, channel_x, 42);
+  lv_obj_set_size(result.stable, channel_button_width, 80);
+  lv_obj_set_style_radius(result.stable, 24, 0);
+  result.nightly = Button(summary, "Nightly", [screen, callback, context] {
+    if (update::GetChannel() == update::Channel::kNightly) return;
+    if (!update::SetChannel(update::Channel::kNightly)) {
+      Sheet(screen, "Setting unavailable",
+            "This setting could not be changed.");
+      return;
+    }
+    callback(Action::kCheckUpdates, context);
+  });
+  lv_obj_set_pos(result.nightly, channel_x + channel_button_width + channel_gap,
+                 42);
+  lv_obj_set_size(result.nightly, channel_button_width, 80);
+  lv_obj_set_style_radius(result.nightly, 24, 0);
 
   auto *line = lv_obj_create(summary);
   Clear(line);
@@ -247,6 +286,11 @@ void RefreshUpdateScene(const UpdateScene &scene) {
   const bool busy = snapshot.phase == update::Phase::kChecking ||
                     snapshot.phase == update::Phase::kDownloading ||
                     snapshot.phase == update::Phase::kVerifying;
+  const bool nightly = update::GetChannel() == update::Channel::kNightly;
+  SetChannelSelected(scene.stable, !nightly);
+  SetChannelSelected(scene.nightly, nightly);
+  SetDisabled(scene.stable, busy);
+  SetDisabled(scene.nightly, busy);
   const int actions_width = Landscape(scene.screen) ? 1358 : 1220;
   constexpr int action_gap = 24;
   if (snapshot.available) {

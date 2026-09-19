@@ -27,13 +27,18 @@
 #include <android/log.h>
 #include <cutils/properties.h>
 
+#include <recovery_ui2/backend.hpp>
+
 namespace recovery_ui2::update {
 namespace {
 
 constexpr char kLogTag[] = "AERAUpdate";
-constexpr char kCatalogUrl[] =
+constexpr char kStableCatalogUrl[] =
     "https://roms.danielspringer.at/download.php?"
     "file=Files%2Fota%2Faera%2Fcatalog.json&download=true";
+constexpr char kNightlyCatalogUrl[] =
+    "https://roms.danielspringer.at/download.php?"
+    "file=Files%2Fota%2Faera%2Fcatalog-nightly.json&download=true";
 constexpr char kCatalogPath[] = "/tmp/aera-update-catalog.json";
 constexpr char kUpdateRoot[] = "/sdcard/AERA/Updates";
 constexpr uint64_t kMaxCatalog = 1024 * 1024;
@@ -352,7 +357,34 @@ bool ParseRelease(const Json::Value &value, Release *release) {
 }  // namespace
 
 const char *CatalogUrl() {
-  return kCatalogUrl;
+  return GetChannel() == Channel::kNightly
+      ? kNightlyCatalogUrl : kStableCatalogUrl;
+}
+
+Channel GetChannel() {
+  return RecoveryPreference(Preference::kUpdateNightly)
+      ? Channel::kNightly : Channel::kStable;
+}
+
+bool SetChannel(Channel channel) {
+  const bool nightly = channel == Channel::kNightly;
+  if (GetChannel() == channel) return true;
+  if (!RecoverySetPreference(Preference::kUpdateNightly, nightly) ||
+      !RecoverySavePreferences()) {
+    RecoverySetPreference(Preference::kUpdateNightly, !nightly);
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(gMutex);
+  gSnapshot.phase = Phase::kIdle;
+  gSnapshot.release = {};
+  gSnapshot.package_path.clear();
+  gSnapshot.message.clear();
+  gSnapshot.checked = false;
+  gSnapshot.available = false;
+  gDownloaded.store(0);
+  gTotal.store(0);
+  gProgress.store(0);
+  return true;
 }
 
 Snapshot GetSnapshot() {
@@ -384,7 +416,8 @@ bool Check() {
   }
 
   unlink(kCatalogPath);
-  if (!DownloadFile(kCatalogUrl, kCatalogPath, kMaxCatalog, 0, 2, 25)) {
+  const char *catalog_url = CatalogUrl();
+  if (!DownloadFile(catalog_url, kCatalogPath, kMaxCatalog, 0, 2, 25)) {
     SetPhase(Phase::kError, "Could not reach the update service", false);
     return false;
   }
@@ -442,7 +475,8 @@ bool Check() {
   }
   gProgress.store(100);
   __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                      "catalog checked for %s: local=%llu remote=%llu available=%d",
+                      "%s catalog checked for %s: local=%llu remote=%llu available=%d",
+                      GetChannel() == Channel::kNightly ? "nightly" : "stable",
                       device.c_str(), static_cast<unsigned long long>(local),
                       static_cast<unsigned long long>(remote),
                       available ? 1 : 0);

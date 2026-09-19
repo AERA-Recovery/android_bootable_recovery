@@ -92,6 +92,8 @@ struct UpdateScene {
   lv_obj_t *progress = nullptr;
   lv_obj_t *progress_value = nullptr;
   lv_obj_t *progress_amount = nullptr;
+  lv_obj_t *stable = nullptr;
+  lv_obj_t *nightly = nullptr;
   lv_obj_t *check = nullptr;
   lv_obj_t *install = nullptr;
 };
