@@ -50,8 +50,10 @@ void UpdateSelection(Tools *state) {
     summary = i18n::Format("Estimated backup: %s", Size(bytes).c_str());
   i18n::BindLabel(state->summary, summary.c_str());
   if (state->review) {
-    if (state->selected.empty()) lv_obj_add_state(state->review, LV_STATE_DISABLED);
-    else lv_obj_remove_state(state->review, LV_STATE_DISABLED);
+    if (state->selected.empty())
+      lv_obj_add_flag(state->review, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_remove_flag(state->review, LV_OBJ_FLAG_HIDDEN);
   }
   if (state->selection_detail) {
     std::string detail = state->selected.size() == 1
@@ -189,7 +191,7 @@ void RestoreFolders(Tools *state) {
   state->selected.clear();
   state->volumes.clear();
   lv_obj_clean(state->list);
-  if (state->review) lv_obj_add_state(state->review, LV_STATE_DISABLED);
+  if (state->review) lv_obj_add_flag(state->review, LV_OBJ_FLAG_HIDDEN);
   const auto root = RecoveryBackupRoot();
   std::vector<std::string> folders;
   DIR *directory = opendir(root.c_str());
@@ -355,6 +357,42 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
   lv_obj_set_size(cancel, landscape ? 450 : 1280, landscape ? 132 : 112);
 }
 
+lv_obj_t *BackupModeCard(lv_obj_t *parent, int x, int y, int width,
+                         const char *icon, const char *title,
+                         const char *description, bool active,
+                         Handler action) {
+  auto *card = lv_button_create(parent);
+  Clear(card);
+  lv_obj_set_pos(card, x, y);
+  lv_obj_set_size(card, width, 220);
+  lv_obj_set_style_radius(card, 34, 0);
+  lv_obj_set_style_bg_color(card, active ? kAccent : kMainPanel, 0);
+  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(card,
+      active ? kAccentPressed : kMainSelected, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(card, active ? 0 : 1, 0);
+  lv_obj_set_style_border_color(card, kMainLine, 0);
+  lv_obj_set_style_border_opa(card, LV_OPA_50, 0);
+  lv_obj_set_style_transform_scale(card, 252, LV_STATE_PRESSED);
+
+  auto *symbol = Label(card, icon, &lv_font_montserrat_48,
+                       active ? kOnAccent : kAccent);
+  lv_obj_set_pos(symbol, 34, 30);
+  auto *heading = Label(card, title, &lv_font_montserrat_32,
+                        active ? kOnAccent : kText);
+  lv_obj_set_pos(heading, 112, 28);
+  SingleLineLabel(heading, width - 176, &lv_font_montserrat_32);
+  auto *copy = Label(card, description, &lv_font_montserrat_24,
+                     active ? kOnAccent : kMuted);
+  lv_obj_set_style_text_opa(copy, active ? LV_OPA_80 : LV_OPA_COVER, 0);
+  lv_obj_set_pos(copy, 34, 112);
+  FitLabelToLines(copy, width - 68, 2,
+                  {&lv_font_montserrat_24, &lv_font_montserrat_20,
+                   &lv_font_montserrat_18});
+  OnClick(card, std::move(action));
+  return card;
+}
+
 void BuildPartitions(Tools *state) {
   const bool backup = state->tool == Action::kBackup;
   const bool restore = state->tool == Action::kRestore;
@@ -372,28 +410,37 @@ void BuildPartitions(Tools *state) {
   }
 
   if (backup || restore) {
-    auto *create = Button(state->screen, "Create backup", [state] { Open(state, Action::kBackup); }, backup);
-    lv_obj_set_pos(create, 64, landscape ? 350 : 458);
-    lv_obj_set_size(create, landscape ? 470 : 642, 112);
-    auto *saved = Button(state->screen, "Restore backups", [state] { Open(state, Action::kRestore); }, restore);
-    lv_obj_set_pos(saved, landscape ? 550 : 734, landscape ? 350 : 458);
-    lv_obj_set_size(saved, landscape ? 470 : 642, 112);
-    lv_obj_set_pos(state->summary, 80, landscape ? 760 : 812);
+    const int card_y = landscape ? 310 : 430;
+    BackupModeCard(state->screen, 64, card_y, landscape ? 470 : 630,
+                   LV_SYMBOL_UPLOAD, "Create backup",
+                   "Save selected partitions to recovery storage.", backup,
+                   [state] { Open(state, Action::kBackup); });
+    BackupModeCard(state->screen, landscape ? 550 : 714, card_y,
+                   landscape ? 470 : 662, LV_SYMBOL_REFRESH,
+                   "Restore backup", "Recover partitions from a saved backup.",
+                   restore, [state] { Open(state, Action::kRestore); });
+
+    auto *storage_heading = Label(state->screen,
+        backup ? "BACKUP DESTINATION" : "BACKUP LIBRARY",
+        &lv_font_montserrat_24, kMutedStrong);
+    lv_obj_set_pos(storage_heading, 80, landscape ? 560 : 690);
+
+    lv_obj_set_pos(state->summary, 80, landscape ? 800 : 930);
     lv_obj_set_style_text_font(state->summary, UiFont(&lv_font_montserrat_48), 0);
     state->selection_detail = Label(state->screen, "", &lv_font_montserrat_24, kMuted);
-    lv_obj_set_pos(state->selection_detail, 80, landscape ? 830 : 884);
+    lv_obj_set_pos(state->selection_detail, 80, landscape ? 870 : 1002);
     lv_obj_set_width(state->selection_detail, landscape ? 940 : 1280);
     lv_label_set_long_mode(state->selection_detail, LV_LABEL_LONG_DOT);
     if (!landscape) {
-      lv_obj_set_pos(state->list, 64, 954);
-      lv_obj_set_height(state->list, 1550);
+      lv_obj_set_pos(state->list, 64, 1070);
+      lv_obj_set_height(state->list, 1434);
     }
     const std::string storage_action =
         std::string(i18n::Translate("Choose storage")) + "  " LV_SYMBOL_DOWN;
     auto *storage = Button(state->screen, storage_action.c_str(),
                             [state] { StorageChooser(state); });
-    lv_obj_set_pos(storage, 64, landscape ? 490 : 608);
-    lv_obj_set_size(storage, landscape ? 470 : 630, 112);
+    lv_obj_set_pos(storage, 64, landscape ? 610 : 732);
+    lv_obj_set_size(storage, landscape ? 470 : 630, 104);
     std::string storage_text = RecoveryStorage();
     struct statvfs capacity{};
     if (statvfs(storage_text.c_str(), &capacity) == 0)
@@ -401,14 +448,14 @@ void BuildPartitions(Tools *state) {
           "%s / %s free", storage_text.c_str(),
           Size(uint64_t(capacity.f_bavail) * capacity.f_frsize).c_str());
     auto *path = Label(state->screen, storage_text.c_str(), &lv_font_montserrat_24, kMuted);
-    lv_obj_set_pos(path, 80, landscape ? 630 : 746);
+    lv_obj_set_pos(path, 80, landscape ? 735 : 862);
     lv_obj_set_width(path, landscape ? 940 : 1260);
     lv_label_set_long_mode(path, LV_LABEL_LONG_DOT);
     if (backup) {
       auto *compression = Button(state->screen, state->compression ? "Compression: on" : "Compression: off", [] {});
       lv_obj_set_pos(compression, landscape ? 550 : 714,
-                     landscape ? 490 : 608);
-      lv_obj_set_size(compression, landscape ? 470 : 662, 112);
+                     landscape ? 610 : 732);
+      lv_obj_set_size(compression, landscape ? 470 : 662, 104);
       auto *label = lv_obj_get_child(compression, 0);
       OnClick(compression, [state, label] {
         state->compression = !state->compression;
@@ -418,8 +465,8 @@ void BuildPartitions(Tools *state) {
     } else {
       auto *folders = Button(state->screen, "Refresh backups", [state] { RestoreFolders(state); });
       lv_obj_set_pos(folders, landscape ? 550 : 714,
-                     landscape ? 490 : 608);
-      lv_obj_set_size(folders, landscape ? 470 : 662, 112);
+                     landscape ? 610 : 732);
+      lv_obj_set_size(folders, landscape ? 470 : 662, 104);
     }
   } else {
     WipeTabs(state);
@@ -448,14 +495,13 @@ void BuildPartitions(Tools *state) {
   lv_obj_set_pos(review, 80, review_y);
   lv_obj_set_size(review, landscape ? 940 : 1280, review_height);
   if (!landscape && (backup || restore)) {
-    constexpr int list_top = 954;
+    constexpr int list_top = 1070;
     constexpr int list_to_review_gap = 28;
     lv_obj_set_height(state->list,
                       std::max(600, review_y - list_top - list_to_review_gap));
   }
   state->review = review;
-  lv_obj_set_style_bg_color(review, kMainPanel, LV_STATE_DISABLED);
-  lv_obj_set_style_text_color(lv_obj_get_child(review, 0), kMuted, LV_STATE_DISABLED);
+  lv_obj_add_flag(review, LV_OBJ_FLAG_HIDDEN);
   if (restore) RestoreFolders(state);
   else {
     state->volumes = RecoveryVolumes(backup ? "backup" : "wipe");
