@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 
+#include <array>
 #include <cstring>
 
 #include "lvgl.h"
@@ -73,6 +74,22 @@ inline bool SameKey(const char *key, const char *expected) {
   return key != nullptr && std::strcmp(key, expected) == 0;
 }
 
+template <size_t N>
+inline std::array<const char *, N> MultilineMap(const char *const (&source)[N]) {
+  std::array<const char *, N> result{};
+  for (size_t index = 0; index < N; ++index)
+    result[index] = SameKey(source[index], LV_SYMBOL_OK)
+                        ? LV_SYMBOL_NEW_LINE
+                        : source[index];
+  return result;
+}
+
+inline const auto kLowerMultiline = MultilineMap(kLower);
+inline const auto kUpperMultiline = MultilineMap(kUpper);
+inline const auto kLowerQwertzMultiline = MultilineMap(kLowerQwertz);
+inline const auto kUpperQwertzMultiline = MultilineMap(kUpperQwertz);
+inline const auto kSpecialMultiline = MultilineMap(kSpecial);
+
 inline bool IsActionKey(const char *key) {
   return SameKey(key, LV_SYMBOL_OK) || SameKey(key, LV_SYMBOL_NEW_LINE);
 }
@@ -134,14 +151,23 @@ inline void Style(lv_obj_t *keyboard) {
   lv_obj_add_flag(keyboard, LV_OBJ_FLAG_SEND_DRAW_TASK_EVENTS);
 }
 
-inline void Apply(lv_obj_t *keyboard) {
+inline void Apply(lv_obj_t *keyboard, bool multiline = false) {
   const bool qwertz = RecoveryKeyboardLayout() == KeyboardLayout::kQwertz;
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER,
-                      qwertz ? kLowerQwertz : kLower, kTextControls);
+                      multiline
+                          ? (qwertz ? kLowerQwertzMultiline.data()
+                                   : kLowerMultiline.data())
+                          : (qwertz ? kLowerQwertz : kLower),
+                      kTextControls);
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_UPPER,
-                      qwertz ? kUpperQwertz : kUpper, kTextControls);
+                      multiline
+                          ? (qwertz ? kUpperQwertzMultiline.data()
+                                   : kUpperMultiline.data())
+                          : (qwertz ? kUpperQwertz : kUpper),
+                      kTextControls);
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_SPECIAL,
-                      kSpecial, kSpecialControls);
+                      multiline ? kSpecialMultiline.data() : kSpecial,
+                      kSpecialControls);
   lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
   lv_keyboard_set_popovers(keyboard, true);
   Style(keyboard);

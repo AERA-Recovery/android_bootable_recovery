@@ -232,7 +232,7 @@ void PasswordDialog(WifiUi *state, const WifiNetwork &network) {
                      &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(hint, 0, 76);
 
-  auto *input = lv_textarea_create(sheet);
+  auto *input = TextArea(sheet);
   lv_obj_set_pos(input, 0, 130);
   lv_obj_set_size(input, 1216, 126);
   lv_textarea_set_one_line(input, true);

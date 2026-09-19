@@ -222,7 +222,7 @@ void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
   auto *prompt = Label(state->command_bar, "$", &lv_font_montserrat_32,
                        kAccent);
   lv_obj_set_pos(prompt, 0, 40);
-  state->command = lv_textarea_create(state->command_bar);
+  state->command = TextArea(state->command_bar);
   lv_obj_set_pos(state->command, 52, 6);
   lv_textarea_set_one_line(state->command, true);
   lv_textarea_set_placeholder_text(state->command, "Type a command…");

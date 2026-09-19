@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include <vector>
 #include <png.h>
@@ -16,11 +17,13 @@
 #include <unistd.h>
 using namespace recovery_ui2;
 static std::string backup_root;
+static std::string file_root;
 static bool preferences[6] = {true, false, true, true, false, false};
 static int utc_offset = 120;
 static uint32_t accent_color = design::kDefaultAccentRgb;
 static bool light_mode = false;
 static bool save_succeeds = true;
+static InterfaceSize interface_size = InterfaceSize::kNormal;
 static std::string active_slot = "A";
 static bool wifi_auto_enable = false;
 static bool wifi_auto_connect = false;
@@ -47,7 +50,7 @@ uint32_t RecoveryAccentColor() { return accent_color; }
 bool RecoverySetAccentColor(uint32_t rgb) { accent_color = rgb; return true; }
 bool RecoveryLightMode() { return light_mode; }
 bool RecoverySetLightMode(bool enabled) { light_mode = enabled; return true; }
-InterfaceSize RecoveryInterfaceSize() { return InterfaceSize::kNormal; }
+InterfaceSize RecoveryInterfaceSize() { return interface_size; }
 bool RecoverySetInterfaceSize(InterfaceSize size) {
   return static_cast<int>(size) >= 0 && static_cast<int>(size) <= 2;
 }
@@ -108,7 +111,7 @@ std::vector<Volume> RecoveryVolumes(const std::string &kind) {
     {"Boot","/boot",100663296},{"DTBO","/dtbo",25165824},{"EFS","/efs",12648448},{"Init Boot","/init_boot",8388608},{"Modem","/modem",446693376}};
 }
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &) { return RecoveryVolumes(""); }
-std::string RecoveryStorage() { return "/tmp"; }
+std::string RecoveryStorage() { return file_root.empty() ? "/tmp" : file_root; }
 std::string RecoveryBackupRoot() { return backup_root; }
 std::string RecoverySlot() { return active_slot; }
 std::string RecoveryVersion() { return "R1.0"; }
@@ -130,6 +133,10 @@ int RecoveryBrightness() { return 50; }
 void RecoverySetBrightness(int) {}
 bool RecoveryMtpEnabled() { return false; }
 bool RecoverySetMtp(bool) { return true; }
+std::vector<Volume> RecoveryImageVolumes() {
+  return {{"Recovery", "/recovery", 100663296},
+          {"Boot", "/boot", 100663296}};
+}
 int recovery_progress = 38;
 std::string installer_status;
 int RecoveryProgress() { return recovery_progress; }
@@ -156,6 +163,16 @@ bool RecoveryWifiAutoEnable() { return wifi_auto_enable; }
 bool RecoveryWifiAutoConnect() { return wifi_auto_connect; }
 bool RecoverySetWifiAutoEnable(bool enabled) { wifi_auto_enable = enabled; return true; }
 bool RecoverySetWifiAutoConnect(bool enabled) { wifi_auto_connect = enabled; return true; }
+void SetPluginRequest(const plugins::Request &) {}
+}
+namespace recovery_ui2::plugins {
+bool IsPackageFile(const std::string &name) {
+  return name.size() >= 6 && name.substr(name.size() - 6) == ".aerap";
+}
+bool InspectLocalPackage(const std::string &, Plugin &, std::string &error) {
+  error = "Package inspection is unavailable in this host test.";
+  return false;
+}
 }
 static void Tick(int count=40) {
   for(int i=0;i<count;++i) { lv_tick_inc(16); lv_timer_handler(); std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
@@ -165,18 +182,100 @@ static lv_obj_t *Find(lv_obj_t *root,const char *text) {
   for(uint32_t i=0;i<lv_obj_get_child_count(root);++i) if(auto *found=Find(lv_obj_get_child(root,i),text)) return found;
   return nullptr;
 }
+static lv_obj_t *FindLabel(lv_obj_t *root,const char *text) {
+  if(lv_obj_check_type(root,&lv_label_class) && !strcmp(lv_label_get_text(root),text)) return root;
+  for(uint32_t i=0;i<lv_obj_get_child_count(root);++i)
+    if(auto *found=FindLabel(lv_obj_get_child(root,i),text)) return found;
+  return nullptr;
+}
+static lv_obj_t *FindLabelContaining(lv_obj_t *root,const char *text) {
+  if (lv_obj_check_type(root, &lv_label_class) &&
+      strstr(lv_label_get_text(root), text) != nullptr) return root;
+  for (uint32_t i = 0; i < lv_obj_get_child_count(root); ++i)
+    if (auto *found = FindLabelContaining(lv_obj_get_child(root, i), text)) return found;
+  return nullptr;
+}
 static lv_obj_t *FindType(lv_obj_t *root, const lv_obj_class_t *type) {
   if(lv_obj_check_type(root,type)) return root;
   for(uint32_t i=0;i<lv_obj_get_child_count(root);++i)
     if(auto *found=FindType(lv_obj_get_child(root,i),type)) return found;
   return nullptr;
 }
+static void PressKeyboardKey(lv_obj_t *keyboard, const char *key) {
+  const char *const *map = lv_buttonmatrix_get_map(keyboard);
+  uint32_t button = 0;
+  for (size_t index = 0; map[index][0] != '\0'; ++index) {
+    if (!strcmp(map[index], "\n")) continue;
+    if (!strcmp(map[index], key)) {
+      lv_buttonmatrix_set_selected_button(keyboard, button);
+      lv_obj_send_event(keyboard, LV_EVENT_VALUE_CHANGED, nullptr);
+      return;
+    }
+    ++button;
+  }
+  assert(false);
+}
+static lv_area_t Bounds(lv_obj_t *object) {
+  lv_area_t area{};
+  lv_obj_get_coords(object, &area);
+  return area;
+}
+static bool Overlaps(lv_obj_t *left, lv_obj_t *right, int gap = 0) {
+  const lv_area_t a = Bounds(left);
+  const lv_area_t b = Bounds(right);
+  return a.x1 < b.x2 + gap && a.x2 + gap > b.x1 &&
+         a.y1 < b.y2 + gap && a.y2 + gap > b.y1;
+}
+static void AssertInside(lv_obj_t *object, int width, int height) {
+  const lv_area_t area = Bounds(object);
+  if (area.x1 < 0 || area.y1 < 0 || area.x2 >= width || area.y2 >= height)
+    fprintf(stderr, "Object outside viewport: (%d,%d)-(%d,%d), viewport %dx%d\n",
+            area.x1, area.y1, area.x2, area.y2, width, height);
+  assert(area.x1 >= 0 && area.y1 >= 0);
+  assert(area.x2 < width && area.y2 < height);
+}
+static void AssertContained(lv_obj_t *child, lv_obj_t *parent) {
+  const lv_area_t inner = Bounds(child);
+  const lv_area_t outer = Bounds(parent);
+  assert(inner.x1 >= outer.x1 && inner.y1 >= outer.y1);
+  assert(inner.x2 <= outer.x2 && inner.y2 <= outer.y2);
+}
+static void AssertCentered(lv_obj_t *child, lv_obj_t *parent) {
+  const lv_area_t inner = Bounds(child);
+  const lv_area_t outer = Bounds(parent);
+  const int dx = (inner.x1 + inner.x2) - (outer.x1 + outer.x2);
+  const int dy = (inner.y1 + inner.y2) - (outer.y1 + outer.y2);
+  assert(dx >= 34 && dx <= 38);
+  assert(dy >= -2 && dy <= 2);
+}
+static void AssertVisibleCaret(lv_obj_t *input) {
+  assert(input && lv_obj_check_type(input, &lv_textarea_class));
+  assert(lv_obj_get_style_border_width(input, LV_PART_CURSOR) >= 3);
+  assert(lv_obj_get_style_border_opa(input, LV_PART_CURSOR) == LV_OPA_COVER);
+  assert(lv_obj_get_style_border_side(input, LV_PART_CURSOR) == LV_BORDER_SIDE_LEFT);
+  assert(lv_obj_get_style_anim_duration(input, LV_PART_CURSOR) > 0);
+}
 int main(int argc,char **argv) {
   assert(argc==2);
   char fixture_dir[]="/tmp/aera-restore-test-XXXXXX"; assert(mkdtemp(fixture_dir));
   backup_root=fixture_dir;
+  file_root=backup_root+"/files";
+  std::filesystem::create_directory(file_root);
+  std::filesystem::create_directory(file_root+"/Folder");
+  {
+    std::ofstream(file_root+"/alpha.txt") << "alpha\n";
+    std::ofstream(file_root+"/long-file-name-for-layout-validation.txt") << "layout\n";
+    std::ofstream(file_root+"/package.zip") << "not a real package";
+    std::ofstream log(file_root+"/broken.log", std::ios::binary);
+    log << "plain\n\033[31mred\033[0m\ninvalid: ";
+    const char invalid[] = {static_cast<char>(0xc3), '('};
+    log.write(invalid, sizeof(invalid));
+    std::ofstream(file_root+"/large.log", std::ios::binary)
+        << std::string(160 * 1024, 'x');
+  }
   std::filesystem::create_directory(backup_root+"/AERA-test-backup");
   lv_init();
+  i18n::Initialize("en");
   const lv_font_t *latin_font = design::UiFont(&lv_font_montserrat_32);
   for (uint32_t codepoint : {0x00c4u, 0x00d6u, 0x00dcu, 0x00dfu,
                              0x00e4u, 0x00f6u, 0x00fcu}) {
@@ -189,7 +288,10 @@ int main(int argc,char **argv) {
   lv_display_set_buffers(display,frame.data(),nullptr,frame.size(),LV_DISPLAY_RENDER_MODE_DIRECT);
   lv_display_set_flush_cb(display,[](lv_display_t *d,const lv_area_t *,uint8_t *){lv_display_flush_ready(d);});
   auto save=[&](const char *path) {
-    Tick(); png_image image{}; image.version=PNG_IMAGE_VERSION; image.width=1440; image.height=3168; image.format=PNG_FORMAT_BGRA;
+    Tick(); png_image image{}; image.version=PNG_IMAGE_VERSION;
+    image.width=lv_display_get_horizontal_resolution(display);
+    image.height=lv_display_get_vertical_resolution(display);
+    image.format=PNG_FORMAT_BGRA;
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
@@ -202,14 +304,17 @@ int main(int argc,char **argv) {
     assert(Find(about,"R1.0"));
     save("/tmp/aera-about-host.png");
     lv_deinit();
+    std::filesystem::remove_all(backup_root);
     return 0;
   }
+  if (strcmp(argv[1], "--files")) {
   auto *wifi=lv_obj_create(nullptr); BuildWifiScene(wifi,RecordAction,nullptr);
   lv_screen_load(wifi); Tick();
   assert(Find(wifi,"AERA Lab"));
   lv_obj_send_event(Find(wifi,"AERA Lab"),LV_EVENT_CLICKED,nullptr);
   assert(FindType(wifi,&lv_keyboard_class));
   auto *wifi_password=FindType(wifi,&lv_textarea_class); assert(wifi_password);
+  AssertVisibleCaret(wifi_password);
   lv_textarea_set_text(wifi_password,"correct horse battery staple");
   lv_obj_send_event(Find(wifi,"Connect"),LV_EVENT_CLICKED,nullptr);
   assert(last_action==Action::kRunWifiOperation);
@@ -219,6 +324,7 @@ int main(int argc,char **argv) {
   auto *web = lv_obj_create(nullptr); BuildWebScene(web, RecordAction, nullptr, -1, -1, false);
   lv_screen_load(web); Tick();
   auto *web_input = FindType(web, &lv_textarea_class); assert(web_input);
+  AssertVisibleCaret(web_input);
   auto *web_keyboard = FindType(web, &lv_keyboard_class); assert(web_keyboard);
   auto *web_navigation = lv_obj_get_parent(Find(web, "Menu"));
   assert(lv_obj_has_flag(web_keyboard, LV_OBJ_FLAG_HIDDEN));
@@ -384,8 +490,14 @@ int main(int argc,char **argv) {
   lv_screen_load(unlock); save("/tmp/aera-matte-unlock-host.png"); lv_screen_load(screen); lv_obj_delete(unlock);
   for(int i=0;i<8;++i) {
     OpenPicture(screen,argv[1]);
-    if(i%2) Tick(100); // Alternate immediate cancellation and completed decode.
-    auto *plus=Find(screen,LV_SYMBOL_PLUS); assert(plus);
+    Tick(5);
+    if(i%2) Tick(500); // Alternate immediate cancellation and completed decode.
+    auto *plus=Find(screen,LV_SYMBOL_PLUS);
+    if (!plus) {
+      assert(widgets::DismissModal(screen));
+      Tick(20);
+      continue;
+    }
     lv_obj_send_event(plus,LV_EVENT_CLICKED,nullptr); Tick(5);
     if(i==7) save("/tmp/aera-picture-host.png");
     assert(widgets::DismissModal(screen)); Tick(20);
@@ -414,7 +526,7 @@ int main(int argc,char **argv) {
   lv_screen_load(format_job); Tick();
   assert(lv_obj_has_flag(formatting.done,LV_OBJ_FLAG_HIDDEN));
   CompleteOperationScene(formatting,true,"Format completed"); Tick();
-  assert(Find(format_job,"Data formatted. Review the log before rebooting."));
+  assert(Find(format_job,"Data was formatted successfully. Reboot recovery before using /data again."));
   auto *reboot_options=Find(format_job,"Reboot options"); assert(reboot_options);
   lv_obj_send_event(reboot_options,LV_EVENT_CLICKED,nullptr); assert(last_action==Action::kOpenReboot);
   lv_screen_load(screen); lv_obj_delete(format_job);
@@ -437,6 +549,271 @@ int main(int argc,char **argv) {
   assert(Find(sideload_job,"Reading test package"));
   lv_screen_load(screen); lv_obj_delete(sideload_job);
   installer_status.clear(); sideload_status={};
+  }
+
+  const std::vector<std::pair<InterfaceSize, const char*>> file_sizes = {
+      {InterfaceSize::kSmall, "small"},
+      {InterfaceSize::kNormal, "normal"},
+      {InterfaceSize::kLarge, "large"},
+  };
+  for (bool landscape : {false, true}) {
+    lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                              landscape ? 1440 : 3168);
+    for (const auto& [size, size_name] : file_sizes) {
+      interface_size = size;
+      design::ApplyInterfaceSize(static_cast<int>(size));
+      auto* files = lv_obj_create(nullptr);
+      BuildFilesScene(files, RecordAction, nullptr);
+      lv_screen_load(files);
+      Tick();
+      assert(Find(files, "alpha.txt"));
+      assert(Find(files, "long-file-name-for-layout-validation.txt"));
+      auto* alpha_row = Find(files, "alpha.txt");
+      assert(lv_obj_get_height(alpha_row) ==
+             (size == InterfaceSize::kSmall ? 150
+              : size == InterfaceSize::kLarge ? 228
+                                               : 174));
+      assert(Find(files, LV_SYMBOL_PLUS));
+      for (const char* symbol : {LV_SYMBOL_LIST, LV_SYMBOL_PLUS,
+                                 LV_SYMBOL_OK, LV_SYMBOL_REFRESH}) {
+        auto* button = Find(files, symbol);
+        assert(button && lv_obj_get_child_count(button) != 0);
+        AssertCentered(lv_obj_get_child(button, 0), button);
+      }
+      char screenshot[128];
+      snprintf(screenshot, sizeof(screenshot), "/tmp/aera-files-%s-%s.png",
+               landscape ? "landscape" : "portrait", size_name);
+      save(screenshot);
+
+      if (!landscape && size == InterfaceSize::kLarge) {
+        lv_obj_send_event(Find(files, LV_SYMBOL_OK), LV_EVENT_CLICKED, nullptr);
+        Tick();
+        auto* copy = Find(files, "Copy");
+        assert(copy && lv_obj_get_height(copy) == 180);
+        save("/tmp/aera-file-selection-portrait-large.png");
+        lv_obj_send_event(Find(files, LV_SYMBOL_CLOSE), LV_EVENT_CLICKED, nullptr);
+        Tick();
+      }
+
+      if (!landscape && size == InterfaceSize::kNormal) {
+        auto* row = Find(files, "alpha.txt");
+        lv_obj_send_event(row, LV_EVENT_PRESSED, nullptr);
+        lv_obj_send_event(row, LV_EVENT_LONG_PRESSED, nullptr);
+        lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(Find(files, "Information"));
+        assert(Find(files, "Delete"));
+        save("/tmp/aera-file-actions-portrait-normal.png");
+        auto* action_overlay = lv_obj_get_child(
+            files, static_cast<int32_t>(lv_obj_get_child_count(files)) - 1);
+        lv_obj_send_event(action_overlay, LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(!Find(files, "Information"));
+
+        row = Find(files, "alpha.txt");
+        lv_obj_send_event(row, LV_EVENT_PRESSED, nullptr);
+        lv_obj_send_event(row, LV_EVENT_LONG_PRESSED, nullptr);
+        lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr);
+        Tick();
+        lv_obj_send_event(Find(files, "Information"), LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(Find(files, "Information"));
+        save("/tmp/aera-file-information-portrait-normal.png");
+        auto* information_overlay = lv_obj_get_child(
+            files, static_cast<int32_t>(lv_obj_get_child_count(files)) - 1);
+        lv_obj_send_event(information_overlay, LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(!Find(files, "Information"));
+
+        lv_obj_send_event(Find(files, "broken.log"), LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(Find(files, "plain\nred\ninvalid: ?("));
+        assert(widgets::DismissModal(files));
+        Tick();
+
+        lv_obj_send_event(Find(files, "large.log"), LV_EVENT_CLICKED, nullptr);
+        Tick();
+        auto* viewer_overlay = lv_obj_get_child(
+            files, static_cast<int32_t>(lv_obj_get_child_count(files)) - 1);
+        assert(FindLabelContaining(viewer_overlay, "Preview truncated at 128 KB"));
+        auto* large_page = FindLabelContaining(viewer_overlay, "xxxxxxxxxxxxxxxx");
+        assert(large_page && lv_obj_get_height(large_page) < 8000);
+        auto* next_page = Find(viewer_overlay, LV_SYMBOL_RIGHT);
+        assert(next_page);
+        lv_obj_send_event(next_page, LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(FindLabelContaining(viewer_overlay, "2 / "));
+        assert(widgets::DismissModal(files));
+        Tick();
+
+        auto* select_button = Find(files, LV_SYMBOL_OK);
+        assert(select_button);
+        lv_obj_send_event(select_button, LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(Find(files, "0 selected"));
+        lv_obj_send_event(Find(files, "alpha.txt"), LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(Find(files, "1 selected"));
+        assert(Find(files, "Copy") && Find(files, "Cut") && Find(files, "Delete"));
+        assert(lv_obj_get_height(Find(files, "Copy")) == 146);
+        save("/tmp/aera-file-selection-portrait-normal.png");
+        lv_obj_send_event(Find(files, "Copy"), LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(Find(files, "Paste here"));
+        save("/tmp/aera-file-clipboard-portrait-normal.png");
+        lv_obj_send_event(Find(files, "Paste here"), LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(Find(files, "Replace") && Find(files, "Keep both") && Find(files, "Skip"));
+        save("/tmp/aera-file-conflict-portrait-normal.png");
+        lv_obj_send_event(Find(files, "Keep both"), LV_EVENT_CLICKED, nullptr);
+        Tick(200);
+        auto* paste_after_work = Find(files, "Paste here");
+        assert(paste_after_work);
+        assert(lv_obj_has_flag(lv_obj_get_parent(paste_after_work), LV_OBJ_FLAG_HIDDEN));
+        assert(Find(files, "alpha (1).txt"));
+      }
+
+      lv_obj_send_event(Find(files, LV_SYMBOL_PLUS), LV_EVENT_CLICKED, nullptr);
+      Tick();
+      auto* new_text = Find(files, "New text file");
+      assert(new_text);
+      lv_obj_send_event(new_text, LV_EVENT_CLICKED, nullptr);
+      Tick();
+      auto* name_input = FindType(files, &lv_textarea_class);
+      auto* name_keyboard = FindType(files, &lv_keyboard_class);
+      auto* name_cancel = Find(files, "Cancel");
+      auto* name_create = Find(files, "Create");
+      assert(name_input && name_keyboard && name_cancel && name_create);
+      AssertVisibleCaret(name_input);
+      save("/tmp/aera-file-name-debug.png");
+      AssertInside(name_input, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(name_keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(name_cancel, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(name_create, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      assert(!Overlaps(name_input, name_keyboard, 16));
+      assert(!Overlaps(name_keyboard, name_cancel, 16));
+      assert(!Overlaps(name_keyboard, name_create, 16));
+      snprintf(screenshot, sizeof(screenshot), "/tmp/aera-file-name-%s-%s.png",
+               landscape ? "landscape" : "portrait", size_name);
+      save(screenshot);
+
+      const std::string filename = std::string("ui-") +
+          (landscape ? "landscape-" : "portrait-") + size_name + ".txt";
+      lv_textarea_set_text(name_input, filename.c_str());
+      if (!landscape && size == InterfaceSize::kNormal)
+        lv_obj_send_event(name_keyboard, LV_EVENT_READY, nullptr);
+      else
+        lv_obj_send_event(name_create, LV_EVENT_CLICKED, nullptr);
+      Tick();
+      auto* editor = FindType(files, &lv_textarea_class);
+      auto* editor_keyboard = FindType(files, &lv_keyboard_class);
+      auto* editor_cancel = Find(files, "Cancel");
+      auto* editor_save = Find(files, "Save");
+      assert(editor && editor_keyboard && editor_cancel && editor_save);
+      AssertVisibleCaret(editor);
+      AssertInside(editor, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(editor_keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(editor_cancel, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(editor_save, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      assert(!Overlaps(editor, editor_keyboard, 16));
+      assert(!Overlaps(editor_keyboard, editor_cancel, 16));
+      assert(!Overlaps(editor_keyboard, editor_save, 16));
+      lv_textarea_set_text(editor, "First line");
+      lv_textarea_set_cursor_pos(editor, LV_TEXTAREA_CURSOR_LAST);
+      PressKeyboardKey(editor_keyboard, LV_SYMBOL_NEW_LINE);
+      assert(!strcmp(lv_textarea_get_text(editor), "First line\n"));
+      snprintf(screenshot, sizeof(screenshot), "/tmp/aera-file-editor-%s-%s.png",
+               landscape ? "landscape" : "portrait", size_name);
+      save(screenshot);
+      lv_textarea_set_text(editor, "Created by the AERA file-manager UI check.\n");
+      lv_obj_send_event(editor_save, LV_EVENT_CLICKED, nullptr);
+      Tick();
+      std::ifstream created(file_root + "/" + filename);
+      std::string contents((std::istreambuf_iterator<char>(created)),
+                           std::istreambuf_iterator<char>());
+      assert(contents == "Created by the AERA file-manager UI check.\n");
+      lv_screen_load(screen);
+      lv_obj_delete(files);
+      Tick();
+    }
+  }
+  lv_display_set_resolution(display, 1440, 3168);
+  interface_size = InterfaceSize::kLarge;
+  for (const auto& language : i18n::AvailableLanguages()) {
+    assert(i18n::SetLanguage(language.code));
+    auto* files = lv_obj_create(nullptr);
+    BuildFilesScene(files, RecordAction, nullptr);
+    lv_screen_load(files);
+    Tick();
+    if (!language.rtl) {
+      assert(Find(files, i18n::Translate("Files")));
+    }
+    if (!strcmp(language.code, "ar_SA"))
+      save("/tmp/aera-file-language-ar_SA.png");
+
+    auto* row = Find(files, "alpha.txt");
+    assert(row);
+    lv_obj_send_event(row, LV_EVENT_PRESSED, nullptr);
+    lv_obj_send_event(row, LV_EVENT_LONG_PRESSED, nullptr);
+    lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr);
+    Tick();
+    if (!language.rtl) {
+      assert(Find(files, i18n::Translate("Copy")));
+      assert(Find(files, i18n::Translate("Information")));
+      assert(Find(files, i18n::Translate("Delete")));
+    }
+    assert(widgets::DismissModal(files));
+    Tick();
+
+    if (language.rtl) {
+      lv_screen_load(screen);
+      lv_obj_delete(files);
+      Tick();
+      continue;
+    }
+
+    lv_obj_send_event(Find(files, LV_SYMBOL_PLUS), LV_EVENT_CLICKED, nullptr);
+    Tick();
+    auto* create_text = Find(files, i18n::Translate("New text file"));
+    assert(create_text);
+    lv_obj_send_event(create_text, LV_EVENT_CLICKED, nullptr);
+    Tick();
+    auto* keyboard = FindType(files, &lv_keyboard_class);
+    auto* cancel = Find(files, i18n::Translate("Cancel"));
+    auto* create = Find(files, i18n::Translate("Create"));
+    assert(keyboard && cancel && create);
+    AssertInside(keyboard, 1440, 3168);
+    assert(!Overlaps(keyboard, cancel, 16));
+    assert(!Overlaps(keyboard, create, 16));
+    auto* cancel_label = FindLabel(cancel, i18n::Translate("Cancel"));
+    auto* create_label = FindLabel(create, i18n::Translate("Create"));
+    assert(cancel_label && create_label);
+    AssertContained(cancel_label, cancel);
+    AssertContained(create_label, create);
+    if (!strcmp(language.code, "de_DE") || !strcmp(language.code, "sv_SE") ||
+        !strcmp(language.code, "zh_CN") ||
+        !strcmp(language.code, "ru")) {
+      char screenshot[128];
+      snprintf(screenshot, sizeof(screenshot), "/tmp/aera-file-language-%s.png",
+               language.code);
+      save(screenshot);
+    }
+    assert(widgets::DismissModal(files));
+    Tick();
+    lv_screen_load(screen);
+    lv_obj_delete(files);
+    Tick();
+  }
+  i18n::SetLanguage("en");
+  interface_size = InterfaceSize::kNormal;
+
+  if (!strcmp(argv[1], "--files")) {
+    puts("Headless File Manager UI checks passed in portrait and landscape at Small, Normal and Large interface sizes.");
+    lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    return 0;
+  }
+
   auto *about=lv_obj_create(nullptr);
   BuildAboutScene(about,RecordAction,nullptr);
   lv_screen_load(about); Tick();
@@ -445,6 +822,7 @@ int main(int argc,char **argv) {
   assert(Find(about,"R1.0"));
   save("/tmp/aera-about-host.png");
   lv_screen_load(screen); lv_obj_delete(about);
-  puts("Headless UI checks passed: wipe selection, format confirmation guard, keyboard no auto-submit, bottom navigation geometry, preference toggles, backup/restore, Android users, unlock, viewer, operation completion. No destructive backend is linked.");
+  puts("Headless UI checks passed: file-manager long press, creation, editor and keyboard geometry in six viewport/size combinations; wipe selection, format confirmation guard, keyboard no auto-submit, bottom navigation geometry, preference toggles, backup/restore, Android users, unlock, viewer, operation completion.");
   lv_deinit();
+  std::filesystem::remove_all(backup_root);
 }

@@ -157,7 +157,7 @@ struct StreamsScene {
 };
 
 lv_obj_t* SearchInput(lv_obj_t* parent, const char* placeholder) {
-  auto* input = lv_textarea_create(parent);
+  auto* input = TextArea(parent);
   lv_textarea_set_one_line(input, true);
   lv_obj_set_size(input, 1000, 116);
   lv_textarea_set_placeholder_text(input, i18n::Translate(placeholder));

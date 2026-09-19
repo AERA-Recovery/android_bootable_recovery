@@ -53,6 +53,20 @@ inline void OnClick(lv_obj_t *object, Handler callback) {
   }, LV_EVENT_ALL, handler);
 }
 
+inline lv_obj_t *TextArea(lv_obj_t *parent) {
+  auto *input = lv_textarea_create(parent);
+  // Touch keyboards do not consistently put their textarea into LV_STATE_FOCUSED.
+  // Keep the insertion caret visible regardless of how the field was activated.
+  lv_obj_set_style_bg_opa(input, LV_OPA_TRANSP, LV_PART_CURSOR);
+  lv_obj_set_style_border_color(input, kAccent, LV_PART_CURSOR);
+  lv_obj_set_style_border_opa(input, LV_OPA_COVER, LV_PART_CURSOR);
+  lv_obj_set_style_border_width(input, 4, LV_PART_CURSOR);
+  lv_obj_set_style_border_side(input, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR);
+  lv_obj_set_style_pad_left(input, -2, LV_PART_CURSOR);
+  lv_obj_set_style_anim_duration(input, 500, LV_PART_CURSOR);
+  return input;
+}
+
 inline void FitLabelToLines(
     lv_obj_t *label, int width, int max_lines,
     std::initializer_list<const lv_font_t *> candidates) {
@@ -116,6 +130,16 @@ inline lv_obj_t *Button(lv_obj_t *parent, const char *text, Handler action,
   FitButtonLabel(button);
   OnClick(button, std::move(action));
   return button;
+}
+
+inline void CenterButtonContent(lv_obj_t *button) {
+  if (button == nullptr || lv_obj_get_child_count(button) == 0) return;
+  auto *content = lv_obj_get_child(button, 0);
+  lv_obj_set_size(content, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_center(content);
+  // Font Awesome symbols carry extra advance space on their right side.
+  // Compensate it so the visible glyph, rather than its font box, is centered.
+  lv_obj_set_style_translate_x(content, 18, 0);
 }
 
 inline void Header(lv_obj_t *screen, const char *title, const char *subtitle,
@@ -437,13 +461,26 @@ inline void ConfirmSliderTouch(lv_event_t *event) {
 // lock screen. Confirmation is impossible unless the gesture starts at the
 // handle and crosses most of the track.
 inline void Sheet(lv_obj_t *screen, const std::string &title,
-                   const std::string &copy, Handler confirm = {}) {
+                   const std::string &copy, Handler confirm = {},
+                   int preferred_height = 0,
+                   bool dismiss_on_backdrop = false) {
   auto *overlay = lv_obj_create(screen);
   lv_obj_set_user_data(overlay, &kModalMarker);
   Clear(overlay);
   lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
   lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+  if (dismiss_on_backdrop) {
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(
+        overlay,
+        [](lv_event_t *event) {
+          if (lv_event_get_target_obj(event) ==
+              lv_event_get_current_target_obj(event))
+            lv_obj_delete_async(lv_event_get_current_target_obj(event));
+        },
+        LV_EVENT_CLICKED, nullptr);
+  }
   auto *state = new SheetState;
   state->overlay = overlay;
   state->confirm = std::move(confirm);
@@ -462,10 +499,10 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   const int sheet_width = Landscape(screen)
       ? std::min(2200, static_cast<int>(lv_obj_get_width(screen)) - 128)
       : 1312;
-  const int sheet_height = Landscape(screen)
-      ? std::min(state->confirm ? 1180 : 1000,
-                 static_cast<int>(lv_obj_get_height(screen)) - 80)
-      : (state->confirm ? 1180 : 1000);
+  const int default_height = state->confirm ? 1180 : 1000;
+  const int requested_height = preferred_height > 0 ? preferred_height : default_height;
+  const int sheet_height = std::min(
+      requested_height, static_cast<int>(lv_obj_get_height(screen)) - 80);
   lv_obj_set_size(sheet, sheet_width, sheet_height);
   lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -40);
   lv_obj_set_style_pad_all(sheet, 56, 0);
@@ -487,7 +524,7 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   Clear(area);
   lv_obj_set_pos(area, 0, 132);
   lv_obj_set_size(area, sheet_width - 112,
-                  state->confirm ? sheet_height - 670 : sheet_height - 310);
+                  state->confirm ? sheet_height - 670 : sheet_height - 390);
   lv_obj_add_flag(area, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(area, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(area, LV_SCROLLBAR_MODE_ACTIVE);

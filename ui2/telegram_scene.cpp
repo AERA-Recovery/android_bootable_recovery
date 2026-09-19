@@ -91,7 +91,7 @@ struct TelegramScene {
 
 lv_obj_t *Input(lv_obj_t *parent, int y, const char *placeholder,
                 bool password = false) {
-  auto *input = lv_textarea_create(parent);
+  auto *input = TextArea(parent);
   lv_obj_set_align(input, LV_ALIGN_TOP_LEFT);
   lv_obj_set_pos(input, 42, y);
   lv_textarea_set_one_line(input, true);

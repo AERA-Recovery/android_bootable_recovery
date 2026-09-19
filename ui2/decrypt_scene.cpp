@@ -5,6 +5,7 @@
 
 #include "scene.hpp"
 #include "phone_keyboard.hpp"
+#include "ui_components.hpp"
 
 #include <algorithm>
 #include <array>
@@ -295,7 +296,7 @@ void MakePinPad(DecryptState *state, lv_obj_t *panel) {
 }
 
 void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
-  state->input = lv_textarea_create(panel);
+  state->input = widgets::TextArea(panel);
   lv_obj_set_pos(state->input, 86, 470);
   lv_obj_set_size(state->input, 1012, 160);
   lv_textarea_set_one_line(state->input, true);

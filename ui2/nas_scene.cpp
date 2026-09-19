@@ -165,7 +165,7 @@ void EditField(NasUi *state, Field field) {
   lv_obj_set_pos(hint, 0, 76);
   lv_obj_set_width(hint, 1180);
 
-  auto *input = lv_textarea_create(sheet);
+  auto *input = TextArea(sheet);
   lv_obj_set_pos(input, 0, 150);
   lv_obj_set_size(input, 1216, 126);
   lv_textarea_set_one_line(input, true);

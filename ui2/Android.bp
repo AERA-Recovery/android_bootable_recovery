@@ -31,6 +31,7 @@ cc_library_static {
         "decrypt_scene.cpp",
         "engine.cpp",
         "fastboot_scene.cpp",
+        "file_manager.cpp",
         "fonts/aera_fallback.cpp",
         "gpu_renderer.cpp",
         "gallery_scene.cpp",

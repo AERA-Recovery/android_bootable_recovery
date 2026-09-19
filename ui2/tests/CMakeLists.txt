@@ -16,12 +16,13 @@ find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
 add_executable(ui_check ui_check.cpp ../about_scene.cpp ../aera_logo.cpp
   ../matrix_engraving.cpp
+  ../home_scene.cpp ../file_manager.cpp
   ../fonts/aera_fallback.cpp ../i18n.cpp ../i18n/catalog_generated.cpp
   ../tool_scene.cpp ../sideload_scene.cpp ../wifi_scene.cpp ../picture_decode.cpp
   ../picture_viewer.cpp ../operation_scene.cpp ../decrypt_scene.cpp
   ../browser/web_scene.cpp ../browser/session.cpp ../browser/launcher.cpp)
 target_include_directories(ui_check PRIVATE .. ../include)
-target_compile_definitions(ui_check PRIVATE AERA_DEFAULT_LANGUAGE="en")
+target_compile_definitions(ui_check PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES)
 target_compile_definitions(ui_check PRIVATE
   AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../../gui/theme/extra-languages/fonts"
   AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../../gui/theme/common/fonts")
@@ -49,3 +50,8 @@ target_compile_definitions(sideload_ui_test PRIVATE
 target_compile_options(sideload_ui_test PRIVATE -UNDEBUG)
 target_link_libraries(sideload_ui_test PRIVATE lvgl Threads::Threads)
 add_test(NAME sideload_scene_and_progress COMMAND sideload_ui_test)
+add_executable(file_manager_test file_manager_test.cpp ../file_manager.cpp)
+target_include_directories(file_manager_test PRIVATE ..)
+target_compile_options(file_manager_test PRIVATE -UNDEBUG)
+target_link_libraries(file_manager_test PRIVATE Threads::Threads)
+add_test(NAME file_manager_operations COMMAND file_manager_test)

@@ -302,7 +302,7 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
   lv_obj_set_style_text_line_space(encryption, 12, 0);
   auto *prompt = Label(state->screen, "Type yes to enable Format Data", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(prompt, 80, landscape ? 900 : 1228);
-  state->format_input = lv_textarea_create(state->screen);
+  state->format_input = TextArea(state->screen);
   lv_obj_set_pos(state->format_input, 80, landscape ? 960 : 1310);
   lv_obj_set_size(state->format_input, landscape ? 940 : 1280, 150);
   lv_textarea_set_one_line(state->format_input, true);
