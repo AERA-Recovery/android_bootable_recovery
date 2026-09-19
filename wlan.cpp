@@ -2136,6 +2136,28 @@ bool Wlan::WaitForProperty(const std::string& key, const std::string& expected, 
     return false;
 }
 
+bool Wlan::WaitForSupplicantReady(int timeout_ms) {
+    const int step_ms = 100;
+    int waited = 0;
+    const std::string socket = GetCtrlDir() + "/" + GetIface();
+
+    while (waited < timeout_ms) {
+        if (FileExists(socket)) {
+            std::string reply;
+            if (SuppCmd("PING", reply) && Trim(reply) == "PONG") {
+                LOGINFO("WLAN: supplicant control interface is ready\n");
+                return true;
+            }
+        }
+        usleep(step_ms * 1000);
+        waited += step_ms;
+    }
+
+    LOGERR("WLAN: supplicant control interface did not become ready: %s\n",
+           socket.c_str());
+    return false;
+}
+
 bool Wlan::StartInitSupplicantService() {
     char value[PROPERTY_VALUE_MAX] = {0};
     property_get(WLAN_SUPP_SVC_PROP, value, "");
@@ -2143,7 +2165,7 @@ bool Wlan::StartInitSupplicantService() {
     std::string state = value;
     if (state == "running" || state == "restarting") {
         LOGINFO("WLAN: supplicant service already active (%s)\n", state.c_str());
-        return true;
+        return WaitForSupplicantReady(10000);
     }
 
     LOGINFO("WLAN: triggering supplicant bring-up (%s)\n", WLAN_SUPP_PREP_PROP);
@@ -2158,7 +2180,7 @@ bool Wlan::StartInitSupplicantService() {
         return false;
     }
 
-    return true;
+    return WaitForSupplicantReady(10000);
 }
 
 bool Wlan::StopInitSupplicantService() {
