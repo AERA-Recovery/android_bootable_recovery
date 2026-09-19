@@ -16,6 +16,7 @@
 
 #include <cutils/sockets.h>
 
+#include "aera_logo.hpp"
 #include "design.hpp"
 #include "ui_components.hpp"
 
@@ -61,6 +62,53 @@ std::string Bytes(uint64_t value) {
              static_cast<double>(value) / 1024.0);
   }
   return result;
+}
+
+lv_obj_t *BrandLayer(lv_obj_t *parent, const lv_image_dsc_t *source,
+                     int scale, lv_color_t color) {
+  auto *layer = lv_image_create(parent);
+  lv_image_set_src(layer, source);
+  lv_image_set_antialias(layer, true);
+  lv_image_set_scale(layer, scale);
+  lv_image_set_pivot(layer, 0, 0);
+  lv_obj_set_style_image_recolor(layer, color, 0);
+  lv_obj_set_style_image_recolor_opa(layer, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(layer, LV_OBJ_FLAG_CLICKABLE);
+  return layer;
+}
+
+void FastbootMark(lv_obj_t *parent, bool landscape) {
+  const int scale = landscape ? 170 : 230;
+  const int width = assets::kAeraBrandWidth * scale / LV_SCALE_NONE;
+  const int height = 500 * scale / LV_SCALE_NONE;
+  const int text_top = landscape ? 430 : 760;
+  const int y = (text_top - height) / 2;
+
+  auto *crop = lv_obj_create(parent);
+  Clear(crop);
+  lv_obj_set_size(crop, width, height);
+  lv_obj_align(crop, LV_ALIGN_TOP_MID, 0, y);
+  lv_obj_set_style_clip_corner(crop, true, 0);
+
+  auto *white = BrandLayer(crop, &assets::kAeraBrandWhite, scale, kText);
+  lv_obj_set_pos(white, 0, 0);
+
+  constexpr int kSegmentX = 413;
+  constexpr int kSegmentY = 230;
+  constexpr int kSegmentWidth = 183;
+  constexpr int kSegmentHeight = 121;
+  auto *segment_crop = lv_obj_create(crop);
+  Clear(segment_crop);
+  lv_obj_set_pos(segment_crop, kSegmentX * scale / LV_SCALE_NONE,
+                 kSegmentY * scale / LV_SCALE_NONE);
+  lv_obj_set_size(segment_crop,
+                  kSegmentWidth * scale / LV_SCALE_NONE,
+                  kSegmentHeight * scale / LV_SCALE_NONE);
+  lv_obj_set_style_clip_corner(segment_crop, true, 0);
+  auto *segment = BrandLayer(segment_crop, &assets::kAeraBrandAccent,
+                             scale, kCyan);
+  lv_obj_set_pos(segment, -kSegmentX * scale / LV_SCALE_NONE,
+                 -kSegmentY * scale / LV_SCALE_NONE);
 }
 
 void ParseTelemetry(const std::string &line) {
@@ -246,9 +294,11 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_style_border_color(hero, kMainLine, 0);
   lv_obj_set_style_border_opa(hero, LV_OPA_50, 0);
 
+  FastbootMark(hero, landscape);
+
   auto *ready = Label(hero, "Ready for fastboot commands",
                       &lv_font_montserrat_48, kText);
-  lv_obj_align(ready, LV_ALIGN_TOP_MID, 0, landscape ? 190 : 320);
+  lv_obj_align(ready, LV_ALIGN_TOP_MID, 0, landscape ? 430 : 760);
   auto *detail = Label(
       hero,
       "Use the fastboot client on your computer to flash, erase, resize or\n"
@@ -256,11 +306,11 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
       &lv_font_montserrat_24, kMuted);
   lv_obj_set_width(detail, landscape ? 1120 : 1160);
   lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, landscape ? 285 : 425);
+  lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, landscape ? 514 : 862);
 
   auto *progress = lv_bar_create(hero);
   lv_obj_set_size(progress, landscape ? 1080 : 1120, 24);
-  lv_obj_align(progress, LV_ALIGN_TOP_MID, 0, landscape ? 430 : 590);
+  lv_obj_align(progress, LV_ALIGN_TOP_MID, 0, landscape ? 640 : 1010);
   lv_bar_set_range(progress, 0, 100);
   lv_obj_set_style_radius(progress, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(progress, kInset, LV_PART_MAIN);
@@ -271,7 +321,7 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   lv_bar_set_value(progress, 0, LV_ANIM_OFF);
   lv_obj_add_flag(progress, LV_OBJ_FLAG_HIDDEN);
   auto *percent = Label(hero, "0%", &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_align(percent, LV_ALIGN_TOP_MID, 0, landscape ? 472 : 635);
+  lv_obj_align(percent, LV_ALIGN_TOP_MID, 0, landscape ? 680 : 1052);
   lv_obj_add_flag(percent, LV_OBJ_FLAG_HIDDEN);
 
   g_view = {screen, ready, detail, progress, percent};
@@ -292,7 +342,7 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_pos(actions, landscape ? 1510 : 64,
                  landscape ? 330 : 1640);
   lv_obj_set_size(actions, landscape ? 1594 : 1312,
-                  landscape ? 1050 : 1300);
+                  landscape ? 1050 : 1384);
 
   struct Destination {
     const char *icon;
@@ -327,7 +377,7 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
     Interactive(card, kMainSelected);
     lv_obj_set_size(card, card_width, card_height);
     if (format) {
-      lv_obj_align(card, LV_ALIGN_BOTTOM_MID, 0, -30);
+      lv_obj_align(card, LV_ALIGN_BOTTOM_MID, 0, landscape ? -30 : -24);
     } else {
       lv_obj_set_pos(card, column * (card_width + gap),
                      row * (card_height + (landscape ? 26 : 24)));
@@ -335,7 +385,7 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
     lv_obj_set_style_border_width(card, 1, 0);
     lv_obj_set_style_border_color(card, kMainLine, 0);
     lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
-    OnClick(card, [screen, callback, context, destination] {
+    OnClick(card, [screen, callback, context, destination, slot] {
       if (destination.action == Action::kFormatData) {
         callback(destination.action, context);
         return;
@@ -343,11 +393,15 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
       const std::string title = destination.action == Action::kPowerOff
           ? "Power off device?"
           : std::string("Reboot to ") + destination.name + "?";
-      const std::string detail = std::string(destination.detail) +
-          ".\n\nSwipe only when you are ready to leave Fastbootd.";
+      std::string detail = std::string(destination.detail) + ".\n\n";
+      if (!slot.empty() && destination.action != Action::kPowerOff)
+        detail += "Active slot: " + slot + "  •  ";
+      detail += "The current Fastbootd session will end.";
       Sheet(screen, title, detail, [callback, context, destination] {
         callback(destination.action, context);
-      });
+      }, 0, false, SheetPresentation::kCompactGlass,
+            destination.action == Action::kPowerOff
+                ? "Slide to power off" : "Slide to reboot");
     });
     auto *icon = Label(card, destination.icon, &lv_font_montserrat_48,
         kAccent);
@@ -363,7 +417,7 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
 
   auto *warning = Label(screen, "Do not disconnect USB while a command is writing data.",
                         &lv_font_montserrat_24, kAmber);
-  lv_obj_align(warning, LV_ALIGN_BOTTOM_MID, 0, landscape ? -38 : -180);
+  lv_obj_align(warning, LV_ALIGN_BOTTOM_MID, 0, landscape ? -38 : -72);
 }
 
 }  // namespace recovery_ui2

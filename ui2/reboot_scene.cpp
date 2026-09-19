@@ -118,7 +118,16 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
                                   0);
     lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
     OnClick(card, [=] {
-      Sheet(screen, d.name, d.detail, [=] { callback(d.action, context); });
+      const bool power_off = d.action == Action::kPowerOff;
+      const std::string title = power_off
+          ? "Power off device?" : std::string("Reboot to ") + d.name + "?";
+      std::string detail = std::string(d.detail) + ".\n\n";
+      if (active != "—" && !power_off)
+        detail += "Active slot: " + active + "  •  ";
+      detail += "The current recovery session will end.";
+      Sheet(screen, title, detail, [=] { callback(d.action, context); },
+            0, false, SheetPresentation::kCompactGlass,
+            power_off ? "Slide to power off" : "Slide to reboot");
     });
 
     const bool power_off = d.action == Action::kPowerOff;

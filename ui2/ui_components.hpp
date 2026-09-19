@@ -372,6 +372,11 @@ constexpr int32_t kConfirmFillInset = 6;
 constexpr int32_t kConfirmTravel =
     kConfirmTrackWidth - kConfirmKnobSize - 2 * kConfirmKnobInset;
 
+enum class SheetPresentation {
+  kStandard,
+  kCompactGlass,
+};
+
 struct SheetState {
   lv_obj_t *overlay = nullptr;
   Handler confirm;
@@ -380,6 +385,7 @@ struct SheetState {
   lv_obj_t *slider_copy = nullptr;
   int32_t touch_origin_x = 0;
   int32_t slider_offset = 0;
+  int32_t slider_travel = kConfirmTravel;
   bool dragging = false;
   bool confirming = false;
 };
@@ -387,7 +393,7 @@ struct SheetState {
 inline void SetConfirmOffset(void *object, int32_t value) {
   auto *state = static_cast<SheetState *>(object);
   if (state == nullptr || state->knob == nullptr) return;
-  state->slider_offset = std::clamp(value, 0, kConfirmTravel);
+  state->slider_offset = std::clamp(value, 0, state->slider_travel);
   lv_obj_set_x(state->knob, kConfirmKnobInset + state->slider_offset);
   if (state->slider_offset == 0) {
     lv_obj_add_flag(state->fill, LV_OBJ_FLAG_HIDDEN);
@@ -398,7 +404,8 @@ inline void SetConfirmOffset(void *object, int32_t value) {
                          state->slider_offset - kConfirmFillInset);
   }
   const int32_t opacity =
-      std::clamp(255 - state->slider_offset * 220 / kConfirmTravel, 25, 255);
+      std::clamp(255 - state->slider_offset * 220 /
+          std::max(1, state->slider_travel), 25, 255);
   lv_obj_set_style_text_opa(state->slider_copy,
                             static_cast<lv_opa_t>(opacity), 0);
 }
@@ -435,12 +442,13 @@ inline void ConfirmSliderTouch(lv_event_t *event) {
     case LV_EVENT_PRESS_LOST: {
       if (!state->dragging) break;
       state->dragging = false;
-      const bool accepted = state->slider_offset >= kConfirmTravel * 82 / 100;
+      const bool accepted =
+          state->slider_offset >= state->slider_travel * 82 / 100;
       lv_anim_t settle;
       lv_anim_init(&settle);
       lv_anim_set_var(&settle, state);
       lv_anim_set_values(&settle, state->slider_offset,
-                         accepted ? kConfirmTravel : 0);
+                         accepted ? state->slider_travel : 0);
       lv_anim_set_duration(&settle, accepted ? 140 : 280);
       lv_anim_set_path_cb(&settle, lv_anim_path_ease_out);
       lv_anim_set_exec_cb(&settle, SetConfirmOffset);
@@ -463,13 +471,18 @@ inline void ConfirmSliderTouch(lv_event_t *event) {
 inline void Sheet(lv_obj_t *screen, const std::string &title,
                    const std::string &copy, Handler confirm = {},
                    int preferred_height = 0,
-                   bool dismiss_on_backdrop = false) {
+                   bool dismiss_on_backdrop = false,
+                   SheetPresentation presentation = SheetPresentation::kStandard,
+                   const char *confirm_text = "Swipe to confirm") {
+  const bool compact_glass =
+      presentation == SheetPresentation::kCompactGlass;
   auto *overlay = lv_obj_create(screen);
   lv_obj_set_user_data(overlay, &kModalMarker);
   Clear(overlay);
   lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
   lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+  lv_obj_set_style_bg_opa(overlay,
+                          compact_glass ? LV_OPA_30 : LV_OPA_60, 0);
   if (dismiss_on_backdrop) {
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(
@@ -495,17 +508,36 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   lv_obj_set_style_bg_grad_dir(sheet, LV_GRAD_DIR_NONE, 0);
   lv_obj_set_style_border_width(sheet, 1, 0);
   lv_obj_set_style_border_color(sheet, kMainLine, 0);
-  lv_obj_set_style_border_opa(sheet, LV_OPA_20, 0);
-  const int sheet_width = Landscape(screen)
-      ? std::min(2200, static_cast<int>(lv_obj_get_width(screen)) - 128)
-      : 1312;
-  const int default_height = state->confirm ? 1180 : 1000;
+  lv_obj_set_style_border_opa(sheet,
+                              compact_glass ? LV_OPA_50 : LV_OPA_20, 0);
+  const bool landscape = Landscape(screen);
+  const int sheet_width = compact_glass
+      ? (landscape
+          ? std::min(1700, static_cast<int>(lv_obj_get_width(screen)) - 256)
+          : std::min(1220, static_cast<int>(lv_obj_get_width(screen)) - 144))
+      : (landscape
+          ? std::min(2200, static_cast<int>(lv_obj_get_width(screen)) - 128)
+          : 1312);
+  const int default_height = compact_glass
+      ? (landscape ? 660 : 760)
+      : (state->confirm ? 1180 : 1000);
   const int requested_height = preferred_height > 0 ? preferred_height : default_height;
   const int sheet_height = std::min(
       requested_height, static_cast<int>(lv_obj_get_height(screen)) - 80);
   lv_obj_set_size(sheet, sheet_width, sheet_height);
   lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -40);
-  lv_obj_set_style_pad_all(sheet, 56, 0);
+  lv_obj_set_style_pad_all(sheet, compact_glass ? 48 : 56, 0);
+  if (compact_glass) {
+    lv_obj_set_style_bg_opa(sheet,
+        IsLightMode() ? LV_OPA_90 : LV_OPA_80, 0);
+    lv_obj_set_style_blur_backdrop(sheet, true, 0);
+    lv_obj_set_style_blur_radius(sheet, 18, 0);
+    lv_obj_set_style_blur_quality(sheet, LV_BLUR_QUALITY_SPEED, 0);
+    lv_obj_set_style_shadow_color(sheet, lv_color_black(), 0);
+    lv_obj_set_style_shadow_width(sheet, 40, 0);
+    lv_obj_set_style_shadow_offset_y(sheet, 10, 0);
+    lv_obj_set_style_shadow_opa(sheet, LV_OPA_30, 0);
+  }
 
   auto *grabber = lv_obj_create(sheet);
   Clear(grabber);
@@ -516,39 +548,51 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   lv_obj_set_style_bg_opa(grabber, LV_OPA_30, 0);
 
   auto *heading = Label(sheet, title.c_str(), &lv_font_montserrat_48, kText);
-  lv_obj_set_pos(heading, 0, 34);
-  lv_obj_set_width(heading, sheet_width - 112);
+  lv_obj_set_pos(heading, 0, compact_glass ? 24 : 34);
+  lv_obj_set_width(heading, sheet_width - (compact_glass ? 96 : 112));
   lv_label_set_long_mode(heading, LV_LABEL_LONG_DOT);
 
   auto *area = lv_obj_create(sheet);
   Clear(area);
-  lv_obj_set_pos(area, 0, 132);
-  lv_obj_set_size(area, sheet_width - 112,
-                  state->confirm ? sheet_height - 670 : sheet_height - 390);
+  lv_obj_set_pos(area, 0, compact_glass ? 112 : 132);
+  lv_obj_set_size(area, sheet_width - (compact_glass ? 96 : 112),
+                  compact_glass ? (landscape ? 124 : 190)
+                                : (state->confirm ? sheet_height - 670
+                                                  : sheet_height - 390));
   lv_obj_add_flag(area, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(area, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(area, LV_SCROLLBAR_MODE_ACTIVE);
   lv_obj_set_style_bg_color(area, kAccent, LV_PART_SCROLLBAR);
   lv_obj_set_style_width(area, 5, LV_PART_SCROLLBAR);
   auto *body = Label(area, copy.c_str(), &lv_font_montserrat_32, kMutedStrong);
-  lv_obj_set_width(body, sheet_width - 152);
+  lv_obj_set_width(body, sheet_width - (compact_glass ? 136 : 152));
   lv_obj_set_style_text_line_space(body, 16, 0);
 
   if (state->confirm) {
     auto *divider = lv_obj_create(sheet);
     Clear(divider);
-    lv_obj_set_size(divider, sheet_width - 112, 1);
-    lv_obj_align(divider, LV_ALIGN_BOTTOM_MID, 0, -360);
+    lv_obj_set_size(divider, sheet_width - (compact_glass ? 96 : 112), 1);
+    if (compact_glass)
+      lv_obj_align(divider, LV_ALIGN_TOP_MID, 0, landscape ? 286 : 348);
+    else
+      lv_obj_align(divider, LV_ALIGN_BOTTOM_MID, 0, -360);
     lv_obj_set_style_bg_color(divider, kMainLine, 0);
     lv_obj_set_style_bg_opa(divider, LV_OPA_40, 0);
 
     auto *slider = lv_obj_create(sheet);
     Clear(slider);
-    lv_obj_set_size(slider, kConfirmTrackWidth, kConfirmTrackHeight);
-    lv_obj_align(slider, LV_ALIGN_BOTTOM_MID, 0, -190);
+    const int track_width = compact_glass ? 1020 : kConfirmTrackWidth;
+    state->slider_travel =
+        track_width - kConfirmKnobSize - 2 * kConfirmKnobInset;
+    lv_obj_set_size(slider, track_width, kConfirmTrackHeight);
+    if (compact_glass)
+      lv_obj_align(slider, LV_ALIGN_TOP_MID, 0, landscape ? 330 : 394);
+    else
+      lv_obj_align(slider, LV_ALIGN_BOTTOM_MID, 0, -190);
     lv_obj_set_style_radius(slider, kConfirmTrackHeight / 2, 0);
     lv_obj_set_style_bg_color(slider, kInset, 0);
-    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_opa(slider,
+                            compact_glass ? LV_OPA_80 : LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(slider, 1, 0);
     lv_obj_set_style_border_color(slider, kMainLine, 0);
     lv_obj_set_style_border_opa(slider, LV_OPA_50, 0);
@@ -576,7 +620,7 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
     lv_obj_remove_flag(state->fill, LV_OBJ_FLAG_CLICKABLE);
 
     state->slider_copy =
-        Label(slider, "Swipe to confirm", &lv_font_montserrat_32, kMutedStrong);
+        Label(slider, confirm_text, &lv_font_montserrat_32, kMutedStrong);
     lv_obj_align(state->slider_copy, LV_ALIGN_CENTER, 36, 0);
     lv_obj_remove_flag(state->slider_copy, LV_OBJ_FLAG_CLICKABLE);
 
@@ -597,8 +641,11 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   auto *close = Button(sheet, state->confirm ? "Cancel" : "Close", [overlay] {
     lv_obj_delete_async(overlay);
   });
-  lv_obj_set_size(close, 1140, 100);
-  lv_obj_align(close, LV_ALIGN_BOTTOM_MID, 0, -8);
+  lv_obj_set_size(close, compact_glass ? 280 : 1140,
+                  compact_glass ? 92 : 100);
+  lv_obj_align(close,
+               compact_glass ? LV_ALIGN_BOTTOM_LEFT : LV_ALIGN_BOTTOM_MID,
+               0, compact_glass ? -4 : -8);
   lv_obj_set_style_bg_opa(close, LV_OPA_TRANSP, 0);
   lv_obj_set_style_bg_opa(close, LV_OPA_10, LV_STATE_PRESSED);
   AnimateEnter(sheet, 0, 52);
