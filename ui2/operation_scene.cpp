@@ -467,11 +467,13 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   const bool backup = request.job == Job::kBackup || request.job == Job::kRestore;
   const bool format = request.job == Job::kFormatData;
   const bool wipe = request.job == Job::kWipe;
+  const bool mount = request.job == Job::kMount || request.job == Job::kUnmount;
   result.done = Button(screen,
       format ? "Reboot options" : backup ? "Back to backups" : wipe ? "Back to wipe" : "Done",
       [=] {
         callback(format ? Action::kOpenReboot : backup ? Action::kBackup :
-                 wipe ? Action::kWipe : Action::kBackHome, context);
+                 wipe ? Action::kWipe : mount ? Action::kMounts :
+                 Action::kBackHome, context);
       }, true);
   lv_obj_set_size(result.done, landscape ? 1100 : 1280,
                   landscape ? 116 : 150);

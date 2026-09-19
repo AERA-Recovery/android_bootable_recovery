@@ -468,20 +468,108 @@ void BuildMounts(Tools *state) {
   const bool landscape = Landscape(state->screen);
   state->list = Scroll(state->screen, landscape ? 340 : 510,
                        landscape ? 900 : 2260);
-  auto volumes = RecoveryVolumes("mount");
-  for (size_t i = 0; i < volumes.size(); ++i) {
-    const auto v = volumes[i];
-    Row(state->list, static_cast<int>(i) * 190, LV_SYMBOL_DRIVE, v.name,
-        v.path + (v.selected ? "  /  Mounted" : "  /  Unmounted"), [state, v] {
-      JobRequest request;
-      request.job = v.selected ? Job::kUnmount : Job::kMount;
-      request.path = v.path;
-      request.title = v.selected ? "Unmount volume" : "Mount volume";
-      Sheet(state->screen, request.title, v.name + "\n\n" + v.path +
-            "\n\nRecovery's configured mount and read-only rules apply.",
-            [state, request] { Run(state, request); });
-    }, v.selected ? LV_SYMBOL_OK : LV_SYMBOL_PLUS);
+  lv_obj_update_layout(state->list);
+  const int row_width = std::max(600, static_cast<int>(lv_obj_get_width(state->list)));
+
+  std::vector<Volume> mounted;
+  std::vector<Volume> available;
+  const auto mount_volumes = RecoveryVolumes("mount");
+  const bool has_data = std::any_of(
+      mount_volumes.begin(), mount_volumes.end(),
+      [](const Volume &volume) { return volume.path == "/data"; });
+  for (const auto &volume : mount_volumes) {
+    // /storage is a legacy bind alias for data/media. The usable internal
+    // storage is already exposed through /sdcard when /data is mounted, so a
+    // second independent-looking row reports a misleading state.
+    if (has_data && volume.path == "/storage") continue;
+    (volume.selected ? mounted : available).push_back(volume);
   }
+
+  int y = 0;
+  const auto add_group = [state, row_width, &y](
+      const char *heading, const std::vector<Volume> &volumes, bool is_mounted) {
+    const std::string title = std::string(i18n::Translate(heading)) + "  " +
+        std::to_string(volumes.size());
+    auto *section = Label(state->list, title.c_str(), &lv_font_montserrat_28,
+                          is_mounted ? kGreen : kMutedStrong);
+    lv_obj_set_pos(section, 24, y + 12);
+    lv_obj_set_width(section, row_width - 48);
+    y += 72;
+
+    for (const auto &volume : volumes) {
+      auto *row = Button(state->list, "", [state, volume] {
+        JobRequest request;
+        request.job = volume.selected ? Job::kUnmount : Job::kMount;
+        request.path = volume.path;
+        request.title = volume.selected ? "Unmount volume" : "Mount volume";
+        Sheet(state->screen, request.title, volume.name + "\n\n" + volume.path +
+              "\n\nRecovery's configured mount and read-only rules apply.",
+              [state, request] { Run(state, request); });
+      });
+      lv_obj_set_pos(row, 0, y);
+      lv_obj_set_size(row, row_width, 166);
+      lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
+      lv_obj_set_style_radius(row, 20, 0);
+      lv_obj_set_style_bg_color(row, kMainPanel, 0);
+      lv_obj_set_style_bg_opa(row, LV_OPA_40, 0);
+      lv_obj_set_style_border_width(row, 1, 0);
+      lv_obj_set_style_border_color(row, is_mounted ? kGreen : kMainLine, 0);
+      lv_obj_set_style_border_opa(row, is_mounted ? LV_OPA_40 : LV_OPA_30, 0);
+
+      auto *rail = lv_obj_create(row);
+      Clear(rail);
+      lv_obj_remove_flag(rail, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_set_pos(rail, 0, 20);
+      lv_obj_set_size(rail, 6, 126);
+      lv_obj_set_style_radius(rail, 3, 0);
+      lv_obj_set_style_bg_color(rail, is_mounted ? kGreen : kMainLine, 0);
+      lv_obj_set_style_bg_opa(rail, LV_OPA_COVER, 0);
+
+      auto *icon = Label(row, LV_SYMBOL_DRIVE, &lv_font_montserrat_32,
+                         is_mounted ? kGreen : kMutedStrong);
+      lv_obj_set_pos(icon, 32, 65);
+
+      auto *name = Label(row, volume.name.c_str(), &lv_font_montserrat_32, kText);
+      lv_obj_set_pos(name, 112, 29);
+      SingleLineLabel(name, row_width - 520, &lv_font_montserrat_32);
+
+      auto *path = Label(row, volume.path.c_str(), &lv_font_montserrat_24,
+                         is_mounted ? kMutedStrong : kMuted);
+      lv_obj_set_pos(path, 112, 94);
+      SingleLineLabel(path, row_width - 520, &lv_font_montserrat_24);
+
+      auto *status = Label(row, is_mounted ? "Mounted" : "Not mounted",
+                           &lv_font_montserrat_24,
+                           is_mounted ? kGreen : kMutedStrong);
+      SingleLineLabel(status, 220, &lv_font_montserrat_24);
+      lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_RIGHT, 0);
+      lv_obj_align(status, LV_ALIGN_RIGHT_MID, -154, 0);
+
+      auto *toggle = lv_switch_create(row);
+      lv_obj_set_size(toggle, 104, 58);
+      lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -24, 0);
+      lv_obj_remove_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(toggle, kMainLine, LV_PART_MAIN);
+      lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER,
+                              LV_PART_INDICATOR | LV_STATE_CHECKED);
+      lv_obj_set_style_bg_color(toggle, kGreen,
+                               LV_PART_INDICATOR | LV_STATE_CHECKED);
+      lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+      lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_KNOB);
+      lv_obj_set_style_bg_color(toggle, kText, LV_PART_KNOB);
+      lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+      lv_obj_set_style_pad_all(toggle, -8, LV_PART_KNOB);
+      if (is_mounted) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+
+      y += 182;
+    }
+    y += 18;
+  };
+
+  add_group("Mounted", mounted, true);
+  add_group("Not mounted", available, false);
 }
 
 void PreferenceToggle(Tools *state, int y, const char *title, const char *description,
