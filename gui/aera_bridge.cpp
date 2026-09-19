@@ -197,7 +197,12 @@ std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder) {
   DataManager::SetValue("tw_restore_selected", "");
   PartitionManager.Set_Restore_Files(folder);
   if (DataManager::GetIntValue("tw_restore_encrypted") != 0) return {};
-  return RecoveryVolumes("restore");
+  auto volumes = RecoveryVolumes("restore");
+  for (auto &volume : volumes) {
+    if (volume.path != "ADB Backup")
+      volume.bytes = PartitionManager.Get_Restore_Size(folder, volume.path);
+  }
+  return volumes;
 }
 
 SideloadStatus RecoverySideloadStatus() {

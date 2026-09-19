@@ -2020,6 +2020,31 @@ void TWPartitionManager::Set_Restore_Files(string Restore_Name) {
 	return;
 }
 
+unsigned long long TWPartitionManager::Get_Restore_Size(
+		const string& Restore_Name, const string& Restore_Path) {
+	TWPartition* restore_part = Find_Partition_By_Path(Restore_Path);
+	if (restore_part == nullptr)
+		return 0;
+
+	PartitionSettings settings{};
+	settings.Backup_Folder = Restore_Name;
+	settings.adbbackup = false;
+	settings.PM_Method = PM_RESTORE;
+	settings.Part = restore_part;
+	unsigned long long restore_size = restore_part->Get_Restore_Size(&settings);
+
+	if (restore_part->Has_SubPartition) {
+		for (auto* subpart : Partitions) {
+			if (!subpart->Is_SubPartition ||
+				subpart->SubPartition_Of != restore_part->Mount_Point)
+				continue;
+			settings.Part = subpart;
+			restore_size += subpart->Get_Restore_Size(&settings);
+		}
+	}
+	return restore_size;
+}
+
 int TWPartitionManager::Wipe_By_Path(string Path) {
 	std::vector<TWPartition*>::iterator iter;
 	std::vector < TWPartition * >::iterator iter1;

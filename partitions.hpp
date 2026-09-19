@@ -377,6 +377,8 @@ public:
 	bool Write_ADB_Stream_Header(uint64_t partition_count);                   // Write ADB header over twrpbu FIFO
 	bool Write_ADB_Stream_Trailer();                                          // Write ADB trailer over twrpbu FIFO
 	void Set_Restore_Files(string Restore_Name);                              // Used to gather a list of available backup partitions for the user to select for a restore
+	unsigned long long Get_Restore_Size(const string& Restore_Name,
+		const string& Restore_Path);                                         // Returns the displayed restore size, including subpartitions
 	int Wipe_By_Path(string Path);                                            // Wipes a partition based on path
 	int Wipe_By_Path(string Path, string New_File_System);                    // Wipes a partition based on path
 	int Factory_Reset();                                                      // Performs a factory reset
