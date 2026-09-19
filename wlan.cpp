@@ -61,11 +61,11 @@ static const char* BIN_DHCPTOOL        = "/system/bin/dhcptool";
 
 static const char* WLAN_SUPP_SERVICE   = "wpa_supplicant";
 static const char* WLAN_SUPP_SVC_PROP  = "init.svc.wpa_supplicant";
-/* Set to "1" to fire the `on property:sys.fox.wlan.up=1` block in
+/* Set to "1" to fire the `on property:sys.aera.wlan.up=1` block in
  * init.recovery.wifi.rc, which brings up the QCA6490 driver on demand and then
  * `start`s the wpa_supplicant service. The bring-up used to live in a shell
  * wrapper (mondrian_wlan_up.sh); it is now native init builtins. */
-static const char* WLAN_SUPP_PREP_PROP = "sys.fox.wlan.up";
+static const char* WLAN_SUPP_PREP_PROP = "sys.aera.wlan.up";
 
 #ifdef OF_WLAN_AP
 static const char* WLAN_AP_DIR         = "/tmp/wlan/ap";

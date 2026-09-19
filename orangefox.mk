@@ -620,18 +620,6 @@ ifneq ($(OF_TARGET_DEVICES),)
    $(error "OF_TARGET_DEVICES" is obsolete. Use "AERA_TARGET_DEVICES" instead)
 endif
 
-ifeq ($(AERA_USE_LZMA_COMPRESSION),1)
-   $(error "AERA_USE_LZMA_COMPRESSION" is obsolete. Use "export OF_USE_LZMA_COMPRESSION=1" instead)
-endif
-
-ifeq ($(AERA_ADVANCED_SECURITY),1)
-   $(error "AERA_ADVANCED_SECURITY" is obsolete. Use "export OF_ADVANCED_SECURITY=1" instead)
-endif
-
-ifeq ($(AERA_USE_LZ4_COMPRESSION),1)
-   $(error "AERA_USE_LZ4_COMPRESSION" is obsolete. Use "export OF_USE_LZ4_COMPRESSION=1" instead)
-endif
-
 # whether to display debug information about the target partition when formatting data
 ifeq ($(OF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO),1)
     LOCAL_CFLAGS += -DOF_DISPLAY_FORMAT_FILESYSTEMS_DEBUG_INFO
@@ -809,19 +797,15 @@ endif
 
 ifeq ($(AERA_USE_DMSETUP),1)
   ifeq ($(OF_USE_DMCTL),1)
-    $(error You cannot use both 'AERA_USE_DMSETUP' and 'OF_USE_DMCTL' at the same time)
+    $(error You cannot use both 'AERA_USE_DMSETUP' and 'AERA_USE_DMCTL' at the same time)
   else
     LOCAL_CFLAGS += -DAERA_USE_DMSETUP='"1"'
   endif
 endif
 
-ifeq ($(AERA_USE_DMCTL),1)
-  $(error 'AERA_USE_DMCTL' is obsolete. Use 'OF_USE_DMCTL' instead)
-endif
-
 ifeq ($(OF_USE_DMCTL),1)
   ifeq ($(AERA_USE_DMSETUP),1)
-    $(error You cannot use both 'AERA_USE_DMSETUP' and 'OF_USE_DMCTL' at the same time)
+    $(error You cannot use both 'AERA_USE_DMSETUP' and 'AERA_USE_DMCTL' at the same time)
   else
     LOCAL_CFLAGS += -DOF_USE_DMCTL='"1"'
     TW_USE_DMCTL := true
@@ -830,7 +814,9 @@ endif
 
 # backup/restore bug - temporary workaround
 # activate the workaround by default
-OF_WORKAROUND_BACKUP_BUG := 1
+ifeq ($(OF_WORKAROUND_BACKUP_BUG),)
+  OF_WORKAROUND_BACKUP_BUG := 1
+endif
 ifeq ($(OF_WORKAROUND_BACKUP_BUG),1)
      LOCAL_CFLAGS += -DOF_WORKAROUND_BACKUP_BUG
 endif
