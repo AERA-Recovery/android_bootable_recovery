@@ -317,6 +317,23 @@ void HideKeyboard(WebScene *s) {
   // switching away from the browser.
   s->web_keyboard = false;
 }
+
+void OpenAddressBar(WebScene *s) {
+  auto address = web::Address(lv_textarea_get_text(s->address));
+  if (address.empty()) {
+    HideKeyboard(s);
+    Sheet(s->screen, "Website address", "Enter an HTTP or HTTPS address, such as example.org. Local files and executable URLs are not supported.");
+    return;
+  }
+  lv_textarea_set_text(s->address, address.c_str());
+  HideKeyboard(s);
+  if (s->session.Connected()) {
+    s->session.Send(web::Kind::kOpen, 0, 0, 0, address.c_str());
+    return;
+  }
+  Sheet(s->screen, "Browsing unavailable", web::LaunchBlockReason());
+}
+
 void ShowKeyboard(WebScene *s, bool web_keyboard, uint32_t purpose = 0,
                   lv_obj_t *target = nullptr) {
   ResetBrowserTouches(s);
@@ -756,21 +773,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   lv_obj_set_style_pad_all(s->address, 26, 0);
   lv_obj_set_style_pad_top(s->address, 34, 0);
   lv_obj_set_style_pad_bottom(s->address, 18, 0);
-  auto *go = Button(screen, "Go", [s] {
-    auto address = web::Address(lv_textarea_get_text(s->address));
-    if (address.empty()) {
-      HideKeyboard(s);
-      Sheet(s->screen, "Website address", "Enter an HTTP or HTTPS address, such as example.org. Local files and executable URLs are not supported.");
-      return;
-    }
-    lv_textarea_set_text(s->address, address.c_str());
-    HideKeyboard(s);
-    if (s->session.Connected()) {
-      s->session.Send(web::Kind::kOpen, 0, 0, 0, address.c_str());
-      return;
-    }
-    Sheet(s->screen, "Browsing unavailable", web::LaunchBlockReason());
-  }, true);
+  auto *go = Button(screen, "Go", [s] { OpenAddressBar(s); }, true);
   lv_obj_set_pos(go, landscape ? 2800 : 1210, 188);
   lv_obj_set_size(go, landscape ? 304 : 206, 112);
   lv_obj_set_style_radius(go, 56, 0);
@@ -897,7 +900,10 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   }, LV_EVENT_CLICKED, s);
   lv_obj_add_event_cb(s->keyboard, [](lv_event_t *e) {
     auto *s = static_cast<WebScene *>(lv_event_get_user_data(e));
-    if (lv_event_get_code(e) == LV_EVENT_READY || lv_event_get_code(e) == LV_EVENT_CANCEL)
+    if (lv_event_get_code(e) == LV_EVENT_READY && !s->web_keyboard)
+      OpenAddressBar(s);
+    else if (lv_event_get_code(e) == LV_EVENT_READY ||
+             lv_event_get_code(e) == LV_EVENT_CANCEL)
       HideKeyboard(s);
     else if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED && s->web_keyboard && s->session.Connected()) {
       const auto selected = lv_buttonmatrix_get_selected_button(s->keyboard);

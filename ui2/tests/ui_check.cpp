@@ -334,11 +334,10 @@ int main(int argc,char **argv) {
   assert(lv_obj_has_flag(web_navigation, LV_OBJ_FLAG_HIDDEN));
   Tick(); save("/tmp/aera-browser-keyboard-host.png");
   lv_textarea_set_text(web_input, "example.org");
+  const int before_browser_go = callback_count;
   lv_obj_send_event(web_keyboard, LV_EVENT_READY, nullptr);
   assert(lv_obj_has_flag(web_keyboard, LV_OBJ_FLAG_HIDDEN));
   assert(!lv_obj_has_flag(web_navigation, LV_OBJ_FLAG_HIDDEN));
-  const int before_browser_go = callback_count;
-  lv_obj_send_event(Find(web, "Go"), LV_EVENT_CLICKED, nullptr);
   assert(!strcmp(lv_textarea_get_text(web_input), "https://example.org"));
   assert(Find(web, "Browsing unavailable"));
   assert(callback_count == before_browser_go); // Never starts a recovery job.
