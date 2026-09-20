@@ -451,6 +451,7 @@ static const char *PreferenceVariable(Preference preference) {
     case Preference::kVerifyZip: return TW_SIGNED_ZIP_VERIFY_VAR;
     case Preference::kPluginAutoUpdate: return "aera_plugin_auto_update";
     case Preference::kUpdateNightly: return "aera_update_nightly";
+    case Preference::kRecents: return "aera_recents_enabled";
   }
   return nullptr;
 }
@@ -691,6 +692,7 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "verify_zip") DataManager::SetValue(TW_SIGNED_ZIP_VERIFY_VAR, value);
     else if (key == "plugin_auto_update") DataManager::SetValue("aera_plugin_auto_update", value);
     else if (key == "update_nightly") DataManager::SetValue("aera_update_nightly", value);
+    else if (key == "recents") DataManager::SetValue("aera_recents_enabled", value);
     else if (key == "timezone") DataManager::SetValue(TW_TIME_ZONE_VAR, value);
     else if (key == "brightness") DataManager::SetValue("tw_brightness_pct", value);
     else if (key == "accent") DataManager::SetValue("aera_theme_accent", value);
@@ -738,6 +740,7 @@ bool SaveAeraPreferences() {
          << "verify_zip=" << DataManager::GetIntValue(TW_SIGNED_ZIP_VERIFY_VAR) << '\n'
          << "plugin_auto_update=" << DataManager::GetIntValue("aera_plugin_auto_update") << '\n'
          << "update_nightly=" << DataManager::GetIntValue("aera_update_nightly") << '\n'
+         << "recents=" << DataManager::GetIntValue("aera_recents_enabled") << '\n'
          << "timezone=" << DataManager::GetStrValue(TW_TIME_ZONE_VAR) << '\n'
          << "brightness=" << DataManager::GetIntValue("tw_brightness_pct") << '\n'
          << "accent=" << DataManager::GetStrValue("aera_theme_accent") << '\n'

@@ -1303,21 +1303,6 @@ void BuildTheme(Tools *state) {
               "GPU-friendly live blur behind the dock surface",
               RecoveryDockBlur(), true);
 
-  const bool hide_apps = RecoveryDockHideInApps();
-  auto *hide = Button(state->list,
-      hide_apps ? "Hide dock inside apps: on" : "Hide dock inside apps: off",
-      [state, hide_apps] {
-        RecoverySetDockHideInApps(!hide_apps);
-        Open(state, Action::kTheme);
-      }, hide_apps);
-  lv_obj_set_pos(hide, 16, 3210);
-  lv_obj_set_size(hide, 1280, 128);
-  auto *hide_note = Label(state->list,
-      "Installed plugins use the full screen. Edge-swipe or hardware Back still works.",
-      &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(hide_note, 32, 3370);
-  lv_obj_set_width(hide_note, 1220);
-
   auto *save = Button(state->screen, "Save theme", [state] {
     const bool saved = RecoverySavePreferences();
     Sheet(state->screen, saved ? "Theme saved" : "Could not save theme",
@@ -1397,19 +1382,23 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_pos(button, direction < 0 ? 996 : 1156, 534);
     lv_obj_set_size(button, 132, 112);
   }
-  PreferenceSection(state, 780, "Files & installation");
-  PreferenceToggle(state, 860, "Show hidden files", "Include dot-prefixed files and folders", Preference::kHiddenFiles);
-  PreferenceToggle(state, 1050, "Verify ZIP signatures", "Only install packages signed by a trusted recovery key", Preference::kVerifyZip);
-  PreferenceSection(state, 1290, "Backup & restore");
-  PreferenceToggle(state, 1370, "Compress backups by default", "Smaller archives; backup and restore may take longer", Preference::kCompression);
+  PreferenceSection(state, 780, "Recents");
+  PreferenceToggle(state, 860, "Recent apps gesture",
+                   "Swipe up from the bottom in plugins to open Recents",
+                   Preference::kRecents);
+  PreferenceSection(state, 1100, "Files & installation");
+  PreferenceToggle(state, 1180, "Show hidden files", "Include dot-prefixed files and folders", Preference::kHiddenFiles);
+  PreferenceToggle(state, 1370, "Verify ZIP signatures", "Only install packages signed by a trusted recovery key", Preference::kVerifyZip);
+  PreferenceSection(state, 1610, "Backup & restore");
+  PreferenceToggle(state, 1690, "Compress backups by default", "Smaller archives; backup and restore may take longer", Preference::kCompression);
   if (RecoverySha256Available())
-    PreferenceToggle(state, 1560, "SHA-256 backup checksums", "On: SHA-256 / Off: legacy MD5 checksums", Preference::kSha256);
+    PreferenceToggle(state, 1880, "SHA-256 backup checksums", "On: SHA-256 / Off: legacy MD5 checksums", Preference::kSha256);
   auto *integrity = Label(state->list,
       "Backup checksums are always generated. Restore verification stays on.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(integrity, 116, 1760);
+  lv_obj_set_pos(integrity, 116, 2080);
   lv_obj_set_width(integrity, 1120);
-  PreferenceSection(state, 1910, "USB connection");
+  PreferenceSection(state, 2230, "USB connection");
   auto *mtp = Button(state->list, RecoveryMtpEnabled() ? "USB file transfer: on" :
                        "USB file transfer: off", [] {});
   auto *mtp_label = lv_obj_get_child(mtp, 0);
@@ -1418,31 +1407,31 @@ void BuildPreferences(Tools *state) {
       Sheet(state->screen, "USB transfer unavailable", "Check that storage is unlocked and mounted.");
     i18n::BindLabel(mtp_label, RecoveryMtpEnabled() ? "USB file transfer: on" : "USB file transfer: off");
   });
-  lv_obj_set_pos(mtp, 32, 2010);
+  lv_obj_set_pos(mtp, 32, 2330);
   lv_obj_set_size(mtp, 1248, 132);
   auto *hint = Label(state->list,
       "MTP makes accessible storage available to your computer.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(hint, 48, 2190);
+  lv_obj_set_pos(hint, 48, 2510);
   lv_obj_set_width(hint, 1190);
   if (RecoveryHapticsAvailable()) {
-    PreferenceSection(state, 2310, "Haptics");
-    HapticSlider(state, 2390, "Touch feedback",
+    PreferenceSection(state, 2630, "Haptics");
+    HapticSlider(state, 2710, "Touch feedback",
                  "Buttons, cards and navigation", Haptic::kTouch, 300);
-    HapticSlider(state, 2630, "Keyboard feedback",
+    HapticSlider(state, 2950, "Keyboard feedback",
                  "Keys in PIN, Wi-Fi and text entry", Haptic::kKeyboard, 300);
-    HapticSlider(state, 2870, "Operation feedback",
+    HapticSlider(state, 3190, "Operation feedback",
                  "A stronger pulse when recovery work finishes", Haptic::kAction, 500);
     auto *test = Button(state->list, "Test operation vibration", [] {
       RecoveryVibrate(Haptic::kAction);
     });
-    lv_obj_set_pos(test, 32, 3110);
+    lv_obj_set_pos(test, 32, 3430);
     lv_obj_set_size(test, 1248, 124);
   }
   auto *save_hint = Label(state->list,
       "Changes apply now. Save to keep preferences after reboot.\nSettings storage must be available to save.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(save_hint, 48, RecoveryHapticsAvailable() ? 3300 : 2310);
+  lv_obj_set_pos(save_hint, 48, RecoveryHapticsAvailable() ? 3620 : 2630);
   lv_obj_set_width(save_hint, 1190);
   auto *save = Button(state->screen, "Save preferences", [state] {
     const bool saved = RecoverySavePreferences();

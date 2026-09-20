@@ -1318,6 +1318,10 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   }, LV_EVENT_DELETE, state);
 
   const bool landscape = Landscape(screen);
+  const int actions_height = landscape ? 118 : 132;
+  const int actions_y = lv_obj_get_height(screen) - actions_height - 34;
+  const int apps_y = landscape ? 320 : 1080;
+  const int apps_height = actions_y - apps_y - 24;
   auto *hero = lv_obj_create(screen);
   Panel(hero, 46, kMainSheet);
   lv_obj_set_pos(hero, 64, landscape ? 320 : 450);
@@ -1357,9 +1361,9 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
 
   auto *apps_panel = lv_obj_create(screen);
   Panel(apps_panel, 46, kMainSheet);
-  lv_obj_set_pos(apps_panel, landscape ? 994 : 64, landscape ? 320 : 1080);
+  lv_obj_set_pos(apps_panel, landscape ? 994 : 64, apps_y);
   lv_obj_set_size(apps_panel, landscape ? 2110 : 1312,
-                  landscape ? 780 : 1340);
+                  apps_height);
   auto *apps_title = Label(apps_panel, "Apps", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(apps_title, 34, 24);
   state->selected = Label(apps_panel, "Discovering apps…",
@@ -1404,7 +1408,7 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   Clear(state->list);
   lv_obj_set_pos(state->list, 24, 226);
   lv_obj_set_size(state->list, landscape ? 2062 : 1264,
-                  landscape ? 516 : 1074);
+                  apps_height - 266);
   lv_obj_add_flag(state->list, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(state->list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_ACTIVE);
@@ -1412,8 +1416,8 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
 
   auto *actions = lv_obj_create(screen);
   Clear(actions);
-  lv_obj_set_pos(actions, 64, landscape ? 1124 : 2450);
-  lv_obj_set_size(actions, landscape ? 3040 : 1312, landscape ? 118 : 330);
+  lv_obj_set_pos(actions, 64, actions_y);
+  lv_obj_set_size(actions, landscape ? 3040 : 1312, actions_height);
   const int gap = 20;
   const int columns = 3;
   const int width = ((landscape ? 3040 : 1312) - gap * (columns - 1)) / columns;

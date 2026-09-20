@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <poll.h>
 #include <string>
 #include <thread>
@@ -26,6 +27,7 @@
 #include <pixelflinger/pixelflinger.h>
 #include "design.hpp"
 #include "gpu_renderer.hpp"
+#include "picture_decode.hpp"
 #include "picture_viewer.hpp"
 #include "recorder/service.hpp"
 #include "scene.hpp"
@@ -64,6 +66,158 @@ uint32_t MonotonicMilliseconds() {
   timespec now{};
   clock_gettime(CLOCK_MONOTONIC, &now);
   return static_cast<uint32_t>(now.tv_sec * 1000ULL + now.tv_nsec / 1000000ULL);
+}
+
+struct RecentPreview {
+  std::shared_ptr<PictureData> pixels;
+  lv_image_dsc_t descriptor{};
+};
+
+struct RecentApp {
+  Action action = Action::kNone;
+  std::string plugin_id;
+  std::string title;
+  std::string summary;
+  std::string icon;
+  std::shared_ptr<RecentPreview> preview;
+};
+
+void RoundRecentPreview(PictureData &picture) {
+  if (picture.pixels == nullptr || picture.width < 32 || picture.height < 32)
+    return;
+  const int radius = std::clamp(static_cast<int>(picture.width * 58 / 1080),
+                                18, 54);
+  const int outer = radius * radius;
+  const int inner = (radius - 1) * (radius - 1);
+  for (int y = 0; y < radius; ++y) {
+    for (int x = 0; x < radius; ++x) {
+      const int dx = radius - x - 1;
+      const int dy = radius - y - 1;
+      const int distance = dx * dx + dy * dy;
+      uint8_t alpha = 255;
+      if (distance >= outer) alpha = 0;
+      else if (distance > inner)
+        alpha = static_cast<uint8_t>(
+            255 * (outer - distance) / std::max(1, outer - inner));
+      if (alpha == 255) continue;
+      const uint32_t right = picture.width - x - 1;
+      const uint32_t bottom = picture.height - y - 1;
+      picture.pixels[(static_cast<size_t>(y) * picture.width + x) * 4 + 3] =
+          alpha;
+      picture.pixels[(static_cast<size_t>(y) * picture.width + right) * 4 + 3] =
+          alpha;
+      picture.pixels[(static_cast<size_t>(bottom) * picture.width + x) * 4 + 3] =
+          alpha;
+      picture.pixels[(static_cast<size_t>(bottom) * picture.width + right) * 4 + 3] =
+          alpha;
+    }
+  }
+}
+
+bool IsRecentAppAction(Action action) {
+  switch (action) {
+    case Action::kWeb:
+    case Action::kRetroArch:
+    case Action::kDoom:
+    case Action::kTelegram:
+    case Action::kGallery:
+    case Action::kMedia:
+    case Action::kStreams:
+    case Action::kRecorder:
+    case Action::kAppVault:
+    case Action::kPluginApp:
+      return true;
+    default:
+      return false;
+  }
+}
+
+const char *PluginEntryForAction(Action action) {
+  switch (action) {
+    case Action::kWeb: return "browser";
+    case Action::kRetroArch: return "retroarch";
+    case Action::kDoom: return "doom";
+    case Action::kTelegram: return "telegram";
+    case Action::kGallery: return "gallery";
+    case Action::kMedia: return "media";
+    case Action::kStreams: return "streams";
+    case Action::kRecorder: return "recorder";
+    case Action::kAppVault: return "appvault";
+    default: return nullptr;
+  }
+}
+
+RecentApp DescribeRecentApp(Action action) {
+  RecentApp result;
+  result.action = action;
+  switch (action) {
+    case Action::kWeb:
+      result.title = "AERA Browser";
+      result.summary = "Private WebKit browsing";
+      result.icon = LV_SYMBOL_GPS;
+      break;
+    case Action::kRetroArch:
+      result.title = "RetroArch";
+      result.summary = "Classic games in recovery";
+      result.icon = LV_SYMBOL_PLAY;
+      break;
+    case Action::kDoom:
+      result.title = "AERA Doom";
+      result.summary = "Native Doom runtime";
+      result.icon = LV_SYMBOL_PLAY;
+      break;
+    case Action::kTelegram:
+      result.title = "AERA Telegram";
+      result.summary = "Messaging and file sharing";
+      result.icon = LV_SYMBOL_GPS;
+      break;
+    case Action::kGallery:
+      result.title = "AERA Gallery";
+      result.summary = "Photos in recovery";
+      result.icon = LV_SYMBOL_IMAGE;
+      break;
+    case Action::kMedia:
+      result.title = "AERA Media";
+      result.summary = "Music and video playback";
+      result.icon = LV_SYMBOL_PLAY;
+      break;
+    case Action::kStreams:
+      result.title = "AERA Streams";
+      result.summary = "Open streaming services";
+      result.icon = LV_SYMBOL_VIDEO;
+      break;
+    case Action::kRecorder:
+      result.title = "AERA Recorder";
+      result.summary = "Recovery screen recording";
+      result.icon = LV_SYMBOL_VIDEO;
+      break;
+    case Action::kAppVault:
+      result.title = "App Backup Vault";
+      result.summary = "Back up and restore Android apps";
+      result.icon = LV_SYMBOL_SAVE;
+      break;
+    case Action::kPluginApp:
+      result.title = "AERA Plugin";
+      result.summary = "Host API 2 app";
+      result.icon = LV_SYMBOL_LIST;
+      result.plugin_id = GetSelectedPluginId();
+      break;
+    default:
+      break;
+  }
+
+  const char *entry = PluginEntryForAction(action);
+  for (const auto &plugin : plugins::Installed()) {
+    const bool matches = action == Action::kPluginApp
+        ? !result.plugin_id.empty() && plugin.id == result.plugin_id
+        : entry != nullptr && plugin.entry == entry;
+    if (!matches) continue;
+    result.plugin_id = plugin.id;
+    result.title = plugin.name;
+    if (!plugin.description.empty()) result.summary = plugin.description;
+    break;
+  }
+  return result;
 }
 
 } // namespace
@@ -217,6 +371,21 @@ public:
       update_thread_.join();
     ShutdownWebRuntime();
     CancelEdgeSwipe();
+    lv_anim_delete(this, SetRecentLaunchProgress);
+    recent_launch_active_ = false;
+    if (recent_launch_layer_ != nullptr) {
+      lv_obj_delete(recent_launch_layer_);
+      recent_launch_layer_ = nullptr;
+    }
+    recent_launch_card_ = nullptr;
+    recent_launch_image_ = nullptr;
+    recent_launch_footer_ = nullptr;
+    recent_launch_preview_.reset();
+    CancelRecentsSwipe();
+    if (recents_overlay_ != nullptr) {
+      lv_obj_delete(recents_overlay_);
+      recents_overlay_ = nullptr;
+    }
     if (pointer_device_ != nullptr) {
       lv_indev_delete(pointer_device_);
     pointer_device_ = nullptr;
@@ -258,6 +427,9 @@ public:
     decryption_active_ = false;
     secondary_decryption_ = false;
     navigation_history_.clear();
+    recent_apps_.clear();
+    recents_deferred_cards_.clear();
+    recents_all_cards_.clear();
     current_scene_ = Action::kBackHome;
     navigating_back_ = false;
     lock_overlay_ = nullptr;
@@ -422,6 +594,10 @@ public:
 
   void NavigateHome() {
     if (lock_overlay_ != nullptr) return;
+    if (recents_overlay_ != nullptr) {
+      DismissRecents();
+      return;
+    }
     if (backend_ready_ && !operation_running_ && !wifi_running_ &&
         !nas_running_ && !plugin_running_ &&
         widgets::DismissModal(lv_screen_active())) return;
@@ -438,13 +614,16 @@ public:
         !operation_running_ && !wifi_running_ && !nas_running_ &&
         !plugin_running_) {
       navigation_history_.clear();
-      current_scene_ = Action::kBackHome;
       ShowHome();
     }
   }
 
   void NavigateBack(bool feedback = true) {
     if (feedback) RecoveryVibrate(Haptic::kTouch);
+    if (recents_overlay_ != nullptr) {
+      DismissRecents();
+      return;
+    }
     if (lock_overlay_ != nullptr || !backend_ready_ || decryption_active_ ||
         operation_running_ || wifi_running_ || nas_running_ || plugin_running_)
       return;
@@ -537,7 +716,45 @@ public:
       pointer_.y = visible_y;
       pointer_.pressed = event.pressed;
       CancelEdgeSwipe();
+      CancelRecentsSwipe();
       return;
+    }
+    if (event.slot == 0 && recents_swipe_active_) {
+      pointer_.x = visible_x;
+      pointer_.y = visible_y;
+      pointer_.pressed = false;
+      if (event.pressed)
+        UpdateRecentsSwipe(visible_x, visible_y);
+      else
+        FinishRecentsSwipe();
+      return;
+    }
+    if (recents_overlay_ != nullptr) {
+      if (event.slot != 0) return;
+      pointer_.x = visible_x;
+      pointer_.y = visible_y;
+      pointer_.pressed = recents_transition_active_ ? false : event.pressed;
+      CancelEdgeSwipe();
+      return;
+    }
+    if (event.slot == 0 && event.pressed &&
+        RecoveryPreference(Preference::kRecents) &&
+        IsRecentAppAction(current_scene_)) {
+      const int32_t visible_width = landscape_ ? height_ : width_;
+      const int32_t visible_height = landscape_ ? width_ : height_;
+      const int32_t bottom_edge = std::max(64, visible_height / 44);
+      const int32_t side_guard = std::max(76, visible_width / 22);
+      if (visible_y >= visible_height - bottom_edge &&
+          visible_x > side_guard && visible_x < visible_width - side_guard) {
+        pointer_.x = visible_x;
+        pointer_.y = visible_y;
+        pointer_.pressed = false;
+        CancelEdgeSwipe();
+        if (pointer_device_ != nullptr)
+          lv_indev_reset(pointer_device_, nullptr);
+        BeginRecentsSwipe(visible_x, visible_y);
+        return;
+      }
     }
     if (PictureViewerHandlePointer(event.slot, visible_x, visible_y,
                                    event.pressed)) {
@@ -614,6 +831,7 @@ public:
     suspended_ = suspended;
     if (!suspended_) return;
     CancelEdgeSwipe();
+    CancelRecentsSwipe();
     pointer_.pressed = false;
     if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
   }
@@ -621,6 +839,7 @@ public:
   void ShowLockScreen() {
     if (!initialized_ || lock_overlay_ != nullptr) return;
     CancelEdgeSwipe();
+    CancelRecentsSwipe();
     pointer_.pressed = false;
     if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
     lock_overlay_ = BuildLockScene(lv_layer_top(), HandleSceneAction, this);
@@ -629,6 +848,7 @@ public:
   void ShowPowerMenu() {
     if (!initialized_ || power_overlay_ != nullptr || suspended_) return;
     CancelEdgeSwipe();
+    CancelRecentsSwipe();
     pointer_.pressed = false;
     if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
 
@@ -936,6 +1156,764 @@ private:
     design::ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
   }
 
+  void RememberRecentApp(Action action) {
+    if (!IsRecentAppAction(action)) return;
+    RecentApp app = DescribeRecentApp(action);
+    if (app.title.empty()) return;
+    const auto existing = std::find_if(
+        recent_apps_.begin(), recent_apps_.end(), [&](const RecentApp &item) {
+          return item.action == app.action && item.plugin_id == app.plugin_id;
+        });
+    if (existing != recent_apps_.end()) app.preview = existing->preview;
+    recent_apps_.erase(
+        std::remove_if(recent_apps_.begin(), recent_apps_.end(),
+                       [&](const RecentApp &item) {
+                         return item.action == app.action &&
+                             item.plugin_id == app.plugin_id;
+                       }),
+        recent_apps_.end());
+    recent_apps_.insert(recent_apps_.begin(), std::move(app));
+    if (recent_apps_.size() > 7) recent_apps_.resize(7);
+  }
+
+  void CaptureRecentPreview(Action action) {
+    if (!IsRecentAppAction(action) || recents_overlay_ != nullptr) return;
+    RememberRecentApp(action);
+
+    const RecentApp identity = DescribeRecentApp(action);
+    auto entry = std::find_if(
+        recent_apps_.begin(), recent_apps_.end(), [&](const RecentApp &item) {
+          return item.action == identity.action &&
+              item.plugin_id == identity.plugin_id;
+        });
+    if (entry == recent_apps_.end()) return;
+
+    constexpr char kCapturePath[] = "/tmp/.aera-recent-preview.jpg";
+    if (gr_save_screenshot_scaled_jpeg(kCapturePath, 600, 78) != 0) return;
+
+    auto pixels = std::make_shared<PictureData>();
+    DecodePictureThumbnail(kCapturePath, 600, 1440, *pixels);
+    std::remove(kCapturePath);
+    if (!pixels->pixels || pixels->width == 0 || pixels->height == 0) return;
+    RoundRecentPreview(*pixels);
+
+    auto preview = std::make_shared<RecentPreview>();
+    preview->pixels = std::move(pixels);
+    preview->descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
+    preview->descriptor.header.cf = LV_COLOR_FORMAT_ARGB8888;
+    preview->descriptor.header.w = preview->pixels->width;
+    preview->descriptor.header.h = preview->pixels->height;
+    preview->descriptor.header.stride = preview->pixels->width * 4;
+    preview->descriptor.data_size =
+        preview->pixels->width * preview->pixels->height * 4;
+    preview->descriptor.data = preview->pixels->pixels;
+    entry->preview = std::move(preview);
+  }
+
+  void DismissRecents() {
+    if (recents_overlay_ == nullptr) return;
+    auto *overlay = recents_overlay_;
+    recents_overlay_ = nullptr;
+    recents_transition_active_ = false;
+    recents_deferred_cards_.clear();
+    recents_all_cards_.clear();
+    lv_obj_fade_out(overlay, 150, 0);
+    lv_obj_delete_delayed(overlay, 160);
+  }
+
+  void LayoutRecentLaunch(int32_t progress) {
+    if (recent_launch_card_ == nullptr || recent_launch_preview_ == nullptr)
+      return;
+    progress = std::clamp(progress, 0, 256);
+    const int screen_width = landscape_ ? height_ : width_;
+    const int screen_height = landscape_ ? width_ : height_;
+    const int width = recent_launch_start_width_ +
+        (screen_width - recent_launch_start_width_) * progress / 256;
+    const int height = recent_launch_start_height_ +
+        (screen_height - recent_launch_start_height_) * progress / 256;
+    const int x = recent_launch_start_x_ * (256 - progress) / 256;
+    const int y = recent_launch_start_y_ * (256 - progress) / 256;
+    lv_obj_set_pos(recent_launch_card_, x, y);
+    lv_obj_set_size(recent_launch_card_, width, height);
+    lv_obj_set_style_radius(recent_launch_card_, 58 * (256 - progress) / 256,
+                            0);
+    lv_obj_set_style_border_opa(
+        recent_launch_card_,
+        static_cast<lv_opa_t>(153 * (256 - progress) / 256), 0);
+    const uint32_t image_scale = std::max(
+        (static_cast<uint32_t>(width) * 256 +
+         recent_launch_preview_->pixels->width - 1) /
+            recent_launch_preview_->pixels->width,
+        (static_cast<uint32_t>(height) * 256 +
+         recent_launch_preview_->pixels->height - 1) /
+            recent_launch_preview_->pixels->height);
+    lv_image_set_scale(recent_launch_image_, image_scale);
+    lv_obj_center(recent_launch_image_);
+    if (recent_launch_footer_ != nullptr)
+      lv_obj_set_style_opa(
+          recent_launch_footer_,
+          static_cast<lv_opa_t>(255 * (256 - progress) / 256), 0);
+    if (recents_overlay_ != nullptr)
+      lv_obj_set_style_opa(
+          recents_overlay_,
+          static_cast<lv_opa_t>(255 * (256 - progress) / 256), 0);
+    lv_obj_invalidate(recent_launch_layer_);
+  }
+
+  static void SetRecentLaunchProgress(void *target, int32_t value) {
+    auto *self = static_cast<Impl *>(target);
+    if (self != nullptr) self->LayoutRecentLaunch(value);
+  }
+
+  static void CompleteRecentLaunch(lv_anim_t *animation) {
+    auto *self = static_cast<Impl *>(lv_anim_get_user_data(animation));
+    if (self == nullptr || !self->recent_launch_active_) return;
+    const RecentApp app = self->recent_launch_app_;
+    if (!app.plugin_id.empty()) SetSelectedPluginId(app.plugin_id);
+
+    // Keep the old switcher marked as present while the destination scene is
+    // constructed, preventing the outgoing app from being recaptured with a
+    // transition overlay on top of it.
+    HandleSceneAction(app.action, self);
+    if (self->recents_overlay_ != nullptr) {
+      auto *overlay = self->recents_overlay_;
+      self->recents_overlay_ = nullptr;
+      lv_obj_delete(overlay);
+    }
+    self->recents_all_cards_.clear();
+    self->recents_deferred_cards_.clear();
+    if (self->recent_launch_layer_ != nullptr)
+      lv_obj_delete(self->recent_launch_layer_);
+    self->recent_launch_layer_ = nullptr;
+    self->recent_launch_card_ = nullptr;
+    self->recent_launch_image_ = nullptr;
+    self->recent_launch_footer_ = nullptr;
+    self->recent_launch_preview_.reset();
+    self->recent_launch_active_ = false;
+    self->recents_transition_active_ = false;
+  }
+
+  void BeginRecentLaunch(const RecentApp &app, lv_obj_t *source_card) {
+    if (recent_launch_active_ || source_card == nullptr) return;
+    if (app.preview == nullptr || app.preview->pixels == nullptr ||
+        app.preview->pixels->pixels == nullptr) {
+      DismissRecents();
+      if (!app.plugin_id.empty()) SetSelectedPluginId(app.plugin_id);
+      HandleSceneAction(app.action, this);
+      return;
+    }
+
+    lv_obj_update_layout(recents_overlay_);
+    lv_area_t area{};
+    lv_obj_get_coords(source_card, &area);
+    recent_launch_start_x_ = area.x1;
+    recent_launch_start_y_ = area.y1;
+    recent_launch_start_width_ = lv_area_get_width(&area);
+    recent_launch_start_height_ = lv_area_get_height(&area);
+    recent_launch_app_ = app;
+    recent_launch_preview_ = app.preview;
+    recent_launch_active_ = true;
+    recents_transition_active_ = true;
+
+    const int screen_width = landscape_ ? height_ : width_;
+    const int screen_height = landscape_ ? width_ : height_;
+    recent_launch_layer_ = lv_obj_create(lv_layer_top());
+    design::Clear(recent_launch_layer_);
+    lv_obj_set_size(recent_launch_layer_, screen_width, screen_height);
+    lv_obj_remove_flag(recent_launch_layer_, LV_OBJ_FLAG_CLICKABLE);
+
+    recent_launch_card_ = lv_obj_create(recent_launch_layer_);
+    design::Clear(recent_launch_card_);
+    lv_obj_set_pos(recent_launch_card_, recent_launch_start_x_,
+                   recent_launch_start_y_);
+    lv_obj_set_size(recent_launch_card_, recent_launch_start_width_,
+                    recent_launch_start_height_);
+    lv_obj_set_style_bg_opa(recent_launch_card_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_radius(recent_launch_card_, 58, 0);
+    lv_obj_set_style_border_width(recent_launch_card_, 2, 0);
+    lv_obj_set_style_border_color(recent_launch_card_, design::kAccent, 0);
+    lv_obj_set_style_border_opa(recent_launch_card_, LV_OPA_60, 0);
+    lv_obj_set_style_border_post(recent_launch_card_, true, 0);
+    lv_obj_remove_flag(recent_launch_card_, LV_OBJ_FLAG_CLICKABLE);
+
+    recent_launch_image_ = lv_image_create(recent_launch_card_);
+    lv_image_set_src(recent_launch_image_, &recent_launch_preview_->descriptor);
+    lv_image_set_antialias(recent_launch_image_, true);
+    lv_obj_remove_flag(recent_launch_image_, LV_OBJ_FLAG_CLICKABLE);
+
+    recent_launch_footer_ = lv_obj_create(recent_launch_card_);
+    design::Panel(recent_launch_footer_, landscape_ ? 34 : 42,
+                  design::kCanvas);
+    lv_obj_remove_flag(recent_launch_footer_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(recent_launch_footer_,
+                    recent_launch_start_width_ - (landscape_ ? 40 : 48),
+                    landscape_ ? 126 : 174);
+    lv_obj_align(recent_launch_footer_, LV_ALIGN_BOTTOM_MID, 0,
+                 landscape_ ? -20 : -24);
+    lv_obj_set_style_bg_color(recent_launch_footer_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(recent_launch_footer_, LV_OPA_60, 0);
+    auto *plate = design::IconPlate(
+        recent_launch_footer_, app.icon.c_str(), design::kAccent,
+        design::kAccentSoft, landscape_ ? 82 : 104);
+    lv_obj_set_pos(plate, landscape_ ? 20 : 24, landscape_ ? 22 : 34);
+    auto *name = design::Label(recent_launch_footer_, app.title.c_str(),
+                               &lv_font_montserrat_36, design::kText);
+    lv_obj_set_pos(name, landscape_ ? 124 : 154, landscape_ ? 18 : 30);
+    auto *summary = design::Label(recent_launch_footer_, app.summary.c_str(),
+                                  &lv_font_montserrat_24,
+                                  design::kMutedStrong);
+    lv_obj_set_pos(summary, landscape_ ? 124 : 154, landscape_ ? 70 : 88);
+    auto *status = design::Label(recent_launch_footer_, "OPENING",
+                                 &lv_font_montserrat_18, design::kAccent);
+    lv_obj_set_style_text_letter_space(status, 2, 0);
+    lv_obj_align(status, LV_ALIGN_RIGHT_MID, landscape_ ? -24 : -30, 0);
+    LayoutRecentLaunch(0);
+    for (auto *card : recents_all_cards_)
+      lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+
+    lv_anim_t zoom;
+    lv_anim_init(&zoom);
+    lv_anim_set_var(&zoom, this);
+    lv_anim_set_values(&zoom, 0, 256);
+    lv_anim_set_duration(&zoom, 300);
+    lv_anim_set_path_cb(&zoom, lv_anim_path_ease_in_out);
+    lv_anim_set_exec_cb(&zoom, SetRecentLaunchProgress);
+    lv_anim_set_user_data(&zoom, this);
+    lv_anim_set_completed_cb(&zoom, CompleteRecentLaunch);
+    lv_anim_start(&zoom);
+  }
+
+  void ShowRecents(bool gesture_transition = false) {
+    if (recents_overlay_ != nullptr || fastboot_mode_ || !backend_ready_)
+      return;
+    pointer_.pressed = false;
+    recents_deferred_cards_.clear();
+    recents_all_cards_.clear();
+    if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
+    CancelEdgeSwipe();
+
+    const bool landscape = landscape_;
+    const int screen_width = landscape ? height_ : width_;
+    const int screen_height = landscape ? width_ : height_;
+    auto *overlay = lv_obj_create(lv_layer_top());
+    recents_overlay_ = overlay;
+    recents_transition_active_ = gesture_transition;
+    design::Clear(overlay);
+    lv_obj_set_size(overlay, screen_width, screen_height);
+    lv_obj_set_style_bg_color(overlay, design::kCanvas, 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_90, 0);
+    if (gesture_transition)
+      lv_obj_set_style_opa(overlay, LV_OPA_TRANSP, 0);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
+      auto *self = static_cast<Impl *>(lv_event_get_user_data(event));
+      auto *target = lv_event_get_target_obj(event);
+      if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+        if (self != nullptr && self->recents_overlay_ == target) {
+          self->recents_overlay_ = nullptr;
+          self->recents_transition_active_ = false;
+          self->recents_deferred_cards_.clear();
+          self->recents_all_cards_.clear();
+        }
+      } else if (lv_event_get_code(event) == LV_EVENT_CLICKED && self != nullptr &&
+                 target == self->recents_overlay_) {
+        self->DismissRecents();
+      }
+    }, LV_EVENT_ALL, this);
+
+    auto *eyebrow = design::Label(overlay, "AERA APP SWITCHER",
+                                  &lv_font_montserrat_18, design::kAccent);
+    lv_obj_set_style_text_letter_space(eyebrow, 4, 0);
+    lv_obj_set_pos(eyebrow, landscape ? 96 : 80,
+                   landscape ? 154 : 218);
+    auto *title = design::Label(overlay, "Recents", &lv_font_montserrat_48,
+                               design::kText);
+    lv_obj_set_pos(title, landscape ? 96 : 80, landscape ? 202 : 274);
+    auto *detail = design::Label(
+        overlay, "Tap an app to return. Swipe from the bottom in any AERA app.",
+        &lv_font_montserrat_24, design::kMutedStrong);
+    lv_obj_set_pos(detail, landscape ? 350 : 80,
+                   landscape ? 218 : 348);
+
+    auto style_action = [](lv_obj_t *button, bool accent) {
+      lv_obj_set_style_bg_color(button, design::kMainSheet, 0);
+      lv_obj_set_style_bg_opa(button, LV_OPA_80, 0);
+      lv_obj_set_style_border_width(button, 1, 0);
+      lv_obj_set_style_border_color(
+          button, accent ? design::kAccent : design::kMainLine, 0);
+      lv_obj_set_style_border_opa(button, accent ? LV_OPA_60 : LV_OPA_40, 0);
+      lv_obj_set_style_shadow_color(button, lv_color_black(), 0);
+      lv_obj_set_style_shadow_width(button, 18, 0);
+      lv_obj_set_style_shadow_offset_y(button, 8, 0);
+      lv_obj_set_style_shadow_opa(button, LV_OPA_30, 0);
+      if (lv_obj_get_child_count(button) > 0) {
+        auto *label = lv_obj_get_child(button, 0);
+        lv_obj_set_style_text_color(
+            label, accent ? design::kAccent : design::kText, 0);
+      }
+    };
+
+    // A labelled glass control reads more clearly than an isolated floating X.
+    auto *done = widgets::Button(overlay, LV_SYMBOL_CLOSE "  Done",
+                                 [this] { DismissRecents(); });
+    lv_obj_set_size(done, landscape ? 210 : 230,
+                    landscape ? 82 : 94);
+    lv_obj_align(done, LV_ALIGN_TOP_RIGHT, landscape ? -72 : -64,
+                 landscape ? 166 : 234);
+    style_action(done, true);
+
+    // Keep navigation and list management together in a small bottom dock,
+    // leaving the header focused on the switcher title.
+    const bool has_recents = !recent_apps_.empty();
+    auto *actions = lv_obj_create(overlay);
+    design::Panel(actions, 66, design::kMainSheet);
+    lv_obj_set_size(actions,
+                    landscape ? (has_recents ? 620 : 310)
+                              : (has_recents ? 720 : 350),
+                    landscape ? 112 : 132);
+    lv_obj_align(actions, LV_ALIGN_BOTTOM_MID, 0,
+                 landscape ? -24 : -34);
+    lv_obj_set_style_bg_opa(actions, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(actions, 1, 0);
+    lv_obj_set_style_border_color(actions, design::kMainLine, 0);
+    lv_obj_set_style_border_opa(actions, LV_OPA_40, 0);
+    lv_obj_set_style_shadow_color(actions, lv_color_black(), 0);
+    lv_obj_set_style_shadow_width(actions, 22, 0);
+    lv_obj_set_style_shadow_offset_y(actions, 10, 0);
+    lv_obj_set_style_shadow_opa(actions, LV_OPA_30, 0);
+
+    const int action_height = landscape ? 88 : 104;
+    const int action_width = landscape ? 290 : 330;
+    auto *home = widgets::Button(actions, LV_SYMBOL_HOME "  Home",
+                                 [this] { ShowHome(); });
+    lv_obj_set_size(home, action_width, action_height);
+    lv_obj_align(home, has_recents ? LV_ALIGN_LEFT_MID : LV_ALIGN_CENTER,
+                 has_recents ? (landscape ? 10 : 12) : 0, 0);
+    style_action(home, true);
+    if (has_recents) {
+      auto *clear = widgets::Button(actions, LV_SYMBOL_TRASH "  Clear all",
+                                    [this] {
+        recent_apps_.clear();
+        // Browser is the one app runtime intentionally kept alive between
+        // scenes. Other app workers are owned by their scene and stop when
+        // ShowHome replaces that scene.
+        ShutdownWebRuntime();
+        ShowHome();
+      });
+      lv_obj_set_size(clear, action_width, action_height);
+      lv_obj_align(clear, LV_ALIGN_RIGHT_MID, landscape ? -10 : -12, 0);
+      style_action(clear, false);
+    }
+
+    const int tray_y = landscape ? 310 : 444;
+    const int tray_height = screen_height - tray_y - (landscape ? 158 : 214);
+    auto *tray = lv_obj_create(overlay);
+    design::Clear(tray);
+    lv_obj_set_pos(tray, 0, tray_y);
+    lv_obj_set_size(tray, screen_width, tray_height);
+    lv_obj_set_flex_flow(tray, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(tray, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_add_flag(tray, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(tray, LV_DIR_HOR);
+    lv_obj_set_scroll_snap_x(tray, LV_SCROLL_SNAP_CENTER);
+    lv_obj_set_scrollbar_mode(tray, LV_SCROLLBAR_MODE_OFF);
+
+    if (recent_apps_.empty()) {
+      auto *empty = lv_obj_create(tray);
+      design::Panel(empty, 54, design::kMainSheet);
+      lv_obj_set_size(empty, landscape ? 1160 : 1120,
+                      landscape ? 690 : 1480);
+      lv_obj_set_style_border_width(empty, 1, 0);
+      lv_obj_set_style_border_color(empty, design::kMainLine, 0);
+      lv_obj_set_style_border_opa(empty, LV_OPA_50, 0);
+      auto *icon = design::Label(empty, LV_SYMBOL_LIST,
+                                 &lv_font_montserrat_48, design::kAccent);
+      lv_obj_set_style_transform_scale(icon, 520, 0);
+      lv_obj_align(icon, LV_ALIGN_CENTER, 0, -150);
+      auto *empty_title = design::Label(empty, "No recent apps",
+                                        &lv_font_montserrat_48,
+                                        design::kText);
+      lv_obj_align(empty_title, LV_ALIGN_CENTER, 0, 70);
+      auto *copy = design::Label(
+          empty, "Open an installed plugin and it will appear here.",
+          &lv_font_montserrat_24, design::kMuted);
+      lv_obj_align(copy, LV_ALIGN_CENTER, 0, 145);
+    } else {
+      const int card_width = landscape ? 1030 : 1080;
+      const int card_height = std::min(
+          tray_height - 36,
+          static_cast<int>((static_cast<int64_t>(card_width) * screen_height +
+                            screen_width / 2) / screen_width));
+      const int side_padding = std::max(40, (screen_width - card_width) / 2);
+      recents_target_x_ = side_padding;
+      recents_target_y_ = tray_y + (tray_height - card_height) / 2;
+      recents_target_width_ = card_width;
+      recents_target_height_ = card_height;
+      lv_obj_set_style_pad_left(tray, side_padding, 0);
+      lv_obj_set_style_pad_right(tray, side_padding, 0);
+      lv_obj_set_style_pad_column(tray, landscape ? 42 : 46, 0);
+      for (size_t index = 0; index < recent_apps_.size(); ++index) {
+        const RecentApp app = recent_apps_[index];
+        auto *card = lv_button_create(tray);
+        recents_all_cards_.push_back(card);
+        design::Panel(card, 58, design::kMainSheet);
+        design::Interactive(card, design::kMainSelected);
+        lv_obj_set_size(card, card_width, card_height);
+        lv_obj_set_style_pad_all(card, 0, 0);
+        // Every app is a distinct Recents page, so keep its complete rounded
+        // outline visible.  The CURRENT badge identifies the active app; an
+        // unrelated dim border made the other previews look stacked beneath
+        // the current one.
+        lv_obj_set_style_border_width(card, 2, 0);
+        lv_obj_set_style_border_color(card, design::kAccent, 0);
+        lv_obj_set_style_border_opa(card, LV_OPA_60, 0);
+        lv_obj_set_style_border_post(card, true, 0);
+        lv_obj_set_style_shadow_color(card, lv_color_black(), 0);
+        lv_obj_set_style_shadow_width(card, 28, 0);
+        lv_obj_set_style_shadow_offset_y(card, 14, 0);
+        lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
+        if (gesture_transition) {
+          lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+          recents_deferred_cards_.push_back(card);
+        }
+        widgets::OnClick(card, [this, app, card] {
+          BeginRecentLaunch(app, card);
+        });
+
+        auto *preview = lv_obj_create(card);
+        design::Panel(preview, 56, design::kCanvas);
+        lv_obj_remove_flag(preview, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_pos(preview, 0, 0);
+        lv_obj_set_size(preview, card_width, card_height);
+        lv_obj_set_style_bg_grad_color(preview, design::kMainPanel, 0);
+        lv_obj_set_style_bg_grad_dir(preview, LV_GRAD_DIR_VER, 0);
+        lv_obj_set_style_border_width(preview, 0, 0);
+
+        if (app.preview != nullptr && app.preview->pixels != nullptr &&
+            app.preview->pixels->pixels != nullptr) {
+          auto *image = lv_image_create(preview);
+          lv_image_set_src(image, &app.preview->descriptor);
+          lv_image_set_antialias(image, true);
+          const uint32_t scale = std::max(
+              (static_cast<uint32_t>(card_width) * 256 +
+               app.preview->pixels->width - 1) /
+                  app.preview->pixels->width,
+              (static_cast<uint32_t>(card_height) * 256 +
+               app.preview->pixels->height - 1) /
+                  app.preview->pixels->height);
+          lv_image_set_scale(image, scale);
+          lv_obj_center(image);
+          lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
+        } else {
+          auto *watermark = design::Label(preview, app.icon.c_str(),
+                                          &lv_font_montserrat_48,
+                                          design::kAccentSoft);
+          lv_obj_set_style_transform_scale(watermark,
+                                            landscape ? 620 : 800, 0);
+          lv_obj_set_style_opa(watermark, LV_OPA_40, 0);
+          lv_obj_align(watermark, LV_ALIGN_CENTER, 0, 0);
+          auto *waiting = design::Label(
+              preview, "Preview appears after the app has been opened",
+              &lv_font_montserrat_24, design::kMutedStrong);
+          lv_obj_align(waiting, LV_ALIGN_CENTER, 0, landscape ? 130 : 190);
+        }
+
+        auto *footer = lv_obj_create(card);
+        design::Panel(footer, landscape ? 34 : 42, design::kCanvas);
+        lv_obj_remove_flag(footer, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_size(footer, card_width - (landscape ? 40 : 48),
+                        landscape ? 126 : 174);
+        lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0,
+                     landscape ? -20 : -24);
+        lv_obj_set_style_bg_color(footer, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(footer, LV_OPA_60, 0);
+        auto *plate = design::IconPlate(
+            footer, app.icon.c_str(), design::kAccent, design::kAccentSoft,
+            landscape ? 82 : 104);
+        lv_obj_set_pos(plate, landscape ? 20 : 24,
+                       landscape ? 22 : 34);
+        auto *name = design::Label(footer, app.title.c_str(),
+                                   &lv_font_montserrat_36, design::kText);
+        lv_obj_set_pos(name, landscape ? 124 : 154,
+                       landscape ? 18 : 30);
+        lv_obj_set_width(name, card_width - (landscape ? 330 : 390));
+        lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+        auto *summary = design::Label(footer, app.summary.c_str(),
+                                      &lv_font_montserrat_24,
+                                      design::kMutedStrong);
+        lv_obj_set_pos(summary, landscape ? 124 : 154,
+                       landscape ? 70 : 88);
+        lv_obj_set_width(summary, card_width - (landscape ? 330 : 390));
+        lv_label_set_long_mode(summary, LV_LABEL_LONG_DOT);
+        auto *status = design::Label(
+            footer, index == 0 ? "CURRENT" : "OPEN",
+            &lv_font_montserrat_18, design::kAccent);
+        lv_obj_set_style_text_letter_space(status, 2, 0);
+        lv_obj_align(status, LV_ALIGN_RIGHT_MID,
+                     landscape ? -24 : -30, 0);
+
+        if (!gesture_transition) {
+          lv_obj_set_style_translate_y(card, landscape ? 120 : 230, 0);
+          lv_anim_t enter;
+          lv_anim_init(&enter);
+          lv_anim_set_var(&enter, card);
+          lv_anim_set_values(&enter, landscape ? 120 : 230, 0);
+          lv_anim_set_duration(&enter, 360);
+          lv_anim_set_delay(&enter, 30 + static_cast<uint32_t>(index) * 38);
+          lv_anim_set_path_cb(&enter, lv_anim_path_overshoot);
+          lv_anim_set_exec_cb(&enter, [](void *target, int32_t value) {
+            lv_obj_set_style_translate_y(static_cast<lv_obj_t *>(target),
+                                         value, 0);
+          });
+          lv_anim_start(&enter);
+        }
+      }
+    }
+    if (!gesture_transition) lv_obj_fade_in(overlay, 170, 0);
+  }
+
+  void BeginRecentsSwipe(int32_t x, int32_t y) {
+    CancelRecentsSwipe();
+    CaptureRecentPreview(current_scene_);
+    recents_swipe_active_ = true;
+    recents_swipe_start_x_ = x;
+    recents_swipe_last_x_ = x;
+    recents_swipe_start_y_ = y;
+    recents_swipe_last_y_ = y;
+    recents_swipe_max_up_ = 0;
+    recents_last_drag_update_ms_ = 0;
+    recents_transition_finish_open_ = false;
+
+    const RecentApp identity = DescribeRecentApp(current_scene_);
+    const auto entry = std::find_if(
+        recent_apps_.begin(), recent_apps_.end(), [&](const RecentApp &item) {
+          return item.action == identity.action &&
+              item.plugin_id == identity.plugin_id;
+        });
+    if (entry == recent_apps_.end() || entry->preview == nullptr) return;
+    recents_drag_preview_ = entry->preview;
+
+    // Build the finished switcher underneath the live app window. Its
+    // opacity follows the same gesture so there is no second scene change at
+    // release time.
+    ShowRecents(true);
+    if (recents_overlay_ == nullptr) {
+      recents_drag_preview_.reset();
+      return;
+    }
+
+    const int screen_width = landscape_ ? height_ : width_;
+    const int screen_height = landscape_ ? width_ : height_;
+    recents_drag_layer_ = lv_obj_create(lv_layer_top());
+    design::Clear(recents_drag_layer_);
+    lv_obj_set_size(recents_drag_layer_, screen_width, screen_height);
+    lv_obj_set_style_bg_color(recents_drag_layer_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(recents_drag_layer_, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(recents_drag_layer_, LV_OBJ_FLAG_CLICKABLE);
+
+    recents_drag_card_ = lv_obj_create(recents_drag_layer_);
+    design::Clear(recents_drag_card_);
+    lv_obj_set_pos(recents_drag_card_, 0, 0);
+    lv_obj_set_size(recents_drag_card_, screen_width, screen_height);
+    lv_obj_set_style_bg_opa(recents_drag_card_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(recents_drag_card_, 2, 0);
+    lv_obj_set_style_border_color(recents_drag_card_, design::kAccent, 0);
+    lv_obj_set_style_border_opa(recents_drag_card_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_post(recents_drag_card_, true, 0);
+    lv_obj_remove_flag(recents_drag_card_, LV_OBJ_FLAG_CLICKABLE);
+
+    recents_drag_image_ = lv_image_create(recents_drag_card_);
+    lv_image_set_src(recents_drag_image_, &recents_drag_preview_->descriptor);
+    lv_image_set_antialias(recents_drag_image_, true);
+    const uint32_t image_scale = std::max(
+        (static_cast<uint32_t>(screen_width) * 256 +
+         recents_drag_preview_->pixels->width - 1) /
+            recents_drag_preview_->pixels->width,
+        (static_cast<uint32_t>(screen_height) * 256 +
+         recents_drag_preview_->pixels->height - 1) /
+            recents_drag_preview_->pixels->height);
+    lv_image_set_scale(recents_drag_image_, image_scale);
+    lv_obj_center(recents_drag_image_);
+    lv_obj_remove_flag(recents_drag_image_, LV_OBJ_FLAG_CLICKABLE);
+
+    recents_drag_footer_ = lv_obj_create(recents_drag_card_);
+    design::Panel(recents_drag_footer_, landscape_ ? 34 : 42,
+                  design::kCanvas);
+    lv_obj_remove_flag(recents_drag_footer_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(recents_drag_footer_,
+                    recents_target_width_ - (landscape_ ? 40 : 48),
+                    landscape_ ? 126 : 174);
+    lv_obj_align(recents_drag_footer_, LV_ALIGN_BOTTOM_MID, 0,
+                 landscape_ ? -20 : -24);
+    lv_obj_set_style_bg_color(recents_drag_footer_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(recents_drag_footer_, LV_OPA_60, 0);
+    lv_obj_set_style_opa(recents_drag_footer_, LV_OPA_TRANSP, 0);
+    auto *plate = design::IconPlate(
+        recents_drag_footer_, identity.icon.c_str(), design::kAccent,
+        design::kAccentSoft, landscape_ ? 82 : 104);
+    lv_obj_set_pos(plate, landscape_ ? 20 : 24, landscape_ ? 22 : 34);
+    auto *name = design::Label(recents_drag_footer_, identity.title.c_str(),
+                               &lv_font_montserrat_36, design::kText);
+    lv_obj_set_pos(name, landscape_ ? 124 : 154, landscape_ ? 18 : 30);
+    auto *summary = design::Label(recents_drag_footer_,
+                                  identity.summary.c_str(),
+                                  &lv_font_montserrat_24,
+                                  design::kMutedStrong);
+    lv_obj_set_pos(summary, landscape_ ? 124 : 154,
+                   landscape_ ? 70 : 88);
+    auto *status = design::Label(recents_drag_footer_, "CURRENT",
+                                 &lv_font_montserrat_18, design::kAccent);
+    lv_obj_set_style_text_letter_space(status, 2, 0);
+    lv_obj_align(status, LV_ALIGN_RIGHT_MID, landscape_ ? -24 : -30, 0);
+    recents_transition_progress_ = 0;
+  }
+
+  void LayoutRecentsTransition(int32_t progress) {
+    if (recents_drag_card_ == nullptr || recents_drag_preview_ == nullptr ||
+        recents_overlay_ == nullptr)
+      return;
+    recents_transition_progress_ = std::clamp(progress, 0, 256);
+    const int32_t eased = recents_transition_progress_ *
+        recents_transition_progress_ *
+        (768 - 2 * recents_transition_progress_) / (256 * 256);
+    const int32_t screen_width = landscape_ ? height_ : width_;
+    const int32_t visible_height = landscape_ ? width_ : height_;
+    const int32_t window_width = screen_width +
+        (recents_target_width_ - screen_width) * eased / 256;
+    const int32_t window_height = visible_height +
+        (recents_target_height_ - visible_height) * eased / 256;
+    const int32_t window_x = recents_target_x_ * eased / 256;
+    const int32_t window_y = recents_target_y_ * eased / 256;
+    lv_obj_set_size(recents_drag_card_, window_width, window_height);
+    lv_obj_set_pos(recents_drag_card_, window_x, window_y);
+    lv_obj_set_style_radius(recents_drag_card_, eased * 58 / 256, 0);
+    lv_obj_set_style_border_opa(
+        recents_drag_card_, static_cast<lv_opa_t>(eased * 153 / 256), 0);
+    const uint32_t image_scale = std::max(
+        (static_cast<uint32_t>(window_width) * 256 +
+         recents_drag_preview_->pixels->width - 1) /
+            recents_drag_preview_->pixels->width,
+        (static_cast<uint32_t>(window_height) * 256 +
+         recents_drag_preview_->pixels->height - 1) /
+            recents_drag_preview_->pixels->height);
+    lv_image_set_scale(recents_drag_image_, image_scale);
+    lv_obj_center(recents_drag_image_);
+    lv_obj_set_style_opa(recents_overlay_,
+                         static_cast<lv_opa_t>(eased * 255 / 256), 0);
+    if (recents_drag_footer_ != nullptr) {
+      const int footer_opacity = std::clamp((eased - 112) * 2, 0, 255);
+      lv_obj_set_style_opa(recents_drag_footer_,
+                           static_cast<lv_opa_t>(footer_opacity), 0);
+    }
+    lv_obj_invalidate(recents_drag_layer_);
+  }
+
+  static void SetRecentsTransitionProgress(void *target, int32_t value) {
+    auto *self = static_cast<Impl *>(target);
+    if (self != nullptr) self->LayoutRecentsTransition(value);
+  }
+
+  static void CompleteRecentsTransition(lv_anim_t *animation) {
+    auto *self = static_cast<Impl *>(lv_anim_get_user_data(animation));
+    if (self == nullptr) return;
+    if (!self->recents_transition_finish_open_ &&
+        self->recents_overlay_ != nullptr) {
+      auto *overlay = self->recents_overlay_;
+      self->recents_overlay_ = nullptr;
+      lv_obj_delete(overlay);
+    } else if (self->recents_overlay_ != nullptr) {
+      for (size_t i = 0; i < self->recents_deferred_cards_.size(); ++i) {
+        auto *card = self->recents_deferred_cards_[i];
+        lv_obj_remove_flag(card, LV_OBJ_FLAG_HIDDEN);
+        if (i > 0) {
+          lv_obj_set_style_opa(card, LV_OPA_TRANSP, 0);
+          lv_obj_fade_in(card, 180, static_cast<uint32_t>((i - 1) * 30));
+        }
+      }
+      lv_obj_update_layout(self->recents_overlay_);
+      self->recents_deferred_cards_.clear();
+      lv_obj_set_style_opa(self->recents_overlay_, LV_OPA_COVER, 0);
+    }
+    self->recents_deferred_cards_.clear();
+    if (!self->recents_transition_finish_open_)
+      self->recents_all_cards_.clear();
+    self->recents_transition_active_ = false;
+    self->DestroyRecentsDragWindow();
+  }
+
+  void UpdateRecentsSwipe(int32_t x, int32_t y) {
+    if (!recents_swipe_active_) return;
+    recents_swipe_last_x_ = x;
+    recents_swipe_last_y_ = y;
+    const int32_t upward = std::max(0, recents_swipe_start_y_ - y);
+    recents_swipe_max_up_ = std::max(recents_swipe_max_up_, upward);
+    const int32_t visible_height = landscape_ ? width_ : height_;
+    const int32_t range = std::max(1, visible_height * 2 / 7);
+    const int32_t progress = std::min(256, upward * 256 / range);
+    const uint32_t now = MonotonicMilliseconds();
+    if (progress < 256 && recents_last_drag_update_ms_ != 0 &&
+        now - recents_last_drag_update_ms_ < 12)
+      return;
+    recents_last_drag_update_ms_ = now;
+    LayoutRecentsTransition(progress);
+  }
+
+  void FinishRecentsSwipe() {
+    if (!recents_swipe_active_) return;
+    const int32_t visible_height = landscape_ ? width_ : height_;
+    const int32_t horizontal =
+        std::abs(recents_swipe_last_x_ - recents_swipe_start_x_);
+    const bool accepted = recents_swipe_max_up_ >= visible_height / 9 &&
+        recents_swipe_max_up_ > horizontal &&
+        recents_swipe_last_y_ < recents_swipe_start_y_;
+    recents_swipe_active_ = false;
+    recents_swipe_max_up_ = 0;
+    lv_anim_delete(this, SetRecentsTransitionProgress);
+    recents_transition_finish_open_ = accepted;
+    if (accepted) RecoveryVibrate(Haptic::kTouch);
+    lv_anim_t settle;
+    lv_anim_init(&settle);
+    lv_anim_set_var(&settle, this);
+    lv_anim_set_values(&settle, recents_transition_progress_,
+                       accepted ? 256 : 0);
+    lv_anim_set_duration(
+        &settle, accepted
+            ? std::clamp(90 + (256 - recents_transition_progress_) * 2 / 3,
+                         90, 260)
+            : std::clamp(120 + recents_transition_progress_ / 2, 140, 230));
+    lv_anim_set_path_cb(&settle, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&settle, SetRecentsTransitionProgress);
+    lv_anim_set_user_data(&settle, this);
+    lv_anim_set_completed_cb(&settle, CompleteRecentsTransition);
+    lv_anim_start(&settle);
+  }
+
+  void DestroyRecentsDragWindow() {
+    if (recents_drag_layer_ != nullptr) lv_obj_delete(recents_drag_layer_);
+    recents_drag_layer_ = nullptr;
+    recents_drag_card_ = nullptr;
+    recents_drag_image_ = nullptr;
+    recents_drag_footer_ = nullptr;
+    recents_drag_preview_.reset();
+  }
+
+  void CancelRecentsSwipe() {
+    recents_swipe_active_ = false;
+    recents_swipe_max_up_ = 0;
+    if (recent_launch_active_) return;
+    lv_anim_delete(this, SetRecentsTransitionProgress);
+    DestroyRecentsDragWindow();
+    if (recents_transition_active_ && recents_overlay_ != nullptr) {
+      auto *overlay = recents_overlay_;
+      recents_overlay_ = nullptr;
+      lv_obj_delete(overlay);
+    }
+    recents_deferred_cards_.clear();
+    if (recents_overlay_ == nullptr) recents_all_cards_.clear();
+    recents_transition_active_ = false;
+  }
+
   void ShowFastboot() {
     current_tool_ = Action::kNone;
     on_home_ = false;
@@ -1009,6 +1987,9 @@ private:
         (self->update_running_ &&
          self->update_task_ == UpdateTask::kDownload)) return;
     self->CancelEdgeSwipe();
+    self->CancelRecentsSwipe();
+
+    if (IsRecentAppAction(action)) self->RememberRecentApp(action);
 
     if (self->fastboot_mode_) {
       if (action == Action::kFormatData) {
@@ -1061,6 +2042,7 @@ private:
 
     if (action == Action::kToggleRotation ||
         action == Action::kToggleVideoRotation) {
+      self->DismissRecents();
       self->landscape_ = !self->landscape_;
       self->pointer_.pressed = false;
       if (self->pointer_device_ != nullptr)
@@ -1374,7 +2356,10 @@ private:
   }
 
   void ShowHome() {
+    if (IsRecentAppAction(current_scene_)) CaptureRecentPreview(current_scene_);
     CancelEdgeSwipe();
+    CancelRecentsSwipe();
+    DismissRecents();
     navigation_history_.clear();
     current_scene_ = Action::kBackHome;
     current_tool_ = Action::kNone;
@@ -1397,6 +2382,9 @@ private:
 
   void TrackScene(Action target) {
     if (target == Action::kNone) return;
+    if (current_scene_ != target && IsRecentAppAction(current_scene_) &&
+        recents_overlay_ == nullptr)
+      CaptureRecentPreview(current_scene_);
     if (target == Action::kBackHome) {
       if (!navigating_back_) navigation_history_.clear();
       current_scene_ = target;
@@ -1411,10 +2399,13 @@ private:
         navigation_history_.erase(navigation_history_.begin());
     }
     current_scene_ = target;
+    if (IsRecentAppAction(target)) RememberRecentApp(target);
   }
 
   void ShowPreparing(bool decrypted) {
     CancelEdgeSwipe();
+    CancelRecentsSwipe();
+    DismissRecents();
     on_home_ = false;
     lv_obj_t *screen = lv_obj_create(nullptr);
     BuildPreparingScene(screen, decrypted);
@@ -2043,6 +3034,18 @@ private:
   lv_display_t *display_ = nullptr;
   lv_indev_t *pointer_device_ = nullptr;
   lv_obj_t *gesture_indicator_ = nullptr;
+  lv_obj_t *recents_overlay_ = nullptr;
+  lv_obj_t *recents_drag_layer_ = nullptr;
+  lv_obj_t *recents_drag_card_ = nullptr;
+  lv_obj_t *recents_drag_image_ = nullptr;
+  lv_obj_t *recents_drag_footer_ = nullptr;
+  std::shared_ptr<RecentPreview> recents_drag_preview_;
+  lv_obj_t *recent_launch_layer_ = nullptr;
+  lv_obj_t *recent_launch_card_ = nullptr;
+  lv_obj_t *recent_launch_image_ = nullptr;
+  lv_obj_t *recent_launch_footer_ = nullptr;
+  std::shared_ptr<RecentPreview> recent_launch_preview_;
+  RecentApp recent_launch_app_;
   lv_obj_t *lock_overlay_ = nullptr;
   lv_obj_t *power_overlay_ = nullptr;
   lv_obj_t *volume_overlay_ = nullptr;
@@ -2079,6 +3082,9 @@ private:
   std::atomic<bool> update_complete_{false};
   plugins::Progress plugin_progress_{};
   std::vector<std::string> plugin_auto_queue_;
+  std::vector<RecentApp> recent_apps_;
+  std::vector<lv_obj_t *> recents_deferred_cards_;
+  std::vector<lv_obj_t *> recents_all_cards_;
   Action pending_action_ = Action::kNone;
   DecryptionCompletion decryption_completion_ = DecryptionCompletion::kNone;
   uint32_t submit_window_start_ms_ = 0;
@@ -2094,9 +3100,27 @@ private:
   int32_t swipe_last_y_ = 0;
   int32_t swipe_max_inward_ = 0;
   int32_t gesture_depth_ = 0;
+  int32_t recents_swipe_start_x_ = 0;
+  int32_t recents_swipe_last_x_ = 0;
+  int32_t recents_swipe_start_y_ = 0;
+  int32_t recents_swipe_last_y_ = 0;
+  int32_t recents_swipe_max_up_ = 0;
+  int32_t recents_transition_progress_ = 0;
+  int32_t recents_target_x_ = 0;
+  int32_t recents_target_y_ = 0;
+  int32_t recents_target_width_ = 0;
+  int32_t recents_target_height_ = 0;
+  uint32_t recents_last_drag_update_ms_ = 0;
+  int32_t recent_launch_start_x_ = 0;
+  int32_t recent_launch_start_y_ = 0;
+  int32_t recent_launch_start_width_ = 0;
+  int32_t recent_launch_start_height_ = 0;
   bool direct_scanout_ = false;
   unsigned int next_software_scanout_ = 0;
   bool gpu_accelerated_ = false;
+  bool recents_transition_active_ = false;
+  bool recents_transition_finish_open_ = false;
+  bool recent_launch_active_ = false;
   bool backend_ready_ = false;
   bool boot_animation_complete_ = false;
   bool operation_running_ = false;
@@ -2122,6 +3146,7 @@ private:
   bool swipe_active_ = false;
   bool swipe_right_edge_ = false;
   bool gesture_navigate_back_ = false;
+  bool recents_swipe_active_ = false;
   bool suspended_ = false;
   bool fastboot_mode_ = false;
   bool on_home_ = false;

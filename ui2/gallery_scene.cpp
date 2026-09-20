@@ -213,8 +213,7 @@ void BuildGalleryScene(lv_obj_t *screen, ActionCallback callback, void *context)
 
   auto *state = new GalleryState;
   state->grid = Scroll(screen, landscape ? 350 : 500,
-      lv_obj_get_height(screen) - (landscape ? 350 : 500) -
-          NavigationHeight(screen) - 24);
+      lv_obj_get_height(screen) - (landscape ? 350 : 500) - 28);
   state->row_stride = landscape ? 356 : 386;
   const int columns = landscape ? 4 : 2;
   const int tile_width = landscape ? 748 : 640;

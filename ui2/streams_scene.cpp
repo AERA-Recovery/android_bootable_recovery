@@ -1089,7 +1089,7 @@ void BuildStreamsScene(lv_obj_t* screen, ActionCallback callback, void* context)
   lv_obj_set_pos(scene->status, 80, content_y + 374);
   scene->results =
       Scroll(screen, content_y + 426,
-             lv_obj_get_height(screen) - (content_y + 426) - NavigationHeight(screen) - 20);
+             lv_obj_get_height(screen) - (content_y + 426) - 28);
 
   scene->keyboard = lv_keyboard_create(screen);
   phone_keyboard::Apply(scene->keyboard);

@@ -197,7 +197,9 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
   lv_obj_align(bar, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_set_style_bg_opa(bar, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(bar, 0, 0);
-  if (app_surface && RecoveryDockHideInApps()) {
+  // Plugin surfaces are gesture-first. Keep their content full-screen and let
+  // the engine's bottom-edge Recents gesture replace the recovery dock.
+  if (app_surface) {
     lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN);
     return bar;
   }

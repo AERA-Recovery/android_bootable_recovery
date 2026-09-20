@@ -86,6 +86,7 @@ enum class Preference {
   kVerifyZip,
   kPluginAutoUpdate,
   kUpdateNightly,
+  kRecents,
 };
 bool RecoveryPreference(Preference preference);
 bool RecoverySetPreference(Preference preference, bool enabled);

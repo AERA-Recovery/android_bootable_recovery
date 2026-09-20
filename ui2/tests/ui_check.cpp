@@ -18,7 +18,7 @@
 using namespace recovery_ui2;
 static std::string backup_root;
 static std::string file_root;
-static bool preferences[7] = {true, false, true, true, false, false, false};
+static bool preferences[8] = {true, false, true, true, false, false, false, true};
 static int utc_offset = 120;
 static uint32_t accent_color = design::kDefaultAccentRgb;
 static bool light_mode = false;
@@ -439,7 +439,8 @@ int main(int argc,char **argv) {
   auto *clock_row=Find(prefs,"24-hour clock");
   assert(clock_row && lv_obj_get_width(clock_row)>=1200);
   for(const auto &item : std::vector<std::pair<const char*,Preference>>{
-      {"24-hour clock",Preference::kClock24},{"Show hidden files",Preference::kHiddenFiles},
+      {"24-hour clock",Preference::kClock24},{"Recent apps gesture",Preference::kRecents},
+      {"Show hidden files",Preference::kHiddenFiles},
       {"Verify ZIP signatures",Preference::kVerifyZip},{"Compress backups by default",Preference::kCompression},
       {"SHA-256 backup checksums",Preference::kSha256}}) {
     const bool old=RecoveryPreference(item.second);

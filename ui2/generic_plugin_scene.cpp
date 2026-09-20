@@ -379,7 +379,8 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
          scene->plugin.description.c_str(), callback, context);
   const bool landscape = Landscape(screen);
   const int card_width = landscape ? lv_obj_get_width(screen) - 128 : 1312;
-  const int card_height = landscape ? lv_obj_get_height(screen) - 520 : 2250;
+  const int card_height = lv_obj_get_height(screen) -
+      (landscape ? 320 : 430) - 36;
   scene->card = lv_obj_create(screen);
   Panel(scene->card, 42, kMainPanel);
   lv_obj_set_pos(scene->card, 64, landscape ? 320 : 430);

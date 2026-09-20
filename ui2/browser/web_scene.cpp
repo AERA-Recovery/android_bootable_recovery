@@ -313,8 +313,8 @@ void HideKeyboard(WebScene *s) {
   lv_obj_add_flag(s->keyboard, LV_OBJ_FLAG_HIDDEN);
   lv_keyboard_set_textarea(s->keyboard, nullptr);
   lv_obj_remove_state(s->address, LV_STATE_FOCUSED);
-  if (s->navigation && !RecoveryDockHideInApps())
-    lv_obj_remove_flag(s->navigation, LV_OBJ_FLAG_HIDDEN);
+  // Plugin navigation remains hidden; the global bottom-edge gesture owns
+  // switching away from the browser.
   s->web_keyboard = false;
 }
 void ShowKeyboard(WebScene *s, bool web_keyboard, uint32_t purpose = 0,

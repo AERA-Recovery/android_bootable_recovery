@@ -560,8 +560,7 @@ void BuildMediaScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   lv_obj_set_pos(scene->status, 80, landscape ? 306 : 426);
 
   scene->grid = Scroll(screen, landscape ? 350 : 500,
-      lv_obj_get_height(screen) - (landscape ? 350 : 500) -
-          NavigationHeight(screen) - 24);
+      lv_obj_get_height(screen) - (landscape ? 350 : 500) - 28);
   const int columns = landscape ? 4 : 2;
   const int tile_width = landscape ? 748 : 640;
   const int tile_height = landscape ? 310 : 352;
