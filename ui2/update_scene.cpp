@@ -202,12 +202,16 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
                  landscape ? 650 : 640);
   lv_obj_set_size(result.install, action_width, 112);
 
+  const int notes_y = landscape ? 330 : 1290;
+  const int notes_min_height = landscape ? 850 : 920;
+  const int notes_height = std::max(
+      notes_min_height,
+      static_cast<int>(lv_obj_get_height(screen)) - notes_y - 80);
   auto *notes = lv_obj_create(screen);
   Panel(notes, 38, kMainSheet);
-  lv_obj_set_pos(notes, landscape ? 1560 : 64,
-                 landscape ? 330 : 1290);
+  lv_obj_set_pos(notes, landscape ? 1560 : 64, notes_y);
   lv_obj_set_size(notes, landscape ? 1544 : 1312,
-                  landscape ? 850 : 920);
+                  notes_height);
   lv_obj_set_style_border_width(notes, 1, 0);
   lv_obj_set_style_border_color(notes, kMainLine, 0);
   lv_obj_set_style_border_opa(notes, LV_OPA_30, 0);
@@ -217,9 +221,24 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
   auto *notes_hint =
       Label(notes, "Release notes", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(notes_hint, 46, 108);
-  result.changelog = Label(notes, "", &lv_font_montserrat_32, kMutedStrong);
-  lv_obj_set_pos(result.changelog, 46, 184);
-  lv_obj_set_width(result.changelog, landscape ? 1452 : 1220);
+
+  const int notes_body_width = landscape ? 1452 : 1220;
+  auto *notes_body = lv_obj_create(notes);
+  Clear(notes_body);
+  lv_obj_set_pos(notes_body, 46, 174);
+  lv_obj_set_size(notes_body, notes_body_width, notes_height - 214);
+  lv_obj_add_flag(notes_body, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(notes_body, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  lv_obj_set_scroll_dir(notes_body, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(notes_body, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_set_style_bg_color(notes_body, kAccent, LV_PART_SCROLLBAR);
+  lv_obj_set_style_width(notes_body, 6, LV_PART_SCROLLBAR);
+  lv_obj_set_style_radius(notes_body, 3, LV_PART_SCROLLBAR);
+
+  result.changelog =
+      Label(notes_body, "", &lv_font_montserrat_32, kMutedStrong);
+  lv_obj_set_pos(result.changelog, 0, 10);
+  lv_obj_set_width(result.changelog, notes_body_width - 22);
   lv_obj_set_style_text_line_space(result.changelog, 18, 0);
   lv_label_set_long_mode(result.changelog, LV_LABEL_LONG_WRAP);
 
