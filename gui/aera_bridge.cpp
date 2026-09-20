@@ -547,12 +547,12 @@ bool RecoverySetHomeGridColumns(int columns) {
 }
 DockLayout RecoveryDockLayout() {
   LoadAeraPreferencesIfAvailable();
-  const int value = std::clamp(DataManager::GetIntValue("aera_dock_layout"), 0, 2);
+  const int value = std::clamp(DataManager::GetIntValue("aera_dock_layout"), 0, 3);
   return static_cast<DockLayout>(value);
 }
 bool RecoverySetDockLayout(DockLayout layout) {
   const int value = static_cast<int>(layout);
-  return value >= 0 && value <= 2 &&
+  return value >= 0 && value <= 3 &&
       DataManager::SetValue("aera_dock_layout", value, 1) == 0;
 }
 int RecoveryDockTransparency() {

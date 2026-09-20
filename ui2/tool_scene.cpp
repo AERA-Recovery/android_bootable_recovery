@@ -1243,9 +1243,9 @@ void BuildTheme(Tools *state) {
   auto *dock_section = Label(state->list, "Navigation dock",
                              &lv_font_montserrat_32, kAccent);
   lv_obj_set_pos(dock_section, 32, 2500);
-  const std::array<std::pair<const char *, DockLayout>, 3> dock_modes{{
+  const std::array<std::pair<const char *, DockLayout>, 4> dock_modes{{
       {"Glass", DockLayout::kGlass}, {"Compact", DockLayout::kCompact},
-      {"Minimal", DockLayout::kMinimal}}};
+      {"Minimal", DockLayout::kMinimal}, {"Icons only", DockLayout::kIcons}}};
   for (size_t i = 0; i < dock_modes.size(); ++i) {
     const auto mode = dock_modes[i];
     const bool selected = RecoveryDockLayout() == mode.second;
@@ -1253,8 +1253,8 @@ void BuildTheme(Tools *state) {
       RecoverySetDockLayout(mode.second);
       Open(state, Action::kTheme);
     }, selected);
-    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 426, 2570);
-    lv_obj_set_size(card, 408, 128);
+    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 320, 2570);
+    lv_obj_set_size(card, 304, 128);
     lv_obj_set_style_radius(card, 34, 0);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);

@@ -160,8 +160,9 @@ inline int NavigationHeight(lv_obj_t *screen) {
   const DockLayout layout = RecoveryDockLayout();
   const bool compact = layout == DockLayout::kCompact;
   const bool minimal = layout == DockLayout::kMinimal;
+  const bool icons_only = layout == DockLayout::kIcons;
   return landscape ? (minimal ? 138 : 160)
-                   : (minimal ? 170 : compact ? 188 : 226);
+                   : (minimal ? 170 : compact || icons_only ? 188 : 226);
 }
 
 inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
@@ -179,14 +180,17 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
   const DockLayout layout = RecoveryDockLayout();
   const bool compact = layout == DockLayout::kCompact;
   const bool minimal = layout == DockLayout::kMinimal;
-  const int bar_width = landscape ? (minimal ? 1360 : compact ? 1600 : 1800)
-                                  : (minimal ? 1120 : compact ? 1280 : 1440);
+  const bool icons_only = layout == DockLayout::kIcons;
+  const int bar_width = landscape
+      ? (icons_only ? 1120 : minimal ? 1360 : compact ? 1600 : 1800)
+      : (icons_only ? 860 : minimal ? 1120 : compact ? 1280 : 1440);
   const int bar_height = NavigationHeight(screen);
-  const int shelf_x = landscape || compact || minimal ? 0 : 120;
+  const int shelf_x = landscape || compact || minimal || icons_only ? 0 : 120;
   const int shelf_y = minimal ? 4 : landscape ? 8 : 18;
-  const int shelf_width = landscape || compact || minimal ? bar_width : 1200;
+  const int shelf_width = landscape || compact || minimal || icons_only
+      ? bar_width : 1200;
   const int shelf_height = minimal ? bar_height - 8 :
-      landscape ? 140 : compact ? 156 : 180;
+      landscape ? 140 : compact || icons_only ? 156 : 180;
   auto *bar = lv_obj_create(screen);
   Clear(bar);
   lv_obj_set_size(bar, bar_width, bar_height);
@@ -251,12 +255,14 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
 
     auto *icon = Label(button, tab.icon, &lv_font_montserrat_48,
                         selected ? kAccent : kMutedStrong);
-    if (compact) lv_obj_align(icon, LV_ALIGN_LEFT_MID, 38, 0);
+    if (icons_only) lv_obj_center(icon);
+    else if (compact) lv_obj_align(icon, LV_ALIGN_LEFT_MID, 38, 0);
     else lv_obj_align(icon, LV_ALIGN_TOP_MID, 0,
                       minimal ? 14 : landscape ? 18 : 28);
     auto *text = Label(button, tab.text, &lv_font_montserrat_32,
                         selected ? kAccent : kMutedStrong);
-    if (compact) lv_obj_align(text, LV_ALIGN_LEFT_MID, 112, 0);
+    if (icons_only) lv_obj_add_flag(text, LV_OBJ_FLAG_HIDDEN);
+    else if (compact) lv_obj_align(text, LV_ALIGN_LEFT_MID, 112, 0);
     else lv_obj_align(text, LV_ALIGN_BOTTOM_MID, 0,
                       minimal ? -10 : landscape ? -12 : -20);
     if (selected) {

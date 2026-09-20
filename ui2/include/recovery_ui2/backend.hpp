@@ -104,7 +104,12 @@ KeyboardLayout RecoveryKeyboardLayout();
 bool RecoverySetKeyboardLayout(KeyboardLayout layout);
 int RecoveryHomeGridColumns();
 bool RecoverySetHomeGridColumns(int columns);
-enum class DockLayout { kGlass = 0, kCompact = 1, kMinimal = 2 };
+enum class DockLayout {
+  kGlass = 0,
+  kCompact = 1,
+  kMinimal = 2,
+  kIcons = 3,
+};
 DockLayout RecoveryDockLayout();
 bool RecoverySetDockLayout(DockLayout layout);
 int RecoveryDockTransparency();
