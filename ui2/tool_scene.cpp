@@ -1383,8 +1383,8 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_size(button, 132, 112);
   }
   PreferenceSection(state, 780, "Recents");
-  PreferenceToggle(state, 860, "Recent apps gesture",
-                   "Swipe up from the bottom in plugins to open Recents",
+  PreferenceToggle(state, 860, "Gesture navigation",
+                   "Swipe up for Home; swipe up and hold for Recents",
                    Preference::kRecents);
   PreferenceSection(state, 1100, "Files & installation");
   PreferenceToggle(state, 1180, "Show hidden files", "Include dot-prefixed files and folders", Preference::kHiddenFiles);

@@ -21,6 +21,7 @@
 #include <png.h>
 #include <pixelflinger/pixelflinger.h>
 #include <linux/fb.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "minuitwrp/minui.h"
@@ -91,6 +92,67 @@ static bool gr_rgb_row(const GGLSurface *source, uint32_t source_y,
             return false;
     }
     return true;
+}
+
+int gr_capture_scaled_bgra(unsigned int max_width, unsigned int max_height,
+                           unsigned char **pixels, unsigned int *width,
+                           unsigned int *height)
+{
+    if (!pixels || !width || !height)
+        return -1;
+    *pixels = NULL;
+    *width = 0;
+    *height = 0;
+
+    GGLSurface source;
+    if (!gr_capture_source(&source))
+        return -1;
+
+    uint32_t output_width = source.width;
+    uint32_t output_height = source.height;
+    if (max_width > 0 && output_width > max_width) {
+        output_width = max_width;
+        output_height = (uint32_t)(((uint64_t)source.height * output_width +
+                                    source.width / 2) / source.width);
+    }
+    if (max_height > 0 && output_height > max_height) {
+        output_height = max_height;
+        output_width = (uint32_t)(((uint64_t)source.width * output_height +
+                                   source.height / 2) / source.height);
+    }
+    if (output_width == 0 || output_height == 0 ||
+        output_width > SIZE_MAX / 4 / output_height)
+        return -1;
+
+    uint8_t *output = (uint8_t *)malloc((size_t)output_width *
+                                         output_height * 4);
+    if (!output)
+        return -1;
+
+    for (uint32_t y = 0; y < output_height; ++y) {
+        const uint32_t source_y = (uint32_t)(
+            (uint64_t)y * source.height / output_height);
+        for (uint32_t x = 0; x < output_width; ++x) {
+            const uint32_t source_x = (uint32_t)(
+                (uint64_t)x * source.width / output_width);
+            uint8_t rgb[3];
+            if (!gr_rgb_pixel(&source, source_x, source_y, rgb)) {
+                free(output);
+                return -1;
+            }
+            uint8_t *destination = output +
+                ((size_t)y * output_width + x) * 4;
+            destination[0] = rgb[2];
+            destination[1] = rgb[1];
+            destination[2] = rgb[0];
+            destination[3] = 0xff;
+        }
+    }
+
+    *pixels = output;
+    *width = output_width;
+    *height = output_height;
+    return 0;
 }
 
 static bool gr_rgb_row_rotated(const GGLSurface *source, uint32_t output_y,

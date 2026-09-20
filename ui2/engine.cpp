@@ -572,6 +572,7 @@ public:
       RefreshUpdateScene(update_scene_);
     }
     PollAutomaticUpdates();
+    PollRecentsHold();
     const uint32_t next = lv_timer_handler();
 #ifndef TW_OEM_BUILD
     // Capture only after LVGL has flushed and DRM exposes the newly presented
@@ -710,7 +711,9 @@ public:
     // those consumers from stealing contacts that belong to trusted AERA UI.
     if (suspended_ || lock_overlay_ != nullptr || power_overlay_ != nullptr ||
         !backend_ready_ ||
-        operation_running_ || wifi_running_ || nas_running_) {
+        operation_running_ || wifi_running_ || nas_running_ ||
+        plugin_running_ || update_installing_ ||
+        (update_running_ && update_task_ == UpdateTask::kDownload)) {
       if (event.slot != 0) return;
       pointer_.x = visible_x;
       pointer_.y = visible_y;
@@ -738,8 +741,8 @@ public:
       return;
     }
     if (event.slot == 0 && event.pressed &&
-        RecoveryPreference(Preference::kRecents) &&
-        IsRecentAppAction(current_scene_)) {
+        RecoveryPreference(Preference::kRecents) && !fastboot_mode_ &&
+        !decryption_active_) {
       const int32_t visible_width = landscape_ ? height_ : width_;
       const int32_t visible_height = landscape_ ? width_ : height_;
       const int32_t bottom_edge = std::max(64, visible_height / 44);
@@ -1176,25 +1179,16 @@ private:
     if (recent_apps_.size() > 7) recent_apps_.resize(7);
   }
 
-  void CaptureRecentPreview(Action action) {
-    if (!IsRecentAppAction(action) || recents_overlay_ != nullptr) return;
-    RememberRecentApp(action);
-
-    const RecentApp identity = DescribeRecentApp(action);
-    auto entry = std::find_if(
-        recent_apps_.begin(), recent_apps_.end(), [&](const RecentApp &item) {
-          return item.action == identity.action &&
-              item.plugin_id == identity.plugin_id;
-        });
-    if (entry == recent_apps_.end()) return;
-
-    constexpr char kCapturePath[] = "/tmp/.aera-recent-preview.jpg";
-    if (gr_save_screenshot_scaled_jpeg(kCapturePath, 600, 78) != 0) return;
-
+  std::shared_ptr<RecentPreview> CaptureScreenPreview() {
     auto pixels = std::make_shared<PictureData>();
-    DecodePictureThumbnail(kCapturePath, 600, 1440, *pixels);
-    std::remove(kCapturePath);
-    if (!pixels->pixels || pixels->width == 0 || pixels->height == 0) return;
+    unsigned int width = 0;
+    unsigned int height = 0;
+    if (gr_capture_scaled_bgra(600, 1440, &pixels->pixels, &width, &height) !=
+            0 ||
+        pixels->pixels == nullptr || width == 0 || height == 0)
+      return nullptr;
+    pixels->width = width;
+    pixels->height = height;
     RoundRecentPreview(*pixels);
 
     auto preview = std::make_shared<RecentPreview>();
@@ -1207,7 +1201,23 @@ private:
     preview->descriptor.data_size =
         preview->pixels->width * preview->pixels->height * 4;
     preview->descriptor.data = preview->pixels->pixels;
-    entry->preview = std::move(preview);
+    return preview;
+  }
+
+  void CaptureRecentPreview(Action action) {
+    if (!IsRecentAppAction(action) || recents_overlay_ != nullptr) return;
+    RememberRecentApp(action);
+
+    const RecentApp identity = DescribeRecentApp(action);
+    auto entry = std::find_if(
+        recent_apps_.begin(), recent_apps_.end(), [&](const RecentApp &item) {
+          return item.action == identity.action &&
+              item.plugin_id == identity.plugin_id;
+        });
+    if (entry == recent_apps_.end()) return;
+
+    auto preview = CaptureScreenPreview();
+    if (preview != nullptr) entry->preview = std::move(preview);
   }
 
   void DismissRecents() {
@@ -1383,6 +1393,32 @@ private:
     lv_anim_start(&zoom);
   }
 
+  void PrepareRecentsTargetGeometry() {
+    const bool landscape = landscape_;
+    const int screen_width = landscape ? height_ : width_;
+    const int screen_height = landscape ? width_ : height_;
+    const int tray_y = landscape ? 310 : 444;
+    const int tray_height =
+        screen_height - tray_y - (landscape ? 158 : 214);
+    if (recent_apps_.empty()) {
+      recents_target_width_ = landscape ? 1160 : 1120;
+      recents_target_height_ = std::min(
+          tray_height - 36, landscape ? 690 : 1480);
+      recents_target_x_ = (screen_width - recents_target_width_) / 2;
+    } else {
+      recents_target_width_ = landscape ? 1030 : 1080;
+      recents_target_height_ = std::min(
+          tray_height - 36,
+          static_cast<int>((static_cast<int64_t>(recents_target_width_) *
+                            screen_height + screen_width / 2) /
+                           screen_width));
+      recents_target_x_ =
+          std::max(40, (screen_width - recents_target_width_) / 2);
+    }
+    recents_target_y_ =
+        tray_y + (tray_height - recents_target_height_) / 2;
+  }
+
   void ShowRecents(bool gesture_transition = false) {
     if (recents_overlay_ != nullptr || fastboot_mode_ || !backend_ready_)
       return;
@@ -1395,6 +1431,7 @@ private:
     const bool landscape = landscape_;
     const int screen_width = landscape ? height_ : width_;
     const int screen_height = landscape ? width_ : height_;
+    PrepareRecentsTargetGeometry();
     auto *overlay = lv_obj_create(lv_layer_top());
     recents_overlay_ = overlay;
     recents_transition_active_ = gesture_transition;
@@ -1430,7 +1467,7 @@ private:
                                design::kText);
     lv_obj_set_pos(title, landscape ? 96 : 80, landscape ? 202 : 274);
     auto *detail = design::Label(
-        overlay, "Tap an app to return. Swipe from the bottom in any AERA app.",
+        overlay, "Tap an app to return. Swipe up and hold anywhere in AERA.",
         &lv_font_montserrat_24, design::kMutedStrong);
     lv_obj_set_pos(detail, landscape ? 350 : 80,
                    landscape ? 218 : 348);
@@ -1522,8 +1559,7 @@ private:
     if (recent_apps_.empty()) {
       auto *empty = lv_obj_create(tray);
       design::Panel(empty, 54, design::kMainSheet);
-      lv_obj_set_size(empty, landscape ? 1160 : 1120,
-                      landscape ? 690 : 1480);
+      lv_obj_set_size(empty, recents_target_width_, recents_target_height_);
       lv_obj_set_style_border_width(empty, 1, 0);
       lv_obj_set_style_border_color(empty, design::kMainLine, 0);
       lv_obj_set_style_border_opa(empty, LV_OPA_50, 0);
@@ -1540,16 +1576,12 @@ private:
           &lv_font_montserrat_24, design::kMuted);
       lv_obj_align(copy, LV_ALIGN_CENTER, 0, 145);
     } else {
-      const int card_width = landscape ? 1030 : 1080;
-      const int card_height = std::min(
-          tray_height - 36,
-          static_cast<int>((static_cast<int64_t>(card_width) * screen_height +
-                            screen_width / 2) / screen_width));
-      const int side_padding = std::max(40, (screen_width - card_width) / 2);
-      recents_target_x_ = side_padding;
-      recents_target_y_ = tray_y + (tray_height - card_height) / 2;
-      recents_target_width_ = card_width;
-      recents_target_height_ = card_height;
+      const int card_width = recents_target_width_;
+      const int card_height = recents_target_height_;
+      const int side_padding = recents_target_x_;
+      const bool has_current_app = IsRecentAppAction(current_scene_);
+      const RecentApp current_app = has_current_app
+          ? DescribeRecentApp(current_scene_) : RecentApp{};
       lv_obj_set_style_pad_left(tray, side_padding, 0);
       lv_obj_set_style_pad_right(tray, side_padding, 0);
       lv_obj_set_style_pad_column(tray, landscape ? 42 : 46, 0);
@@ -1646,8 +1678,11 @@ private:
                        landscape ? 70 : 88);
         lv_obj_set_width(summary, card_width - (landscape ? 330 : 390));
         lv_label_set_long_mode(summary, LV_LABEL_LONG_DOT);
+        const bool is_current = has_current_app &&
+            app.action == current_app.action &&
+            app.plugin_id == current_app.plugin_id;
         auto *status = design::Label(
-            footer, index == 0 ? "CURRENT" : "OPEN",
+            footer, is_current ? "CURRENT" : "OPEN",
             &lv_font_montserrat_18, design::kAccent);
         lv_obj_set_style_text_letter_space(status, 2, 0);
         lv_obj_align(status, LV_ALIGN_RIGHT_MID,
@@ -1675,7 +1710,6 @@ private:
 
   void BeginRecentsSwipe(int32_t x, int32_t y) {
     CancelRecentsSwipe();
-    CaptureRecentPreview(current_scene_);
     recents_swipe_active_ = true;
     recents_swipe_start_x_ = x;
     recents_swipe_last_x_ = x;
@@ -1684,31 +1718,37 @@ private:
     recents_swipe_max_up_ = 0;
     recents_last_drag_update_ms_ = 0;
     recents_transition_finish_open_ = false;
+    recents_transition_finish_home_ = false;
+    recents_swipe_hold_committed_ = false;
+    recents_swipe_hold_started_ms_ = 0;
+    recents_swipe_hold_anchor_y_ = y;
 
-    const RecentApp identity = DescribeRecentApp(current_scene_);
-    const auto entry = std::find_if(
-        recent_apps_.begin(), recent_apps_.end(), [&](const RecentApp &item) {
-          return item.action == identity.action &&
-              item.plugin_id == identity.plugin_id;
-        });
-    if (entry == recent_apps_.end() || entry->preview == nullptr) return;
-    recents_drag_preview_ = entry->preview;
-
-    // Build the finished switcher underneath the live app window. Its
-    // opacity follows the same gesture so there is no second scene change at
-    // release time.
-    ShowRecents(true);
-    if (recents_overlay_ == nullptr) {
-      recents_drag_preview_.reset();
-      return;
+    RecentApp identity;
+    if (IsRecentAppAction(current_scene_)) {
+      CaptureRecentPreview(current_scene_);
+      identity = DescribeRecentApp(current_scene_);
+      const auto entry = std::find_if(
+          recent_apps_.begin(), recent_apps_.end(), [&](const RecentApp &item) {
+            return item.action == identity.action &&
+                item.plugin_id == identity.plugin_id;
+          });
+      if (entry != recent_apps_.end()) recents_drag_preview_ = entry->preview;
+    } else {
+      identity.title = "AERA Recovery";
+      identity.summary = on_home_ ? "Home" : "Recovery workspace";
+      identity.icon = LV_SYMBOL_HOME;
+      recents_drag_preview_ = CaptureScreenPreview();
     }
+    if (recents_drag_preview_ == nullptr) return;
 
+    PrepareRecentsTargetGeometry();
+    recents_transition_active_ = true;
     const int screen_width = landscape_ ? height_ : width_;
     const int screen_height = landscape_ ? width_ : height_;
     recents_drag_layer_ = lv_obj_create(lv_layer_top());
     design::Clear(recents_drag_layer_);
     lv_obj_set_size(recents_drag_layer_, screen_width, screen_height);
-    lv_obj_set_style_bg_color(recents_drag_layer_, lv_color_black(), 0);
+    lv_obj_set_style_bg_color(recents_drag_layer_, design::kCanvas, 0);
     lv_obj_set_style_bg_opa(recents_drag_layer_, LV_OPA_TRANSP, 0);
     lv_obj_remove_flag(recents_drag_layer_, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1725,7 +1765,7 @@ private:
 
     recents_drag_image_ = lv_image_create(recents_drag_card_);
     lv_image_set_src(recents_drag_image_, &recents_drag_preview_->descriptor);
-    lv_image_set_antialias(recents_drag_image_, true);
+    lv_image_set_antialias(recents_drag_image_, false);
     const uint32_t image_scale = std::max(
         (static_cast<uint32_t>(screen_width) * 256 +
          recents_drag_preview_->pixels->width - 1) /
@@ -1769,9 +1809,49 @@ private:
     recents_transition_progress_ = 0;
   }
 
+  void PollRecentsHold() {
+    if (!recents_swipe_active_ || recents_swipe_hold_committed_ ||
+        recents_swipe_hold_started_ms_ == 0)
+      return;
+    if (operation_running_ || wifi_running_ || nas_running_ ||
+        plugin_running_ || update_installing_ ||
+        (update_running_ && update_task_ == UpdateTask::kDownload)) {
+      CancelRecentsSwipe();
+      return;
+    }
+    constexpr uint32_t kHoldDelayMs = 220;
+    if (MonotonicMilliseconds() - recents_swipe_hold_started_ms_ <
+        kHoldDelayMs)
+      return;
+
+    recents_swipe_hold_committed_ = true;
+    recents_transition_finish_open_ = true;
+    RecoveryVibrate(Haptic::kTouch);
+    if (recents_overlay_ == nullptr) {
+      ShowRecents(true);
+      if (recents_overlay_ == nullptr) {
+        recents_swipe_hold_committed_ = false;
+        recents_transition_finish_open_ = false;
+        return;
+      }
+      if (recents_drag_layer_ != nullptr)
+        lv_obj_move_foreground(recents_drag_layer_);
+    }
+
+    const size_t first_deferred = IsRecentAppAction(current_scene_) ? 1 : 0;
+    for (size_t i = first_deferred; i < recents_deferred_cards_.size(); ++i) {
+      auto *card = recents_deferred_cards_[i];
+      lv_obj_remove_flag(card, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_style_opa(card, LV_OPA_TRANSP, 0);
+      lv_obj_fade_in(card, 160,
+                     static_cast<uint32_t>((i - first_deferred) * 24));
+    }
+    lv_obj_set_style_opa(recents_overlay_, LV_OPA_COVER, 0);
+    LayoutRecentsTransition(256);
+  }
+
   void LayoutRecentsTransition(int32_t progress) {
-    if (recents_drag_card_ == nullptr || recents_drag_preview_ == nullptr ||
-        recents_overlay_ == nullptr)
+    if (recents_drag_card_ == nullptr || recents_drag_preview_ == nullptr)
       return;
     recents_transition_progress_ = std::clamp(progress, 0, 256);
     const int32_t eased = recents_transition_progress_ *
@@ -1799,8 +1879,15 @@ private:
             recents_drag_preview_->pixels->height);
     lv_image_set_scale(recents_drag_image_, image_scale);
     lv_obj_center(recents_drag_image_);
-    lv_obj_set_style_opa(recents_overlay_,
-                         static_cast<lv_opa_t>(eased * 255 / 256), 0);
+    if (recents_overlay_ != nullptr) {
+      lv_obj_set_style_opa(recents_overlay_,
+                           static_cast<lv_opa_t>(eased * 255 / 256), 0);
+      lv_obj_set_style_bg_opa(recents_drag_layer_, LV_OPA_TRANSP, 0);
+    } else {
+      lv_obj_set_style_bg_opa(
+          recents_drag_layer_,
+          static_cast<lv_opa_t>(eased * LV_OPA_60 / 256), 0);
+    }
     if (recents_drag_footer_ != nullptr) {
       const int footer_opacity = std::clamp((eased - 112) * 2, 0, 255);
       lv_obj_set_style_opa(recents_drag_footer_,
@@ -1817,6 +1904,25 @@ private:
   static void CompleteRecentsTransition(lv_anim_t *animation) {
     auto *self = static_cast<Impl *>(lv_anim_get_user_data(animation));
     if (self == nullptr) return;
+    const bool finish_home = self->recents_transition_finish_home_;
+    self->recents_transition_finish_home_ = false;
+    if (finish_home) {
+      if (self->recents_overlay_ != nullptr) {
+        auto *overlay = self->recents_overlay_;
+        self->recents_overlay_ = nullptr;
+        lv_obj_delete(overlay);
+      }
+      self->recents_all_cards_.clear();
+      self->recents_deferred_cards_.clear();
+      self->recents_transition_active_ = false;
+      self->DestroyRecentsDragWindow();
+      self->recents_swipe_hold_committed_ = false;
+      self->recents_swipe_hold_started_ms_ = 0;
+      // BeginRecentsSwipe already captured the outgoing app for this gesture.
+      // Avoid doing the same framebuffer conversion again while landing home.
+      if (!self->on_home_) self->ShowHome(false);
+      return;
+    }
     if (!self->recents_transition_finish_open_ &&
         self->recents_overlay_ != nullptr) {
       auto *overlay = self->recents_overlay_;
@@ -1839,6 +1945,9 @@ private:
     if (!self->recents_transition_finish_open_)
       self->recents_all_cards_.clear();
     self->recents_transition_active_ = false;
+    self->recents_transition_finish_open_ = false;
+    self->recents_swipe_hold_committed_ = false;
+    self->recents_swipe_hold_started_ms_ = 0;
     self->DestroyRecentsDragWindow();
   }
 
@@ -1849,11 +1958,25 @@ private:
     const int32_t upward = std::max(0, recents_swipe_start_y_ - y);
     recents_swipe_max_up_ = std::max(recents_swipe_max_up_, upward);
     const int32_t visible_height = landscape_ ? width_ : height_;
+    const int32_t horizontal = std::abs(x - recents_swipe_start_x_);
+    const int32_t hold_distance = std::max(72, visible_height / 14);
+    const int32_t hold_slop = std::max(12, visible_height / 90);
+    if (!recents_swipe_hold_committed_ && upward >= hold_distance &&
+        upward > horizontal * 2) {
+      if (recents_swipe_hold_started_ms_ == 0 ||
+          std::abs(y - recents_swipe_hold_anchor_y_) > hold_slop) {
+        recents_swipe_hold_started_ms_ = MonotonicMilliseconds();
+        recents_swipe_hold_anchor_y_ = y;
+      }
+    } else if (!recents_swipe_hold_committed_) {
+      recents_swipe_hold_started_ms_ = 0;
+      recents_swipe_hold_anchor_y_ = y;
+    }
     const int32_t range = std::max(1, visible_height * 2 / 7);
     const int32_t progress = std::min(256, upward * 256 / range);
     const uint32_t now = MonotonicMilliseconds();
     if (progress < 256 && recents_last_drag_update_ms_ != 0 &&
-        now - recents_last_drag_update_ms_ < 12)
+        now - recents_last_drag_update_ms_ < 16)
       return;
     recents_last_drag_update_ms_ = now;
     LayoutRecentsTransition(progress);
@@ -1864,24 +1987,45 @@ private:
     const int32_t visible_height = landscape_ ? width_ : height_;
     const int32_t horizontal =
         std::abs(recents_swipe_last_x_ - recents_swipe_start_x_);
-    const bool accepted = recents_swipe_max_up_ >= visible_height / 9 &&
+    const bool accepted = recents_swipe_max_up_ >= visible_height / 11 &&
         recents_swipe_max_up_ > horizontal &&
         recents_swipe_last_y_ < recents_swipe_start_y_;
+    const bool open_recents = accepted && recents_swipe_hold_committed_;
+    const bool go_home = accepted && !open_recents;
     recents_swipe_active_ = false;
     recents_swipe_max_up_ = 0;
+    recents_swipe_hold_started_ms_ = 0;
+    recents_swipe_hold_anchor_y_ = 0;
     lv_anim_delete(this, SetRecentsTransitionProgress);
-    recents_transition_finish_open_ = accepted;
-    if (accepted) RecoveryVibrate(Haptic::kTouch);
+    recents_transition_finish_open_ = open_recents;
+    recents_transition_finish_home_ = go_home;
+
+    if (recents_drag_card_ == nullptr) {
+      recents_swipe_hold_committed_ = false;
+      recents_transition_active_ = false;
+      if (open_recents && recents_overlay_ == nullptr) ShowRecents(false);
+      else if (go_home && !on_home_) ShowHome();
+      return;
+    }
+
     lv_anim_t settle;
     lv_anim_init(&settle);
     lv_anim_set_var(&settle, this);
-    lv_anim_set_values(&settle, recents_transition_progress_,
-                       accepted ? 256 : 0);
-    lv_anim_set_duration(
-        &settle, accepted
+    const int32_t settle_target = open_recents
+        ? 256
+        : go_home ? std::max(recents_transition_progress_, 112) : 0;
+    lv_anim_set_values(&settle, recents_transition_progress_, settle_target);
+    lv_anim_set_duration(&settle,
+        open_recents
             ? std::clamp(90 + (256 - recents_transition_progress_) * 2 / 3,
                          90, 260)
-            : std::clamp(120 + recents_transition_progress_ / 2, 140, 230));
+            : go_home
+                ? std::clamp(105 +
+                                 std::abs(settle_target -
+                                          recents_transition_progress_) / 2,
+                             105, 165)
+                : std::clamp(120 + recents_transition_progress_ / 2,
+                             140, 230));
     lv_anim_set_path_cb(&settle, lv_anim_path_ease_out);
     lv_anim_set_exec_cb(&settle, SetRecentsTransitionProgress);
     lv_anim_set_user_data(&settle, this);
@@ -1901,6 +2045,10 @@ private:
   void CancelRecentsSwipe() {
     recents_swipe_active_ = false;
     recents_swipe_max_up_ = 0;
+    recents_swipe_hold_started_ms_ = 0;
+    recents_swipe_hold_anchor_y_ = 0;
+    recents_swipe_hold_committed_ = false;
+    recents_transition_finish_home_ = false;
     if (recent_launch_active_) return;
     lv_anim_delete(this, SetRecentsTransitionProgress);
     DestroyRecentsDragWindow();
@@ -2355,8 +2503,9 @@ private:
     self->pending_action_ = action;
   }
 
-  void ShowHome() {
-    if (IsRecentAppAction(current_scene_)) CaptureRecentPreview(current_scene_);
+  void ShowHome(bool capture_current = true) {
+    if (capture_current && IsRecentAppAction(current_scene_))
+      CaptureRecentPreview(current_scene_);
     CancelEdgeSwipe();
     CancelRecentsSwipe();
     DismissRecents();
@@ -3105,12 +3254,14 @@ private:
   int32_t recents_swipe_start_y_ = 0;
   int32_t recents_swipe_last_y_ = 0;
   int32_t recents_swipe_max_up_ = 0;
+  int32_t recents_swipe_hold_anchor_y_ = 0;
   int32_t recents_transition_progress_ = 0;
   int32_t recents_target_x_ = 0;
   int32_t recents_target_y_ = 0;
   int32_t recents_target_width_ = 0;
   int32_t recents_target_height_ = 0;
   uint32_t recents_last_drag_update_ms_ = 0;
+  uint32_t recents_swipe_hold_started_ms_ = 0;
   int32_t recent_launch_start_x_ = 0;
   int32_t recent_launch_start_y_ = 0;
   int32_t recent_launch_start_width_ = 0;
@@ -3120,6 +3271,8 @@ private:
   bool gpu_accelerated_ = false;
   bool recents_transition_active_ = false;
   bool recents_transition_finish_open_ = false;
+  bool recents_transition_finish_home_ = false;
+  bool recents_swipe_hold_committed_ = false;
   bool recent_launch_active_ = false;
   bool backend_ready_ = false;
   bool boot_animation_complete_ = false;

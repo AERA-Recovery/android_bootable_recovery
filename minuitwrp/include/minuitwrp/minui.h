@@ -112,6 +112,9 @@ int gr_save_screenshot_rotated(const char *dest, unsigned int rotation);
 int gr_save_screenshot_scaled_fast(const char *dest, unsigned int max_width);
 int gr_save_screenshot_scaled_jpeg(const char *dest, unsigned int max_width,
                                    int quality);
+int gr_capture_scaled_bgra(unsigned int max_width, unsigned int max_height,
+                           unsigned char **pixels, unsigned int *width,
+                           unsigned int *height);
 void gr_draw_rect(int x, int y, int w, int h, int thickness);
 
 // Transform minuitwrp API coordinates into display coordinates,

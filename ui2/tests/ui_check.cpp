@@ -438,7 +438,7 @@ int main(int argc,char **argv) {
   auto *clock_row=Find(prefs,"24-hour clock");
   assert(clock_row && lv_obj_get_width(clock_row)>=1200);
   for(const auto &item : std::vector<std::pair<const char*,Preference>>{
-      {"24-hour clock",Preference::kClock24},{"Recent apps gesture",Preference::kRecents},
+      {"24-hour clock",Preference::kClock24},{"Gesture navigation",Preference::kRecents},
       {"Show hidden files",Preference::kHiddenFiles},
       {"Verify ZIP signatures",Preference::kVerifyZip},{"Compress backups by default",Preference::kCompression},
       {"SHA-256 backup checksums",Preference::kSha256}}) {
