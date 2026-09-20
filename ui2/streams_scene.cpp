@@ -324,6 +324,8 @@ void ThumbnailTick(StreamsScene* scene) {
 void SetKeyboard(StreamsScene* scene, bool visible) {
   if (!scene || !scene->keyboard) return;
   if (visible) {
+    lv_keyboard_set_textarea(scene->keyboard, scene->input);
+    lv_obj_add_state(scene->input, LV_STATE_FOCUSED);
     lv_obj_remove_flag(scene->keyboard, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(scene->keyboard);
   } else {
@@ -1091,6 +1093,10 @@ void BuildStreamsScene(lv_obj_t* screen, ActionCallback callback, void* context)
 
   scene->keyboard = lv_keyboard_create(screen);
   phone_keyboard::Apply(scene->keyboard);
+  // LVGL keyboards default to a bottom alignment. Streams uses explicit
+  // screen coordinates, so without resetting the alignment its portrait Y
+  // offset is applied below the display and the keyboard is never visible.
+  lv_obj_set_align(scene->keyboard, LV_ALIGN_TOP_LEFT);
   if (landscape) {
     lv_obj_set_pos(scene->keyboard, lv_obj_get_width(screen) / 2, 300);
     lv_obj_set_size(scene->keyboard, lv_obj_get_width(screen) / 2, 900);
@@ -1103,6 +1109,12 @@ void BuildStreamsScene(lv_obj_t* screen, ActionCallback callback, void* context)
   lv_obj_set_user_data(scene->keyboard, &kPersistentModalMarker);
   lv_obj_add_flag(scene->keyboard, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_event_cb(
+      scene->input,
+      [](lv_event_t* event) {
+        SetKeyboard(static_cast<StreamsScene*>(lv_event_get_user_data(event)), true);
+      },
+      LV_EVENT_CLICKED, scene);
+  lv_obj_add_event_cb(
       scene->keyboard,
       [](lv_event_t *event) {
         if (lv_event_get_code(event) == LV_EVENT_CANCEL)
@@ -1110,12 +1122,6 @@ void BuildStreamsScene(lv_obj_t* screen, ActionCallback callback, void* context)
                       false);
       },
       LV_EVENT_CANCEL, scene);
-  lv_obj_add_event_cb(
-      scene->input,
-      [](lv_event_t* event) {
-        SetKeyboard(static_cast<StreamsScene*>(lv_event_get_user_data(event)), true);
-      },
-      LV_EVENT_FOCUSED, scene);
   lv_obj_add_event_cb(
       scene->keyboard,
       [](lv_event_t* event) {
