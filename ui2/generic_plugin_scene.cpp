@@ -38,6 +38,17 @@ struct ButtonModel {
   std::string detail;
 };
 
+enum class RowKind { kSection, kMetric };
+
+struct RowModel {
+  RowKind kind = RowKind::kMetric;
+  uint32_t id = 0;
+  uint32_t flags = 0;
+  std::string title;
+  std::string value;
+  lv_obj_t *value_label = nullptr;
+};
+
 struct GenericScene {
   lv_obj_t *screen = nullptr;
   lv_obj_t *card = nullptr;
@@ -53,6 +64,9 @@ struct GenericScene {
   std::string page_title;
   std::string page_body;
   std::vector<ButtonModel> buttons;
+  std::vector<RowModel> rows;
+  uint32_t page_back_action = 0;
+  uint32_t pending_back_action = 0;
   uint64_t launched_ms = 0;
   uint64_t operation_started_ms = 0;
   uint32_t operation_request = 0;
@@ -78,6 +92,24 @@ struct GenericScene {
 
 void SetStatus(GenericScene *scene, const std::string &status) {
   if (scene->status) i18n::BindLabel(scene->status, status.c_str());
+}
+
+void SetBackAction(GenericScene *scene, uint32_t action) {
+  scene->page_back_action = action;
+  if (scene->card)
+    lv_obj_set_user_data(scene->card,
+                         action ? &kPersistentModalMarker : nullptr);
+}
+
+void RequestPage(GenericScene *scene, uint32_t action) {
+  if (!action || !scene->session.Connected()) return;
+  SetBackAction(scene, 0);
+  SetStatus(scene, "Working...");
+  if (scene->progress) {
+    lv_bar_set_value(scene->progress, 24, LV_ANIM_OFF);
+    lv_bar_set_value(scene->progress, 72, LV_ANIM_ON);
+  }
+  scene->session.Send(plugin_api::Kind::kAction, action);
 }
 
 bool ModalVisible(lv_obj_t *screen) {
@@ -140,15 +172,115 @@ lv_obj_t *ActionCard(GenericScene *scene, const ButtonModel &model, int width,
                       primary ? kAccent : kDim);
   lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -28, 0);
   OnClick(card, [scene, id = model.id, disabled] {
-    if (!disabled && scene->session.Connected())
-      scene->session.Send(plugin_api::Kind::kAction, id);
+    if (!disabled) RequestPage(scene, id);
   });
   if (disabled) lv_obj_add_state(card, LV_STATE_DISABLED);
   AnimateEnter(card, 25 + static_cast<uint32_t>(index) * 26, 10);
   return card;
 }
 
+lv_color_t MetricColor(uint32_t flags) {
+  if (flags & plugin_api::kMetricCritical) return kRed;
+  if (flags & plugin_api::kMetricWarning) return kAmber;
+  if (flags & plugin_api::kMetricGood) return kGreen;
+  if (flags & plugin_api::kMetricAccent) return kAccent;
+  return kText;
+}
+
+bool MetricFlagsValid(uint32_t flags) {
+  constexpr uint32_t mask = plugin_api::kMetricGood |
+      plugin_api::kMetricWarning | plugin_api::kMetricCritical |
+      plugin_api::kMetricAccent;
+  const uint32_t tone = flags & mask;
+  return (flags & ~mask) == 0 && (tone == 0 || (tone & (tone - 1)) == 0);
+}
+
+void RenderMetricPage(GenericScene *scene) {
+  lv_obj_clean(scene->content);
+  lv_obj_update_layout(scene->content);
+  const int content_width = lv_obj_get_width(scene->content);
+  const size_t metric_count = std::count_if(
+      scene->rows.begin(), scene->rows.end(), [](const RowModel &row) {
+        return row.kind == RowKind::kMetric;
+      });
+  const bool animate_rows = metric_count <= 20;
+  auto *title = Label(scene->content,
+                      scene->page_title.empty() ? scene->plugin.name.c_str()
+                                                : scene->page_title.c_str(),
+                      &lv_font_montserrat_40, kText);
+  lv_obj_set_pos(title, 36, 22);
+  lv_obj_set_width(title, std::max(400, content_width - 72));
+  int y = 92;
+  if (!scene->page_body.empty()) {
+    auto *body = Label(scene->content, scene->page_body.c_str(),
+                       &lv_font_montserrat_28, kMutedStrong);
+    lv_obj_set_pos(body, 36, y);
+    lv_obj_set_width(body, std::max(400, content_width - 72));
+    lv_obj_set_style_text_line_space(body, 8, 0);
+    lv_obj_update_layout(body);
+    y += static_cast<int>(lv_obj_get_height(body)) + 30;
+  }
+  size_t visible_index = 0;
+  for (auto &model : scene->rows) {
+    model.value_label = nullptr;
+    if (model.kind == RowKind::kSection) {
+      if (visible_index != 0) y += 18;
+      auto *section = Label(scene->content, model.title.c_str(),
+                            &lv_font_montserrat_24, kAccent);
+      lv_obj_set_pos(section, 36, y + 12);
+      lv_obj_set_width(section, std::max(400, content_width - 72));
+      lv_obj_set_style_text_letter_space(section, 2, 0);
+      y += 56;
+      continue;
+    }
+    const int row_width = std::max(400, content_width - 72);
+    const int column_gap = 36;
+    const int name_width = std::max(180, (row_width - column_gap) * 2 / 5);
+    const int value_width = std::max(180, row_width - name_width - column_gap);
+    auto *row = lv_obj_create(scene->content);
+    Clear(row);
+    lv_obj_set_pos(row, 36, y);
+    lv_obj_set_width(row, row_width);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(row, kMainLine, 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_20, 0);
+    auto *name = Label(row, model.title.c_str(), &lv_font_montserrat_32,
+                       kMutedStrong);
+    lv_obj_set_pos(name, 0, 20);
+    lv_obj_set_width(name, name_width);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_WRAP);
+    model.value_label = Label(row, model.value.c_str(),
+                              &lv_font_montserrat_32,
+                              MetricColor(model.flags));
+    lv_obj_set_pos(model.value_label, name_width + column_gap, 20);
+    lv_obj_set_width(model.value_label, value_width);
+    lv_obj_set_style_text_align(model.value_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_long_mode(model.value_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_update_layout(row);
+    const int row_height = std::max(
+        82, std::max(static_cast<int>(lv_obj_get_height(name)),
+                     static_cast<int>(lv_obj_get_height(model.value_label))) + 40);
+    lv_obj_set_height(row, row_height);
+    if (animate_rows)
+      AnimateEnter(row, 12 + static_cast<uint32_t>(visible_index) * 10, 6);
+    ++visible_index;
+    y += row_height;
+  }
+  if (!scene->buttons.empty()) y += 26;
+  for (size_t index = 0; index < scene->buttons.size(); ++index) {
+    const auto &model = scene->buttons[index];
+    ActionCard(scene, model, std::max(400, content_width - 72), y,
+               visible_index + index);
+    y += model.detail.empty() ? 136 : 168;
+  }
+}
+
 void RenderPage(GenericScene *scene) {
+  if (!scene->rows.empty()) {
+    RenderMetricPage(scene);
+    return;
+  }
   lv_obj_clean(scene->content);
   // LVGL defers coordinate resolution until a layout pass. Generic plugin
   // pages can commit during the very first timer tick, so resolve the explicit
@@ -299,6 +431,8 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
       scene->page_title = message.title;
       scene->page_body = message.text;
       scene->buttons.clear();
+      scene->rows.clear();
+      scene->pending_back_action = 0;
       scene->page_pending = true;
       break;
     case plugin_api::Kind::kAddButton:
@@ -319,14 +453,88 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
       scene->buttons.push_back({message.request_id, message.flags,
                                 message.title, message.text});
       break;
+    case plugin_api::Kind::kAddSection:
+      if (!scene->page_pending || message.title[0] == '\0' ||
+          message.flags != 0 ||
+          std::count_if(scene->rows.begin(), scene->rows.end(),
+                        [](const RowModel &row) {
+                          return row.kind == RowKind::kSection;
+                        }) >= plugin_api::kMaxSections) {
+        SetStatus(scene, "Plugin page exceeded the Host API limit");
+        scene->session.Close();
+        break;
+      }
+      scene->rows.push_back({RowKind::kSection, 0, 0, message.title,
+                             message.text, nullptr});
+      break;
+    case plugin_api::Kind::kAddMetric:
+      if (!scene->page_pending || message.request_id == 0 ||
+          message.title[0] == '\0' || !MetricFlagsValid(message.flags) ||
+          std::count_if(scene->rows.begin(), scene->rows.end(),
+                        [](const RowModel &row) {
+                          return row.kind == RowKind::kMetric;
+                        }) >= plugin_api::kMaxMetrics ||
+          std::any_of(scene->rows.begin(), scene->rows.end(),
+                      [&](const RowModel &row) {
+                        return row.kind == RowKind::kMetric &&
+                               row.id == message.request_id;
+                      })) {
+        SetStatus(scene, "Plugin page exceeded the Host API limit");
+        scene->session.Close();
+        break;
+      }
+      scene->rows.push_back({RowKind::kMetric, message.request_id,
+                             message.flags, message.title, message.text,
+                             nullptr});
+      break;
+    case plugin_api::Kind::kUpdateMetric: {
+      auto row = std::find_if(scene->rows.begin(), scene->rows.end(),
+          [&](const RowModel &candidate) {
+            return candidate.kind == RowKind::kMetric &&
+                   candidate.id == message.request_id;
+          });
+      if (scene->page_pending || row == scene->rows.end() ||
+          !MetricFlagsValid(message.flags)) {
+        SetStatus(scene, "Plugin sent an invalid metric update");
+        scene->session.Close();
+        break;
+      }
+      row->value = message.text;
+      row->flags = message.flags;
+      if (row->value_label) {
+        lv_label_set_text(row->value_label, row->value.c_str());
+        lv_obj_set_style_text_color(row->value_label,
+                                    MetricColor(row->flags), 0);
+      }
+      break;
+    }
+    case plugin_api::Kind::kSetBackAction:
+      if (!scene->page_pending || message.request_id == 0 ||
+          message.value != 0 || message.flags != 0 ||
+          message.title[0] != '\0' || message.text[0] != '\0') {
+        SetStatus(scene, "Plugin sent an invalid back action");
+        scene->session.Close();
+        break;
+      }
+      scene->pending_back_action = message.request_id;
+      break;
     case plugin_api::Kind::kCommitPage:
-      if (!scene->page_pending) {
+      if (!scene->page_pending ||
+          (scene->pending_back_action != 0 &&
+           std::none_of(scene->buttons.begin(), scene->buttons.end(),
+                        [scene](const ButtonModel &button) {
+                          return button.id == scene->pending_back_action &&
+                              !(button.flags & plugin_api::kDisabled);
+                        }))) {
         SetStatus(scene, "Plugin sent an invalid Host API sequence");
         scene->session.Close();
         break;
       }
       scene->page_pending = false;
+      SetBackAction(scene, scene->pending_back_action);
       RenderPage(scene);
+      if (scene->progress)
+        lv_bar_set_value(scene->progress, 100, LV_ANIM_ON);
       SetStatus(scene, "Connected through AERA Host API 2");
       break;
     case plugin_api::Kind::kSetStatus:
@@ -383,6 +591,11 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
       (landscape ? 320 : 430) - 36;
   scene->card = lv_obj_create(screen);
   Panel(scene->card, 42, kMainPanel);
+  lv_obj_add_event_cb(scene->card, [](lv_event_t *event) {
+    if (lv_event_get_code(event) != LV_EVENT_CANCEL) return;
+    auto *scene = static_cast<GenericScene *>(lv_event_get_user_data(event));
+    RequestPage(scene, scene->page_back_action);
+  }, LV_EVENT_CANCEL, scene);
   lv_obj_set_pos(scene->card, 64, landscape ? 320 : 430);
   lv_obj_set_size(scene->card, card_width, card_height);
   scene->content = lv_obj_create(scene->card);

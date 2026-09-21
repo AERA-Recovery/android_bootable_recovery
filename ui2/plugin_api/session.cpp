@@ -95,7 +95,8 @@ std::vector<Message> Session::Poll() {
       }
       negotiated_ = true;
       status_ = "Plugin connected";
-      if (!Send(Kind::kHelloAck, 0, kProtocolVersion) ||
+      if (!Send(Kind::kHelloAck, 0, kProtocolVersion,
+                kFeatureMetrics | kFeatureBackNavigation) ||
           !Send(Kind::kLifecycle, 0,
                 static_cast<uint32_t>(Lifecycle::kResume))) break;
       continue;

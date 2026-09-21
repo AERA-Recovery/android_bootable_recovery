@@ -261,6 +261,11 @@ void SetDownloadManager(WebScene *s, bool visible) {
   ResetBrowserTouches(s);
   if (!s->manager) {
     s->manager = lv_obj_create(s->screen);
+    lv_obj_set_user_data(s->manager, &kPersistentModalMarker);
+    lv_obj_add_event_cb(s->manager, [](lv_event_t *event) {
+      SetDownloadManager(
+          static_cast<WebScene *>(lv_event_get_user_data(event)), false);
+    }, LV_EVENT_CANCEL, s);
     NoScroll(s->manager);
     lv_obj_set_pos(s->manager, s->view_left, s->view_top);
     lv_obj_set_size(s->manager, s->view_width, s->view_height);
@@ -886,8 +891,17 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
         code == LV_EVENT_PRESSING ? web::Kind::kTouchMove : web::Kind::kTouchUp;
     s->session.Send(kind, x, y);
   }, LV_EVENT_ALL, s);
+  lv_obj_add_event_cb(s->viewport, [](lv_event_t *event) {
+    auto *s = static_cast<WebScene *>(lv_event_get_user_data(event));
+    if (s->session.Connected() && s->session.CanBack())
+      s->session.Send(web::Kind::kBack);
+  }, LV_EVENT_CANCEL, s);
   s->navigation = Navigation(screen, Action::kSettings, callback, context, true);
   s->keyboard = lv_keyboard_create(screen);
+  lv_obj_set_user_data(s->keyboard, &kPersistentModalMarker);
+  lv_obj_add_event_cb(s->keyboard, [](lv_event_t *event) {
+    HideKeyboard(static_cast<WebScene *>(lv_event_get_user_data(event)));
+  }, LV_EVENT_CANCEL, s);
   phone_keyboard::Apply(s->keyboard);
   lv_obj_set_size(s->keyboard, landscape ? 2408 : 1440,
                   landscape ? 720 : 760);
@@ -949,6 +963,11 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
             (i == 0 ? s->session.CanBack() : i == 1 ? s->session.CanForward() : true);
         if (enabled) lv_obj_remove_state(s->controls[i], LV_STATE_DISABLED);
         else lv_obj_add_state(s->controls[i], LV_STATE_DISABLED);
+      }
+      if (visible && s->viewport) {
+        lv_obj_set_user_data(s->viewport,
+                             s->session.CanBack()
+                                 ? &kPersistentModalMarker : nullptr);
       }
       if (s->last_download_revision != s->session.DownloadRevision()) {
         if (visible) {

@@ -570,6 +570,7 @@ void ShowAttachmentPicker(TelegramScene *scene, const std::string &requested) {
 
 void OpenChat(TelegramScene *scene, int64_t id, const std::string &title) {
   scene->chat_id = id;
+  lv_obj_set_user_data(scene->surface, &kPersistentModalMarker);
   scene->history_loading = true;
   lv_obj_clean(scene->surface);
   scene->keyboard = nullptr;
@@ -705,6 +706,7 @@ void AddChat(TelegramScene *scene, const telegram::Message &message) {
 void ShowChats(TelegramScene *scene) {
   lv_obj_clean(scene->surface);
   scene->chat_id = 0;
+  lv_obj_set_user_data(scene->surface, nullptr);
   scene->keyboard = nullptr;
   scene->composer = nullptr;
   scene->send_button = nullptr;
@@ -867,6 +869,13 @@ void BuildTelegramScene(lv_obj_t *screen, ActionCallback callback, void *context
   AttachStatusBar(screen, callback, context, StatusBarAction::kNone, true);
   scene->surface = lv_obj_create(screen);
   Clear(scene->surface);
+  lv_obj_add_event_cb(scene->surface, [](lv_event_t *event) {
+    auto *scene = static_cast<TelegramScene *>(lv_event_get_user_data(event));
+    if (scene->keyboard_visible)
+      SetChatKeyboard(scene, false);
+    else if (scene->chat_id != 0)
+      ShowChats(scene);
+  }, LV_EVENT_CANCEL, scene);
   lv_obj_set_align(scene->surface, LV_ALIGN_TOP_LEFT);
   const int status_height = StatusBarHeight();
   lv_obj_set_pos(scene->surface, 0, status_height);

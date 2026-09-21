@@ -41,9 +41,16 @@ worker starts with `HELLO`, placing its minimum protocol version in `value` and
 maximum in `flags`. AERA replies with `HELLO_ACK` and `LIFECYCLE/RESUME`.
 
 The initial declarative surface supports a page title/body, up to 12 action
-buttons, status updates, lifecycle events and mediated operations. AERA rejects
-bad sequences, duplicate action IDs, unknown flags, oversized packets and more
-than 128 worker messages per second.
+buttons, status updates, lifecycle events and mediated operations. The host
+advertises optional extensions in the `HELLO_ACK` flags. `kFeatureMetrics`
+adds compact section headers, up to 64 keyed metric rows, and in-place metric
+updates. `kFeatureBackNavigation` lets a page declare one enabled action as its
+parent with `SET_BACK_ACTION`; AERA's edge-back gesture then invokes that
+action before leaving the plugin. A worker must not send extension messages
+unless the corresponding feature bit was advertised; this preserves
+compatibility with older API 2 hosts. AERA rejects bad sequences, duplicate
+action or metric IDs, unknown flags, oversized packets and more than 128
+worker messages per second.
 
 The host expands a hash-verified runtime into private RAM and launches its musl
 loader directly as root. It does not apply a chroot, Minijail, namespaces,

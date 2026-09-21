@@ -9,6 +9,13 @@ namespace recovery_ui2::plugin_api {
 constexpr uint32_t kMagic = 0x41325049U;  // A2PI
 constexpr uint32_t kProtocolVersion = 2;
 constexpr uint32_t kMaxButtons = 12;
+constexpr uint32_t kMaxMetrics = 64;
+constexpr uint32_t kMaxSections = 16;
+
+enum Features : uint32_t {
+  kFeatureMetrics = 1U << 0,
+  kFeatureBackNavigation = 1U << 1,
+};
 
 enum class Kind : uint32_t {
   kHello = 1,
@@ -18,6 +25,10 @@ enum class Kind : uint32_t {
   kSetStatus,
   kRequestOperation,
   kClose,
+  kAddSection,
+  kAddMetric,
+  kUpdateMetric,
+  kSetBackAction,
   kHelloAck = 64,
   kAction,
   kLifecycle,
@@ -41,6 +52,10 @@ enum Flags : uint32_t {
   kPrimary = 1U << 0,
   kDestructive = 1U << 1,
   kDisabled = 1U << 2,
+  kMetricGood = 1U << 8,
+  kMetricWarning = 1U << 9,
+  kMetricCritical = 1U << 10,
+  kMetricAccent = 1U << 11,
 };
 
 // One bounded packet is one complete message. Strings must be NUL-terminated;
@@ -64,7 +79,7 @@ inline bool StringsValid(const Message &message) {
          memchr(message.text, '\0', sizeof(message.text)) != nullptr;
 }
 inline bool WorkerKind(Kind kind) {
-  return kind >= Kind::kHello && kind <= Kind::kClose;
+  return kind >= Kind::kHello && kind <= Kind::kSetBackAction;
 }
 inline bool HostKind(Kind kind) {
   return kind >= Kind::kHelloAck && kind <= Kind::kOperationResult;
