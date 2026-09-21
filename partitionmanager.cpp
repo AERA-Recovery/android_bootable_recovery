@@ -141,6 +141,12 @@ struct InitServiceProcess {
 	pid_t pid;
 };
 
+// Services whose processes referenced a dynamic-partition-backed mount when
+// Super was released for an in-process fastbootd session. Keep the exact set
+// so recovery can restore the hardware stack it actually stopped, without
+// relying on device-specific property triggers.
+std::vector<std::string> gQuiescedDynamicServices;
+
 void CollectInitServicePid(void* cookie, const char* name, const char* value, uint32_t) {
 	constexpr const char* prefix = "init.svc_debug_pid.";
 	auto* services = static_cast<std::vector<InitServiceProcess>*>(cookie);
@@ -259,6 +265,7 @@ bool DynamicPartitionMounts(std::vector<std::string>* mounts) {
 }
 
 bool QuiesceDynamicPartitionUsers() {
+	gQuiescedDynamicServices.clear();
 	std::vector<std::string> mounts;
 	if (!DynamicPartitionMounts(&mounts))
 		return false;
@@ -287,6 +294,7 @@ bool QuiesceDynamicPartitionUsers() {
 				service.name.c_str());
 			return false;
 		}
+		gQuiescedDynamicServices.push_back(service.name);
 	}
 
 	for (const auto& mount : mounts) {
@@ -971,6 +979,12 @@ void TWPartitionManager::Decrypt_Data() {
 	if (Decrypt_Data && (!Decrypt_Data->Is_Encrypted || Decrypt_Data->Is_Decrypted)) {
 		Decrypt_Adopted();
 	}
+#endif
+}
+
+void TWPartitionManager::Prepare_Crypto_Keystore() {
+#ifdef TW_INCLUDE_CRYPTO
+	android::keystore::copySqliteDb();
 #endif
 }
 
@@ -4967,21 +4981,35 @@ bool TWPartitionManager::Prepare_Super_Volume(TWPartition* twrpPart) {
     return true;
 }
 
-bool TWPartitionManager::Prepare_All_Super_Volumes() {
+bool TWPartitionManager::Prepare_All_Super_Volumes(bool allow_missing) {
 	bool status = true;
 	std::vector<TWPartition*>::iterator iter;
 
 	for (iter = Partitions.begin(); iter != Partitions.end(); iter++) {
 		if ((*iter)->Is_Super) {
 			if (!Prepare_Super_Volume(*iter)) {
-				status = false;
+				// Process_Fstab() previously filtered logical entries missing
+				// from the current slot during startup. Cold fastbootd defers
+				// that filtering until recovery is selected.
+				if (!allow_missing)
+					status = false;
 				Partitions.erase(iter--);
+				continue;
 			}
 			PartitionManager.Output_Partition(*iter);
 		}
 	}
 	Update_System_Details();
 	return status;
+}
+
+void TWPartitionManager::Prepare_Deferred_Recovery_Modules() {
+#ifdef TW_LOAD_VENDOR_MODULES
+	// Publishing this property is also the device-tree trigger for crypto HAL
+	// startup, so it must happen only after deferred logical mappings exist.
+	android::base::SetProperty(TW_MODULES_MOUNTED_PROP, "false");
+	KernelModuleLoader::Load_Vendor_Modules();
+#endif
 }
 
 std::string TWPartitionManager::Get_Super_Partition() {
@@ -5107,7 +5135,7 @@ void TWPartitionManager::Unlock_Block_Partitions() {
 	}
 }
 
-bool TWPartitionManager::Unmap_Super_Devices() {
+bool TWPartitionManager::Unmap_Super_Devices(bool preserve_partitions) {
 	bool destroyed = false;
 #ifndef TW_EXCLUDE_APEX
 	twrpApex apex;
@@ -5134,10 +5162,17 @@ bool TWPartitionManager::Unmap_Super_Devices() {
 				LOGINFO("removing cow partition: %s\n", cow_partition.c_str());
 				destroyed = DestroyLogicalPartition(cow_partition);
 			}
-			iter = Partitions.erase(iter);
-			delete part;
 			if (!destroyed) {
 				return false;
+			}
+			if (preserve_partitions) {
+				// AERA's in-process recovery/fastbootd transition keeps the
+				// partition model alive while fastboot owns the logical devices.
+				// The object is rebound to a fresh dm device on return.
+				++iter;
+			} else {
+				iter = Partitions.erase(iter);
+				delete part;
 			}
 		} else {
 			++iter;
@@ -5164,6 +5199,23 @@ bool TWPartitionManager::Unmap_Super_Devices() {
 	closedir(d);
 	}
 	return true;
+}
+
+void TWPartitionManager::Restart_Quiesced_Dynamic_Services() {
+	if (gQuiescedDynamicServices.empty())
+		return;
+
+	// Clear the saved set before issuing ctl.start. If init immediately exits a
+	// oneshot service, it must not be replayed again by an unrelated transition.
+	const auto services = std::move(gQuiescedDynamicServices);
+	gQuiescedDynamicServices.clear();
+	for (const auto& service : services) {
+		if (android::base::GetProperty("init.svc." + service, "") == "running")
+			continue;
+		LOGINFO("Restarting init service %s after restoring dynamic partitions\n",
+			service.c_str());
+		property_set("ctl.start", service.c_str());
+	}
 }
 
 bool TWPartitionManager::Check_Pending_Merges() {

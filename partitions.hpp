@@ -348,6 +348,7 @@ public:
 	void Setup_Fstab_Partitions(bool Display_Error);                          // Populates the partitions
 	int Write_Fstab();                                                        // Creates /etc/fstab file that's used by the command line for mount commands
 	void Decrypt_Data();							  // Decrypt Data if enabled
+	void Prepare_Crypto_Keystore();					  // Refresh recovery's keystore DB after metadata decrypt
 	void Output_Partition_Logging();                                          // Outputs partition information to the log
 	void Output_Partition(TWPartition* Part);                                 // Outputs partition details to the log
 	int Mount_By_Path(string Path, bool Display_Error);                       // Mounts partition based on path (e.g. /system)
@@ -362,7 +363,8 @@ public:
 	int Run_OTA_Survival_Backup(bool adbbackup);                              // Create backup for OTA survival in the internal storage
     	int Run_OTA_Survival_Restore(const string& Restore_Name);                 // Restore OTA survival
     	void Fox_Set_Dynamic_Partition_Props();					  // Set the OrangeFox dynamic partitions props
- 	bool Prepare_All_Super_Volumes();					  // Prepare all known super volumes from super partition
+	bool Prepare_All_Super_Volumes(bool allow_missing = false);		  // Prepare all known super volumes from super partition
+	void Prepare_Deferred_Recovery_Modules();				  // Load/stage vendor modules after cold fastbootd
 
 	std::string Get_Bare_Partition_Name(std::string Mount_Point);
    
@@ -446,7 +448,8 @@ public:
 	void Set_Crypto_State();                                                  // Sets encryption state for devices (ro.crypto.state)
 	int Set_Crypto_Type(const char* crypto_type);                             // Sets encryption type for FDE (block) and FBE (file) devices (ro.crypto.type)
 	void Unlock_Block_Partitions();                                           // Unlock all block devices after update_engine runs
-	bool Unmap_Super_Devices();                                               // Unmap super devices in TWRP
+	bool Unmap_Super_Devices(bool preserve_partitions = false);              // Unmap super devices in TWRP
+	void Restart_Quiesced_Dynamic_Services();                                // Restore services stopped for live fastbootd
 	bool Check_Pending_Merges();                                              // Check and run pending merges on data for VAB devices
 	bool Disable_AVB2(bool Display_Info);                                     // Disable AVB2.0 in vbmeta/vbmeta_system
 	void Check_UsbOtg_Status();						  // Checks if usb_otg is connected

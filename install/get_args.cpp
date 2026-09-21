@@ -1,5 +1,7 @@
 #include "twinstall/get_args.h"
 
+#include <algorithm>
+
 std::string stage;
 
 // command line args come from, in decreasing precedence:
@@ -53,12 +55,21 @@ std::vector<std::string> args::get_args(const int *argc, char*** const argv) {
     }
   }
 
-  // Write the arguments (excluding the filename in args[0]) back into the
-  // bootloader control block. So the device will always boot into recovery to
-  // finish the pending work, until finish_recovery() is called.
-  std::vector<std::string> options(args.cbegin() + 1, args.cend());
-  if (!update_bootloader_message(options, &err)) {
-    LOG(ERROR) << "Failed to set BCB message: " << err;
+  // AERA can replace only the recovery userspace when moving between normal
+  // recovery and fastbootd.  That transient argument must never be persisted
+  // in the BCB, otherwise a later hardware boot could unexpectedly return to
+  // the temporary mode.
+  const bool aera_soft_switch =
+      std::find(args.cbegin() + 1, args.cend(), "--aera-soft-switch") !=
+      args.cend();
+  if (!aera_soft_switch) {
+    // Write the arguments (excluding the filename in args[0]) back into the
+    // bootloader control block. So the device will always boot into recovery
+    // to finish pending work, until finish_recovery() is called.
+    std::vector<std::string> options(args.cbegin() + 1, args.cend());
+    if (!update_bootloader_message(options, &err)) {
+      LOG(ERROR) << "Failed to set BCB message: " << err;
+    }
   }
 
   // Finally, if no arguments were specified, check whether we should boot

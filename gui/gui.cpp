@@ -948,6 +948,8 @@ extern "C" int gui_init(void)
 	TWFunc::Set_Brightness(DataManager::GetStrValue("tw_brightness"));
 	const bool fastboot_mode =
 		android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
+	const bool soft_switch =
+		android::base::GetProperty(AERA_SOFT_SWITCH_PROP, "0") == "1";
 
 #ifdef TW_SCREEN_BLANK_ON_BOOT
         printf("TW_SCREEN_BLANK_ON_BOOT := true\n");
@@ -961,8 +963,10 @@ extern "C" int gui_init(void)
 		usleep(TW_DELAY_TOUCH_INIT_MS);
 #endif
 		ev_init();
-		if (!fastboot_mode)
+		if (!fastboot_mode && !soft_switch)
 			recovery_ui2::StartRecoveryUi2Early(kAeraDisplayMetrics);
+		else if (soft_switch && !fastboot_mode)
+			LOGINFO("AERA userspace handoff detected; restoring recovery without the boot animation.\n");
 		else
 			LOGINFO("Fastbootd startup detected; deferring to dedicated AERA fastbootd UI.\n");
 		return 0;
@@ -1133,10 +1137,16 @@ extern "C" int gui_startPage(const char *page_name, const int allow_commands, in
 	if (gUseRecoveryUi2) {
 		const bool fastboot_mode = !strcmp(page_name, "fastboot") ||
 			android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
+		const bool resume_recovery = !fastboot_mode &&
+			android::base::GetProperty(AERA_SOFT_SWITCH_PROP, "0") == "1";
 		if (!fastboot_mode) recovery_ui2::RecoveryWifiInitialize();
+		if (resume_recovery)
+			android::base::SetProperty(AERA_SOFT_SWITCH_PROP, "0");
 		const auto result = fastboot_mode
 			? recovery_ui2::RunRecoveryUi2Fastboot(kAeraDisplayMetrics)
-			: recovery_ui2::RunRecoveryUi2(kAeraDisplayMetrics);
+			: resume_recovery
+				? recovery_ui2::RunRecoveryUi2Resume(kAeraDisplayMetrics)
+				: recovery_ui2::RunRecoveryUi2(kAeraDisplayMetrics);
 		LOGINFO("AERA Recovery Project native engine exited (%d); dispatching the requested action.\n",
 		        static_cast<int>(result));
 		gUseRecoveryUi2 = false;

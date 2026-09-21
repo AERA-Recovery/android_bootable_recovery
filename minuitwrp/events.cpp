@@ -165,7 +165,13 @@ int vibrate(int timeout_ms)
         vib->on((uint32_t)timeout_ms);
     }
 #elif defined(USE_QTI_AIDL_HAPTICS)
-    std::shared_ptr<IVibrator> vib = IVibrator::fromBinder(ndk::SpAIBinder(AServiceManager_getService(kVibratorInstance.c_str())));
+    // getService() waits for several seconds when live fastbootd has
+    // intentionally stopped a vendor/odm-backed vibrator HAL. Haptics run on
+    // the UI event path, so that wait stalls every touch and makes the whole
+    // interface appear frozen. A missing vibrator is optional: probe without
+    // waiting and simply skip this pulse until recovery restores the service.
+    std::shared_ptr<IVibrator> vib = IVibrator::fromBinder(
+        ndk::SpAIBinder(AServiceManager_checkService(kVibratorInstance.c_str())));
     if (vib != nullptr) {
 #ifdef USE_QTI_AIDL_HAPTICS_FIX_OFF
         std::thread([vib, timeout_ms] {

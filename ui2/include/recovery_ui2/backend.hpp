@@ -57,6 +57,15 @@ std::string RecoveryBuildDate();
 std::string RecoveryMaintainer();
 bool RecoverySetActiveSlot(const std::string &slot);
 bool RecoveryDataLocked();
+
+// Switch the recovery backend between ordinary AERA and userspace fastboot
+// without replacing the UI process or its Qualcomm display context.
+bool RecoveryEnterFastbootd();
+bool RecoveryLeaveFastbootd(bool initialize_recovery = false);
+void RecoveryCompleteColdStartup();
+int RecoveryCredentialType();
+bool RecoveryUsesFileBasedEncryption();
+int RecoveryPatternGridSize();
 std::vector<AndroidUser> RecoveryAndroidUsers();
 bool RecoverySetStorage(const std::string &path);
 int RecoveryRunJob(const JobRequest &request);

@@ -54,6 +54,8 @@ bool startupArgs::processRecoveryArgs(std::vector<std::string> args, int index) 
 			android::base::SetProperty("sys.usb.config", "fastboot");
 			DataManager::SetValue("tw_enable_adb", 0);
 			DataManager::SetValue("tw_enable_fastboot", 1);
+		} else if (args[index] == AERA_SOFT_SWITCH) {
+			aera_soft_switch = true;
 		} else if (args[index].find(UPDATE_PACKAGE) != std::string::npos || args[index].find(SPECIAL_UPDATE_PACKAGE) != std::string::npos) {
 			std::string::size_type eq_pos = args[index].find("=");
 			std::string arg = args[index].substr(eq_pos + 1, args[index].size());
@@ -103,4 +105,8 @@ std::string startupArgs::Get_Intent() {
 
 bool startupArgs::Get_Fastboot_Mode() {
 	return fastboot_mode;
+}
+
+bool startupArgs::Get_Aera_Soft_Switch() {
+	return aera_soft_switch;
 }

@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include <cutils/properties.h>
+#include <android-base/properties.h>
 
 #include "../data.hpp"
 #include "../partitions.hpp"
@@ -84,6 +85,7 @@ std::atomic<bool> gSideloadActive{false};
 std::atomic<bool> gSideloadCancelRequested{false};
 std::atomic<uint64_t> gSideloadReceivedBytes{0};
 std::atomic<uint64_t> gSideloadTotalBytes{0};
+bool gLiveFastbootPostDecryptReady = false;
 }
 
 std::vector<AndroidUser> RecoveryAndroidUsers() {
@@ -181,6 +183,170 @@ bool RecoverySetActiveSlot(const std::string &slot) {
 bool RecoveryDataLocked() {
   return DataManager::GetIntValue(TW_IS_ENCRYPTED) != 0 &&
          DataManager::GetIntValue(TW_IS_DECRYPTED) == 0;
+}
+
+bool RecoveryEnterFastbootd() {
+  if (!android::base::GetBoolProperty("ro.boot.dynamic_partitions", false)) {
+    LOGERR("AERA live fastbootd: dynamic partitions are unavailable.\n");
+    return false;
+  }
+
+  // Remember whether device-specific post-decryption resources were active.
+  // Unmapping Super necessarily tears down stock vendor/odm bind mounts, so
+  // the standard per-device hook must be replayed after returning.
+  gLiveFastbootPostDecryptReady =
+      android::base::GetBoolProperty("post.decrypt.modules", false);
+
+  // Preserve whether MTP was enabled so the exact recovery USB state can be
+  // restored when the user returns. Detach USB before removing dm devices.
+  TWFunc::Toggle_MTP(false);
+  property_set("sys.usb.config", "none");
+  usleep(200000);
+  if (!PartitionManager.Unmap_Super_Devices(true)) {
+    LOGERR("AERA live fastbootd: could not release dynamic partitions.\n");
+    PartitionManager.Setup_Super_Devices();
+    PartitionManager.Prepare_All_Super_Volumes();
+    PartitionManager.Restart_Quiesced_Dynamic_Services();
+    property_set("sys.usb.config", "adb");
+    TWFunc::Toggle_MTP(true);
+    gLiveFastbootPostDecryptReady = false;
+    return false;
+  }
+
+#ifdef AB_OTA_UPDATER
+  DataManager::SetValue("tw_active_slot",
+                        PartitionManager.Get_Active_Slot_Display());
+#endif
+  android::base::SetProperty(TW_FASTBOOT_MODE_PROP, "1");
+  property_set("ro.orangefox.fastbootd", "1");
+  property_set("ro.boot.verifiedbootstate", "orange");
+  TWFunc::RunFoxScript("/system/bin/postfastboot.sh", "");
+  property_set("sys.usb.config", "fastboot");
+  LOGINFO("AERA live fastbootd: service active; UI display context preserved.\n");
+  return true;
+}
+
+bool RecoveryLeaveFastbootd(bool initialize_recovery) {
+  const bool replay_post_decrypt = gLiveFastbootPostDecryptReady ||
+      android::base::GetBoolProperty("post.decrypt.modules", false);
+  property_set("sys.usb.config", "none");
+  usleep(200000);
+  property_set("ro.orangefox.fastbootd", "0");
+  android::base::SetProperty(TW_FASTBOOT_MODE_PROP, "0");
+
+  PartitionManager.Setup_Super_Devices();
+  if (!PartitionManager.Prepare_All_Super_Volumes(initialize_recovery)) {
+    LOGERR("AERA live fastbootd: could not restore dynamic partitions.\n");
+    PartitionManager.Unmap_Super_Devices(true);
+    property_set("sys.usb.config", "fastboot");
+    property_set("ro.orangefox.fastbootd", "1");
+    android::base::SetProperty(TW_FASTBOOT_MODE_PROP, "1");
+    return false;
+  }
+
+  if (initialize_recovery) {
+    LOGINFO("AERA live fastbootd: initializing cold recovery backend.\n");
+    // Cold fastbootd intentionally skipped vendor/vendor_dlkm module work.
+    // Do it now, after Super exists. On devices using the modules-loaded init
+    // contract this also starts the crypto HAL dependency chain.
+    PartitionManager.Prepare_Deferred_Recovery_Modules();
+    const bool encrypted =
+        android::base::GetProperty("ro.crypto.state", "") == "encrypted";
+    const bool has_prepdecrypt =
+        access("/vendor/bin/prepdecrypt.sh", R_OK) == 0 ||
+        access("/vendor/etc/init/prepdecrypt.rc", R_OK) == 0 ||
+        !android::base::GetProperty("prepdecrypt.setpatch", "").empty() ||
+        !android::base::GetProperty("init.svc.prepdecrypt.vendor", "").empty();
+    const bool has_delayed_crypto_hal =
+        !android::base::GetProperty("init.svc.vendor.crypto-hal-delay", "").empty();
+    if (encrypted && has_delayed_crypto_hal &&
+        !android::base::GetBoolProperty("vendor.crypto_hal.ready", false)) {
+      LOGINFO("AERA live fastbootd: waiting for deferred crypto HALs.\n");
+      for (int attempt = 0; attempt < 150; ++attempt) {
+        if (android::base::GetBoolProperty("vendor.crypto_hal.ready", false)) break;
+        usleep(100000);
+      }
+      if (!android::base::GetBoolProperty("vendor.crypto_hal.ready", false))
+        LOGERR("AERA live fastbootd: deferred crypto HAL readiness timed out.\n");
+    }
+    if (encrypted && has_prepdecrypt) {
+      // prepdecrypt may already have completed while cold fastbootd had Super
+      // intentionally unmapped. Re-run its init-managed service now so it
+      // observes the fully restored recovery partition state.
+      const bool can_restart_prepdecrypt =
+          !android::base::GetProperty("init.svc.prepdecrypt.vendor", "").empty();
+      if (can_restart_prepdecrypt) {
+        property_set("crypto.ready", "0");
+        property_set("ctl.restart", "prepdecrypt.vendor");
+      }
+      LOGINFO("AERA live fastbootd: waiting for prepdecrypt crypto readiness.\n");
+      for (int attempt = 0; attempt < 150; ++attempt) {
+        if (android::base::GetBoolProperty("crypto.ready", false)) break;
+        usleep(100000);
+      }
+      if (!android::base::GetBoolProperty("crypto.ready", false))
+        LOGERR("AERA live fastbootd: prepdecrypt readiness timed out.\n");
+    }
+    PartitionManager.Setup_Fstab_Partitions(true);
+    PartitionManager.Fox_Set_Dynamic_Partition_Props();
+    // Match normal recovery startup. Keystore2 must read the database from
+    // recovery-owned storage after metadata decryption; an old copy left by
+    // the fastbootd startup cannot unwrap the current synthetic-password key.
+    PartitionManager.Prepare_Crypto_Keystore();
+  }
+
+  if (replay_post_decrypt) {
+    // This is the common device-tree contract used to restore any stock
+    // vendor/odm mounts and hardware services that depend on them. Toggling
+    // the property creates a new init event even though decryption itself was
+    // intentionally preserved across the live fastbootd session.
+    property_set("post.decrypt.modules", "false");
+    usleep(100000);
+    property_set("post.decrypt.modules", "true");
+    LOGINFO("AERA live fastbootd: replayed post-decryption hardware setup.\n");
+  }
+  // Super unmapping stops any init service whose process still maps files
+  // from vendor/odm. Device hooks restore their normal dependency chains;
+  // this exact replay also covers independent services such as vibrator HALs.
+  PartitionManager.Restart_Quiesced_Dynamic_Services();
+  gLiveFastbootPostDecryptReady = false;
+
+  if (!initialize_recovery || !RecoveryDataLocked()) {
+    if (!TWFunc::Toggle_MTP(true)) property_set("sys.usb.config", "adb");
+  } else {
+    property_set("sys.usb.config", "adb");
+  }
+  PartitionManager.Update_System_Details();
+  LOGINFO("AERA live fastbootd: recovery backend restored without reboot.\n");
+  return true;
+}
+
+void RecoveryCompleteColdStartup() {
+  PartitionManager.Update_System_Details();
+  RecoveryWifiInitialize();
+  if (!RecoveryDataLocked()) {
+    DataManager::SetValue("OTA_decrypted", "1");
+    DataManager::ReadSettingsFile();
+    if (!TWFunc::Toggle_MTP(true)) property_set("sys.usb.config", "adb");
+  } else {
+    property_set("sys.usb.config", "adb");
+  }
+  TWFunc::check_selinux_support();
+  TWFunc::RunFoxScript("/system/bin/postrecoveryboot.sh", "");
+  LOGINFO("AERA live fastbootd: cold recovery startup complete.\n");
+}
+
+int RecoveryCredentialType() {
+  return DataManager::GetIntValue(TW_CRYPTO_PWTYPE);
+}
+
+bool RecoveryUsesFileBasedEncryption() {
+  return DataManager::GetIntValue(TW_IS_FBE) != 0;
+}
+
+int RecoveryPatternGridSize() {
+  const int size = DataManager::GetIntValue("tw_gui_pattern_grid_size");
+  return size >= 3 && size <= 6 ? size : 3;
 }
 
 bool RecoverySetStorage(const std::string &path) {

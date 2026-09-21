@@ -21,7 +21,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <string>
+#include <sys/syscall.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
@@ -127,8 +130,13 @@ static void Decrypt_Page(bool SkipDecryption, bool datamedia) {
 static void process_fastbootd_mode() {
 		LOGINFO("starting fastboot\n");
 
-		if (android::base::GetBoolProperty("ro.boot.dynamic_partitions", false)) {
-			PartitionManager.Unmap_Super_Devices();
+		// Cold fastbootd uses the normal recovery partition/module setup so
+		// device hardware is initialized consistently. Release the logical
+		// devices only after that setup, immediately before fastboot takes over.
+		if (android::base::GetBoolProperty("ro.boot.dynamic_partitions", false) &&
+				!PartitionManager.Unmap_Super_Devices(true)) {
+			LOGERR("Failed to release dynamic partitions for fastbootd.\n");
+			return;
 		}
 
 #ifdef AB_OTA_UPDATER
@@ -146,12 +154,19 @@ static void process_fastbootd_mode() {
 		property_set("ro.orangefox.fastbootd", "0");
 }
 
-static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo, bool skip_decryption) {
+static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo,
+		bool skip_decryption, bool soft_switch) {
 	char crash_prop_val[PROPERTY_VALUE_MAX];
 	int crash_counter;
 
-	property_get("orangefox.crash_counter", crash_prop_val, "-1");
-	crash_counter = atoi(crash_prop_val) + 1;
+	if (soft_switch) {
+		// Replacing recovery userspace is intentional, not a crash. Preserve
+		// normal MTP and startup behavior when returning from fastbootd.
+		crash_counter = 0;
+	} else {
+		property_get("orangefox.crash_counter", crash_prop_val, "-1");
+		crash_counter = atoi(crash_prop_val) + 1;
+	}
 	snprintf(crash_prop_val, sizeof(crash_prop_val), "%d", crash_counter);
 	property_set("orangefox.crash_counter", crash_prop_val);
 
@@ -408,6 +423,96 @@ static void reboot() {
 		TWFunc::tw_reboot(rb_system);
 }
 
+// The native UI intentionally abandons its Qualcomm EGL objects for terminal
+// actions because destroying a live scanout context can abort inside the
+// vendor driver.  A hardware reboot releases those objects in the kernel, but
+// an exec-based mode switch does not close descriptors lacking FD_CLOEXEC.
+// Mark every recovery-owned descriptor so exec releases DRM/EGL, input,
+// Binder and old USB endpoints atomically, without invoking vendor cleanup.
+static bool Aera_Close_Runtime_Fds_On_Exec() {
+ constexpr unsigned int kCloseRangeCloexec = 1U << 2;
+ if (syscall(SYS_close_range, 3U, ~0U, kCloseRangeCloexec) == 0) {
+  LOGINFO("AERA userspace handoff: runtime descriptors armed for exec cleanup.\n");
+  return true;
+ }
+
+ const int close_range_error = errno;
+ DIR* descriptors = opendir("/proc/self/fd");
+ if (!descriptors) {
+  LOGERR("AERA userspace handoff: could not enumerate runtime descriptors: %s\n",
+   strerror(errno));
+  return false;
+ }
+
+ const int descriptors_fd = dirfd(descriptors);
+ bool success = true;
+ errno = 0;
+ while (dirent* entry = readdir(descriptors)) {
+  char* end = nullptr;
+  const long value = strtol(entry->d_name, &end, 10);
+  if (!end || *end != '\0' || value <= STDERR_FILENO ||
+   value == descriptors_fd)
+   continue;
+
+  const int fd = static_cast<int>(value);
+  const int flags = fcntl(fd, F_GETFD);
+  if (flags < 0) {
+   if (errno != EBADF) success = false;
+   continue;
+  }
+  if (fcntl(fd, F_SETFD, flags | FD_CLOEXEC) != 0)
+   success = false;
+ }
+ closedir(descriptors);
+
+ if (!success) {
+  LOGERR("AERA userspace handoff: descriptor cleanup could not be guaranteed.\n");
+  return false;
+ }
+ LOGINFO("AERA userspace handoff: close_range unavailable (%s); used /proc fallback.\n",
+  strerror(close_range_error));
+ return true;
+}
+
+// Replace only recovery userspace when moving between recovery and fastbootd.
+// The kernel, ramdisk, mounted userdata and framebuffer remain alive. A fresh
+// recovery process rebuilds the partition manager, which is required because
+// entering fastbootd deliberately destroys its mapped logical-partition
+// objects. If exec fails, the caller falls back to the normal hardware reboot.
+static bool Aera_Soft_Switch(bool fastboot_mode) {
+	if (fastboot_mode &&
+		!android::base::GetBoolProperty("ro.boot.dynamic_partitions", false)) {
+		LOGERR("AERA userspace handoff: fastbootd is unavailable on this device.\n");
+		return false;
+	}
+
+	LOGINFO("AERA userspace handoff: switching to %s without rebooting the device.\n",
+		fastboot_mode ? "fastbootd" : "recovery");
+	TWFunc::Update_Log_File();
+	sync();
+
+	// Detach the current FunctionFS endpoint before the replacement process
+	// selects adb/MTP or fastboot. This also stops fastbootd on the return path.
+	android::base::SetProperty("sys.usb.config", "none");
+	usleep(200000);
+	if (!Aera_Close_Runtime_Fds_On_Exec())
+		return false;
+	android::base::SetProperty(AERA_SOFT_SWITCH_PROP, "1");
+	android::base::SetProperty(TW_FASTBOOT_MODE_PROP,
+		fastboot_mode ? "1" : "0");
+
+	char recovery[] = "/system/bin/recovery";
+	char fastboot[] = "--fastboot";
+	char transient[] = "--aera-soft-switch";
+	char *fastboot_argv[] = {recovery, fastboot, transient, nullptr};
+	char *recovery_argv[] = {recovery, transient, nullptr};
+	execv(recovery, fastboot_mode ? fastboot_argv : recovery_argv);
+
+	LOGERR("AERA userspace handoff: exec failed: %s\n", strerror(errno));
+	android::base::SetProperty(AERA_SOFT_SWITCH_PROP, "0");
+	return false;
+}
+
 // check whether we should reload the themes
 static bool Fox_CheckReload_Themes() {
   if (DataManager::GetStrValue("data_decrypted") == "1" 
@@ -541,6 +646,8 @@ int main(int argc, char **argv) {
 	startupArgs startup;
 	startup.parse(&argc, &argv);
 	android::base::SetProperty(TW_FASTBOOT_MODE_PROP, startup.Get_Fastboot_Mode() ? "1" : "0");
+	android::base::SetProperty(AERA_SOFT_SWITCH_PROP,
+		startup.Get_Aera_Soft_Switch() ? "1" : "0");
 	printf("=> Linking mtab\n");
 	symlink("/proc/mounts", "/etc/mtab");
 	std::string fstab_filename = "/etc/twrp.fstab";
@@ -640,7 +747,10 @@ int main(int argc, char **argv) {
 		reboot();
 		return 0;
 	} else {
-		process_recovery_mode(adb_bu_fifo, startup.Should_Skip_Decryption());
+		process_recovery_mode(
+			adb_bu_fifo,
+			startup.Should_Skip_Decryption() || startup.Get_Aera_Soft_Switch(),
+			startup.Get_Aera_Soft_Switch());
 	}
 #ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
 	// The native AERA path intentionally skips loading the legacy XML page

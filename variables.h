@@ -362,7 +362,11 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define TW_AUTO_REFLASHTWRP_VAR "tw_auto_reflashtwrp"
 
 // BUILD PROPS
-#define TW_FASTBOOT_MODE_PROP         "ro.twrp.fastbootd"
+// Keep runtime AERA mode state under the writable sys.usb.config.* property
+// namespace. Recovery is permitted to set usb_prop while arbitrary sys.*
+// properties are rejected by enforcing recovery SELinux policy.
+#define TW_FASTBOOT_MODE_PROP         "sys.usb.config.aera_fastbootd"
+#define AERA_SOFT_SWITCH_PROP         "sys.usb.config.aera_soft_switch"
 #define TW_MODULES_MOUNTED_PROP       "twrp.modules.loaded"     // property for successfully mounted modules
 #define TW_KEYMASTER_VERSION_PROP     "keymaster_ver"
 

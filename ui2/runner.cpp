@@ -25,6 +25,7 @@
 #include <minuitwrp/minui.h>
 
 #include "recovery_ui2/engine.hpp"
+#include "recovery_ui2/backend.hpp"
 #include "recovery_ui2/status_bar.hpp"
 
 namespace recovery_ui2 {
@@ -371,7 +372,8 @@ RunResult ToRunResult(Action action) {
 }  // namespace
 
 RunResult RunLoop(bool fastboot_mode = false,
-                  const DisplayMetrics& metrics = {}) {
+                  const DisplayMetrics& metrics = {},
+                  bool resume_recovery = false) {
     InteractionBoost performance;
     performance.Boost();
     HardwareState hardware;
@@ -380,13 +382,15 @@ RunResult RunLoop(bool fastboot_mode = false,
                        metrics.status_indent_right);
     Engine engine;
     if (!engine.Initialize(fastboot_mode, metrics.adaptive_resolution,
-                           metrics.logical_height))
+                           metrics.logical_height, resume_recovery))
         return RunResult::kEngineFailure;
 
     __android_log_print(ANDROID_LOG_INFO, kLogTag,
                         "AERA Recovery Project native engine active; hardware Back and edge swipe use navigation history");
 
-    bool backend_ready_sent = fastboot_mode;
+    bool backend_ready_sent = fastboot_mode || resume_recovery;
+    bool live_fastboot_transition = false;
+    bool cold_recovery_startup = false;
     bool decrypt_request_sent = false;
     for (;;) {
         /* Boot and decryption have no continuous touch stream to renew the
@@ -442,11 +446,61 @@ RunResult RunLoop(bool fastboot_mode = false,
                 gDecryptResolved = true;
             }
             gDecryptCondition.notify_all();
+            if (cold_recovery_startup) {
+                RecoveryCompleteColdStartup();
+                engine.SetBackendReady();
+                backend_ready_sent = true;
+                cold_recovery_startup = false;
+                performance.BoostFor(5000);
+                __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                    "cold fastbootd recovery startup completed after decrypt gate");
+            }
         }
         const Action action = engine.TakeAction();
         if (action != Action::kNone) {
             __android_log_print(ANDROID_LOG_INFO, kLogTag, "scene requested action %d",
                                 static_cast<int>(action));
+            if (!fastboot_mode && action == Action::kRebootFastbootd) {
+                // Paint the destination before the short dm/USB handoff, then
+                // keep running the same LVGL/Adreno context in fastboot mode.
+                engine.SetFastbootMode(true);
+                engine.RunFrame();
+                if (RecoveryEnterFastbootd()) {
+                    fastboot_mode = true;
+                    live_fastboot_transition = true;
+                    performance.BoostFor(3000);
+                    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                        "live fastbootd mode active");
+                } else {
+                    engine.SetFastbootMode(false);
+                }
+                continue;
+            }
+            if (fastboot_mode && action == Action::kRebootRecovery) {
+                const bool cold_start = !live_fastboot_transition;
+                if (RecoveryLeaveFastbootd(cold_start)) {
+                    fastboot_mode = false;
+                    live_fastboot_transition = false;
+                    if (cold_start && RecoveryDataLocked() &&
+                        RecoveryCredentialType() != 0) {
+                        engine.SetFastbootMode(false, false);
+                        engine.BeginDecryption(
+                            RecoveryCredentialType(),
+                            RecoveryUsesFileBasedEncryption(), 0,
+                            RecoveryPatternGridSize());
+                        cold_recovery_startup = true;
+                    } else {
+                        RecoveryCompleteColdStartup();
+                        engine.SetFastbootMode(false);
+                    }
+                    performance.BoostFor(3000);
+                    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                        cold_start
+                                            ? "cold fastbootd switched to recovery in place"
+                                            : "live recovery mode restored");
+                }
+                continue;
+            }
             // init will reboot or shut down immediately after this result is
             // dispatched.  Do not tear down a live Adreno scanout context on
             // the way out: the Qualcomm EGL driver aborts in that destructor,
@@ -540,6 +594,10 @@ RunResult RunRecoveryUi2(const DisplayMetrics& metrics) {
     std::lock_guard<std::mutex> lock(gEarlyMutex);
     gEarlyStarted = false;
     return gEarlyResult;
+}
+
+RunResult RunRecoveryUi2Resume(const DisplayMetrics& metrics) {
+    return RunLoop(false, metrics, true);
 }
 
 RunResult RunRecoveryUi2Fastboot(const DisplayMetrics& metrics) {

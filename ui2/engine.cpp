@@ -227,7 +227,7 @@ public:
   ~Impl() { Shutdown(); }
 
   bool Initialize(bool fastboot_mode, bool adaptive_resolution,
-                  int32_t logical_height) {
+                  int32_t logical_height, bool resume_recovery) {
     if (initialized_)
       return true;
 
@@ -334,6 +334,14 @@ public:
       current_scene_ = Action::kNone;
       on_home_ = false;
       BuildFastbootScene(lv_screen_active(), HandleSceneAction, this);
+    } else if (resume_recovery) {
+      backend_ready_ = true;
+      interactive_ready_ = true;
+      boot_animation_complete_ = true;
+      current_scene_ = Action::kBackHome;
+      current_tool_ = Action::kNone;
+      on_home_ = true;
+      BuildHomeScene(lv_screen_active(), HandleSceneAction, this);
     } else {
       BuildBootScene(lv_screen_active(), HandleSceneAction, this);
     }
@@ -685,6 +693,33 @@ public:
     BuildHomeScene(home, HandleSceneAction, this);
     on_home_ = true;
     lv_screen_load_anim(home, LV_SCR_LOAD_ANIM_FADE_IN, 820, 0, true);
+  }
+
+  void SetFastbootMode(bool enabled, bool show_recovery_home) {
+    if (!initialized_ || fastboot_mode_ == enabled) return;
+    CancelEdgeSwipe();
+    CancelRecentsSwipe();
+    DismissRecents();
+    DismissPowerMenu();
+    widgets::DismissModal(lv_screen_active());
+    navigation_history_.clear();
+    fastboot_mode_ = enabled;
+    backend_ready_ = true;
+    interactive_ready_ = true;
+    if (enabled) {
+      ShowFastboot();
+    } else {
+      ApplyStoredAppearance();
+      if (show_recovery_home) {
+        ShowHome();
+      } else {
+        // A cold fastbootd boot has not passed recovery's decryption gate.
+        // Leave the current frame in place until BeginDecryption() replaces
+        // it, while allowing the normal backend-ready handoff afterwards.
+        backend_ready_ = false;
+        interactive_ready_ = false;
+      }
+    }
   }
 
   void SetPointer(const PointerEvent &event) {
@@ -3313,10 +3348,14 @@ Engine::Engine() : impl_(std::make_unique<Impl>()) {}
 Engine::~Engine() = default;
 
 bool Engine::Initialize(bool fastboot_mode, bool adaptive_resolution,
-                        int32_t logical_height) {
-  return impl_->Initialize(fastboot_mode, adaptive_resolution, logical_height);
+                        int32_t logical_height, bool resume_recovery) {
+  return impl_->Initialize(fastboot_mode, adaptive_resolution, logical_height,
+                           resume_recovery);
 }
 void Engine::Shutdown() { impl_->Shutdown(); }
+void Engine::SetFastbootMode(bool enabled, bool show_recovery_home) {
+  impl_->SetFastbootMode(enabled, show_recovery_home);
+}
 void Engine::AbandonForTerminalAction() { impl_.release(); }
 uint32_t Engine::RunFrame() { return impl_->RunFrame(); }
 Action Engine::TakeAction() { return impl_->TakeAction(); }

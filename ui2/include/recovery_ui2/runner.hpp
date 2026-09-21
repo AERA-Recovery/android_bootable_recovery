@@ -58,6 +58,11 @@ DecryptionResult RunRecoveryUi2Decryption(int credential_type,
 // Hardware Back and ordinary workflows stay inside the native engine.
 RunResult RunRecoveryUi2(const DisplayMetrics& metrics = {});
 
+// Restores the normal recovery surface after a userspace-only fastbootd
+// handoff. The backend is already ready, so no boot/decryption animation is
+// replayed.
+RunResult RunRecoveryUi2Resume(const DisplayMetrics& metrics = {});
+
 // Runs a dedicated userspace-fastboot surface. This deliberately bypasses
 // boot animation, decryption, recovery navigation and plugin initialization.
 RunResult RunRecoveryUi2Fastboot(const DisplayMetrics& metrics = {});

@@ -98,7 +98,8 @@ class Engine final {
 
     bool Initialize(bool fastboot_mode = false,
                     bool adaptive_resolution = false,
-                    int32_t logical_height = 3168);
+                    int32_t logical_height = 3168,
+                    bool resume_recovery = false);
     void Shutdown();
 
     // Terminal actions hand control to init, which will replace this process.
@@ -121,6 +122,10 @@ class Engine final {
     // Unlocks workflows after recovery has finished fstab, mount and decrypt
     // initialization. The boot renderer can run before this point.
     void SetBackendReady();
+
+    // Rebuild only the active AERA scene while retaining the initialized
+    // LVGL/Adreno/DRM stack across recovery <-> fastbootd transitions.
+    void SetFastbootMode(bool enabled, bool show_recovery_home = true);
 
     // Shows the credential UI while the recovery startup thread waits at the
     // same point as OrangeFox's stock decrypt page.
