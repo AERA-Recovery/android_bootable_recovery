@@ -52,7 +52,7 @@
 #include <private/android_filesystem_config.h>
 
 #include "twrp-functions.hpp"
-#include "orangefox.hpp"
+#include "aera_core.hpp"
 #include "abx-functions.hpp"
 #include "twcommon.h"
 #include "gui/gui.hpp"

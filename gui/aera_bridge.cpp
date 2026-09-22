@@ -20,6 +20,7 @@
 #include <android-base/properties.h>
 
 #include "../data.hpp"
+#include "../aera_secrets/aera_secrets.hpp"
 #include "../partitions.hpp"
 #include "../twrp-functions.hpp"
 #include "../variables.h"
@@ -30,6 +31,7 @@
 #include <twinstall/adb_install.h>
 
 #ifdef OF_ENABLE_WLAN
+#include "../aera_adbd.hpp"
 #include "../nas/NasManager.hpp"
 #include "../wlan.hpp"
 #endif
@@ -75,6 +77,10 @@ extern "C" int recovery_ui2_decrypt_data(const char *credential, int user_id) {
   PartitionManager.Decrypt_Adopted();
   PartitionManager.Update_System_Details();
   return 0;
+}
+
+int recovery_ui2::RecoveryDecrypt(const std::string &credential, int user_id) {
+  return recovery_ui2_decrypt_data(credential.c_str(), user_id);
 }
 
 namespace recovery_ui2 {
@@ -521,22 +527,26 @@ int RecoveryRunJob(const JobRequest &request) {
   if (request.job == Job::kBackup) {
     if (RecoverySetStorage(request.path)) {
       char name[80];
-      time_t now = time(nullptr);
-      struct tm local = {};
-      localtime_r(&now, &local);
-      strftime(name, sizeof(name), "AERA-%Y-%m-%d-%H-%M-%S", &local);
-      DataManager::SetValue(TW_BACKUP_NAME, name);
+      std::string backup_name = request.name;
+      if (backup_name.empty()) {
+        time_t now = time(nullptr);
+        struct tm local = {};
+        localtime_r(&now, &local);
+        strftime(name, sizeof(name), "AERA-%Y-%m-%d-%H-%M-%S", &local);
+        backup_name = name;
+      }
+      DataManager::SetValue(TW_BACKUP_NAME, backup_name);
       DataManager::SetValue("tw_backup_list", selections);
       DataManager::SetValue(TW_USE_COMPRESSION_VAR, request.compression ? 1 : 0);
-      DataManager::SetValue(TW_SKIP_DIGEST_GENERATE_VAR, 0);
+      DataManager::SetValue(TW_SKIP_DIGEST_GENERATE_VAR, request.digest ? 0 : 1);
       DataManager::SetValue("tw_encrypt_backup", 0);
-      if (PartitionManager.Check_Backup_Name(name, true, true) == 0)
+      if (PartitionManager.Check_Backup_Name(backup_name, true, true) == 0)
         result = PartitionManager.Run_Backup(false) ? 0 : 1;
     }
   } else if (request.job == Job::kRestore) {
     DataManager::SetValue("tw_restore", request.path);
     DataManager::SetValue("tw_restore_selected", selections);
-    DataManager::SetValue(TW_SKIP_DIGEST_CHECK_VAR, 1);
+    DataManager::SetValue(TW_SKIP_DIGEST_CHECK_VAR, request.digest ? 0 : 1);
     result = PartitionManager.Run_Restore(request.path) ? 0 : 1;
   } else if (request.job == Job::kWipe) {
     result = 0;
@@ -597,11 +607,11 @@ bool RecoverySetFlashlight(bool enabled) {
   return RecoveryFlashlightEnabled() == enabled;
 }
 bool RecoveryMtpEnabled() {
-#ifdef TW_HAS_MTP
-  return PartitionManager.is_MTP_Enabled();
-#else
-  return false;
-#endif
+  // The UI bridge is built independently from the recovery executable and
+  // does not consistently inherit TW_HAS_MTP.  The shared recovery state is
+  // updated by Enable_MTP()/Disable_MTP() on every supported build, so use it
+  // here instead of compiling the status query into a permanent false value.
+  return DataManager::GetIntValue("tw_mtp_enabled") == 1;
 }
 bool RecoverySetMtp(bool enabled) {
   const bool result = enabled ? PartitionManager.Enable_MTP() : PartitionManager.Disable_MTP();
@@ -1137,6 +1147,26 @@ bool RecoverySetWifiAutoConnect(bool enabled) {
   return SaveAeraPreferences();
 }
 
+bool RecoveryAdbOverWifi() {
+#ifdef OF_ENABLE_WLAN
+  return android::base::GetProperty("persist.adb.tls_server.enable", "0") == "1" ||
+         android::base::GetProperty("service.adb.tcp.port", "0") != "0";
+#else
+  return false;
+#endif
+}
+
+bool RecoverySetAdbOverWifi(bool enabled) {
+#ifdef OF_ENABLE_WLAN
+  if (!enabled) return AeraAdbd::StopAll();
+  if (!RecoveryWifiConnection().connected) return false;
+  return AeraAdbd::StartSecure(5555);
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
 NasStatus RecoveryNasStatus() {
   NasStatus status;
 #ifdef OF_ENABLE_WLAN
@@ -1171,6 +1201,7 @@ NasStatus RecoveryNasStatus() {
   status.config.password = DataManager::GetStrValue(TW_NAS_PASS);
   if (status.config.password.empty()) {
     std::string saved_password;
+    if (AeraSecrets::GetNasPassword(saved_password)) {
       status.config.password = saved_password;
       // NasManager consumes the session value; the persistent copy remains in
       // the encrypted secret store rather than the plain settings map.
@@ -1236,6 +1267,8 @@ bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
   // Keep the live value for NasManager, but never mark it persistent here.
   saved &= DataManager::SetValue(TW_NAS_PASS, config.password) == 0;
   const bool secret_saved = config.password.empty()
+      ? AeraSecrets::ClearNasPassword()
+      : AeraSecrets::SetNasPassword(config.password);
   if (!secret_saved) {
     if (error) *error = "Could not save the password to AERA's encrypted credential store.";
     return false;

@@ -33,8 +33,10 @@ struct JobRequest {
   Job job = Job::kInstall;
   std::string title;
   std::string path;
+  std::string name;
   std::vector<std::string> partitions;
   bool compression = true;
+  bool digest = true;
   bool both_slots = false;
   std::string confirmation;
   bool present_before_run = false;
@@ -57,6 +59,7 @@ std::string RecoveryBuildDate();
 std::string RecoveryMaintainer();
 bool RecoverySetActiveSlot(const std::string &slot);
 bool RecoveryDataLocked();
+int RecoveryDecrypt(const std::string &credential, int user_id = 0);
 
 // Switch the recovery backend between ordinary AERA and userspace fastboot
 // without replacing the UI process or its Qualcomm display context.
@@ -201,6 +204,8 @@ bool RecoveryWifiAutoEnable();
 bool RecoveryWifiAutoConnect();
 bool RecoverySetWifiAutoEnable(bool enabled);
 bool RecoverySetWifiAutoConnect(bool enabled);
+bool RecoveryAdbOverWifi();
+bool RecoverySetAdbOverWifi(bool enabled);
 
 // Native presentation of OrangeFox's existing rclone/FUSE NAS manager.
 struct NasConfig {

@@ -34,6 +34,8 @@
 #include "ui_components.hpp"
 #include "update/update_manager.hpp"
 #include "draw/opengles/lv_draw_opengles.h"
+#include "../aera_rpc/aera_channel.hpp"
+#include "../aera_remote/aera_remote.hpp"
 
 extern "C" int recovery_ui2_install_package(const char *path);
 extern "C" int recovery_ui2_decrypt_data(const char *credential, int user_id);
@@ -455,9 +457,17 @@ public:
     if (suspended_)
       return 250;
 #ifndef TW_OEM_BUILD
+    const int rpc_fd = aera::rpc::Channel::InputFd();
     if (rpc_fd >= 0) {
       pollfd rpc{rpc_fd, POLLIN, 0};
       if (poll(&rpc, 1, 0) > 0 && (rpc.revents & POLLIN))
+        aera::rpc::Channel::HandleInput();
+    }
+    const int cancel_fd = aera::rpc::Channel::CancelFd();
+    if (cancel_fd >= 0) {
+      pollfd cancel{cancel_fd, POLLIN, 0};
+      if (poll(&cancel, 1, 0) > 0 && (cancel.revents & POLLIN))
+        aera::rpc::Channel::HandleCancel();
     }
 #endif
     recorder::Poll();
@@ -584,7 +594,8 @@ public:
     const uint32_t next = lv_timer_handler();
 #ifndef TW_OEM_BUILD
     // Capture only after LVGL has flushed and DRM exposes the newly presented
-    // scanout buffer. The stream uses its own FIFO, so RPC input stays free.
+    // scanout buffer. Network workers only consume completed JPEG frames.
+    aera::remote::CaptureAfterRender();
 #endif
     return std::clamp(next, 1U, kFrameIntervalMs);
   }

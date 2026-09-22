@@ -21,8 +21,8 @@
 	
 */
 
-#ifndef ORANGEFOX_HPP
-#define ORANGEFOX_HPP
+#ifndef AERA_CORE_HPP
+#define AERA_CORE_HPP
 
 #define OTA_CORRUPT "INSTALL_CORRUPT"
 #define OTA_ERROR "INSTALL_ERROR"

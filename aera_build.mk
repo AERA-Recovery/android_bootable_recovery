@@ -882,12 +882,6 @@ ifeq ($(OF_ENABLE_WLAN),1)
         $(error wpa_supplicant_8 sources not present; exiting.)
     endif
 
-    # Only the cc_binary (ttyd_src, stem "ttyd" -> /system/bin/ttyd) is required;
-    # (fox terminal / fox web) and is never coupled to an init service.
-    ifeq ($(wildcard external/ttyd/Android.bp),)
-        $(warning Please run: "git clone --depth=1 https://github.com/OrangeFox16/android_external_ttyd -b fox_16.0 external/ttyd")
-    endif
-
     TW_ENABLE_NETWORK := true
     LOCAL_CFLAGS += -DOF_ENABLE_WLAN
 
@@ -905,8 +899,6 @@ ifeq ($(OF_ENABLE_WLAN),1)
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_EXECUTABLES)/wpa_cli
     # AOSP 16 provides a recovery-specific dhcptool module. Requiring that
     # module installs the real binary at the exact path wlan.cpp executes.
-    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_RECOVERY_ROOT_OUT)/system/bin/ttyd
-
     RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_SHARED_LIBRARIES)/libkeystore-engine-wifi-hidl.so
     RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_VENDOR_SHARED_LIBRARIES)/android.system.keystore2-V1-ndk.so
     RECOVERY_LIBRARY_SOURCE_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/android.hardware.security.keymint-V1-ndk.so
@@ -923,27 +915,6 @@ $(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF): $(TARGET_OUT_VENDOR_ETC)/vintf/m
 
 ALL_DEFAULT_INSTALLED_MODULES += $(TARGET_RECOVERY_ROOT_OUT)/$(WIFI_SUPP_VINTF)
 endif
-
-    # WiFi hotspot / SoftAP support.
-    #
-    # Brings up wpa_supplicant in AP mode (mode=2) and hands out leases with
-    # dnsmasq, so the recovery can create a hotspot (e.g. for clients to reach
-    # the remote dashboard). Requires an AP-capable WiFi driver in the device
-    # tree. dnsmasq is the only extra dependency; it is the DHCP/DNS server.
-    ifeq ($(OF_WLAN_AP),1)
-        # AOSP keeps the dnsmasq Soong module under src/ (cc_binary "dnsmasq").
-        ifeq ($(wildcard external/dnsmasq/src/Android.bp)$(wildcard external/dnsmasq/Android.bp)$(wildcard external/dnsmasq/Android.mk),)
-            $(warning dnsmasq sources not found! WiFi AP (OF_WLAN_AP=1) needs a DHCP server.)
-            $(warning Please run: "git clone --depth=1 https://android.googlesource.com/platform/external/dnsmasq external/dnsmasq")
-            $(error dnsmasq sources not present; exiting.)
-        endif
-
-        LOCAL_CFLAGS += -DOF_WLAN_AP
-        $(warning OF_WLAN_AP enabled: WiFi hotspot/AP support will be built (requires an AP-capable WiFi driver).)
-
-        TWRP_REQUIRED_MODULES += dnsmasq
-        RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/dnsmasq
-    endif
 
 endif
 
@@ -966,39 +937,22 @@ ALL_DEFAULT_INSTALLED_MODULES += $(AERA_ROOT_ASSETS_STAMP)
 endif
 endif
 
-# Remote-control dashboard (optional static web UI).
-#
-# The USB/FIFO remote-control engine is always built (see Android.mk), so
-# WebUSB screen capture and input stay available without WLAN. The HTTP API
-# OF_ENABLE_WLAN=1. When WLAN is enabled, the server is API-only by default;
-# this block additionally packs a prebuilt web bundle onto the ramdisk so the
-# server can serve a dashboard at "/".
-#
-#   AERA_REMOTE_DASHBOARD := 1       enable packing the dashboard bundle
-#   AERA_DASHBOARD_DIR    := <path>  source web dir to pack (defaults to the
-#                                   point this at a built React dist/ instead)
-ifeq ($(OF_ENABLE_WLAN),1)
-    AERA_REMOTE_DASHBOARD ?= 1
-endif
-ifeq ($(AERA_REMOTE_DASHBOARD),1)
-    ifeq ($(OF_ENABLE_WLAN),1)
-    AERA_DASHBOARD_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/dashboard
-    AERA_DASHBOARD_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/.dashboard.stamp
+# AERA Remote's authenticated browser client supports both USB forwarding and
+# direct Wi-Fi access. It is always packed because USB mode does not require a
+# WLAN-enabled device tree.
+AERA_REMOTE_CLIENT_DIR := $(commands_TWRP_local_path)/aera_remote/client
+AERA_REMOTE_CLIENT_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/remote
+AERA_REMOTE_CLIENT_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/.remote-client.stamp
+AERA_REMOTE_CLIENT_FILES := $(shell find $(AERA_REMOTE_CLIENT_DIR) -type f 2>/dev/null)
 
-ifndef OF_DASHBOARD_RULE_DEFINED
-OF_DASHBOARD_RULE_DEFINED := true
+ifndef AERA_REMOTE_CLIENT_RULE_DEFINED
+AERA_REMOTE_CLIENT_RULE_DEFINED := true
 
-# Track a stamp FILE (not the directory) as the build output; kati/ninja reject
-# directory outputs. The dashboard bundle is populated as a side effect.
-$(AERA_DASHBOARD_STAMP): $(AERA_DASHBOARD_DIR)
-	@echo "Packing AERA remote dashboard from $<"
-	@rm -rf $(AERA_DASHBOARD_OUT) && mkdir -p $(AERA_DASHBOARD_OUT) && cp -a $</. $(AERA_DASHBOARD_OUT)/ && touch $@
+$(AERA_REMOTE_CLIENT_STAMP): $(AERA_REMOTE_CLIENT_FILES)
+	@echo "Packing AERA Remote client"
+	@rm -rf $(AERA_REMOTE_CLIENT_OUT) && mkdir -p $(AERA_REMOTE_CLIENT_OUT) && cp -a $(AERA_REMOTE_CLIENT_DIR)/. $(AERA_REMOTE_CLIENT_OUT)/ && touch $@
 
-ALL_DEFAULT_INSTALLED_MODULES += $(AERA_DASHBOARD_STAMP)
-endif
-    else
-        $(warning AERA_REMOTE_DASHBOARD is enabled without OF_ENABLE_WLAN; skipping packaged dashboard because the HTTP server is not built.)
-    endif
+ALL_DEFAULT_INSTALLED_MODULES += $(AERA_REMOTE_CLIENT_STAMP)
 endif
 
 # whether to skip substituting some permissions

@@ -45,8 +45,7 @@
 #include "../twrp-functions.hpp"
 #include "../twrpRepacker.hpp"
 #include "../openrecoveryscript.hpp"
-#ifdef OF_ENABLE_WLAN
-#endif
+#include "../aera_rpc/aera_dispatcher.hpp"
 #include "../orscmd/orscmd.h"
 
 #include "../data.hpp"
@@ -65,7 +64,7 @@
 #include "../twrpDigest/twrpSHA.hpp"
 #include "../twrpDigestDriver.hpp"
 
-#include "../orangefox.hpp"
+#include "../aera_core.hpp"
 #include "../twrpinstall/include/twinstall/install.h"
 
 extern "C" {
@@ -333,7 +332,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(changefilesystem);
       ADD_ACTION(flashimage);
       ADD_ACTION(twcmd);
-      ADD_ACTION(foxcmd);
+      ADD_ACTION(aeracmd);
       ADD_ACTION(setbootslot);
       ADD_ACTION(repackimage);
       ADD_ACTION(reflashtwrp);
@@ -681,39 +680,6 @@ int GUIAction::doAction(Action action)
   mapFunc::const_iterator funcitr = mf.find(function);
   if (funcitr != mf.end())
     return (this->*funcitr->second) (arg);
-
-  // OrangeFox built-in updater actions
-#ifdef OF_ENABLE_WLAN
-  if (function == "fox_update_refresh")
-    return FoxUpdater::Refresh();
-
-  if (function == "fox_update_init")
-    return FoxUpdater::Init();
-
-  if (function == "fox_update_check")
-    return FoxUpdater::Check();
-
-  if (function == "fox_update_variant_prev")
-    return FoxUpdater::VariantPrev();
-
-  if (function == "fox_update_variant_next")
-    return FoxUpdater::VariantNext();
-
-  if (function == "fox_update_select_variant")
-    return FoxUpdater::SelectVariant();
-
-  if (function == "fox_update_prepare_available")
-    return FoxUpdater::PrepareAvailableReleases();
-
-  if (function == "fox_update_select_available")
-    return FoxUpdater::SelectAvailableRelease();
-
-  if (function == "fox_update_download")
-    return FoxUpdater::Download();
-
-  if (function == "fox_update_install")
-    return FoxUpdater::Install();
-#endif
 
   if (!Hide_Reboot_Kludge_Fix(function))
     LOGERR("Unknown action '%s'\n", function.c_str());
@@ -2513,38 +2479,14 @@ int GUIAction::twcmd(std::string arg)
   return 0;
 }
 
-int GUIAction::foxcmd(std::string arg __unused)
+int GUIAction::aeracmd(std::string arg __unused)
 {
-  operation_start("FOX CLI Command");
-  int code = 0;
+  operation_start("AERA RPC Command");
+  const int code = simulate ? 0 : aera::rpc::Dispatcher::RunPending();
   if (simulate)
     simulate_progress_bar();
-  else
-  // Record the exit code for the active remote job, if any (no-op for the FIFO
-  // path). Done before the output FILE is flushed and closed.
-#ifdef OF_ENABLE_WLAN
-#endif
-  operation_end(0);
-  return 0;
-}
-
-// code path (same start/stop order, same password-required guard). Status
-// output from Cmd_Web is surfaced on the GUI console via gui_print.
-{
-  operation_start("FOX Web Access");
-  if (simulate) {
-    simulate_progress_bar();
-    operation_end(0);
-    return 0;
-  }
-  // Drive the engine through its public entry point so the toggle and the `web`
-  // op share one dispatch path. A missing arg falls through to "status",
-  // matching a `web` request with no action.
-  Json::Value args(Json::objectValue);
-  if (!arg.empty())
-    args["action"] = arg;
-  operation_end(0);
-  return 0;
+  operation_end(code);
+  return code;
 }
 
 int GUIAction::getKeyByName(std::string key)

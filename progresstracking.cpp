@@ -37,7 +37,9 @@ ProgressTracking::ProgressTracking(const unsigned long long backup_size) {
 	current_size = 0;
 	current_count = 0;
 	previous_partitions_size = 0;
+	current_label = "";
 	display_file_count = false;
+	clock_gettime(CLOCK_MONOTONIC, &start_time);
 	clock_gettime(CLOCK_MONOTONIC, &last_update);
 }
 
@@ -53,6 +55,10 @@ void ProgressTracking::SetSizeCount(const unsigned long long part_size, unsigned
 	file_count = f_count;
 	display_file_count = (file_count != 0);
 	UpdateDisplayDetails(true);
+}
+
+void ProgressTracking::SetLabel(const std::string& label) {
+	current_label = label;
 }
 
 void ProgressTracking::UpdateSize(const unsigned long long size) {
@@ -83,10 +89,11 @@ void ProgressTracking::UpdateDisplayDetails(const bool force) {
 			return;
 	}
 	clock_gettime(CLOCK_MONOTONIC, &last_update);
-	double display_percent = 0.0, progress_percent;
+	double display_percent = 0.0, progress_percent, item_percent = 0.0, file_percent = 0.0;
 	//string size_prog = gui_lookup("size_progress", "%lluMB of %lluMB, %i%%");
 	string size_prog = gui_lookup("size_progress_v2", "%lluMB of %lluMB (%i%%)");
 	char size_progress[1024];
+	char file_progress[1024] = "";
 
 	if (total_backup_size != 0) // prevent division by 0
 		display_percent = (double)(current_size + previous_partitions_size) / (double)(total_backup_size) * 100;
@@ -97,16 +104,43 @@ void ProgressTracking::UpdateDisplayDetails(const bool force) {
 	progress_percent = (display_percent / 100);
 	DataManager::SetProgress((float)(progress_percent));
 
+	unsigned long long overall_current = current_size + previous_partitions_size;
+	unsigned long long bytes_per_second = 0;
+	unsigned long long eta_seconds = 0;
+	timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	int32_t elapsed_ms = TWFunc::timespec_diff_ms(start_time, now);
+	if (elapsed_ms > 0 && overall_current > 0) {
+		bytes_per_second = (overall_current * 1000LLU) / (unsigned long long)elapsed_ms;
+		if (bytes_per_second > 0 && total_backup_size > overall_current)
+			eta_seconds = (total_backup_size - overall_current) / bytes_per_second;
+	}
+
+	// Mirror the current partition's progress to an active AERA RPC client.
+	if (partition_size != 0) {
+		item_percent = (double)(current_size) / (double)(partition_size) * 100;
+		if (item_percent > 100.0)
+			item_percent = 100.0;
+		gui_aera_progress_item((int)item_percent);
+	}
+
 	if (!display_file_count || file_count == 0) {
 		DataManager::SetValue("tw_file_progress", "");
 	} else {
 		//string file_prog = gui_lookup("file_progress", "%llu of %llu files, %i%%");
 		string file_prog = gui_lookup("file_progress_v2", "%llu of %llu files, ");
-		char file_progress[1024];
 
-		display_percent = (double)(current_count) / (double)(file_count) * 100;
-		sprintf(file_progress, file_prog.c_str(), current_count, file_count, (int)(display_percent));
+		file_percent = (double)(current_count) / (double)(file_count) * 100;
+		sprintf(file_progress, file_prog.c_str(), current_count, file_count, (int)(file_percent));
 		DataManager::SetValue("tw_file_progress", file_progress);
 	}
+
+	gui_aera_progress_detail("overall", (int)display_percent, current_label.c_str(),
+	                        overall_current, total_backup_size, bytes_per_second, eta_seconds,
+	                        current_count, file_count, size_progress, file_progress);
+	if (partition_size != 0)
+		gui_aera_progress_detail("item", (int)item_percent, current_label.c_str(),
+		                        current_size, partition_size, bytes_per_second, 0,
+		                        current_count, file_count, size_progress, file_progress);
 #endif
 }

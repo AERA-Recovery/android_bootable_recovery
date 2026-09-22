@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <string>
 
 #include "ui_components.hpp"
@@ -42,10 +43,7 @@ WifiRequest gRequest;
 struct WifiUi {
   WifiScene scene;
   lv_obj_t *screen = nullptr;
-  lv_obj_t *auto_enable = nullptr;
-  lv_obj_t *auto_connect = nullptr;
-  lv_obj_t *auto_enable_value = nullptr;
-  lv_obj_t *auto_connect_value = nullptr;
+  lv_obj_t *radio_switch = nullptr;
   lv_obj_t *hero = nullptr;
   lv_obj_t *status_plate = nullptr;
   lv_obj_t *status_icon = nullptr;
@@ -58,6 +56,7 @@ struct WifiUi {
   bool busy = false;
   bool activity_animating = false;
   uint32_t busy_phase = 0;
+  int list_width = 1312;
 };
 
 std::string Signature(const WifiStatus &status) {
@@ -79,27 +78,101 @@ void CloseOverlay(lv_obj_t *overlay) { lv_obj_delete_async(overlay); }
 
 void SelectNetwork(WifiUi *state, WifiNetwork network);
 
-lv_obj_t *SettingCard(lv_obj_t *parent, int x, int y, int width,
-                      const char *title,
-                      const char *detail, Handler action,
-                      lv_obj_t **value_label) {
-  auto *card = lv_button_create(parent);
-  Panel(card, 32, kMainSheet);
-  Interactive(card, kMainSelected);
-  lv_obj_set_pos(card, x, y);
-  lv_obj_set_size(card, width, 140);
-  lv_obj_set_style_border_width(card, 1, 0);
-  lv_obj_set_style_border_color(card, kMainLine, 0);
-  lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
-  OnClick(card, std::move(action));
+void StyleSwitch(lv_obj_t *toggle, bool enabled) {
+  lv_obj_set_size(toggle, 108, 60);
+  lv_obj_remove_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(toggle, kMainLine, LV_PART_MAIN);
+  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER,
+                          LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(toggle, kAccent,
+                            LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(toggle, kText, LV_PART_KNOB);
+  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_KNOB);
+  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+  lv_obj_set_style_pad_all(toggle, -8, LV_PART_KNOB);
+  if (enabled) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+  else lv_obj_remove_state(toggle, LV_STATE_CHECKED);
+}
 
-  auto *name = Label(card, title, &lv_font_montserrat_32, kText);
+lv_obj_t *SettingsRow(lv_obj_t *parent, int y, const char *title,
+                      const char *detail, bool enabled,
+                      std::function<bool(bool)> setter,
+                      lv_obj_t *message) {
+  auto *row = lv_button_create(parent);
+  Panel(row, 30, kMainPanel);
+  Interactive(row, kMainSelected);
+  lv_obj_set_pos(row, 0, y);
+  lv_obj_set_size(row, 1216, 160);
+  lv_obj_set_style_border_width(row, 1, 0);
+  lv_obj_set_style_border_color(row, kMainLine, 0);
+  lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
+  auto *name = Label(row, title, &lv_font_montserrat_32, kText);
   lv_obj_set_pos(name, 32, 24);
-  auto *copy = Label(card, detail, &lv_font_montserrat_20, kMuted);
-  lv_obj_set_pos(copy, 32, 82);
-  *value_label = Label(card, "Off", &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_align(*value_label, LV_ALIGN_RIGHT_MID, -34, 0);
-  return card;
+  auto *copy = Label(row, detail, &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(copy, 32, 88);
+  lv_obj_set_width(copy, 940);
+  auto *toggle = lv_switch_create(row);
+  StyleSwitch(toggle, enabled);
+  lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -32, 0);
+  OnClick(row, [toggle, setter = std::move(setter), message] {
+    const bool desired = !lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    if (setter(desired)) {
+      if (desired) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+      else lv_obj_remove_state(toggle, LV_STATE_CHECKED);
+      i18n::BindLabel(message, "Settings saved");
+      lv_obj_set_style_text_color(message, kGreen, 0);
+    } else {
+      i18n::BindLabel(message,
+          "Could not change this setting. Connect Wi-Fi before enabling wireless ADB.");
+      lv_obj_set_style_text_color(message, kRed, 0);
+    }
+  });
+  return row;
+}
+
+void ShowWifiSettings(WifiUi *state) {
+  auto *overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_50, 0);
+
+  auto *sheet = lv_obj_create(overlay);
+  Panel(sheet, 48, kMainSheet);
+  lv_obj_set_size(sheet, 1312, 940);
+  lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -64);
+  lv_obj_set_style_pad_all(sheet, 48, 0);
+  lv_obj_set_style_bg_opa(sheet, IsLightMode() ? LV_OPA_90 : LV_OPA_80, 0);
+  lv_obj_set_style_blur_backdrop(sheet, true, 0);
+  lv_obj_set_style_blur_radius(sheet, 18, 0);
+
+  Label(sheet, "Wi-Fi settings", &lv_font_montserrat_48, kText);
+  auto *subtitle = Label(sheet, "Startup and developer connectivity",
+                         &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(subtitle, 0, 70);
+  auto *message = Label(sheet, "Changes apply immediately",
+                        &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(message, 0, 690);
+  lv_obj_set_width(message, 1216);
+
+  SettingsRow(sheet, 130, "Auto-enable",
+      "Turn Wi-Fi on when recovery starts", RecoveryWifiAutoEnable(),
+      [](bool enabled) { return RecoverySetWifiAutoEnable(enabled); }, message);
+  SettingsRow(sheet, 310, "Auto-connect",
+      "Reconnect to a saved network automatically", RecoveryWifiAutoConnect(),
+      [](bool enabled) { return RecoverySetWifiAutoConnect(enabled); }, message);
+  SettingsRow(sheet, 490, "ADB over Wi-Fi",
+      "Secure wireless ADB using authorized host keys", RecoveryAdbOverWifi(),
+      [](bool enabled) { return RecoverySetAdbOverWifi(enabled); }, message);
+
+  auto *close = Button(sheet, "Done", [overlay] { CloseOverlay(overlay); }, true);
+  lv_obj_set_pos(close, 0, 760);
+  lv_obj_set_size(close, 1216, 116);
+  AnimateEnter(sheet, 0, 38);
 }
 
 void SetActivity(WifiUi *state, bool active) {
@@ -147,8 +220,7 @@ void EmptyNetworkCard(WifiUi *state, const char *icon, const char *title,
   auto *card = lv_obj_create(state->scene.list);
   Panel(card, 34, kMainSheet);
   lv_obj_set_pos(card, 0, 0);
-  const int width = std::max(600, static_cast<int>(
-      lv_obj_get_width(state->scene.list)));
+  const int width = state->list_width;
   lv_obj_set_size(card, width, 230);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
@@ -170,8 +242,7 @@ void NetworkCard(WifiUi *state, int y, const WifiNetwork &network) {
   Panel(card, 32, kMainSheet);
   Interactive(card, kMainSelected);
   lv_obj_set_pos(card, 0, y);
-  const int width = std::max(600, static_cast<int>(
-      lv_obj_get_width(state->scene.list)));
+  const int width = state->list_width;
   lv_obj_set_size(card, width, 174);
   lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(card, 1, 0);
@@ -365,17 +436,6 @@ void Populate(WifiUi *state) {
   }
 }
 
-void UpdateAutoLabels(WifiUi *state) {
-  const bool enable = RecoveryWifiAutoEnable();
-  const bool connect = RecoveryWifiAutoConnect();
-  i18n::BindLabel(state->auto_enable_value, enable ? "On" : "Off");
-  lv_obj_set_style_text_color(state->auto_enable_value,
-                              enable ? kAccent : kMutedStrong, 0);
-  i18n::BindLabel(state->auto_connect_value, connect ? "On" : "Off");
-  lv_obj_set_style_text_color(state->auto_connect_value,
-                              connect ? kAccent : kMutedStrong, 0);
-}
-
 void Refresh(WifiUi *state, bool force) {
   if (!state) return;
   state->snapshot = RecoveryWifiStatus();
@@ -399,8 +459,8 @@ void Refresh(WifiUi *state, bool force) {
     detail = status.enabled ? "Choose a network below" : "Wireless radio is disabled";
   }
   i18n::BindLabel(state->scene.detail, detail.c_str());
-  i18n::BindLabel(lv_obj_get_child(state->scene.toggle, 0),
-                    status.enabled ? "Turn Wi-Fi off" : "Turn Wi-Fi on");
+  if (status.enabled) lv_obj_add_state(state->radio_switch, LV_STATE_CHECKED);
+  else lv_obj_remove_state(state->radio_switch, LV_STATE_CHECKED);
   SetActivity(state, busy);
   // A successful connection should not ring the whole hero card in green;
   // the green Wi-Fi icon and status text already communicate that state.
@@ -419,7 +479,6 @@ void Refresh(WifiUi *state, bool force) {
     state->signature = signature;
     Populate(state);
   }
-  UpdateAutoLabels(state);
 }
 
 void Timer(lv_timer_t *timer) {
@@ -443,6 +502,11 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
 
   Header(screen, "Wi-Fi", "Networks & connectivity", callback, context);
   const bool landscape = Landscape(screen);
+  auto *settings = Button(screen, LV_SYMBOL_SETTINGS "  Wi-Fi settings",
+                          [state] { ShowWifiSettings(state); });
+  lv_obj_set_size(settings, 360, 104);
+  lv_obj_align(settings, LV_ALIGN_TOP_RIGHT, -64, landscape ? 184 : 232);
+  lv_obj_set_style_radius(settings, 32, 0);
   auto *panel = lv_obj_create(screen);
   Panel(panel, 36, kMainSheet);
   state->hero = panel;
@@ -467,20 +531,31 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
 
   state->scene.status = Label(panel, "Checking...", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(state->scene.status, 198, 34);
-  lv_obj_set_width(state->scene.status, 650);
+  lv_obj_set_width(state->scene.status, 690);
   lv_label_set_long_mode(state->scene.status, LV_LABEL_LONG_DOT);
   state->scene.detail = Label(panel, "Reading wireless state", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(state->scene.detail, 198, 108);
-  lv_obj_set_width(state->scene.detail, 650);
+  lv_obj_set_width(state->scene.detail, 690);
   lv_label_set_long_mode(state->scene.detail, LV_LABEL_LONG_DOT);
-  state->scene.toggle = Button(panel, "Turn Wi-Fi on", [state] {
+  state->scene.toggle = lv_button_create(panel);
+  Panel(state->scene.toggle, 38, kMainPanel);
+  Interactive(state->scene.toggle, kMainSelected);
+  lv_obj_set_pos(state->scene.toggle, 930, 50);
+  lv_obj_set_size(state->scene.toggle, 294, 96);
+  lv_obj_set_style_border_width(state->scene.toggle, 1, 0);
+  lv_obj_set_style_border_color(state->scene.toggle, kMainLine, 0);
+  lv_obj_set_style_border_opa(state->scene.toggle, LV_OPA_30, 0);
+  auto *radio_label = Label(state->scene.toggle, "Wi-Fi",
+                            &lv_font_montserrat_24, kText);
+  lv_obj_align(radio_label, LV_ALIGN_LEFT_MID, 28, 0);
+  state->radio_switch = lv_switch_create(state->scene.toggle);
+  StyleSwitch(state->radio_switch, false);
+  lv_obj_align(state->radio_switch, LV_ALIGN_RIGHT_MID, -22, 0);
+  OnClick(state->scene.toggle, [state] {
     WifiRequest request;
     request.operation = state->snapshot.enabled ? WifiOperation::kDisable : WifiOperation::kEnable;
     Dispatch(state, std::move(request));
-  }, true);
-  lv_obj_set_pos(state->scene.toggle, 888, 38);
-  lv_obj_set_size(state->scene.toggle, 350, 112);
-  lv_obj_set_style_radius(state->scene.toggle, 32, 0);
+  });
 
   state->scene.refresh = Button(panel, LV_SYMBOL_REFRESH "  Scan again", [state] {
     WifiRequest request;
@@ -488,44 +563,35 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
     Dispatch(state, std::move(request));
   });
   lv_obj_set_pos(state->scene.refresh, 40, 210);
-  lv_obj_set_size(state->scene.refresh, 570, 104);
+  lv_obj_set_size(state->scene.refresh, 587, 104);
   lv_obj_set_style_radius(state->scene.refresh, 30, 0);
   state->scene.test = Button(panel, LV_SYMBOL_GPS "  Test connection", [state] {
     WifiRequest request;
     request.operation = WifiOperation::kTest;
     Dispatch(state, std::move(request));
   });
-  lv_obj_set_pos(state->scene.test, 634, 210);
-  lv_obj_set_size(state->scene.test, 604, 104);
+  lv_obj_set_pos(state->scene.test, 651, 210);
+  lv_obj_set_size(state->scene.test, 587, 104);
   lv_obj_set_style_radius(state->scene.test, 30, 0);
-
-  state->auto_enable = SettingCard(screen, 64, landscape ? 900 : 806,
-      landscape ? 710 : 640, "Auto-enable",
-      "Turn Wi-Fi on when recovery starts", [state] {
-    RecoverySetWifiAutoEnable(!RecoveryWifiAutoEnable());
-    UpdateAutoLabels(state);
-  }, &state->auto_enable_value);
-  state->auto_connect = SettingCard(screen, landscape ? 804 : 736,
-      landscape ? 900 : 806, landscape ? 710 : 640, "Auto-connect",
-      "Reconnect to a saved network", [state] {
-    RecoverySetWifiAutoConnect(!RecoveryWifiAutoConnect());
-    UpdateAutoLabels(state);
-  }, &state->auto_connect_value);
 
   auto *caption = Label(screen, "AVAILABLE NETWORKS", &lv_font_montserrat_18, kMuted);
   lv_obj_set_style_text_letter_space(caption, 3, 0);
   lv_obj_set_pos(caption, landscape ? 1580 : 80,
-                 landscape ? 306 : 1000);
-  state->scene.list = Scroll(screen, landscape ? 350 : 1054,
-                             landscape ? 900 : 1790);
+                 landscape ? 306 : 830);
+  state->scene.list = Scroll(screen, landscape ? 350 : 884,
+                             landscape ? 900 : 1960);
   if (landscape) {
     lv_obj_set_x(state->scene.list, 1560);
     lv_obj_set_width(state->scene.list, 1544);
+    state->list_width = 1544;
+  } else {
+    lv_obj_set_x(state->scene.list, 64);
+    lv_obj_set_width(state->scene.list, 1312);
+    state->list_width = 1312;
   }
   Navigation(screen, Action::kSettings, callback, context);
   AnimateEnter(panel, 10, 14);
-  AnimateEnter(state->auto_enable, 45, 12);
-  AnimateEnter(state->auto_connect, 70, 12);
+  AnimateEnter(settings, 30, 12);
   Refresh(state, true);
   state->timer = lv_timer_create(Timer, 260, state);
   return state->scene;

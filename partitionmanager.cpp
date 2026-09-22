@@ -3486,10 +3486,11 @@ bool TWPartitionManager::Disable_MTP(void) {
 	if (mtppid) {
 		LOGINFO("Disabling MTP\n");
 		int status;
-		kill(mtppid, SIGKILL);
+		const pid_t stopped_mtp_pid = mtppid;
+		kill(stopped_mtp_pid, SIGKILL);
 		mtppid = 0;
 		// We don't care about the exit value, but this prevents a zombie process
-		waitpid(mtppid, &status, 0);
+		waitpid(stopped_mtp_pid, &status, 0);
 		close(mtp_write_fd);
 		mtp_write_fd = -1;
 	}

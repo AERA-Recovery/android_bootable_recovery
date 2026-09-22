@@ -1,7 +1,7 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-include $(LOCAL_PATH)/../orangefox.mk
+include $(LOCAL_PATH)/../aera_build.mk
 
 LOCAL_SRC_FILES:= \
 	orscmd.cpp

@@ -57,7 +57,7 @@
 #include "twrpDigest/twrpDigest.hpp"
 #include "twrpDigest/twrpMD5.hpp"
 #include "twrp-functions.hpp"
-#include "orangefox.hpp"
+#include "aera_core.hpp"
 #include "gui/gui.hpp"
 #include "gui/pages.hpp"
 #include "gui/blanktimer.hpp"

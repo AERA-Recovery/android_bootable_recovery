@@ -37,12 +37,10 @@ void gui_set_FILE(FILE* f);
 
 // FOX CLI progress mirroring (see gui/console.cpp). begin()/end() bracket a fox
 // command; overall()/item() mirror the overall and current-item percentages
-// onto the foxout stream when active.
-void gui_fox_progress_begin();
-void gui_fox_progress_end();
-void gui_fox_progress_overall(const int percent);
-void gui_fox_progress_item(const int percent);
-void gui_fox_progress_detail(const char* phase, const int percent, const char* label,
+// onto the AERA RPC event stream when active.
+void gui_aera_progress_overall(const int percent);
+void gui_aera_progress_item(const int percent);
+void gui_aera_progress_detail(const char* phase, const int percent, const char* label,
                              unsigned long long current_bytes, unsigned long long total_bytes,
                              unsigned long long bytes_per_second, unsigned long long eta_seconds,
                              unsigned long long current_files, unsigned long long total_files,

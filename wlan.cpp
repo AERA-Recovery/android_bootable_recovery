@@ -24,6 +24,8 @@
 #include <mutex>
 
 #include "data.hpp"
+#include "aera_adbd.hpp"
+#include "aera_secrets/aera_secrets.hpp"
 #include "gui/gui.hpp"
 #include "gui/pages.hpp"
 #include "twcommon.h"
@@ -68,17 +70,6 @@ static constexpr int WLAN_SUPP_READY_TIMEOUT_MS = 60000;
  * wrapper (mondrian_wlan_up.sh); it is now native init builtins. */
 static const char* WLAN_SUPP_PREP_PROP = "sys.aera.wlan.up";
 
-#ifdef OF_WLAN_AP
-static const char* WLAN_AP_DIR         = "/tmp/wlan/ap";
-static const char* WLAN_AP_LEASES      = "/tmp/wlan/ap/dnsmasq.leases";
-static const char* WLAN_AP_PIDFILE     = "/tmp/wlan/ap/dnsmasq.pid";
-static const char* DEFAULT_AP_SSID     = "AERA";
-static const char* AP_IP_ADDR          = "192.168.43.1";
-static const char* AP_NETMASK          = "255.255.255.0";
-static const char* AP_DHCP_START       = "192.168.43.10";
-static const char* AP_DHCP_END         = "192.168.43.100";
-#endif
-
 static void SetWlanTestResult(const std::string& title,
                               const std::string& line1,
                               const std::string& line2,
@@ -98,18 +89,22 @@ static void SetWlanTestResult(const std::string& title,
 
 static bool OF_SaveEncryptedNetwork(const std::string& ssid, const std::string& password, const std::string& encryption)
 {
+    return AeraSecrets::SetWlanNetwork(ssid, password, encryption);
 }
 
 static bool OF_LoadEncryptedNetwork(const std::string& ssid, std::string& password, std::string& encryption)
 {
+    return AeraSecrets::GetWlanNetwork(ssid, password, encryption);
 }
 
 static bool OF_DeleteEncryptedNetwork(const std::string& ssid)
 {
+    return AeraSecrets::DeleteWlanNetwork(ssid);
 }
 
 static bool OF_GetEncryptedSavedSsids(std::vector<std::string>& ssids)
 {
+    return AeraSecrets::ListWlanNetworks(ssids);
 }
 
 bool Wlan::Init() {
@@ -129,14 +124,6 @@ bool Wlan::Init() {
     DataManager::SetValue("wlan_test_line4", "");
     DataManager::SetValue("wlan_test_line5", "");
     DataManager::SetValue("wlan_test_done", 0);
-#ifdef OF_WLAN_AP
-    DataManager::SetValue("tw_wlan_ap_enabled", 0);
-    DataManager::SetValue("tw_wlan_ap_ip", "");
-    {
-        std::string ap_ssid, ap_pass;
-        DataManager::SetValue("tw_wlan_ap_ssid", ap_ssid.empty() ? DEFAULT_AP_SSID : ap_ssid);
-    }
-#endif
     return EnsureTmpLayout();
 }
 
@@ -166,12 +153,7 @@ bool Wlan::StopSupplicant() {
 
 bool Wlan::Disable() {
 	std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
-	Fox_Adbd::StopAll();
-#ifdef OF_WLAN_AP
-	/* Tear the hotspot down too so dnsmasq does not linger after the radio. */
-	if (ApIsEnabled())
-		ApDisable();
-#endif
+	AeraAdbd::StopAll();
 	StopDhcp();
 	StopSupplicant();
 
@@ -1031,348 +1013,6 @@ bool Wlan::TestConnection()
     return true;
 }
 
-#ifdef OF_WLAN_AP
-
-void Wlan::ApRemoveAllNetworks(const std::string& wpacli, const std::string& iface, const std::string& ctrl) {
-    std::string list_out;
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " list_networks", list_out))
-        return;
-
-    std::istringstream lss(list_out);
-    std::string lline;
-    bool first_line = true;
-
-    while (std::getline(lss, lline)) {
-        if (first_line) {
-            first_line = false;  // skip the "network id / ssid / ..." header
-            continue;
-        }
-
-        lline = Trim(lline);
-        if (lline.empty())
-            continue;
-
-        std::string id = lline.substr(0, lline.find_first_of(" \t"));
-        id = Trim(id);
-        if (!id.empty())
-            RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " remove_network " + id);
-    }
-}
-
-bool Wlan::ApIsEnabled() {
-    return DataManager::GetIntValue("tw_wlan_ap_enabled") == 1;
-}
-
-bool Wlan::ApGetConfig(std::string& ssid, std::string& password) {
-    ssid.clear();
-    password.clear();
-    if (ssid.empty())
-        ssid = DEFAULT_AP_SSID;
-    return true;
-}
-
-bool Wlan::ApSetSsid(const std::string& ssid) {
-    std::string trimmed = Trim(ssid);
-
-    if (trimmed.empty()) {
-        gui_print("WLAN AP: SSID cannot be empty\n");
-        return false;
-    }
-    if (trimmed.size() > 32) {
-        gui_print("WLAN AP: SSID too long (max 32 characters)\n");
-        return false;
-    }
-
-    std::string cur_ssid, cur_pass;
-
-        gui_print("WLAN AP: failed to save SSID\n");
-        return false;
-    }
-
-    DataManager::SetValue("tw_wlan_ap_ssid", trimmed);
-    gui_print("WLAN AP: SSID set to %s\n", trimmed.c_str());
-
-    /* Apply immediately if the hotspot is already running. */
-    if (ApIsEnabled()) {
-        gui_print("WLAN AP: restarting hotspot to apply new SSID\n");
-        return ApEnable();
-    }
-    return true;
-}
-
-bool Wlan::ApSetPassword(const std::string& password) {
-    /* Empty password => open hotspot; otherwise WPA2 requires 8..63 chars. */
-    if (!password.empty() && (password.size() < 8 || password.size() > 63)) {
-        gui_print("WLAN AP: password must be 8-63 characters (or empty for an open hotspot)\n");
-        return false;
-    }
-
-    std::string cur_ssid, cur_pass;
-    if (cur_ssid.empty())
-        cur_ssid = DEFAULT_AP_SSID;
-
-        gui_print("WLAN AP: failed to save password\n");
-        return false;
-    }
-
-    gui_print("WLAN AP: password %s\n", password.empty() ? "cleared (open hotspot)" : "updated");
-
-    if (ApIsEnabled()) {
-        gui_print("WLAN AP: restarting hotspot to apply new password\n");
-        return ApEnable();
-    }
-    return true;
-}
-
-bool Wlan::ApEnable() {
-    EnsureTmpLayout();
-    MkdirRecursive(WLAN_AP_DIR);
-
-    if (!StartSupplicant()) {
-        gui_print("WLAN AP: failed to start supplicant service\n");
-        return false;
-    }
-
-    const std::string iface  = GetIface();
-    const std::string ctrl   = GetCtrlDir();
-    const std::string wpacli = GetWpaCliBinary();
-
-    if (wpacli.empty()) {
-        gui_print("WLAN AP: wpa_cli binary not found\n");
-        return false;
-    }
-
-    std::string ssid, pass;
-    ApGetConfig(ssid, pass);
-
-    const std::string key_mgmt = pass.empty() ? "NONE" : "WPA-PSK";
-
-    gui_print("Starting WLAN hotspot...\n");
-    gui_print("SSID: %s (%s)\n", ssid.c_str(), pass.empty() ? "open" : "WPA2-PSK");
-
-    /*
-     * STA and AP are mutually exclusive on a single radio: drop any client
-     * association/DHCP lease and clear every existing network block first.
-     */
-    StopDhcp();
-    RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " disconnect");
-    ApRemoveAllNetworks(wpacli, iface, ctrl);
-
-    DataManager::SetValue("tw_wlan_connected", 0);
-    DataManager::SetValue("wlan_connected_name", "");
-
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " add_network")) {
-        gui_print("WLAN AP: add_network failed\n");
-        return false;
-    }
-
-    const std::string esc_ssid = EscapeDoubleQuotes(ssid);
-    bool ok = true;
-    ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 ssid '\"" + esc_ssid + "\"'");
-    ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 mode 2");
-    ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 frequency 2412");
-    ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 key_mgmt " + key_mgmt);
-
-    if (ok && key_mgmt != "NONE") {
-        const std::string esc_pass = EscapeDoubleQuotes(pass);
-        ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 psk '\"" + esc_pass + "\"'");
-        ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 proto RSN");
-        ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 pairwise CCMP");
-        ok = ok && RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " set_network 0 group CCMP");
-    }
-
-    if (!ok) {
-        gui_print("WLAN AP: failed to configure hotspot network\n");
-        ApRemoveAllNetworks(wpacli, iface, ctrl);
-        return false;
-    }
-
-    if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " enable_network 0") ||
-        !RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " select_network 0")) {
-        gui_print("WLAN AP: failed to bring up hotspot network\n");
-        ApRemoveAllNetworks(wpacli, iface, ctrl);
-        return false;
-    }
-
-    bool completed = false;
-    for (int tries = 0; tries < 10; ++tries) {
-        usleep(1000 * 1000);
-
-        std::string status;
-        if (!RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " status", status))
-            continue;
-
-        std::string wpa_state, mode;
-        std::istringstream iss(status);
-        std::string line;
-        while (std::getline(iss, line)) {
-            line = Trim(line);
-            if (line.rfind("wpa_state=", 0) == 0)
-                wpa_state = line.substr(10);
-            else if (line.rfind("mode=", 0) == 0)
-                mode = line.substr(5);
-        }
-
-        gui_print("Hotspot state: %s mode=%s (%d/10)\n", wpa_state.c_str(), mode.c_str(), tries);
-
-        if (wpa_state == "COMPLETED" && mode == "AP") {
-            completed = true;
-            break;
-        }
-    }
-
-    if (!completed) {
-        gui_print("WLAN AP: hotspot failed to start (driver may not support AP mode)\n");
-        ApRemoveAllNetworks(wpacli, iface, ctrl);
-        return false;
-    }
-
-    /* Assign the gateway address dnsmasq hands out as router/DNS. */
-    const std::string ifc = GetIfconfigBinary();
-    if (ifc.empty()) {
-        gui_print("WLAN AP: ifconfig binary not found\n");
-        ApRemoveAllNetworks(wpacli, iface, ctrl);
-        return false;
-    }
-    if (!RunCommand(ifc + " " + iface + " " + AP_IP_ADDR + " netmask " + AP_NETMASK + " up")) {
-        gui_print("WLAN AP: failed to assign hotspot IP\n");
-        ApRemoveAllNetworks(wpacli, iface, ctrl);
-        return false;
-    }
-
-    if (!StartApDhcpServer()) {
-        gui_print("WLAN AP: failed to start DHCP server (dnsmasq)\n");
-        ApRemoveAllNetworks(wpacli, iface, ctrl);
-        RunCommand(ifc + " " + iface + " 0.0.0.0");
-        return false;
-    }
-
-    DataManager::SetValue("tw_wlan_enabled", 1);
-    DataManager::SetValue("tw_wlan_ap_enabled", 1);
-    DataManager::SetValue("tw_wlan_ap_ssid", ssid);
-    DataManager::SetValue("tw_wlan_ap_ip", AP_IP_ADDR);
-
-    gui_print("WLAN hotspot is up: %s at %s\n", ssid.c_str(), AP_IP_ADDR);
-    return true;
-}
-
-bool Wlan::ApDisable() {
-    StopApDhcpServer();
-
-    const std::string iface  = GetIface();
-    const std::string ctrl   = GetCtrlDir();
-    const std::string wpacli = GetWpaCliBinary();
-
-    if (!wpacli.empty()) {
-        ApRemoveAllNetworks(wpacli, iface, ctrl);
-        RunCommand(wpacli + " -i " + iface + " -p " + ctrl + " disconnect");
-    }
-
-    const std::string ifc = GetIfconfigBinary();
-    if (!ifc.empty())
-        RunCommand(ifc + " " + iface + " 0.0.0.0");
-
-    DataManager::SetValue("tw_wlan_ap_enabled", 0);
-    DataManager::SetValue("tw_wlan_ap_ip", "");
-
-    gui_print("WLAN hotspot stopped\n");
-    return true;
-}
-
-bool Wlan::ApListClients(std::vector<ApClient>& clients) {
-    clients.clear();
-
-    std::string leases;
-    if (!ReadFile(WLAN_AP_LEASES, leases))
-        return true;  // no lease file yet => no clients connected
-
-    std::istringstream iss(leases);
-    std::string line;
-
-    while (std::getline(iss, line)) {
-        line = Trim(line);
-        if (line.empty())
-            continue;
-
-        /* dnsmasq lease line: "<expiry> <mac> <ip> <hostname> <clientid>" */
-        std::vector<std::string> cols;
-        std::stringstream ls(line);
-        std::string col;
-        while (ls >> col)
-            cols.push_back(col);
-
-        if (cols.size() < 3)
-            continue;
-
-        ApClient c;
-        c.mac = cols[1];
-        c.ip  = cols[2];
-        c.hostname = (cols.size() >= 4 && cols[3] != "*") ? cols[3] : "";
-        clients.push_back(c);
-    }
-
-    return true;
-}
-
-bool Wlan::StartApDhcpServer() {
-    const std::string dnsmasq = GetDnsmasqBinary();
-    if (dnsmasq.empty()) {
-        gui_print("WLAN AP: dnsmasq binary not found\n");
-        return false;
-    }
-
-    StopApDhcpServer();
-    unlink(WLAN_AP_LEASES);
-
-    std::ostringstream cmd;
-    cmd << dnsmasq
-        << " --interface=" << GetIface()
-        << " --bind-interfaces"
-        << " --except-interface=lo"
-        << " --listen-address=" << AP_IP_ADDR
-        << " --dhcp-range=" << AP_DHCP_START << "," << AP_DHCP_END << "," << AP_NETMASK << ",12h"
-        << " --dhcp-option=3," << AP_IP_ADDR
-        << " --dhcp-option=6," << AP_IP_ADDR
-        << " --dhcp-leasefile=" << WLAN_AP_LEASES
-        << " --pid-file=" << WLAN_AP_PIDFILE
-        << " --no-resolv --no-hosts --no-ping"
-        << " >" << WLAN_AP_DIR << "/dnsmasq.log 2>&1";
-
-    /* dnsmasq daemonises (forks) on startup, so this returns promptly. */
-    return RunCommand(cmd.str());
-}
-
-bool Wlan::StopApDhcpServer() {
-    std::string pid;
-    bool killed_by_pid = false;
-    if (ReadFile(WLAN_AP_PIDFILE, pid)) {
-        pid = Trim(pid);
-        if (!pid.empty() && pid.find_first_not_of("0123456789") == std::string::npos) {
-            RunCommand("kill " + pid + " >/dev/null 2>&1");
-            killed_by_pid = true;
-        }
-    }
-
-    /* Only fall back to a blanket killall when we had no usable pid — otherwise
-     * we would kill unrelated dnsmasq instances we never started. */
-    if (!killed_by_pid)
-        RunCommand("killall dnsmasq >/dev/null 2>&1");
-    unlink(WLAN_AP_PIDFILE);
-    return true;
-}
-
-std::string Wlan::GetDnsmasqBinary() {
-    return FindBinary({
-        "/system/bin/dnsmasq",
-        "/system/xbin/dnsmasq",
-        "/vendor/bin/dnsmasq",
-        "/system_ext/bin/dnsmasq",
-        "/sbin/dnsmasq",
-        "/bin/dnsmasq"
-    });
-}
-
-#endif // OF_WLAN_AP
 
 bool Wlan::RefreshSaved() {
     return BuildSavedList();
@@ -1489,11 +1129,11 @@ bool Wlan::PrepareStableMacFirmware() {
      * different default MAC on every boot. Derive a deterministic,
      * recovery-only address from the device serial instead. FNV-1a is enough
      * here because this is a stable identifier, not a cryptographic secret.
-     * Keep the original OrangeFox salt so devices that used the earlier fix
-     * retain the same recovery MAC after moving to AERA.
+     * AERA uses its own namespace so the address remains stable across AERA
+     * builds without sharing identity material with another recovery.
      */
     uint64_t hash = UINT64_C(1469598103934665603);
-    const std::string material = "OrangeFox-WLAN:" + serial;
+    const std::string material = "AERA-WLAN-v1:" + serial;
     for (unsigned char c : material) {
         hash ^= c;
         hash *= UINT64_C(1099511628211);

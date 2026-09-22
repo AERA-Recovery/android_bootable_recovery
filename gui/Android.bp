@@ -1,4 +1,5 @@
 bootstrap_go_package {
+    name: "soong-aera_gui_backend_defaults",
     pkgPath: "bootable/recovery/gui",
     deps: [
         "soong",
@@ -6,21 +7,27 @@ bootstrap_go_package {
         "soong-cc"
     ],
     srcs: [
+        "aera_gui_defaults.go",
         "../soong/copy.go",
         "../soong/makevars.go",
-        "../orangefox_defaults.go"
+        "../aera_defaults.go"
     ],
     pluginFor: ["soong_build"]
 }
 
+aera_gui_backend_defaults {
+    name: "aera_gui_backend_defaults"
 }
 
 aera_ui2_defaults {
     name: "aera_ui2_defaults"
 }
 
-// FoxUiEngine - the OrangeFox UI engine static library (formerly libguitwrp).
+// Temporary compatibility backend while UI2 absorbs the remaining recovery
+// plumbing that historically lived in the XML GUI engine.
 cc_library_static {
+    name: "libaera_gui_backend",
+    defaults: ["aera_gui_backend_defaults", "twrp_defaults"],
     rtti: true,
     cflags: [
         "-fno-strict-aliasing", 
@@ -95,6 +102,7 @@ cc_library_static {
         "libc",
         "libstdc++",
         "libaosprecovery",
+        "libcrypto",
         "libselinux",
         "libziparchive"
     ],

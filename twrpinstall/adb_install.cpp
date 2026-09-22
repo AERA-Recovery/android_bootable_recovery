@@ -52,7 +52,7 @@
 #include "otautil/sysutil.h"
 #include "recovery_ui/device.h"
 #include "recovery_ui/ui.h"
-#include "orangefox.hpp"
+#include "aera_core.hpp"
 
 // A CommandFunction returns a pair of (result, should_continue), which indicates the command
 // execution result and whether it should proceed to the next iteration. The execution result will

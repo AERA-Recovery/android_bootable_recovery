@@ -33,25 +33,6 @@ public:
     // actual page work is marshalled onto the GUI thread via gui_run_on_main().
     static void RefreshWlanPageIfShown();
 
-#ifdef OF_WLAN_AP
-    // A client currently leased an address by the hotspot's DHCP server.
-    struct ApClient {
-        std::string mac;
-        std::string ip;
-        std::string hostname;
-    };
-
-    // SoftAP / hotspot control. SSID and password are persisted in the Fox
-    // secret store; enable/disable drives wpa_supplicant AP mode + dnsmasq.
-    static bool ApEnable();
-    static bool ApDisable();
-    static bool ApIsEnabled();
-    static bool ApSetSsid(const std::string& ssid);
-    static bool ApSetPassword(const std::string& password);
-    static bool ApGetConfig(std::string& ssid, std::string& password);
-    static bool ApListClients(std::vector<ApClient>& clients);
-#endif
-
 private:
     static bool EnsureTmpLayout();
     static bool EnsureSupplicantConf();
@@ -65,13 +46,6 @@ private:
     static bool StopInitSupplicantService();
     static bool StartDhcp();
     static bool StopDhcp();
-
-#ifdef OF_WLAN_AP
-    static bool StartApDhcpServer();
-    static bool StopApDhcpServer();
-    static void ApRemoveAllNetworks(const std::string& wpacli, const std::string& iface, const std::string& ctrl);
-    static std::string GetDnsmasqBinary();
-#endif
 
     // Info() body, run with g_wlan_op_mutex already held (by Info() or by the
     // try-locked RefreshInfoIfIdle()).

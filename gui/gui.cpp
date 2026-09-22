@@ -54,8 +54,9 @@ extern "C"
 #include "../twrp-functions.hpp"
 #include "../openrecoveryscript.hpp"
 #include "../orscmd/orscmd.h"
-#ifdef OF_ENABLE_WLAN
-#endif
+#include "../aera_rpc/aera_channel.hpp"
+#include "../aera_rpc/aera_dispatcher.hpp"
+#include "../aera_remote/aera_remote.hpp"
 #include "blanktimer.hpp"
 #include "tw_atomic.hpp"
 #include <recovery_ui2/backend.hpp>
@@ -538,6 +539,10 @@ void InputHandler::handleDrag()
 
 void set_select_fd() {
 	select_fd = ors_read_fd + 1;
+	if (aera::rpc::Channel::InputFd() >= select_fd)
+		select_fd = aera::rpc::Channel::InputFd() + 1;
+	if (aera::rpc::Channel::CancelFd() >= select_fd)
+		select_fd = aera::rpc::Channel::CancelFd() + 1;
 	if (g_pty_fd >= select_fd)
 		select_fd = g_pty_fd + 1;
 	if (PartitionManager.uevent_pfd.fd >= select_fd)
@@ -737,11 +742,15 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 			FD_SET(PartitionManager.uevent_pfd.fd, &fdset);
 		}
 #ifndef TW_OEM_BUILD
+		bool command_active = orsout != NULL || aera::rpc::Dispatcher::Active();
 		if (ors_read_fd > 0 && !command_active) {
 			FD_SET(ors_read_fd, &fdset);
 		}
+		if (aera::rpc::Channel::InputFd() > 0 && !command_active) {
+			FD_SET(aera::rpc::Channel::InputFd(), &fdset);
 		}
-		// Watched unconditionally -- cancellation must work while a command runs.
+		if (aera::rpc::Channel::CancelFd() > 0) {
+			FD_SET(aera::rpc::Channel::CancelFd(), &fdset);
 		}
 #endif
 		// TODO: combine this select with the poll done by input handling
@@ -754,14 +763,15 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 #ifndef TW_OEM_BUILD
 			if (ors_read_fd > 0 && !command_active && FD_ISSET(ors_read_fd, &fdset))
 				ors_command_read();
-					PartitionManager.Cancel_Backup();
-			}
+			if (aera::rpc::Channel::InputFd() > 0 && !command_active &&
+			    FD_ISSET(aera::rpc::Channel::InputFd(), &fdset))
+				aera::rpc::Channel::HandleInput();
+			if (aera::rpc::Channel::CancelFd() > 0 &&
+			    FD_ISSET(aera::rpc::Channel::CancelFd(), &fdset))
+				aera::rpc::Channel::HandleCancel();
 #endif
 		}
-		// Drain a queued remote job when the engine is idle.
-#if !defined(TW_OEM_BUILD) && defined(OF_ENABLE_WLAN)
-		if (!orsout)
-#endif
+		if (aera::remote::ShouldRenderFrame())
 			gForceRender.set_value(1);
 
 		if (!gForceRender.get_value())
@@ -782,8 +792,8 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 
 			// Capture the just-rendered complete frame before flip() repoints
 			// gr_mem_surface to the back buffer (GUI thread, no race).
-			if (ret > 1) {
-			}
+			if (ret > 1)
+				aera::remote::CaptureAfterRender();
 
 			if (ret > 0)
 				flip();
@@ -811,6 +821,7 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 		{
 			gForceRender.set_value(0);
 			PageManager::Render();
+			aera::remote::CaptureAfterRender();
 			flip();
 			input_timeout_ms = 0;
 		}
@@ -827,6 +838,7 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 	if (ors_read_fd > 0)
 		close(ors_read_fd);
 	ors_read_fd = -1;
+	aera::rpc::Channel::Shutdown();
 	set_select_fd();
 	gGuiRunning = 0;
 	return 0;
@@ -1134,7 +1146,9 @@ extern "C" int gui_startPage(const char *page_name, const int allow_commands, in
 	// Bring up the USB RPC FIFOs here so native scenes can service screen mirror
 	// and remote-input requests as soon as they become interactive.
 	if (allow_commands)
+		aera::rpc::Channel::Setup();
 	else
+		aera::rpc::Channel::Shutdown();
 #endif
 
 	if (gUseRecoveryUi2) {
@@ -1186,11 +1200,13 @@ extern "C" int gui_startPage(const char *page_name, const int allow_commands, in
 	{
 		if (ors_read_fd < 0)
 			setup_ors_command();
+		aera::rpc::Channel::Setup();
 	} else {
 		if (ors_read_fd >= 0) {
 			close(ors_read_fd);
 			ors_read_fd = -1;
 		}
+		aera::rpc::Channel::Shutdown();
 	}
 #endif
 	return runPages(page_name, stop_on_page_done);

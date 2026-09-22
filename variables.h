@@ -22,7 +22,7 @@
 #define _VARIABLES_HEADER_
 
 #define AERA_RECOVERY_NAME	"AERA"
-#define AERA_MAIN_VERSION_STR    AERA_INTERNAL_RELEASE // defined in orangefox.mk
+#define AERA_MAIN_VERSION_STR    AERA_INTERNAL_RELEASE // defined in aera_build.mk
 #define AERA_BRANCH		"1"
 #define TW_VERSION_STR 		AERA_MAIN_VERSION_STR
 #define BUILD_TYPE_STR 		AERA_BUILD_TYPE

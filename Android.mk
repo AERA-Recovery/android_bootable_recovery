@@ -49,10 +49,17 @@ LOCAL_SRC_FILES := \
     progresstracking.cpp \
     startupArgs.cpp \
     twrp-functions.cpp \
-    orangefox.cpp \
+    aera_core.cpp \
     gui/nanosvg.cpp \
     twrpDigestDriver.cpp \
     openrecoveryscript.cpp \
+    aera_rpc/aera_channel.cpp \
+    aera_rpc/aera_dispatcher.cpp \
+    aera_rpc/aera_engine.cpp \
+    aera_rpc/aera_protocol.cpp \
+    aera_remote/aera_remote.cpp \
+    aera_remote/frame_broker.cpp \
+    aera_remote/input.cpp \
     ui2/plugin_api/operations.cpp \
     tarWrite.c \
     twrpAdbBuFifo.cpp \
@@ -65,7 +72,9 @@ LOCAL_C_INCLUDES += \
 ifeq ($(OF_ENABLE_WLAN),1)
 LOCAL_SRC_FILES += \
     wlan.cpp \
-    nas/NasManager.cpp \
+    aera_adbd.cpp \
+    aera_secrets/aera_secrets.cpp \
+    nas/NasManager.cpp
 LOCAL_C_INCLUDES += \
     $(LOCAL_PATH) \
     packages/modules/adb/pairing_connection/include \
@@ -156,6 +165,7 @@ LOCAL_C_INCLUDES += \
     $(LOCAL_PATH)/minuitwrp/include \
     $(LOCAL_PATH)/twinstall/include
 
+LOCAL_STATIC_LIBRARIES += libaera_gui_backend librecoveryui2 libaera_webp_decoder liblvgl_recovery libxz libvold
 # libvterm backs the in-UI terminal (gui/terminal.cpp). Always linked, because
 # the terminal page is part of the always-built GUI (not gated by OF_ENABLE_WLAN).
 LOCAL_STATIC_LIBRARIES += libvterm
@@ -167,7 +177,7 @@ ifneq ($(wildcard system/core/libsparse/Android.mk),)
 LOCAL_SHARED_LIBRARIES += libsparse
 endif
 
-include $(LOCAL_PATH)/orangefox.mk
+include $(LOCAL_PATH)/aera_build.mk
 
 ifeq ($(TW_OEM_BUILD),true)
     LOCAL_CFLAGS += -DTW_OEM_BUILD
@@ -674,7 +684,7 @@ ifeq ($(TW_INCLUDE_FB2PNG), true)
 endif
 ifneq ($(TW_OEM_BUILD),true)
     TWRP_REQUIRED_MODULES += orscmd
-    TWRP_REQUIRED_MODULES += foxcli
+    TWRP_REQUIRED_MODULES += aeracli
 endif
 ifeq ($(BOARD_USES_BML_OVER_MTD),true)
     TWRP_REQUIRED_MODULES += bml_over_mtd
@@ -722,7 +732,6 @@ ifeq ($(BOARD_CACHEIMAGE_PARTITION_SIZE),)
 endif
 
 LOCAL_REQUIRED_MODULES += $(TWRP_REQUIRED_MODULES)
-
 
 include $(BUILD_EXECUTABLE)
 

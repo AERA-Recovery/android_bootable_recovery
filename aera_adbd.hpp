@@ -4,7 +4,7 @@
 
 #include <string>
 
-class Fox_Adbd {
+class AeraAdbd {
 public:
 	static bool StartSecure(int port);
 	static bool StartNoAuth(int port);
@@ -14,6 +14,7 @@ public:
 	static void PrintStatus();
 	static std::string WlanIp();
 
+	// Authorized-device registry (backed by AeraSecrets). PrintDevices emits a
 	// AERA_ADB_DEVICES_BEGIN/END block; ForgetDevice revokes by fingerprint or
 	// name, removing the key from both the registry and the adb_keys files.
 	static void PrintDevices();

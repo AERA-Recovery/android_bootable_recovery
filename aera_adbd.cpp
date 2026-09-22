@@ -1,3 +1,4 @@
+#include "aera_adbd.hpp"
 
 #ifdef OF_ENABLE_WLAN
 
@@ -19,12 +20,14 @@
 #include <android-base/file.h>
 #include <android-base/properties.h>
 #include <cutils/properties.h>
+#include <json/json.h>
 
 #include "data.hpp"
 #include "gui/gui.hpp"
 #include "twcommon.h"
 #include "twrp-functions.hpp"
 #include "wlan.hpp"
+#include "aera_secrets/aera_secrets.hpp"
 
 namespace {
 
@@ -69,12 +72,14 @@ bool EnsureWlanConnected(std::string& ip)
 
 bool SetProp(const std::string& key, const std::string& value)
 {
-	return TWFunc::Fox_Property_Set(key, value);
+	return property_set(key.c_str(), value.c_str()) == 0;
 }
 
 std::string GetProp(const std::string& key)
 {
-	return TWFunc::Fox_Property_Get(key);
+	char value[PROPERTY_VALUE_MAX] = {};
+	property_get(key.c_str(), value, "");
+	return value;
 }
 
 bool WaitForPropNonEmpty(const std::string& key, std::string& value, int timeout_ms)
@@ -302,6 +307,7 @@ void PairingResultCallback(const PeerInfo* peer_info, void*)
 			LOGINFO("ADB WiFi pairing: stored host key\n");
 			// Record the paired host in the registry so `web adb list/forget`
 			// can present and revoke it later.
+			AeraSecrets::AddAdbDevice(key_str);
 		} else {
 			LOGERR("ADB WiFi pairing: failed to store host key\n");
 		}
@@ -320,20 +326,20 @@ void PairingResultCallback(const PeerInfo* peer_info, void*)
 
 } // namespace
 
-std::string Fox_Adbd::WlanIp()
+std::string AeraAdbd::WlanIp()
 {
 	Wlan::Info();
 	return DataManager::GetStrValue("wlan_info_ip");
 }
 
-bool Fox_Adbd::StartSecure(int port)
+bool AeraAdbd::StartSecure(int port)
 {
 	if (!ValidPort(port))
 		port = kDefaultPort;
 
 	std::string ip;
 	if (!EnsureWlanConnected(ip)) {
-		gui_print("fox: WLAN must be connected before starting paired ADB\n");
+		gui_print("AERA: WLAN must be connected before starting paired ADB\n");
 		return false;
 	}
 
@@ -341,7 +347,7 @@ bool Fox_Adbd::StartSecure(int port)
 	SetProp(kTlsRequestedPortProp, std::to_string(port));
 	SetProp("ctl.start", "adbd");
 	if (!SetProp(kTlsEnableProp, "1")) {
-		gui_print("fox: failed to enable paired ADB\n");
+		gui_print("AERA: failed to enable paired ADB\n");
 		return false;
 	}
 
@@ -355,14 +361,14 @@ bool Fox_Adbd::StartSecure(int port)
 	return true;
 }
 
-bool Fox_Adbd::StartNoAuth(int port)
+bool AeraAdbd::StartNoAuth(int port)
 {
 	if (!ValidPort(port))
 		port = kDefaultPort;
 
 	std::string ip;
 	if (!EnsureWlanConnected(ip)) {
-		gui_print("fox: WLAN must be connected before starting no-auth ADB\n");
+		gui_print("AERA: WLAN must be connected before starting no-auth ADB\n");
 		return false;
 	}
 
@@ -379,11 +385,11 @@ bool Fox_Adbd::StartNoAuth(int port)
 	return true;
 }
 
-bool Fox_Adbd::StartPairing(int timeout_sec)
+bool AeraAdbd::StartPairing(int timeout_sec)
 {
 	std::string ip;
 	if (!EnsureWlanConnected(ip)) {
-		gui_print("fox: WLAN must be connected before pairing ADB\n");
+		gui_print("AERA: WLAN must be connected before pairing ADB\n");
 		return false;
 	}
 
@@ -395,7 +401,7 @@ bool Fox_Adbd::StartPairing(int timeout_sec)
 
 	g_pairing_code = RandomDigits(6);
 	if (g_pairing_code.empty()) {
-		gui_print("fox: no entropy available for ADB pairing code\n");
+		gui_print("AERA: no entropy available for ADB pairing code\n");
 		return false;
 	}
 	PeerInfo info = MakeDevicePeerInfo();
@@ -404,14 +410,14 @@ bool Fox_Adbd::StartPairing(int timeout_sec)
 		g_pairing_code.size(), &info, 0);
 	if (!g_pairing_server) {
 		g_pairing_code.clear();
-		gui_print("fox: failed to create ADB pairing server\n");
+		gui_print("AERA: failed to create ADB pairing server\n");
 		return false;
 	}
 
 	g_pairing_port = pairing_server_start(g_pairing_server, PairingResultCallback, nullptr);
 	if (g_pairing_port <= 0) {
 		StopPairingLocked();
-		gui_print("fox: failed to start ADB pairing server\n");
+		gui_print("AERA: failed to start ADB pairing server\n");
 		return false;
 	}
 
@@ -429,14 +435,14 @@ bool Fox_Adbd::StartPairing(int timeout_sec)
 	return true;
 }
 
-bool Fox_Adbd::StopPairing()
+bool AeraAdbd::StopPairing()
 {
 	std::lock_guard<std::mutex> lock(g_pair_mutex);
 	StopPairingLocked();
 	return true;
 }
 
-bool Fox_Adbd::StopAll()
+bool AeraAdbd::StopAll()
 {
 	StopPairing();
 	SetProp(kTlsEnableProp, "0");
@@ -447,7 +453,7 @@ bool Fox_Adbd::StopAll()
 	return true;
 }
 
-void Fox_Adbd::PrintStatus()
+void AeraAdbd::PrintStatus()
 {
 	Wlan::Info();
 	std::string ip = DataManager::GetStrValue("wlan_info_ip");
@@ -484,10 +490,15 @@ void Fox_Adbd::PrintStatus()
 		if (pairing)
 			s["pair"] = "adb pair " + ip + ":" + std::to_string(g_pairing_port);
 	}
+	Json::StreamWriterBuilder writer;
+	writer["indentation"] = "";
+	gui_print("%s\n", Json::writeString(writer, s).c_str());
 }
 
-void Fox_Adbd::PrintDevices()
+void AeraAdbd::PrintDevices()
 {
+	std::vector<AeraSecrets::AdbDevice> devices;
+	AeraSecrets::ListAdbDevices(devices);
 	Json::Value items(Json::arrayValue);
 	for (const auto& dev : devices) {
 		Json::Value item(Json::objectValue);
@@ -498,16 +509,20 @@ void Fox_Adbd::PrintDevices()
 	}
 	Json::Value payload(Json::objectValue);
 	payload["items"] = items;
+	Json::StreamWriterBuilder writer;
+	writer["indentation"] = "";
+	gui_print("%s\n", Json::writeString(writer, payload).c_str());
 }
 
-bool Fox_Adbd::ForgetDevice(const std::string& id)
+bool AeraAdbd::ForgetDevice(const std::string& id)
 {
 	if (id.empty()) {
-		gui_print("fox: adb forget requires a device fingerprint or name\n");
+		gui_print("AERA: adb forget requires a device fingerprint or name\n");
 		return false;
 	}
 	std::string removed_key;
-		gui_print("fox: no authorized device matches '%s'\n", id.c_str());
+	if (!AeraSecrets::DeleteAdbDevice(id, removed_key)) {
+		gui_print("AERA: no authorized device matches '%s'\n", id.c_str());
 		return false;
 	}
 	// Best-effort: also strip the key from the adb_keys files so the host can no

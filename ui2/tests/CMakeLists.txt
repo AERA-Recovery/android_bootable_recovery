@@ -24,8 +24,8 @@ add_executable(ui_check ui_check.cpp ../about_scene.cpp ../aera_logo.cpp
 target_include_directories(ui_check PRIVATE .. ../include)
 target_compile_definitions(ui_check PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES)
 target_compile_definitions(ui_check PRIVATE
-  AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../../gui/theme/extra-languages/fonts"
-  AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../../gui/theme/common/fonts")
+  AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../fonts/assets"
+  AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../fonts/assets")
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG Threads::Threads)
 enable_testing()
@@ -45,8 +45,8 @@ add_executable(sideload_ui_test sideload_ui_test.cpp
 target_include_directories(sideload_ui_test PRIVATE .. ../include)
 target_compile_definitions(sideload_ui_test PRIVATE AERA_DEFAULT_LANGUAGE="en")
 target_compile_definitions(sideload_ui_test PRIVATE
-  AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../../gui/theme/extra-languages/fonts"
-  AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../../gui/theme/common/fonts")
+  AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../fonts/assets"
+  AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../fonts/assets")
 target_compile_options(sideload_ui_test PRIVATE -UNDEBUG)
 target_link_libraries(sideload_ui_test PRIVATE lvgl Threads::Threads)
 add_test(NAME sideload_scene_and_progress COMMAND sideload_ui_test)

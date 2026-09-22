@@ -2,8 +2,7 @@
 #include "operations.hpp"
 #include <recovery_ui2/i18n.hpp>
 
-#ifdef OF_ENABLE_WLAN
-#endif
+#include "../../aera_remote/aera_remote.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -419,14 +418,10 @@ bool RestoreAndroidSettings(int system_directory, int backup_directory) {
 
 MirrorMode ActiveMirrorMode() {
   const auto mode = gMirrorMode.load(std::memory_order_acquire);
+  if (mode != MirrorMode::kOff && !aera::remote::Running()) {
     gMirrorMode.store(MirrorMode::kOff, std::memory_order_release);
     return MirrorMode::kOff;
   }
-#ifdef OF_ENABLE_WLAN
-    gMirrorMode.store(MirrorMode::kOff, std::memory_order_release);
-    return MirrorMode::kOff;
-  }
-#endif
   return mode;
 }
 
@@ -455,38 +450,27 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
     return false;
   }
   if (operation == Operation::kStartMirror) {
-#ifdef OF_ENABLE_WLAN
-    // The same embedded page is available through an ADB port forward, so the
-    // forthcoming one-click desktop launcher needs no bundled UI/runtime.
-    const bool success = stream_ready && browser_ready;
+    const bool success = aera::remote::Start(80);
     if (success)
       gMirrorMode.store(MirrorMode::kUsb, std::memory_order_release);
     result = success
                  ? "USB mirror ready. Open it with the AERA Mirror desktop launcher."
-                 : stream_ready
-                       ? "Legacy USB client ready, but browser forwarding could not start."
-                       : "Could not start the AERA USB mirror.";
-#else
-    const bool success = stream_ready;
-    if (success)
-      gMirrorMode.store(MirrorMode::kUsb, std::memory_order_release);
-    result = success
-                 ? "USB mirror ready at 30 FPS. Open the AERA Mirror desktop client."
                  : "Could not start the AERA USB mirror.";
-#endif
     return success;
   }
   if (operation == Operation::kStartWifiMirror) {
 #ifdef OF_ENABLE_WLAN
+    const std::string address = aera::remote::Address();
     if (address.empty() || address == "0.0.0.0") {
       result = "Connect AERA to Wi-Fi first, then return here and start the mirror.";
       return false;
     }
+    const bool success = aera::remote::Start(80);
     if (success)
       gMirrorMode.store(MirrorMode::kWifi, std::memory_order_release);
     result = success
-        ? i18n::Format("Wi-Fi mirror ready: http://%s/",
-                       address.c_str())
+        ? i18n::Format("Wi-Fi mirror ready: http://%s/?code=%s",
+                       address.c_str(), aera::remote::AccessCode().c_str())
         : "Could not start the AERA Wi-Fi mirror.";
     return success;
 #else
@@ -496,8 +480,7 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
   }
   if (operation == Operation::kStopMirror) {
     gMirrorMode.store(MirrorMode::kOff, std::memory_order_release);
-#ifdef OF_ENABLE_WLAN
-#endif
+    aera::remote::Stop();
     result = "AERA Mirror stopped.";
     return true;
   }

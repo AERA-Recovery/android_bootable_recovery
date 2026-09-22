@@ -55,7 +55,7 @@
 #include "gui/gui.hpp"
 #include "gui/pages.hpp"
 #include "gui/blanktimer.hpp"
-#include "orangefox.hpp"
+#include "aera_core.hpp"
 #include "twrpRepacker.hpp"
 
 // #include "legacy_property_service.h"

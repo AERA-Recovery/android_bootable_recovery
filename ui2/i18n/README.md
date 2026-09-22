@@ -15,8 +15,8 @@ python3 ui2/i18n/generate_catalog.py \
 ```
 
 The generator emits only catalog entries that are still referenced by native
-UI2 source. Do not add translated XML files under `gui/theme`: `en.xml` exists
-solely for the emergency legacy UI and is not the AERA translation database.
+UI2 source. The legacy XML theme tree is no longer packaged; translations
+belong only in this native catalog.
 
 Host API 2 plugins receive the selected locale through `AERA_LOCALE`. Official
 plugin metadata may also provide localized `name` and `description` fields in

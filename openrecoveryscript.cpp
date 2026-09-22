@@ -46,7 +46,7 @@
 #include "twcommon.h"
 #include "openrecoveryscript.hpp"
 #include "progresstracking.hpp"
-#include "orangefox.hpp"
+#include "aera_core.hpp"
 #include "variables.h"
 #include "install/adb_install.h"
 #include "data.hpp"

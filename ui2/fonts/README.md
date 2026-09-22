@@ -1,8 +1,7 @@
 # AERA font fallbacks
 
 LVGL's built-in Montserrat fonts cover the compact ASCII UI. AERA chains
-FreeType fallbacks from `gui/theme/common/fonts` and
-`gui/theme/extra-languages/fonts` for translated text and filenames. Fallback
+FreeType fallbacks from `ui2/fonts/assets` for translated text and filenames. Fallback
 faces are created lazily for each UI size so the full multilingual set does
 not inflate native code or eagerly consume recovery memory.
 
