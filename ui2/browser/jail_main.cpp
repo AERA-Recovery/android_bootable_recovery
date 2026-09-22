@@ -182,7 +182,11 @@ static void Supervise(const std::string &root, const char *memory_limit) {
   int kill_file = open((tasks + "/cgroup.kill").c_str(), O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
   int killer = kill_file < 0 ? -1 : fcntl(kill_file, F_DUPFD_CLOEXEC, 5);
   if (kill_file >= 0) close(kill_file);
-  if (killer < 0 || !WriteFile(memory + "/memory.limit_in_bytes", memory_limit)) {
+  // cgroup.kill was added after Linux 5.10. Some otherwise fully capable
+  // recovery kernels (including Garnet's) therefore expose the Android task
+  // and memory controllers without that file. Keep the hard memory bound and
+  // fall back to the jail's dedicated process group for tree termination.
+  if (!WriteFile(memory + "/memory.limit_in_bytes", memory_limit)) {
     if (killer >= 0) close(killer);
     rmdir(memory.c_str()); rmdir(tasks.c_str()); Die("browser resource limits");
   }
@@ -198,13 +202,15 @@ static void Supervise(const std::string &root, const char *memory_limit) {
   if (getppid() != parent) stopping = 1;
   const pid_t child = fork();
   if (child < 0) {
-    close(killer); rmdir(memory.c_str()); rmdir(tasks.c_str()); Die("browser fork");
+    if (killer >= 0) close(killer);
+    rmdir(memory.c_str()); rmdir(tasks.c_str()); Die("browser fork");
   }
   if (!child) {
     for (int signal : {SIGTERM, SIGINT, SIGHUP}) ::signal(signal, SIG_DFL);
+    Check(setsid(), "private browser process group");
     if (!WriteFile(tasks + "/cgroup.procs", "0") || !WriteFile(memory + "/cgroup.procs", "0"))
       Die("join browser resource groups");
-    close(killer);
+    if (killer >= 0) close(killer);
     return;
   }
   // The supervisor must not keep the UI connection alive after worker exit.
@@ -216,10 +222,16 @@ static void Supervise(const std::string &root, const char *memory_limit) {
     if (result < 0 && errno != EINTR) { stopping = 1; break; }
     usleep(100000);
   }
-  // Kernel cgroup.kill covers all descendants and concurrent forks. This
-  // descriptor names only the transient group created above, never host tasks.
-  if (write(killer, "1", 1) != 1) Die("stop browser process tree");
-  close(killer);
+  // Newer kernels provide atomic cgroup tree termination. Linux 5.10 devices
+  // use the dedicated process group instead; the seccomp policy denies
+  // setsid/setpgid after sandbox entry, so descendants cannot escape it.
+  if (killer >= 0) {
+    if (write(killer, "1", 1) != 1) Die("stop browser process tree");
+    close(killer);
+  } else {
+    if (kill(-child, SIGKILL) && errno != ESRCH) Die("stop browser process group");
+    if (kill(child, SIGKILL) && errno != ESRCH) Die("stop browser leader");
+  }
   if (stopping) while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
   bool removed_memory = false, removed_tasks = false;
   for (int attempt = 0; attempt < 50 && (!removed_memory || !removed_tasks); ++attempt) {
@@ -298,7 +310,6 @@ int main(int argc, char **argv) {
   close(directory);
   Supervise(root, (telegram || doom) ? "536870912" :
       (media || recorder || streams_media) ? "1073741824" : "1610612736");
-  Check(setsid(), "private browser process group");
   const rlim_t file_limit = browser ? 16ULL << 30 :
       recorder ? 2ULL << 30 : 64ULL << 20;
   rlimit files{512U, 512U}, processes{192U, 192U}, core{0, 0},
