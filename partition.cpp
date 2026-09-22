@@ -1381,7 +1381,7 @@ void TWPartition::Setup_Data_Media() {
 	}
 	ExcludeAll(Mount_Point + "/media");
 #ifdef OF_MISCELLANEOUS_ROOT_DIRECTORY
-	if (TWFunc::Get_Root_Path(Fox_Home) == Mount_Point) {
+	if (TWFunc::Get_Root_Path(Aera_Home) == Mount_Point) {
 		Storage_Path = OF_MISCELLANEOUS_ROOT_DIRECTORY;
 	}
 #endif
@@ -1919,7 +1919,7 @@ bool TWPartition::Wipe(string New_File_System) {
 
 		if (Mount_Point == "/storage")
 		  {
-	   	    LOGINFO("DEBUG - OrangeFox: wiping /storage with \"rm -rf\" ... \n");
+               LOGINFO("DEBUG - AERA: wiping /storage with \"rm -rf\" ... \n");
 	   	    wiped = Wipe_RMRF();
 		  } else
 		if (check || Use_Rm_Rf)
@@ -2092,7 +2092,7 @@ bool TWPartition::Repair() {
 		// try to unbind /sdcard if it is still bind-mounted
 		#ifdef OF_UNBIND_SDCARD_F2FS
 		if (Mount_Point == "/data") {
-			LOGINFO("OrangeFox: bind-unmounting /sdcard before f2fs data repair...\n");
+			LOGINFO("AERA: bind-unmounting /sdcard before f2fs data repair...\n");
 			usleep(32768);
 			string nul;
 			TWFunc::Exec_Cmd("umount /sdcard", nul);
@@ -2319,7 +2319,7 @@ bool TWPartition::Wipe_Encryption() {
 #endif
 		if (Is_FBE) {
 		    if (DataManager::GetIntValue(AERA_DISABLE_FORCED_ENCRYPTION) != 1) {
-			gui_msg(Msg(msg::kWarning, "data_media_fbe_msg=OrangeFox will not recreate /data/media on an FBE device. Please reboot into your rom to create /data/media."));
+			gui_msg(Msg(msg::kWarning, "data_media_fbe_msg=AERA will not recreate /data/media on an FBE device. Please reboot into your ROM to create /data/media."));
 		    }
 		} else {
 			if (Has_Data_Media && !Symlink_Mount_Point.empty()) {
@@ -2438,7 +2438,7 @@ bool TWPartition::Wipe_EXTFS(string File_System) {
 
 	#ifdef OF_UNBIND_SDCARD_F2FS
 	if (Mount_Point == "/data") {
-		LOGINFO("OrangeFox: trying to unmount %s (again) before extFS data format...\n", Display_Name.c_str());
+		LOGINFO("AERA: trying to unmount %s (again) before extFS data format...\n", Display_Name.c_str());
 		usleep(32768);
 		TWFunc::Exec_Cmd("umount " + Actual_Block_Device + " > /dev/null 2>&1", false);
 		usleep(32768);
@@ -2726,7 +2726,7 @@ bool TWPartition::Wipe_F2FS() {
 	// try to unbind /sdcard if it is still bind-mounted
 	#ifdef OF_UNBIND_SDCARD_F2FS
 		if (Mount_Point == "/data") {
-			LOGINFO("OrangeFox: bind-unmounting /sdcard before f2fs data format...\n");
+			LOGINFO("AERA: bind-unmounting /sdcard before f2fs data format...\n");
 			usleep(32768);
 			string nul;
 			TWFunc::Exec_Cmd("umount -f /sdcard /data", nul);
@@ -2736,13 +2736,13 @@ bool TWPartition::Wipe_F2FS() {
 
 	#if defined(OF_USE_DMCTL) || defined(TW_USE_DMCTL)
 	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
-		LOGINFO("OrangeFox: running dmctl before formatting...\n");
+		LOGINFO("AERA: running dmctl before formatting...\n");
 		TWFunc::Exec_Cmd("dmctl delete userdata", false);
 		usleep(32768);
 	}
 	#elif defined(AERA_USE_DMSETUP)
 	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
-		LOGINFO("OrangeFox: running dmsetup before formatting...\n");
+		LOGINFO("AERA: running dmsetup before formatting...\n");
 		TWFunc::Exec_Cmd("dmsetup remove -f userdata", false);
 		usleep(32768);
 	}
@@ -2831,7 +2831,7 @@ bool TWPartition::Wipe_Data_Without_Wiping_Media_Func(const string& parent __unu
 				}
 				#ifdef OF_WORKAROUND_BACKUP_BUG
 				if (dir == "/data/data/") // temporary workaround for error 255 when restoring data backups in 14.1 branch builds
-					LOGINFO("DEBUG: OrangeFox: skipped /data/data/\n");
+					LOGINFO("DEBUG: AERA: skipped /data/data/\n");
 				else
 				#endif
 				rmdir(dir.c_str());

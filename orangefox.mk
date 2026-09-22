@@ -982,8 +982,8 @@ ifeq ($(OF_ENABLE_WLAN),1)
 endif
 ifeq ($(AERA_REMOTE_DASHBOARD),1)
     ifeq ($(OF_ENABLE_WLAN),1)
-    AERA_DASHBOARD_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/fox/dashboard
-    AERA_DASHBOARD_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/fox/.dashboard.stamp
+    AERA_DASHBOARD_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/dashboard
+    AERA_DASHBOARD_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/.dashboard.stamp
 
 ifndef OF_DASHBOARD_RULE_DEFINED
 OF_DASHBOARD_RULE_DEFINED := true

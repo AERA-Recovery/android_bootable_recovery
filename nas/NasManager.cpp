@@ -44,7 +44,7 @@ const std::string NasManager::Log_File = "/tmp/of_nas/rclone.log";
 const std::string NasManager::Rclone_Binary = "/system/bin/rclone";
 
 static const std::string Rclone_Obscure_Config_File = "/tmp/of_nas/rclone_obscure.conf";
-static const std::string Data_Cache_Dir = "/data/media/0/Fox/NASCache";
+static const std::string Data_Cache_Dir = "/data/media/0/AERA/NASCache";
 static const std::string Nas_Cache_Mode_Off = "off";
 static const std::string Nas_Cache_Mode_Data = "data";
 static const std::string Data_Cache_Max_Size = "25G";

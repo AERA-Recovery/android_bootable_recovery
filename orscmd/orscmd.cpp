@@ -35,12 +35,12 @@
 #include "../variables.h"
 
 void print_version(void) {
-	printf("OrangeFox openrecoveryscript command line tool, OrangeFox version %s\n\n", TW_VERSION_STR);
+	printf("AERA openrecoveryscript command line tool, AERA version %s\n\n", TW_VERSION_STR);
 }
 
 void print_usage(void) {
 	print_version();
-	printf("Allows command line usage of OrangeFox via openrecoveryscript commands.\n");
+	printf("Allows command line usage of AERA via openrecoveryscript commands.\n");
 	printf("Some common commands include:\n");
 	printf("  install /path/to/update.zip\n");
 	printf("  backup <SDCRBAEM> [backupname]\n");
@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
 
 	write_fd = open(ORS_INPUT_FILE, O_WRONLY);
 	if (write_fd < 0) {
-		printf("OrangeFox does not appear to be running. Waiting for OrangeFox to start . . .\n");
+		printf("AERA does not appear to be running. Waiting for AERA to start . . .\n");
 		printf("Press CTRL + C to quit.\n");
 		while (write_fd < 0)
 			write_fd = open(ORS_INPUT_FILE, O_WRONLY);

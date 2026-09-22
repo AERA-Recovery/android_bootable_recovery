@@ -68,58 +68,59 @@
 
 #define OF_SPLASH_MAX_SIZE_STR "of_splash_max_size"
 
-#define OF_STORAGE_PATH             "/sdcard/Fox"
-#define TW_STORAGE_PATH             "/data/recovery"
-#define TW_SETTINGS_FILE	    ".foxs"
-#define PERSIST_SETTINGS_FILE       "/persist/.foxs"
+#define AERA_STORAGE_PATH                  "/sdcard/AERA"
+#define AERA_FALLBACK_STORAGE_PATH         "/data/recovery"
+#define AERA_SETTINGS_FILE                 ".aera"
+#define AERA_PERSIST_SETTINGS_FILE         "/persist/.aera"
 
-// *** OrangeFox - Variables ** //
+// AERA runtime paths. Some inherited backend names below remain compatibility
+// contracts and are intentionally not renamed here.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
 #include <unistd.h>
-static const std::string Fox_Bin_Dir = "/system/bin";
-static const std::string Fox_Tmp = "/tmp";
+static const std::string Aera_Bin_Dir = "/system/bin";
+static const std::string Aera_Tmp = "/tmp";
 
-static const std::string Fox_Home =
+static const std::string Aera_Home =
 #ifdef OF_MISCELLANEOUS_ROOT_DIRECTORY
-OF_MISCELLANEOUS_ROOT_DIRECTORY"/Fox";
+OF_MISCELLANEOUS_ROOT_DIRECTORY"/AERA";
 #else
-OF_STORAGE_PATH;
+AERA_STORAGE_PATH;
 #endif
 
-static const std::string Fox_Settings_Path =
+static const std::string Aera_Settings_Path =
 #ifdef OF_SETTINGS_ROOT_DIRECTORY
-OF_SETTINGS_ROOT_DIRECTORY"/Fox";
+OF_SETTINGS_ROOT_DIRECTORY"/AERA";
 #else
-OF_STORAGE_PATH;
+AERA_STORAGE_PATH;
 #endif
 
-static const std::string Fox_ResetProp_Bin = "/system/bin/resetprop";
-static const std::string AERA_THEME_PATH = Fox_Settings_Path + "/.theme";
-static const std::string AERA_NAVBAR_PATH =  Fox_Settings_Path + "/.navbar";
-static const std::string Fox_Home_Files = Fox_Home + "/FoxFiles";
-static const std::string Fox_Logs_Dir = Fox_Home + "/logs";
-static const std::string AERA_OTA_PATH =  Fox_Home + "/OTA";
-static const std::string Fox_sdcard_aroma_cfg = Fox_Home + "/aromafm.cfg";
-static const std::string Fox_aroma_cfg = Fox_Home_Files + "/AromaFM/AromaFM.zip.cfg";
+static const std::string Aera_ResetProp_Bin = "/system/bin/resetprop";
+static const std::string AERA_THEME_PATH = Aera_Settings_Path + "/.theme";
+static const std::string AERA_NAVBAR_PATH =  Aera_Settings_Path + "/.navbar";
+static const std::string Aera_Home_Files = Aera_Home + "/Files";
+static const std::string Aera_Logs_Dir = Aera_Home + "/logs";
+static const std::string AERA_OTA_PATH =  Aera_Home + "/OTA";
+static const std::string Aera_sdcard_aroma_cfg = Aera_Home + "/aromafm.cfg";
+static const std::string Aera_aroma_cfg = Aera_Home_Files + "/AromaFM/AromaFM.zip.cfg";
 static const std::string FFiles_dir = "/FFiles";
-static const std::string Fox_tmp_dir = Fox_Tmp + "/orangefox";
-static const std::string Fox_ramdisk_dir = Fox_tmp_dir + "/ramdisk"; 
-static const std::string Fox_ramdisk_sbin_dir = Fox_ramdisk_dir + "/sbin"; 
-static const std::string epoch_drift_file = "/persist/.fox_epoch_drift.cfg"; // to cater for any saved epoch_drifts
-static const std::string Fox_OTA_info = "/orangefox.info";
-static std::string Fox_Current_Device = "default";
-static const std::string orangefox_cfg = "/etc/orangefox.cfg";
-static const std::string Fox_Cfg = "/etc/fox.cfg";
+static const std::string Aera_tmp_dir = Aera_Tmp + "/aera";
+static const std::string Aera_ramdisk_dir = Aera_tmp_dir + "/ramdisk";
+static const std::string Aera_ramdisk_sbin_dir = Aera_ramdisk_dir + "/sbin";
+static const std::string epoch_drift_file = "/persist/.aera_epoch_drift.cfg"; // to cater for any saved epoch_drifts
+static const std::string Aera_OTA_info = "/aera.info";
+static std::string Aera_Current_Device = "default";
+static const std::string aera_runtime_cfg = "/etc/aera-runtime.cfg";
+static const std::string Aera_Cfg = "/etc/aera.cfg";
 
-static int Fox_Zip_Installer_Code = 0; // 0=standard zip;1=custom ROM;2=miui ROM; 11=custom treble ROM; 22=miui treble ROM
-static int Fox_IsDeactivation_Process_Called = 0; // have we called the deactivation process
-static int Fox_AutoDeactivate_OnReboot = 0;   // call the deactivation process automatically on reboot (if not already called by another thread) ?
-static int Fox_Force_Deactivate_Process = 0;  // for a call to Deactivate_Process()
-static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI ROM?
+static int Aera_Zip_Installer_Code = 0; // 0=standard zip;1=custom ROM;2=miui ROM; 11=custom treble ROM; 22=miui treble ROM
+static int Aera_IsDeactivation_Process_Called = 0; // have we called the deactivation process
+static int Aera_AutoDeactivate_OnReboot = 0;   // call the deactivation process automatically on reboot (if not already called by another thread) ?
+static int Aera_Force_Deactivate_Process = 0;  // for a call to Deactivate_Process()
+static int Aera_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI ROM?
 
-#define AERA_SURVIVAL_FOLDER		Fox_Home.c_str()
+#define AERA_SURVIVAL_FOLDER		Aera_Home.c_str()
 //#define AERA_UPDATE_BINARY		"META-INF/com/google/android/update-binary" // all zip installers must have this
 #define AERA_MIUI_UPDATE_PATH 		"META-INF/com/miui/miui_update" 	// standard MIUI ROMs have this
 #define AERA_MIUI_UPDATE_PATH_EU 	"META-INF/com/xiaomieu/xiaomieu.sh"  // Xiaomi.EU MIUI ROMs have this
@@ -147,7 +148,7 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define AERA_SURVIVAL_FOLDER_VAR      	"fox_survival_backup_folder_path"
 #define AERA_SURVIVAL_BACKUP_NAME       	"fox_survival_backup_folder_name"
 #define AERA_SURVIVAL_BACKUP       	"OTA"
-#define AERA_FILES_BACKUPS_FOLDER_VAR    "fox_files_backup_folder_var"
+#define AERA_FILES_BACKUPS_FOLDER_VAR    "aera_files_backup_folder_var"
 #define AERA_DISABLE_BOOT_CHK       	"fox_disable_boot_check"
 #define AERA_DO_SYSTEM_ON_OTA       	"fox_include_system_survival"
 #define AERA_INSTALL_PREBUILT_ZIP       	"fox_install_built_in_zip"
@@ -370,10 +371,8 @@ static int Fox_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI 
 #define TW_MODULES_MOUNTED_PROP       "twrp.modules.loaded"     // property for successfully mounted modules
 #define TW_KEYMASTER_VERSION_PROP     "keymaster_ver"
 
-// EXTRA FOX16
-#define TW_PERSIST_DIR              "/persist/TWRP"
-#define TW_RECOVERY_FOLDER_VAR      "tw_recovery_folder"
-#define TW_DEFAULT_RECOVERY_FOLDER  "/Fox"
+#define AERA_RECOVERY_FOLDER_VAR      "tw_recovery_folder"
+#define AERA_DEFAULT_RECOVERY_FOLDER  "/AERA"
 #define TW_SKIP_DIGEST_CHECK_ZIP_VAR    "tw_skip_digest_check_zip"
 
 #endif  // _VARIABLES_HEADER_

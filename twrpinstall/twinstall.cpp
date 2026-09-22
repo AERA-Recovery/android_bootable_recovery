@@ -258,14 +258,14 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype) 
 	      		     if (strcmp(display_value, "AROMA Filemanager Finished...") == 0 && (aroma_running == 1)) {
 		  		aroma_running = 0;
 		  		gui_changeOverlay("");
-		  		TWFunc::copy_file(Fox_aroma_cfg, Fox_sdcard_aroma_cfg, 0644);
+                  TWFunc::copy_file(Aera_aroma_cfg, Aera_sdcard_aroma_cfg, 0644);
 			     }
 			Append_Aera_Install_Status(display_value);
 	      		    gui_print("%s", display_value);
 	      		    if (strcmp(display_value, "(c) 2013-2015 by amarullz.com") == 0 && (aroma_running == 0)) {
 		  		aroma_running = 1;
 		  		gui_changeOverlay("black_out");
-		  		TWFunc::copy_file(Fox_aroma_cfg, Fox_sdcard_aroma_cfg, 0644);
+                  TWFunc::copy_file(Aera_aroma_cfg, Aera_sdcard_aroma_cfg, 0644);
 			     }
 	    		}
 	  		else {
@@ -494,7 +494,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 			std::string binary_name("ui.xml");
 			ZipEntry64 binary_entry;
 			if (FindEntry(Zip, binary_name, &binary_entry) == 0) {
-				LOGINFO("OrangeFox theme zip\n");
+				LOGINFO("AERA theme zip\n");
 				ret_val = Install_Theme(path, Zip);
 			} else {
 				ret_val = INSTALL_CORRUPT;
@@ -527,7 +527,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
      {
 	if (DataManager::GetIntValue(AERA_INCREMENTAL_PACKAGE) == 1 && DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE) != 0)
       	  {
-      	    if (TWinstall_Run_OTA_BAK (true)) // true, because the value of Fox_Zip_Installer_Code to be set
+	    if (TWinstall_Run_OTA_BAK (true)) // true, because the value of Aera_Zip_Installer_Code to be set
       	      {
 	        if (Fox_OTA_Backup_Stock_Boot_Image()) // whether to create an additional backup of the stock boot image
 	           {
@@ -539,7 +539,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 			string ota_bootimg = ota_folder + "/boot.img";
 			if (TWFunc::Path_Exists(boot_bak_img)) {
 			   if (TWFunc::copy_file(boot_bak_img, ota_bootimg, 0644) == 0) {
-			   	LOGINFO("OrangeFox: stock boot image extracted into the OTA directory.\n");
+                   LOGINFO("AERA: stock boot image extracted into the OTA directory.\n");
 			     }
 			   unlink(boot_bak_img.c_str());
 		 	}

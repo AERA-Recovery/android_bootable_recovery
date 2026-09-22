@@ -238,7 +238,7 @@ int TWinstall_Run_OTA_BAK (bool reportback)
 {
 int result = 0;
 #ifdef AERA_VANILLA_BUILD
-   LOGINFO("- OrangeFox: DEBUG: skipping the OTA_BAK process...\n");
+   LOGINFO("- AERA: DEBUG: skipping the OTA_BAK process...\n");
    return result;
 #endif
       if ((DataManager::GetIntValue(AERA_MIUI_ZIP_TMP) != 0) || (DataManager::GetIntValue(AERA_METADATA_PRE_BUILD) != 0))
@@ -248,7 +248,7 @@ int result = 0;
 	  DataManager::GetValue(AERA_SURVIVAL_BACKUP_NAME, ota_backup);
 	  DataManager::GetValue(AERA_LOADED_FINGERPRINT, loadedfp);
 	  ota_folder += "/" + ota_backup;
-	  string ota_info = ota_folder + Fox_OTA_info;
+	  string ota_info = ota_folder + Aera_OTA_info;
 	  if (TWFunc::Verify_Loaded_OTA_Signature(loadedfp, ota_folder)) {
 	        gui_msg ("fox_incremental_ota_bak_skip=Detected OTA survival with the same ID - leaving");
 		return result;
@@ -265,26 +265,26 @@ int result = 0;
 	           DataManager::SetValue("ota_bak_folder", ota_folder);
 	           set_miui_install_status(OTA_SUCCESS, false);    
 	           gui_msg("fox_incremental_ota_bak=Process OTA_BAK --- done!");
-	           Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+	           Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
 	           usleep(1024);
 	           if (reportback)
 	           {
-		Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+		Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
 	           	// MIUI: 2, 3, 22, 23
-	           	if (Fox_Zip_Installer_Code == 22) // Treble MIUI
+			if (Aera_Zip_Installer_Code == 22) // Treble MIUI
 		   DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 23);
 	           	else
-	           	if (Fox_Zip_Installer_Code == 2) // non-Treble MIUI
+			if (Aera_Zip_Installer_Code == 2) // non-Treble MIUI
 		   DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 3);
 	           	else
 	           	// custom: 1, 11, 12, 13
-	           	if (Fox_Zip_Installer_Code == 11) // Treble Custom
+			if (Aera_Zip_Installer_Code == 11) // Treble Custom
 		   DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 12);
 	           	else
 		   DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 13); // non-Treble custom
 			usleep(1024);
-		Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
-	           	LOGINFO("OTA_BAK status: [code=%i]\n", Fox_Zip_Installer_Code);
+		Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+			LOGINFO("OTA_BAK status: [code=%i]\n", Aera_Zip_Installer_Code);
 	           }
 	           else
 	           {
@@ -694,7 +694,7 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
               {
                 zip_is_survival_trigger = true;
                 support_all_block_ota = true;
-                LOGINFO("OrangeFox: Detected miui_update file [%s]\n", AERA_MIUI_UPDATE_PATH);
+                LOGINFO("AERA: Detected miui_update file [%s]\n", AERA_MIUI_UPDATE_PATH);
               }
             else
             if (zip_EntryExists(Zip, AERA_MIUI_UPDATE_PATH_EU) // META-INF/com/xiaomieu/xiaomieu.sh - if found, then this is a xiaomi.eu zip installer
@@ -703,7 +703,7 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
 		zip_is_survival_trigger = true;
                 if (zip_EntryExists(Zip, AERA_MIUI_UPDATE_PATH_EU)) {
 			support_all_block_ota = true;
-			LOGINFO("OrangeFox: Detected xiaomi.eu file [%s]\n", AERA_MIUI_UPDATE_PATH_EU);
+			LOGINFO("AERA: Detected xiaomi.eu file [%s]\n", AERA_MIUI_UPDATE_PATH_EU);
 		} else {
 			// this is some other non-standard ROM installer - do nothing
 		}
@@ -713,24 +713,24 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
               mCheck = TWFunc::Exec_With_Output(check_command);  // check for miui in update-binary             
               if (mCheck.size() > 0)
                 { 
-                  LOGINFO("OrangeFox: the answer that I received is: [%s]\n",mCheck.c_str());
+                  LOGINFO("AERA: the answer that I received is: [%s]\n",mCheck.c_str());
                   int not_found = mCheck.find("not found");
                   if (not_found == -1) // then we are miui
                     {    
-                       LOGINFO("OrangeFox: Detected new Xiaomi update-binary [Message=%s]\n", mCheck.c_str());
+                       LOGINFO("AERA: Detected new Xiaomi update-binary [Message=%s]\n", mCheck.c_str());
                        is_new_miui_update_binary = 1;
                        zip_is_survival_trigger = true;
                        support_all_block_ota = true;
                     }
                    else 
                      {
-                        LOGINFO("OrangeFox: Received a response from [%s], but did not detect a new Xiaomi update-binary -Message=[%s] and code=[%i]\n", 
+                        LOGINFO("AERA: Received a response from [%s], but did not detect a new Xiaomi update-binary -Message=[%s] and code=[%i]\n",
                     	    check_command.c_str(), mCheck.c_str(), not_found);
                      }
                 } // mCheck.size > 0
               else
                 {
-                   LOGINFO("OrangeFox: The output of [%s] came out empty\n", check_command.c_str());
+                   LOGINFO("AERA: The output of [%s] came out empty\n", check_command.c_str());
                 }  
              }
        }
@@ -768,33 +768,33 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
       if ((zip_EntryExists(Zip, "vendor.new.dat")) || (zip_EntryExists(Zip, "vendor.new.dat.br"))) // we are installing a Treble ROM
          {
            DataManager::SetValue(AERA_ZIP_INSTALLER_TREBLE, "1");
-           Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+           Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
            usleep (32);
            
-           if (Fox_Zip_Installer_Code == 1) // custom
+           if (Aera_Zip_Installer_Code == 1) // custom
                  DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 11); // custom Treble ROM
            
-           if (Fox_Zip_Installer_Code == 2) // miui 
+           if (Aera_Zip_Installer_Code == 2) // miui
                  DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 22); // miui Treble ROM
            
-           Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
-           LOGINFO("OrangeFox: detected Treble ROM installer. [code=%i] \n", Fox_Zip_Installer_Code);
+           Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+           LOGINFO("AERA: detected Treble ROM installer. [code=%i] \n", Aera_Zip_Installer_Code);
         }
         else 
         if (TWFunc::Has_Vendor_Partition())
          {
            DataManager::SetValue(AERA_ZIP_INSTALLER_TREBLE, "1");
-           Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+           Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
            usleep (32);
            
-           if (Fox_Zip_Installer_Code == 1) // custom
+           if (Aera_Zip_Installer_Code == 1) // custom
                  DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 11);
            
-           if (Fox_Zip_Installer_Code == 2) // miui 
+           if (Aera_Zip_Installer_Code == 2) // miui
                  DataManager::SetValue(AERA_ZIP_INSTALLER_CODE, 22);
            
-           Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
-           LOGINFO("OrangeFox: detected standard ROM installer, on a real Treble device!\n");       
+           Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+           LOGINFO("AERA: detected standard ROM installer, on a real Treble device!\n");
          }
     
     	if (Fox_OTA_Backup_Stock_Boot_Image())
@@ -835,7 +835,7 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
 		  if (fingerprint.empty()) {
    			fingerprint = TWFunc::Fox_Property_Get("orangefox.system.fingerprint");
    			if (fingerprint.empty()) {
-      			    fingerprint = TWFunc::File_Property_Get(orangefox_cfg, "ROM_FINGERPRINT");
+			    fingerprint = TWFunc::File_Property_Get(aera_runtime_cfg, "ROM_FINGERPRINT");
    			}
 		  }
 
@@ -857,19 +857,19 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
 		      // --- check for mismatching fingerprints when they should match
 		      string metadata_prebuild_incremental = TWFunc::File_Property_Get(take_out_metadata, "pre-build-incremental");
 		      string metadata_ota_type = TWFunc::File_Property_Get(take_out_metadata, "ota-type");
-		      string orangefox_incremental = TWFunc::File_Property_Get(orangefox_cfg, "INCREMENTAL_VERSION");
+		      string aera_incremental = TWFunc::File_Property_Get(aera_runtime_cfg, "INCREMENTAL_VERSION");
 
 		      if (metadata_fingerprint != fingerprint)
 		      {
-			    DataManager::GetValue(AERA_COMPATIBILITY_DEVICE, Fox_Current_Device);
-   			    if (metadata_device == Fox_Current_Device && metadata_prebuild_incremental == orangefox_incremental) {
-       				LOGINFO("- DEBUG: OrangeFox: metadata_fingerprint != system_fingerprint. Trying to fix it.\n- Changing [%s] to [%s]\n",
+			    DataManager::GetValue(AERA_COMPATIBILITY_DEVICE, Aera_Current_Device);
+			    if (metadata_device == Aera_Current_Device && metadata_prebuild_incremental == aera_incremental) {
+				LOGINFO("- DEBUG: AERA: metadata_fingerprint != system_fingerprint. Trying to fix it.\n- Changing [%s] to [%s]\n",
            				fingerprint.c_str(), metadata_fingerprint.c_str());
        				string atmp = "\"";
        				usleep(4096);
-				TWFunc::Exec_Cmd(Fox_ResetProp_Bin + " ro.build.fingerprint " + atmp + metadata_fingerprint + atmp);
+				TWFunc::Exec_Cmd(Aera_ResetProp_Bin + " ro.build.fingerprint " + atmp + metadata_fingerprint + atmp);
        				usleep(250000);
-				TWFunc::Exec_Cmd(Fox_ResetProp_Bin + " orangefox.system.fingerprint " + atmp + metadata_fingerprint + atmp);
+				TWFunc::Exec_Cmd(Aera_ResetProp_Bin + " orangefox.system.fingerprint " + atmp + metadata_fingerprint + atmp);
        				usleep(100000);
    			     }
 		        }
@@ -1001,23 +1001,23 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
 	      {
 	      	 if (!TWFunc::Path_Exists(Boot_File)) 
 	      	  {
-		    string atmp_ota = "/sdcard1/Fox/OTA/boot.emmc.win";
+		    string atmp_ota = "/sdcard1/AERA/OTA/boot.emmc.win";
 		    if (TWFunc::Path_Exists(atmp_ota)) {
-		        // found on /sdcard1/Fox/OTA/ - try to copy it to /sdcard/Fox/OTA/
+		        // Found on the external card; copy it to the primary AERA OTA directory.
 		        if (!TWFunc::Path_Exists(AERA_OTA_PATH))
 		           TWFunc::Recursive_Mkdir(AERA_OTA_PATH, false);
 
 		        if (TWFunc::copy_file(atmp_ota, Boot_File, 0644) == 0) {
-			    gui_print("- OTA backup found in /sdcard1/Fox/OTA/ - copied it to %s/OTA/ ...\n", AERA_OTA_PATH.c_str());
+			    gui_print("- OTA backup found in /sdcard1/AERA/OTA/ - copied it to %s/OTA/ ...\n", AERA_OTA_PATH.c_str());
 		    	    #ifdef OF_INCREMENTAL_OTA_BACKUP_SUPER
-			    if (TWFunc::Path_Exists("/sdcard1/Fox/OTA/super.emmc.win") && !TWFunc::Path_Exists(AERA_OTA_PATH + "/super.emmc.win")) {
-				TWFunc::copy_file("/sdcard1/Fox/OTA/super.emmc.win", AERA_OTA_PATH + "/super.emmc.win", 0644);
+			    if (TWFunc::Path_Exists("/sdcard1/AERA/OTA/super.emmc.win") && !TWFunc::Path_Exists(AERA_OTA_PATH + "/super.emmc.win")) {
+				TWFunc::copy_file("/sdcard1/AERA/OTA/super.emmc.win", AERA_OTA_PATH + "/super.emmc.win", 0644);
 		    	    }
 		    	    #endif
 		        } else { // copy did not succeed - use the /sdcard1/ location
 		    	   Boot_File = atmp_ota;
-		    	   ota_location_folder = "/sdcard1/Fox/OTA";
-		    	   gui_print("- OTA backup found in /sdcard1/Fox/OTA/ - trying that instead.\n");
+                  ota_location_folder = "/sdcard1/AERA/OTA";
+			   gui_print("- OTA backup found in /sdcard1/AERA/OTA/ - trying that instead.\n");
 		    	}
 		    }
 	      	}
@@ -1076,8 +1076,8 @@ void Fox_Post_Zip_Install(const int result)
    if (result != INSTALL_SUCCESS)
    	return;
 
-   Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
-   if (Fox_Zip_Installer_Code != 0) // a ROM was installed
+   Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+   if (Aera_Zip_Installer_Code != 0) // a ROM was installed
      {
          usleep(16384);
          TWFunc::Deactivation_Process();
@@ -1095,7 +1095,7 @@ void Fox_Post_Zip_Install(const int result)
 	 #endif
 
     	 // Run any custom script after ROM flashing
-    	 TWFunc::MIUI_ROM_SetProperty(Fox_Zip_Installer_Code);
+	 TWFunc::MIUI_ROM_SetProperty(Aera_Zip_Installer_Code);
 	 TWFunc::RunFoxScript(AERA_AFTER_ROM_FLASH_SCRIPT, "");
          usleep(16384);
 
@@ -1106,7 +1106,7 @@ void Fox_Post_Zip_Install(const int result)
 	* Really, this fix should not be needed, but some custom ROM installers fail to use the standard flashing method for A/B devices
 	* (ie, with payload.bin/update_engine) meaning that we have to intervene here to fix problems created by their non-standard methods
 	*/
-	if (Fox_Zip_Installer_Code == 2 || Fox_Zip_Installer_Code == 3 || Fox_Zip_Installer_Code == 22 || Fox_Zip_Installer_Code == 23) {
+	if (Aera_Zip_Installer_Code == 2 || Aera_Zip_Installer_Code == 3 || Aera_Zip_Installer_Code == 22 || Aera_Zip_Installer_Code == 23) {
 		gui_warn("mount_vab_partitions=Devices on super may not mount until after rebooting recovery.");
 		gui_warn("flash_ab_reboot=To flash additional zips, please reboot recovery to switch to the updated slot.");
 	}
@@ -1125,7 +1125,7 @@ void Fox_Post_Zip_Install(const int result)
 
 #ifdef OF_BLOCK_OPERATIONS_AFTER_ROM_FLASH
 	TWFunc::Fox_Property_Set("fox_block_operations_pending_reboot", "blocking");
-	gui_print_color("warning", "\n\nYou must now reboot OrangeFox - immediately!\n\nDo NOT attempt anything else, without first rebooting OrangeFox.\n");
+	gui_print_color("warning", "\n\nYou must now reboot AERA immediately!\n\nDo NOT attempt anything else before rebooting AERA.\n");
 #endif
      }
 }

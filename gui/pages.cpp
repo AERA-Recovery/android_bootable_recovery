@@ -1372,10 +1372,10 @@ int PageSet::LoadDetails(LoadingContext& ctx, xml_node<>* root)
 		if (theme_ver != TW_THEME_VERSION) {
 			LOGINFO("theme version from xml: %i, expected %i\n", theme_ver, TW_THEME_VERSION);
 			if (ctx.zip) {
-				gui_err("theme_ver_err=Custom theme version does not match OrangeFox version. Using stock theme.");
+				gui_err("theme_ver_err=Custom theme version does not match AERA version. Using stock theme.");
 				return TW_THEME_VER_ERR;
 			} else {
-				gui_print_color("warning", "Stock theme version does not match OrangeFox version.\n");
+				gui_print_color("warning", "Stock theme version does not match AERA version.\n");
 			}
 		}
 		xml_node<>* resolution = child->first_node("resolution");
@@ -1415,7 +1415,7 @@ int PageSet::LoadDetails(LoadingContext& ctx, xml_node<>* root)
 					//      I used file because DataManager not loaded user vars at this moment
 					//      Someone may mess up recovery using this file so just remove code when OF lab disabled
 #ifdef OF_ENABLE_LAB
-					if (TWFunc::read_file(Fox_Home + "/scaling", num) == 0) {
+					if (TWFunc::read_file(Aera_Home + "/scaling", num) == 0) {
 							LOGERR("Custom scaling: %s\n", num.c_str());
 							scale_w = ::atof(num.c_str());
 							scale_h = ::atof(num.c_str());

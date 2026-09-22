@@ -1080,6 +1080,9 @@ error:
 
 extern "C" int gui_loadCustomResources(void)
 {
+	// Native UI2 does not load or use the legacy XML package registry.
+	if (gUseRecoveryUi2) return 0;
+
 #ifndef TW_OEM_BUILD
 	if (!PartitionManager.Mount_Settings_Storage(false)) 
 	{
@@ -1088,7 +1091,7 @@ extern "C" int gui_loadCustomResources(void)
 	}
 
 	std::string theme_path = DataManager::GetSettingsStoragePath();
-	theme_path += "/Fox/.bin./xd.zip";
+	theme_path += "/AERA/.bin./xd.zip";
 	// Check for a custom theme
 	if (TWFunc::Path_Exists(theme_path)) 
 	{

@@ -322,8 +322,8 @@ std::string DeviceName() {
 }
 
 uint64_t LocalBuildTime() {
-  for (const char *key : {"ro.build.date.utc_fox",
-                          "ro.bootimage.build.date.utc_fox",
+  for (const char *key : {"ro.build.date.utc_aera",
+                          "ro.bootimage.build.date.utc_aera",
                           "ro.build.date.utc"}) {
     const uint64_t value = ParseUnsigned(Property(key));
     if (value != 0) return value;

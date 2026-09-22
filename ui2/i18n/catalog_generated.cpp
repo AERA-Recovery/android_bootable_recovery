@@ -6632,7 +6632,7 @@ extern const char *const kCatalogTranslations[] = {
     "За приложението AERA",
     "সম্পর্কে AERA",
     "Quant a AERA",
-    "O OrangeFox AERA",
+    "O AERA",
     "Über AERA",
     "Σχετικά AERA",
     "Acerca de AERA",

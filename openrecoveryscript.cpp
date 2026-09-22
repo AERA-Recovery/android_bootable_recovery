@@ -326,7 +326,7 @@ int OpenRecoveryScript::run_script_file(void) {
 				    	aSlot = "A";
 				    else if (val == "_b" || val == "b" || val == "_B" || val == "B")
 				    	aSlot = "B";
-				    LOGINFO("- OrangeFox: changing the active slot to slot %s\n", aSlot.c_str());
+				    LOGINFO("- AERA: changing the active slot to slot %s\n", aSlot.c_str());
 				    PartitionManager.Set_Active_Slot(aSlot);
 				    aSlot = PartitionManager.Get_Active_Slot_Suffix();
 				    gui_print("New active slot=%s\n", aSlot.c_str());
@@ -862,7 +862,7 @@ int OpenRecoveryScript::remountrw(void)
 void OpenRecoveryScript::Run_Fox_Process_After_ORS(int result)
 {
 #ifdef AERA_VANILLA_BUILD
-   LOGINFO("- OrangeFox: DEBUG: skipping the Run_Fox_Process_After_ORS process...\n");
+   LOGINFO("- AERA: DEBUG: skipping the post-install process after ORS...\n");
 #else
    if (TWFunc::JustInstalledMiui())
 	DataManager::SetValue(AERA_FORCE_DEACTIVATE_PROCESS, 1);

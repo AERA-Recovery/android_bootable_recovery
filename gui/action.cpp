@@ -567,31 +567,31 @@ int GUIAction::flash_zip(std::string filename, int *wipe_cache)
       struct stat st;
       if (stat("/system/bin/installTwrp", &st) == 0)
 	{
-	  DataManager::SetValue("tw_operation", "Configuring TWRP");
+	  DataManager::SetValue("tw_operation", "Configuring AERA");
 	  DataManager::SetValue("tw_partition", "");
-	  gui_msg("config_twrp=Configuring TWRP...");
+	  gui_msg("config_twrp=Configuring AERA...");
 	  if (TWFunc::Exec_Cmd("/system/bin/installTwrp reinstall") < 0)
 	    {
 	      gui_msg
-		("config_twrp_err=Unable to configure TWRP with this kernel.");
+		("config_twrp_err=Unable to configure AERA with this kernel.");
 	    }
 	}
 
       //* DJ9
-      Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+      Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
       usleep(32);
-      if (Fox_Zip_Installer_Code == 0) // this is a standard zip installer (not a ROM)
+      if (Aera_Zip_Installer_Code == 0) // this is a standard zip installer (not a ROM)
         {
            if (DataManager::GetIntValue(AERA_INSTALL_PREBUILT_ZIP) == 1)
               {
-          	 LOGINFO("OrangeFox: processed internal zip: %s\n",filename.c_str());
+                LOGINFO("AERA: processed internal zip: %s\n",filename.c_str());
               }
               else
-          	 LOGINFO("OrangeFox: installed standard zip: %s\n",filename.c_str());
+                LOGINFO("AERA: installed standard zip: %s\n",filename.c_str());
         }
       else // this is a ROM install
         {
-		LOGINFO("OrangeFox: installed ROM: %s\n",filename.c_str());
+		LOGINFO("AERA: installed ROM: %s\n",filename.c_str());
         }
        LOGINFO ("flash_zip: installer code = %i\n", DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE));
       //* DJ9
@@ -1246,7 +1246,7 @@ int GUIAction::queuezip(std::string arg __unused)
 void GUIAction::find_magisk(){ //[f/d]
   int found = 0;
   for (int i = 0; i < zip_queue_index; i++)
-    if (zip_queue[i] == DataManager::GetStrValue("fox_magisk_path") + "/" + AERA_MAGISK_ZIP_INSTALLER)
+    if (zip_queue[i] == DataManager::GetStrValue("aera_magisk_path") + "/" + AERA_MAGISK_ZIP_INSTALLER)
       found = 1;
   DataManager::SetValue("of_magisk_in_queue", found);
 }
@@ -1426,19 +1426,19 @@ int GUIAction::getpartitiondetails(std::string arg)
 		DataManager::SetValue("tw_partition_can_resize", 1);
 	      else
 		DataManager::SetValue("tw_partition_can_resize", 0);
-	      if (TWFunc::Path_Exists(Fox_Bin_Dir + "/mkfs.fat"))
+	      if (TWFunc::Path_Exists(Aera_Bin_Dir + "/mkfs.fat"))
 		DataManager::SetValue("tw_partition_vfat", 1);
 	      else
 		DataManager::SetValue("tw_partition_vfat", 0);
-	      if (TWFunc::Path_Exists(Fox_Bin_Dir + "/mkexfatfs"))
+	      if (TWFunc::Path_Exists(Aera_Bin_Dir + "/mkexfatfs"))
 		DataManager::SetValue("tw_partition_exfat", 1);
 	      else
 		DataManager::SetValue("tw_partition_exfat", 0);
-	      if (TWFunc::Path_Exists(Fox_Bin_Dir + "/make_f2fs"))
+	      if (TWFunc::Path_Exists(Aera_Bin_Dir + "/make_f2fs"))
 		DataManager::SetValue("tw_partition_f2fs", 1);
 	      else
 		DataManager::SetValue("tw_partition_f2fs", 0);
-	      if (TWFunc::Path_Exists(Fox_Bin_Dir + "/mke2fs"))
+	      if (TWFunc::Path_Exists(Aera_Bin_Dir + "/mke2fs"))
 		DataManager::SetValue("tw_partition_ext", 1);
 	      else
 		DataManager::SetValue("tw_partition_ext", 0);
@@ -1465,7 +1465,7 @@ int GUIAction::screenshotImpl(std::string arg __unused)
 	uid_t uid = AID_MEDIA_RW;
 	gid_t gid = AID_MEDIA_RW;
 
-	strcpy(path, Fox_Home.c_str());
+	strcpy(path, Aera_Home.c_str());
 	strcat(path, "/screenshots/");
 
 	if (!TWFunc::Create_Dir_Recursive(path, 0775, uid, gid)) {
@@ -1551,7 +1551,7 @@ void GUIAction::reinject_after_flash()
 
 int GUIAction::ozip_decrypt(string zip_path)
 {
-   if (!TWFunc::Path_Exists(Fox_Bin_Dir + "/ozip_decrypt"))
+   if (!TWFunc::Path_Exists(Aera_Bin_Dir + "/ozip_decrypt"))
       {
          return 1;
       }
@@ -1611,7 +1611,7 @@ int GUIAction::flash(std::string arg)
 	}
 
       // success - but what have we just installed?
-      if (Fox_Zip_Installer_Code != 0) // we have just installed a ROM - ideally, the user should reboot the recovery
+      if (Aera_Zip_Installer_Code != 0) // we have just installed a ROM - ideally, the user should reboot the recovery
        {
           Fox_Post_Zip_Install(INSTALL_SUCCESS);
        }
@@ -1784,14 +1784,14 @@ int GUIAction::wipe(std::string arg)
 
 	  if (PartitionManager.Mount_By_Path(Storage_Path, true))
 	    {
-	      LOGINFO("Making TWRP folder and saving settings.\n");
-	      Storage_Path += "/Fox";
+	      LOGINFO("Creating the AERA settings directory and saving settings.\n");
+	      Storage_Path += "/AERA";
 	      TWFunc::Create_Dir_Recursive(Storage_Path.c_str(), 0777, AID_MEDIA_RW, AID_MEDIA_RW);
 	      DataManager::Flush();
 	    }
 	  else
 	    {
-	      LOGERR("Unable to recreate TWRP folder and save settings.\n");
+	      LOGERR("Unable to recreate the AERA settings directory and save settings.\n");
 	    }
 	}
 #endif
@@ -2298,7 +2298,7 @@ int GUIAction::installsu(std::string arg __unused)
 	if (simulate) {
 		simulate_progress_bar();
 	} else {
-		LOGERR("Installing SuperSU was deprecated from TWRP.\n");
+		LOGERR("Installing SuperSU is not supported by AERA.\n");
 	}
 
 	operation_end(op_status);
@@ -2313,7 +2313,7 @@ int GUIAction::fixsu(std::string arg __unused)
 	if (simulate) {
 		simulate_progress_bar();
 	} else {
-		LOGERR("Fixing su permissions was deprecated from TWRP.\n");
+		LOGERR("Fixing su permissions is not supported by AERA.\n");
 		LOGERR("4.3+ ROMs with SELinux will always lose su perms.\n");
 	}
 
@@ -2504,7 +2504,7 @@ int GUIAction::flashimage(std::string arg __unused)
 
 int GUIAction::twcmd(std::string arg)
 {
-  operation_start("TWRP CLI Command");
+  operation_start("AERA CLI Command");
   if (simulate)
     simulate_progress_bar();
   else
@@ -2781,7 +2781,7 @@ int GUIAction::calldeactivateprocess(std::string arg __unused)
     {
 	DataManager::SetValue(AERA_FORCE_DEACTIVATE_PROCESS, 1);
   	usleep(1024);
-	DataManager::GetValue(AERA_FORCE_DEACTIVATE_PROCESS, Fox_Force_Deactivate_Process);
+	DataManager::GetValue(AERA_FORCE_DEACTIVATE_PROCESS, Aera_Force_Deactivate_Process);
   	TWFunc::Deactivation_Process();
     }
   operation_end(0);
@@ -2920,7 +2920,7 @@ int GUIAction::fixabrecoverybootloop(std::string arg __unused)
 	if (!simulate)
 	{
 		if (!TWFunc::Path_Exists(magiskboot)) {
-			LOGERR("Image repacking tool not present in this TWRP build!");
+			LOGERR("Image repacking tool not present in this AERA build!");
 			goto exit;
 		}
 		DataManager::SetProgress(0);

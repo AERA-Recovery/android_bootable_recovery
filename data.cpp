@@ -302,7 +302,7 @@ int DataManager::FindPasswordBackup(void) {
   return 0;
 }
 
-// Executed after .foxs is (not) loaded
+// Executed after .aera is (not) loaded
 int DataManager::RestorePasswordBackup(void) {
   #ifndef OF_DEVICE_WITHOUT_PERSIST
   if (DataManager::GetStrValue("fox_use_pass") == "0") {
@@ -326,7 +326,7 @@ int DataManager::LoadPersistValues(void)
 
   // Only run this function once, and make sure normal settings file has not yet been read
   if (loaded || !mBackingFile.empty()
-      || !TWFunc::Path_Exists(PERSIST_SETTINGS_FILE))
+      || !TWFunc::Path_Exists(AERA_PERSIST_SETTINGS_FILE))
     return -1;
 
   LOGINFO("Attempt to load settings from /persist settings file...\n");
@@ -335,7 +335,7 @@ int DataManager::LoadPersistValues(void)
     SetDefaultValues();
 
   GetValue("device_id", dev_id);
-  mPersist.SetFile(PERSIST_SETTINGS_FILE);
+  mPersist.SetFile(AERA_PERSIST_SETTINGS_FILE);
   mPersist.SetFileVersion(FILE_VERSION);
 
   // Read in the file, if possible
@@ -371,12 +371,12 @@ int DataManager::SaveValues()
   if (PartitionManager.Mount_By_Path("/persist", false))
     {
       #ifndef OF_SETTINGS_ROOT_DIRECTORY
-      mPersist.SetFile(PERSIST_SETTINGS_FILE);
+      mPersist.SetFile(AERA_PERSIST_SETTINGS_FILE);
       mPersist.SetFileVersion(FILE_VERSION);
       pthread_mutex_lock(&m_valuesLock);
       mPersist.SaveValues();
       pthread_mutex_unlock(&m_valuesLock);
-      LOGINFO("Saved settings file values to %s\n", PERSIST_SETTINGS_FILE);
+      LOGINFO("Saved settings file values to %s\n", AERA_PERSIST_SETTINGS_FILE);
       #endif
 
       ofstream file;
@@ -686,7 +686,7 @@ void DataManager::SetBackupFolder()
 
   string str = GetCurrentStoragePath();
   TWPartition *partition = PartitionManager.Find_Partition_By_Path(str);
-  str += "/Fox/BACKUPS/";
+  str += "/AERA/BACKUPS/";
   string dev_id;
   GetValue("device_id", dev_id);
 
@@ -761,9 +761,9 @@ void DataManager::SetDefaultValues()
 #endif
 
 #ifdef AERA_MOVE_MAGISK_INSTALLER_TO_RAMDISK
-  mConst.SetValue("fox_magisk_path", FFiles_dir + "/OF_Magisk");
+  mConst.SetValue("aera_magisk_path", FFiles_dir + "/OF_Magisk");
 #else
-  mConst.SetValue("fox_magisk_path", Fox_Home_Files);
+  mConst.SetValue("aera_magisk_path", Aera_Home_Files);
 #endif
   mConst.SetValue("fox_magisk_zip_installer", AERA_MAGISK_ZIP_INSTALLER);
   mConst.SetValue("fox_magisk_uninstaller", AERA_MAGISK_UNINSTALLER);
@@ -773,17 +773,17 @@ void DataManager::SetDefaultValues()
   //
 
   // variables used in the XML gui
-  mConst.SetValue("fox_home_path", Fox_Home);
-  mConst.SetValue("fox_settings_path", Fox_Settings_Path);
-  mConst.SetValue("fox_home_files", Fox_Home_Files);
-  mConst.SetValue("fox_theme_path", AERA_THEME_PATH);
-  mConst.SetValue("fox_media_rw", AERA_MEDIA_RW);
-  mConst.SetValue("fox_media_rw_data_file", AERA_MEDIA_RW_DATA_FILE);
-  mConst.SetValue("fox_navbar_path", AERA_NAVBAR_PATH);
-  mConst.SetValue("fox_ota_path", AERA_OTA_PATH);
-  mConst.SetValue("aroma_fm_zip", Fox_Home_Files + "/AromaFM/AromaFM.zip");
+  mConst.SetValue("aera_home_path", Aera_Home);
+  mConst.SetValue("aera_settings_path", Aera_Settings_Path);
+  mConst.SetValue("aera_home_files", Aera_Home_Files);
+  mConst.SetValue("aera_theme_path", AERA_THEME_PATH);
+  mConst.SetValue("aera_media_rw", AERA_MEDIA_RW);
+  mConst.SetValue("aera_media_rw_data_file", AERA_MEDIA_RW_DATA_FILE);
+  mConst.SetValue("aera_navbar_path", AERA_NAVBAR_PATH);
+  mConst.SetValue("aera_ota_path", AERA_OTA_PATH);
+  mConst.SetValue("aroma_fm_zip", Aera_Home_Files + "/AromaFM/AromaFM.zip");
   #ifndef AERA_DELETE_INITD_ADDON
-  mConst.SetValue("of_initd_zip", Fox_Home_Files + "/OF_initd.zip");
+  mConst.SetValue("of_initd_zip", Aera_Home_Files + "/OF_initd.zip");
   #endif
   //
 
@@ -1004,7 +1004,7 @@ void DataManager::SetDefaultValues()
 
   str = GetCurrentStoragePath();
   mPersist.SetValue(TW_ZIP_LOCATION_VAR, str);
-  str += "/Fox/BACKUPS/";
+  str += "/AERA/BACKUPS/";
 
   string dev_id;
   mConst.GetValue("device_id", dev_id);
@@ -1258,7 +1258,7 @@ void DataManager::SetDefaultValues()
   mConst.SetValue(AERA_SURVIVAL_FOLDER_VAR, AERA_SURVIVAL_FOLDER);
   mConst.SetValue(AERA_SURVIVAL_BACKUP_NAME, AERA_SURVIVAL_BACKUP);
   mConst.SetValue(AERA_ACTUAL_BUILD_VAR, AERA_BUILD);
-  mConst.SetValue(AERA_TMP_SCRIPT_DIR, Fox_tmp_dir);
+  mConst.SetValue(AERA_TMP_SCRIPT_DIR, Aera_tmp_dir);
   mData.SetValue("found_fox_overwriting_rom", 0);
 
   // whether we are processing any asserts
@@ -1663,13 +1663,13 @@ void DataManager::ReadSettingsFile(void)
   GetValue(TW_IS_ENCRYPTED, is_enc);
   GetValue(TW_HAS_DATA_MEDIA, has_data_media);
 
-  // if decryption fails, try to load/save some settings to /data/recovery/Fox/
+  // If decryption fails, try to load/save settings under /data/recovery/AERA/.
   if (is_enc == 1 && has_data_media == 1 && (TWFunc::Path_Exists("/data/unencrypted/key/version") || GetIntValue(TW_IS_FBE) == 1)) {
 	// only do this after TWFunc::OrangeFox_Startup() - don't do it before OpenrecoveryScript execution (eg, for OTAs)
 	if (GetStrValue("fox_startup_executed") == "1") {
 		static int dcrpfail_count=0;
 		TWFunc::Fox_Property_Set("of_decryption_failed", "true");
-		std::string tempdir = TW_STORAGE_PATH"/Fox";
+		std::string tempdir = AERA_FALLBACK_STORAGE_PATH"/AERA";
 		SetValue("tw_settings_path", tempdir);
 		if (dcrpfail_count == 0) {
 			gui_print_color("warning", "I cannot load settings from encrypted device. I will try to save some settings to %s\n", tempdir.c_str());
@@ -1682,7 +1682,7 @@ void DataManager::ReadSettingsFile(void)
   memset(mkdir_path, 0, sizeof(mkdir_path));
   memset(settings_file, 0, sizeof(settings_file));
   sprintf(mkdir_path, "%s", GetSettingsStoragePath().c_str());
-  sprintf(settings_file, "%s/%s", mkdir_path, TW_SETTINGS_FILE);
+  sprintf(settings_file, "%s/%s", mkdir_path, AERA_SETTINGS_FILE);
 
   if (!PartitionManager.Mount_Settings_Storage(false))
     {
@@ -1719,7 +1719,7 @@ string DataManager::GetCurrentPartPath(void)
 string DataManager::GetSettingsStoragePath(void)
 {
 #ifdef OF_SETTINGS_ROOT_DIRECTORY
-  return Fox_Settings_Path;
+  return Aera_Settings_Path;
 #else
   return GetStrValue("tw_settings_path");
 #endif

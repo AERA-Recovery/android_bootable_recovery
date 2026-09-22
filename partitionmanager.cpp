@@ -1652,11 +1652,11 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
         	{ 
           	   if (strstr(part_settings.Backup_Folder.c_str(), "data/media/0"))
              		{
-                	   gui_err("fox_internal_fatal_i1=OrangeFox: FATAL ERROR! You cannot backup Internal Storage onto itself!");
+			   gui_err("fox_internal_fatal_i1=AERA: FATAL ERROR! You cannot backup Internal Storage onto itself!");
                 	   gui_err("fox_internal_fatal_i2=You MUST change the backup destination to MicroSD/USB-OTG.");
                 	   return false;
              		} 
-             		   else gui_msg("fox_internal_q1=OrangeFox - Internal Storage - take care!");
+			   else gui_msg("fox_internal_q1=AERA - Internal Storage - take care!");
         	}
 // DJ9 20/08/2018 }
 			if (!Backup_Partition(&part_settings))
@@ -2523,14 +2523,14 @@ void TWPartitionManager::Post_Decrypt(const string& Block_Device) {
 		else
 			bind_path = "/data/media";
 
-		if (TWFunc::Get_Root_Path(Fox_Home) != dat->Mount_Point) {
+		if (TWFunc::Get_Root_Path(Aera_Home) != dat->Mount_Point) {
 			dat->Storage_Path = bind_path;
 			dat->Symlink_Path = dat->Storage_Path;
 		} else dat->Symlink_Path = bind_path;
 
 		DataManager::SetValue("tw_storage_path", dat->Storage_Path);
 		//DataManager::SetValue("tw_settings_path", dat->Symlink_Path);
-		DataManager::SetValue("tw_settings_path", Fox_Home);
+		DataManager::SetValue("tw_settings_path", Aera_Home);
 		LOGINFO("New storage path after decryption: %s\n", dat->Storage_Path.c_str());
 
 		Update_System_Details();
@@ -3143,11 +3143,11 @@ int TWPartitionManager::Partition_SDCard(void)
       TWFunc::Exec_Cmd(Command);
     }
 
-  // recreate TWRP folder and rewrite settings - these will be gone after sdcard is partitioned
+  // Recreate the AERA folder and rewrite settings after partitioning storage.
   if (SDCard->Mount(true))
     {
-      string TWRP_Folder = SDCard->Mount_Point + "/Fox";
-      mkdir(TWRP_Folder.c_str(), 0777);
+      string AERA_Folder = SDCard->Mount_Point + "/AERA";
+      mkdir(AERA_Folder.c_str(), 0777);
       DataManager::Flush();
     }
 
@@ -3542,7 +3542,7 @@ bool TWPartitionManager::Add_Remove_MTP_Storage(TWPartition* Part, int message_t
 			mtp_message.message_type = MTP_MESSAGE_ADD_STORAGE; // Add
 			mtp_message.storage_id = Part->MTP_Storage_ID;
 			string path = Part->Storage_Path;
-			if ((TWFunc::Get_Root_Path(Fox_Home) == Part->Mount_Point) && !Part->Symlink_Path.empty())
+			if ((TWFunc::Get_Root_Path(Aera_Home) == Part->Mount_Point) && !Part->Symlink_Path.empty())
 				path = Part->Symlink_Path;
 			if (path.size() >= sizeof(mtp_message.path)) {
 				LOGERR("Storage path '%s' too large for mtpmsg\n", path.c_str());
@@ -3832,7 +3832,7 @@ bool TWPartitionManager::Decrypt_Adopted()
       		LOGINFO("Android 12+: '%s' is not in binary format. Proceeding...\n", path.c_str());
   }
 
-  DataManager::SetValue("tw_settings_path", Fox_Home);
+  DataManager::SetValue("tw_settings_path", Aera_Home);
   LOGINFO("Decrypt adopted storage starting\n");
   char *xmlFile =
     PageManager::LoadFileToBuffer(path, NULL);
@@ -4236,7 +4236,7 @@ void TWPartitionManager::Coldboot() {
 int TWPartitionManager::Run_OTA_Survival_Backup(bool adbbackup)
 {
 #ifdef AERA_VANILLA_BUILD
-   LOGINFO("- OrangeFox: DEBUG: skipping the OTA_BAK process...\n");
+   LOGINFO("- AERA: DEBUG: skipping the OTA_BAK process...\n");
    return 0;
 #endif
 
@@ -4613,7 +4613,7 @@ bool TWPartitionManager::Flash_Repacked_Image(string & path,
 int TWPartitionManager::Run_OTA_Survival_Restore(const string & Restore_Name)
 {
 #ifdef AERA_VANILLA_BUILD
-   LOGINFO("- OrangeFox: DEBUG: skipping the OTA_RES process...\n");
+   LOGINFO("- AERA: DEBUG: skipping the OTA_RES process...\n");
    return 0;
 #endif
   PartitionSettings part_settings;

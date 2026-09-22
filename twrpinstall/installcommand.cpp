@@ -159,7 +159,7 @@ static int check_newer_ab_build(ZipArchiveHandle zip)
                std::string foxName = android::base::Trim(FoxDevice_x);
                if (!foxName.empty() && !assertName.empty() && assertName == foxName) {
             	   deviceExists = true;
-            	   printf("Package is for product %s. The selected OrangeFox target device is %s\n", pkg_device.c_str(), foxName.c_str());
+                   printf("Package is for product %s. The selected AERA target device is %s\n", pkg_device.c_str(), foxName.c_str());
             	   break;
                }
            }

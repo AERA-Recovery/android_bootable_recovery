@@ -127,7 +127,7 @@ static bool is_AB_for_repacker() {
 
 bool twrpRepacker::Repack_Image_And_Flash(const std::string& Target_Image, const struct Repack_Options_struct& Repack_Options) {
 	if (!TWFunc::Path_Exists(TWFunc::Get_MagiskBoot())) {
-		LOGERR("Image repacking tool not present in this TWRP build!");
+		LOGERR("Image repacking tool not present in this AERA build!");
 		return false;
 	}
 
@@ -386,7 +386,7 @@ bool twrpRepacker::Flash_Current_Twrp() {
 		#if defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT) || defined(AERA_VENDOR_BOOT_RECOVERY)
 		gui_msg(Msg(msg::kError, "modified_ramdisk_error=ramdisk files have been modified: unable to create ramdisk to flash."));
 		#else
-		gui_msg(Msg(msg::kError, "modified_ramdisk_error=ramdisk files have been modified: unable to create ramdisk to flash; fastboot boot OrangeFox and try this option again."));
+		gui_msg(Msg(msg::kError, "modified_ramdisk_error=ramdisk files have been modified: unable to create ramdisk to flash; fastboot boot AERA and try this option again."));
 		#endif
 		return false;
 	}

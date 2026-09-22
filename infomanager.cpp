@@ -67,22 +67,22 @@ void InfoManager::Clear(void) {
 static bool twPersistFirstMounted = false;
 
 void twPersistMount(void) {
-	twPersistFirstMounted = PartitionManager.Is_Mounted_By_Path(Fox_Settings_Path);
+	twPersistFirstMounted = PartitionManager.Is_Mounted_By_Path(Aera_Settings_Path);
 	if (!twPersistFirstMounted)
-		PartitionManager.Mount_By_Path(Fox_Settings_Path, false);
+		PartitionManager.Mount_By_Path(Aera_Settings_Path, false);
 }
 
 void twPersistUnMount(void) {
 	if (!twPersistFirstMounted)
-		PartitionManager.UnMount_By_Path(Fox_Settings_Path, false);
+		PartitionManager.UnMount_By_Path(Aera_Settings_Path, false);
 }
 
 int InfoManager::LoadValues(void) {
 	string str;
 
 	twPersistMount();
-	if (!TWFunc::Path_Exists(Fox_Settings_Path))
-		mkdir(Fox_Settings_Path.c_str(), 0777);
+	if (!TWFunc::Path_Exists(Aera_Settings_Path))
+		mkdir(Aera_Settings_Path.c_str(), 0777);
 
 	// Read in the file, if possible
 	FILE* in = fopen(File.c_str(), "rb");

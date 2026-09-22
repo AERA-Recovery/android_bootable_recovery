@@ -201,7 +201,7 @@ public:
 
 	static void CreateNewFile(string file_path); // create a new (text) file
 	static void AppendLineToFile(string file_path, string line); // append a line to a text file
-	static void PostWipeEncryption(void); // run after formatting data to recreate /data/media/0/ + /sdcard/Fox/logs/ automatically
+	static void PostWipeEncryption(void); // run after formatting data to recreate /data/media/0/ + /sdcard/AERA/logs/ automatically
 	static int read_file(string fn, vector < wstring > &results);
 	static string wstr_to_str(wstring str);
 	static bool IsBinaryXML(const std::string filename); // return whether the file is a binary XML file

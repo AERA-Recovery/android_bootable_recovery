@@ -88,7 +88,7 @@ extern "C"
 struct selabel_handle *selinux_handle;
 
 // Globals
-static string tmp = Fox_tmp_dir; // "/tmp/orangefox/"
+static string tmp = Aera_tmp_dir; // "/tmp/aera/"
 static string split_img = tmp + "/split_img";
 static string ramdisk = tmp + "/ramdisk";
 static string tmp_boot = tmp + "/boot.img";
@@ -97,12 +97,12 @@ static string Internal_SD = PartitionManager.Get_Internal_Storage_Path();
 static string fstab2 = "/vendor/etc";
 static string exec_error_str = "EXEC_ERROR!";
 static string popen_error_str = "popen error!";
-int Fox_Current_ROM_IsTreble = 0;
+int Aera_Current_ROM_IsTreble = 0;
 int ROM_IsRealTreble = 0;
 int New_Fox_Installation = 0;
 int OrangeFox_Startup_Executed = 0;
 int Fox_Has_Welcomed = 0;
-string Fox_Current_ROM = "";
+string Aera_Current_ROM = "";
 
 /* is this an A/B device? */
 static bool Is_AB_Device() 
@@ -118,9 +118,9 @@ static bool Is_AB_Device()
 /* Get the display ID of the installed ROM */
 static string GetInstalledRom(void)
 {
-   if (!Fox_Current_ROM.empty())
+   if (!Aera_Current_ROM.empty())
     {
-      return Fox_Current_ROM;
+      return Aera_Current_ROM;
     }
    
    string s = TWFunc::System_Property_Get ("ro.build.display.id");
@@ -176,7 +176,7 @@ static bool Is_Real_Treble(void)
 static bool Treble_Is_Running(void)
 { 
    int treble = DataManager::GetIntValue(AERA_ZIP_INSTALLER_TREBLE);
-   if (Fox_Current_ROM_IsTreble == 1 || treble == 1 || ROM_IsRealTreble == 1 || Is_Real_Treble())
+   if (Aera_Current_ROM_IsTreble == 1 || treble == 1 || ROM_IsRealTreble == 1 || Is_Real_Treble())
       return true;
    else
       return false; 
@@ -270,21 +270,21 @@ bool TWFunc::Has_Vendor_Partition(void)
 bool TWFunc::RunStartupScript(void)
 {
 string tprop = Get_Property("orangefox.postinit.status");
-bool i = Path_Exists(orangefox_cfg);
+bool i = Path_Exists(aera_runtime_cfg);
    
    if (i == true || tprop == "1")
       {
-         LOGINFO("DEBUG: OrangeFox: the startup script has been executed.\n");
+         LOGINFO("DEBUG: AERA: the startup script has been executed.\n");
          return false;
       }
    
-   LOGINFO("DEBUG: OrangeFox: running the startup script...\n");
+   LOGINFO("DEBUG: AERA: running the startup script...\n");
    TWFunc::Set_Sbin_Dir_Executable_Flags();
    Exec_Cmd(AERA_STARTUP_SCRIPT);
 
    // set the incremental version to the ROM's
-   if (TWFunc::Path_Exists(orangefox_cfg)) {
-  	string incr_version = TWFunc::File_Property_Get (orangefox_cfg, "INCREMENTAL_VERSION");
+   if (TWFunc::Path_Exists(aera_runtime_cfg)) {
+	string incr_version = TWFunc::File_Property_Get (aera_runtime_cfg, "INCREMENTAL_VERSION");
   	if (!incr_version.empty()) {
   	   LOGINFO("- Using the ROM's incremental version (%s)\n", incr_version.c_str());
   	   TWFunc::Fox_Property_Set("ro.build.version.incremental", incr_version);
@@ -347,17 +347,17 @@ void TWFunc::Run_Before_Reboot(void)
     }
 
     // logs & stuff
-    string Logs_Dir = Fox_Logs_Dir;
+    string Logs_Dir = Aera_Logs_Dir;
     bool failed_decryption = (TWFunc::Fox_Property_Get("of_decryption_failed") == "true");
 #if defined(OF_USE_DATA_RECOVERY_FOR_SETTINGS) || !defined(OF_MISCELLANEOUS_ROOT_DIRECTORY)
     // check whether decryption failed, and, if so, store the lastrecovery log under /data/recovery/
     if (failed_decryption) {
-    	Logs_Dir = TW_STORAGE_PATH;
-    	Logs_Dir += "/Fox/logs";
+        Logs_Dir = AERA_FALLBACK_STORAGE_PATH;
+        Logs_Dir += "/AERA/logs";
     }
 #endif
     if (!Path_Exists(Logs_Dir)) {
-	  TWFunc::Create_Dir_Recursive(Fox_Logs_Dir, 0777, AID_MEDIA_RW, AID_MEDIA_RW);
+	  TWFunc::Create_Dir_Recursive(Aera_Logs_Dir, 0777, AID_MEDIA_RW, AID_MEDIA_RW);
     }
 
     //[f/d] release info json for app
@@ -416,9 +416,9 @@ void TWFunc::Run_Before_Reboot(void)
 
    log_file = Logs_Dir + log_file;
    copy_file("/tmp/recovery.log", log_file, 0777);
-   if (Path_Exists(Fox_Bin_Dir + "/pigz"))
+   if (Path_Exists(Aera_Bin_Dir + "/pigz"))
      {
-        string cmd = Fox_Bin_Dir + "/pigz -K --best " + log_file;
+        string cmd = Aera_Bin_Dir + "/pigz -K --best " + log_file;
         Exec_Cmd (cmd);
         TWFunc::set_media_rw_permissions(log_file + ".zip");
      }
@@ -1092,16 +1092,16 @@ int TWFunc::tw_reboot(RebootCommand command)
 	Update_Log_File();
 
   	// if we haven't called Deactivation_Process before, check whether to call it now 
-  	// This code is currently disabled - Fox_AutoDeactivate_OnReboot is never set to 1
+	// This code is currently disabled - Aera_AutoDeactivate_OnReboot is never set to 1
   	int DoDeactivate = 0;
-  	if ((Fox_AutoDeactivate_OnReboot == 1) && (Fox_IsDeactivation_Process_Called == 0)) {
+	if ((Aera_AutoDeactivate_OnReboot == 1) && (Aera_IsDeactivation_Process_Called == 0)) {
 	if ((DataManager::GetIntValue(AERA_DISABLE_DM_VERITY) == 1)
 	   || (DataManager::GetIntValue(AERA_DISABLE_FORCED_ENCRYPTION) == 1)) {
            	DoDeactivate = 1;
            }
     	}
 
-	// Run some OrangeFox pre-reboot stuff
+	// Run some AERA pre-reboot stuff
   	TWFunc::Run_Before_Reboot();
 
 	#ifdef OF_UNMOUNT_SDCARDS_BEFORE_REBOOT
@@ -1838,7 +1838,7 @@ void TWFunc::Fixup_Time_On_Boot(const string & time_paths)
       if (offset < 1261440000) // bad RTC (less than 41 years since epoch!)
       {
 	// try to correct
-	if (DataManager::GetValue("fox_epoch_drift", stored_drift) < 0) // read from .foxs
+	if (DataManager::GetValue("aera_epoch_drift", stored_drift) < 0) // read from .aera
 	 	stored_drift = 0;
 	#ifndef OF_DEVICE_WITHOUT_PERSIST
 	 if (TWFunc::read_file (epoch_drift_file, drift) != 0) // read from epoch drift file
@@ -1847,10 +1847,10 @@ void TWFunc::Fixup_Time_On_Boot(const string & time_paths)
 
 	// what have we succeeded in reading?
 	if ((drift > 0) || (stored_drift > 0)) {
-            if ((stored_drift > 0) && (drift == 0)) // we only got drift from .foxs
+            if ((stored_drift > 0) && (drift == 0)) // we only got drift from .aera
 		{
 			drift = stored_drift;
-			LOGINFO ("TWFunc::Fixup_Time: Using drift value (%llu) stored in .foxs\n", (unsigned long long)drift);
+			LOGINFO ("TWFunc::Fixup_Time: Using drift value (%llu) stored in .aera\n", (unsigned long long)drift);
 		}
 		else
 		{
@@ -1879,8 +1879,8 @@ void TWFunc::Fixup_Time_On_Boot(const string & time_paths)
               LOGINFO ("TWFunc::Fixup_Time: Compensated for drift by %llu \n", (unsigned long long)drift);
               DataManager::SetValue("tw_qcom_ats_offset", (unsigned long long) offset, 1); // store this new offset
 
-              if (store == 1) // we haven't already stored the drift in .foxs
-		DataManager::SetValue("fox_epoch_drift", (unsigned long long) drift, 1); // store the drift value
+              if (store == 1) // we haven't already stored the drift in .aera
+		DataManager::SetValue("aera_epoch_drift", (unsigned long long) drift, 1); // store the drift value
            }
 
          } // if (drift > 0) || (stored_drift > 0)
@@ -2162,7 +2162,7 @@ void TWFunc::Disable_Stock_Recovery_Replace_Func(void)
 
      usleep(128);
      if ((DataManager::GetIntValue(AERA_ADVANCED_STOCK_REPLACE) == 1)
-      ||  (Fox_Force_Deactivate_Process == 1))
+      ||  (Aera_Force_Deactivate_Process == 1))
 	{
       	  bool we_mounted = false;
       	  bool we_mounted_sys = false;
@@ -2216,13 +2216,13 @@ void TWFunc::Disable_Stock_Recovery_Replace_Func(void)
             }
      	// system-as-root stuff //
 
-          LOGINFO("OrangeFox: Disabling stock recovery [search-dir=%s]...\n", rootdir.c_str());
+          LOGINFO("AERA: Disabling stock recovery [search-dir=%s]...\n", rootdir.c_str());
 
 	// using rootdir/ as determined here
 	  usleep(512);
 	  if (TWFunc::Path_Exists(rootdir))
 	    {
-          	LOGINFO("OrangeFox: checking %s ...\n", rootdir.c_str());
+              LOGINFO("AERA: checking %s ...\n", rootdir.c_str());
 	  	if (Path_Exists(rootdir + "/bin/install-recovery.sh"))
 	      		Rename_File(rootdir + "/bin/install-recovery.sh",
 		     	  	rootdir + "/bin/wlfx0install-recoverybak0xwlf");
@@ -2256,7 +2256,7 @@ void TWFunc::Disable_Stock_Recovery_Replace_Func(void)
 
 	  if (!Is_SymLink("/system") && PartitionManager.Is_Mounted_By_Path("/system"))
 	     {
-          	LOGINFO("OrangeFox: checking /system ...\n");
+              LOGINFO("AERA: checking /system ...\n");
 	  	if (Path_Exists("/system/vendor/bin/install-recovery.sh"))
 	    		rename("/system/vendor/bin/install-recovery.sh",
 		   		"/system/vendor/bin/wlfx0install-recoverybak0xwlf");
@@ -2300,7 +2300,7 @@ void TWFunc::Disable_Stock_Recovery_Replace_Func(void)
 
 	  if (PartitionManager.Is_Mounted_By_Path("/vendor"))
 	     {
-          	LOGINFO("OrangeFox: checking /vendor ...\n");
+              LOGINFO("AERA: checking /vendor ...\n");
 	  	if (Path_Exists("/vendor/bin/install-recovery.sh"))
 	    		rename("/vendor/bin/install-recovery.sh",
 		   	"/vendor/bin/wlfx0install-recoverybak0xwlf");
@@ -2553,7 +2553,7 @@ int TWFunc::Check_MIUI_Treble(void)
   string fox_is_miui_rom_installed = "0";
   string fox_is_treble_rom_installed = "0";
   string fox_is_real_treble_rom = "0";  
-  Fox_Current_ROM_IsTreble = 0;
+  Aera_Current_ROM_IsTreble = 0;
   ROM_IsRealTreble = 0;
   bool treble = false;
   string display_panel = "";
@@ -2570,41 +2570,41 @@ int TWFunc::Check_MIUI_Treble(void)
 
   finger_print = TWFunc::Fox_Property_Get("orangefox.system.fingerprint");
   
-  if (TWFunc::Path_Exists(orangefox_cfg)) 
+  if (TWFunc::Path_Exists(aera_runtime_cfg))
     {
-  	fox_is_miui_rom_installed = TWFunc::File_Property_Get (orangefox_cfg, "MIUI");
-  	fox_is_treble_rom_installed = TWFunc::File_Property_Get (orangefox_cfg, "TREBLE");
-  	fox_is_real_treble_rom = TWFunc::File_Property_Get (orangefox_cfg, "REALTREBLE");
-  	display_panel = TWFunc::File_Property_Get (orangefox_cfg, "panel_name");	
-  	Fox_Current_ROM = TWFunc::File_Property_Get (orangefox_cfg, "ROM");
-  	incr_version = TWFunc::File_Property_Get (orangefox_cfg, "INCREMENTAL_VERSION");
+	fox_is_miui_rom_installed = TWFunc::File_Property_Get (aera_runtime_cfg, "MIUI");
+	fox_is_treble_rom_installed = TWFunc::File_Property_Get (aera_runtime_cfg, "TREBLE");
+	fox_is_real_treble_rom = TWFunc::File_Property_Get (aera_runtime_cfg, "REALTREBLE");
+	display_panel = TWFunc::File_Property_Get (aera_runtime_cfg, "panel_name");
+	Aera_Current_ROM = TWFunc::File_Property_Get (aera_runtime_cfg, "ROM");
+	incr_version = TWFunc::File_Property_Get (aera_runtime_cfg, "INCREMENTAL_VERSION");
   	if (finger_print.empty())
-  	  finger_print = TWFunc::File_Property_Get (orangefox_cfg, "ROM_FINGERPRINT");
+	  finger_print = TWFunc::File_Property_Get (aera_runtime_cfg, "ROM_FINGERPRINT");
     }
 
    // Treble ?
    if (strncmp(fox_is_treble_rom_installed.c_str(), "1", 1) == 0)
-      Fox_Current_ROM_IsTreble = 1;
+      Aera_Current_ROM_IsTreble = 1;
         
    if (strncmp(fox_is_real_treble_rom.c_str(), "1", 1) == 0)
         ROM_IsRealTreble = 1;
    
-   if (ROM_IsRealTreble == 1 || Fox_Current_ROM_IsTreble == 1)
+   if (ROM_IsRealTreble == 1 || Aera_Current_ROM_IsTreble == 1)
        treble = true;
    else
        treble = Is_Real_Treble();
    
    if (treble)
-      Fox_Current_ROM_IsTreble = 1;
+      Aera_Current_ROM_IsTreble = 1;
 
   // MIUI?
   #ifndef OF_NO_ADDITIONAL_MIUI_PROPS_CHECK
   TWFunc::ROM_Has_MIUI_Props();
   #endif
   if (TWFunc::MIUI_Is_Running())
-  	Fox_Current_ROM_IsMIUI = 1;
+	Aera_Current_ROM_IsMIUI = 1;
   else
-  	Fox_Current_ROM_IsMIUI = 0;
+	Aera_Current_ROM_IsMIUI = 0;
 
   // is the device encrypted?
   if (StorageIsEncrypted())
@@ -2660,7 +2660,7 @@ int TWFunc::Check_MIUI_Treble(void)
     {  
   	if (fox_is_miui_rom_installed == "1" || TWFunc::Fox_Property_Get("orangefox.miui.rom") == "1")
      	  {
-  	     Fox_Current_ROM_IsMIUI = 1;
+	     Aera_Current_ROM_IsMIUI = 1;
   	     gui_msg(Msg("fox_miui_rom=* MIUI ROM (SDK:{1}, {2})")(rom_sdk)(sdknum_to_text(rom_sdk).c_str()));
           } 
   	else
@@ -2696,7 +2696,7 @@ void TWFunc::Welcome_Message(void)
     }
 
     gui_print("--------------------------\n");
-    gui_msg(Msg(msg::kGreen, "fox_welcome=Welcome to OrangeFox Recovery!"));
+    gui_msg(Msg(msg::kGreen, "fox_welcome=Welcome to AERA Recovery!"));
     gui_msg(Msg("fox_release=[Release]   : {1}")(AERA_BUILD));
     gui_msg(Msg("fox_variant=[Variant]   : {1}")(AERA_VARIANT));
     gui_msg(Msg("fox_codebase=[Codebase]  : {1}, {2}")
@@ -2704,19 +2704,19 @@ void TWFunc::Welcome_Message(void)
         (AERA_CURRENT_DEV_STR));
     gui_print("[Branch]    : %s\n", OF_CURRENT_BRANCH);
 #ifdef OF_SETTINGS_ROOT_DIRECTORY
-    gui_msg(Msg("fox_settings=[Settings]  : {1}")(Fox_Settings_Path.c_str()));
+    gui_msg(Msg("fox_settings=[Settings]  : {1}")(Aera_Settings_Path.c_str()));
 #endif
 #ifdef OF_MISCELLANEOUS_ROOT_DIRECTORY
-    gui_msg(Msg("fox_misc=[Misc]      : {1}")(Fox_Home.c_str()));
+    gui_msg(Msg("fox_misc=[Misc]      : {1}")(Aera_Home.c_str()));
 #endif
-    gui_msg(Msg("fox_build_date=[Build date]: {1}")(DataManager::GetStrValue("AERA_BUILD_DATE_REAL").c_str()));
+    gui_msg(Msg("aera_build_date=[Build date]: {1}")(DataManager::GetStrValue("AERA_BUILD_DATE_REAL").c_str()));
 
     if (uppercase(AERA_BUILD) == "UNOFFICIAL")
         gui_msg(Msg(msg::kWarning, "fox_build_type_unofficial=[Build type]: Unofficial. No official support for unofficial builds"));
     else {
         gui_msg(Msg("fox_build_type=[Build type]: {1}")(AERA_BUILD_TYPE));
         if (uppercase(AERA_BUILD_TYPE) == "BETA" || uppercase(AERA_BUILD_TYPE) == "STABLE") {
-            string tg_link = "https://t.me/OrangeFoxChat";
+            string tg_link = "https://t.me/aera_recovery_project";
             gui_msg(Msg("fox_support=[Support]   : {1}")(tg_link.c_str()));
         } else {
             gui_msg(Msg(msg::kWarning, "fox_nosupport=[Support]   : No official support for unknown builds"));
@@ -2727,9 +2727,9 @@ void TWFunc::Welcome_Message(void)
 #endif
 
     gui_print("\n");
-    gui_msg(Msg(msg::kGreen, "fox_websites=OrangeFox websites:"));
-    string download_link = "https://orangefox.download/";
-    string faq_link = "https://wiki.orangefox.tech/guides/";
+    gui_msg(Msg(msg::kGreen, "fox_websites=AERA websites:"));
+    string download_link = "https://aera-recovery.com/#downloads";
+    string faq_link = "https://t.me/aera_recovery_project";
     gui_msg(Msg("fox_downloads=[Downloads] : {1}")(download_link.c_str()));
     gui_msg(Msg("fox_faq=[Guides/FAQ]: {1}")(faq_link.c_str()));
 
@@ -2741,19 +2741,19 @@ void TWFunc::Fox_Set_Current_Device_CodeName(void)
 {
   string tmp01 = TWFunc::Fox_Property_Get("ro.product.device");
   string currdev = DataManager::GetStrValue(AERA_COMPATIBILITY_DEVICE);
-  string tmp02 = TWFunc::File_Property_Get (Fox_Cfg, "AERA_CURRENT_DEVICE");
+  string tmp02 = TWFunc::File_Property_Get (Aera_Cfg, "AERA_CURRENT_DEVICE");
 
   if (!tmp02.empty()) {
-    Fox_Current_Device = tmp02;
+    Aera_Current_Device = tmp02;
     //TWFunc::Fox_Property_Set("ro.product.device", tmp02);
   }
   else if (!tmp01.empty() && tmp01 != currdev) {
-     Fox_Current_Device = tmp01;
+     Aera_Current_Device = tmp01;
   }
-  else Fox_Current_Device = currdev;
+  else Aera_Current_Device = currdev;
 
-  DataManager::SetValue(AERA_COMPATIBILITY_DEVICE, Fox_Current_Device);
-  TWFunc::Fox_Property_Set("ro.product.device", Fox_Current_Device);
+  DataManager::SetValue(AERA_COMPATIBILITY_DEVICE, Aera_Current_Device);
+  TWFunc::Fox_Property_Set("ro.product.device", Aera_Current_Device);
 }
 
 std::string TWFunc::Get_Balanced_Governor(void)
@@ -2807,7 +2807,7 @@ void TWFunc::OrangeFox_Startup(void)
   if (TWFunc::Path_Exists(AERA_PS_BIN))
       chmod (AERA_PS_BIN, 0755);
   
-  Fox_Current_ROM = "";
+  Aera_Current_ROM = "";
   
   TWFunc::Welcome_Message();
   
@@ -2890,44 +2890,44 @@ void TWFunc::OrangeFox_Startup(void)
       LOGINFO("ROM Status: %s\n", info.c_str());
     }
 
-  DataManager::SetValue("fox_home_files_dir", Fox_Home_Files.c_str());
+  DataManager::SetValue("aera_home_files_dir", Aera_Home_Files.c_str());
 
   if (TWFunc::Path_Exists(FFiles_dir.c_str()))
     {
-      DataManager::SetValue("fox_resource_dir", FFiles_dir.c_str());
-      if (TWFunc::Path_Exists(Fox_sdcard_aroma_cfg)) // is there a backup CFG file on /sdcard/Fox/?
+      DataManager::SetValue("aera_resource_dir", FFiles_dir.c_str());
+      if (TWFunc::Path_Exists(Aera_sdcard_aroma_cfg)) // Is there a backup CFG file under /sdcard/AERA/?
 	{
-	  if (TWFunc::Path_Exists(Fox_Home_Files + "/AromaFM"))
-	     TWFunc::copy_file(Fox_sdcard_aroma_cfg, Fox_aroma_cfg, 0644);
+	  if (TWFunc::Path_Exists(Aera_Home_Files + "/AromaFM"))
+	     TWFunc::copy_file(Aera_sdcard_aroma_cfg, Aera_aroma_cfg, 0644);
 	}
       else
 	{
-	  if (!Path_Exists(Fox_Home))
+	  if (!Path_Exists(Aera_Home))
 	    {
-	      if (!Create_Dir_Recursive(Fox_Home,  S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH, AID_MEDIA_RW, AID_MEDIA_RW))
-		  LOGINFO("Error making %s directory: %s\n", Fox_Home.c_str(), strerror(errno));
+	      if (!Create_Dir_Recursive(Aera_Home,  S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH, AID_MEDIA_RW, AID_MEDIA_RW))
+		  LOGINFO("Error making %s directory: %s\n", Aera_Home.c_str(), strerror(errno));
 	    }         
-	  if (Path_Exists(Fox_Home))
+	  if (Path_Exists(Aera_Home))
 	    {
-	      if (Path_Exists(Fox_aroma_cfg))
-		TWFunc::copy_file(Fox_aroma_cfg, Fox_sdcard_aroma_cfg, 0644);
+	      if (Path_Exists(Aera_aroma_cfg))
+		TWFunc::copy_file(Aera_aroma_cfg, Aera_sdcard_aroma_cfg, 0644);
 	    }
 	} // else
     }
   else
     {
-      DataManager::SetValue("fox_resource_dir", Fox_Home_Files.c_str());
+      DataManager::SetValue("aera_resource_dir", Aera_Home_Files.c_str());
     }
 
-  if (!Path_Exists(Fox_Settings_Path))
+  if (!Path_Exists(Aera_Settings_Path))
     {
-      if (!Create_Dir_Recursive(Fox_Settings_Path,  S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH, AID_MEDIA_RW, AID_MEDIA_RW))
-        LOGINFO("Error making %s directory: %s\n", Fox_Settings_Path.c_str(), strerror(errno));
+      if (!Create_Dir_Recursive(Aera_Settings_Path,  S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH, AID_MEDIA_RW, AID_MEDIA_RW))
+        LOGINFO("Error making %s directory: %s\n", Aera_Settings_Path.c_str(), strerror(errno));
     }
 
-  if (!Path_Exists(Fox_Logs_Dir))
+  if (!Path_Exists(Aera_Logs_Dir))
       {
-	  TWFunc::Create_Dir_Recursive(Fox_Logs_Dir, 0777, AID_MEDIA_RW, AID_MEDIA_RW);
+	  TWFunc::Create_Dir_Recursive(Aera_Logs_Dir, 0777, AID_MEDIA_RW, AID_MEDIA_RW);
       }
 
   TWFunc::Fresh_Fox_Install();
@@ -3189,7 +3189,7 @@ bool TWFunc::Verify_Loaded_OTA_Signature(std::string loadedfp,
 					 std::string ota_folder)
 {
   std::string datafp;
-  string ota_info = ota_folder + Fox_OTA_info;
+  string ota_info = ota_folder + Aera_OTA_info;
   if (TWFunc::Path_Exists(ota_info))
     {
       if (TWFunc::read_file(ota_info, datafp) == 0)
@@ -3213,8 +3213,8 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
   std::string cd_dir = "cd ";
   std::string end_command = "; ";
   std::string cpio = "ramdisk.cpio";
-  std::string tmp_cpio = Fox_tmp_dir + k + cpio;
-  std::string ramdisk_cpio = Fox_ramdisk_dir + k + cpio;
+  std::string tmp_cpio = Aera_tmp_dir + k + cpio;
+  std::string ramdisk_cpio = Aera_ramdisk_dir + k + cpio;
   bool retval = false;
   bool keepverity = false;
   int res = 0;
@@ -3253,10 +3253,10 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 #endif
       if (do_unpack) // unpack
 	{
-	  if (TWFunc::Path_Exists(Fox_tmp_dir))
-	      TWFunc::removeDir(Fox_tmp_dir, false);
+	  if (TWFunc::Path_Exists(Aera_tmp_dir))
+	      TWFunc::removeDir(Aera_tmp_dir, false);
 	    
-	  if (TWFunc::Recursive_Mkdir(Fox_ramdisk_dir))
+	  if (TWFunc::Recursive_Mkdir(Aera_ramdisk_dir))
 	    {
 	        CreateNewFile (cmd_script);
 	        chmod (cmd_script.c_str(), 0755);
@@ -3266,16 +3266,16 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 	        if (New_Fox_Installation == 1) 
 	         {
 	           AppendLineToFile (cmd_script, 
-	           "BackUp() { cp -f /tmp/recovery.log " + Fox_Home + "/logs/post-install.log; cp -af " + cmd_script + " " + Fox_Home + "/logs/cmd_script1.log; }");
+	           "BackUp() { cp -f /tmp/recovery.log " + Aera_Home + "/logs/post-install.log; cp -af " + cmd_script + " " + Aera_Home + "/logs/cmd_script1.log; }");
 	         }
 	        else 
-	           AppendLineToFile (cmd_script, "BackUp() { cp -af " + cmd_script + " " + Fox_Home + "/logs/cmd_script1.log; }");
+	           AppendLineToFile (cmd_script, "BackUp() { cp -af " + cmd_script + " " + Aera_Home + "/logs/cmd_script1.log; }");
 	        
 	        //AppendLineToFile (cmd_script, "abort() { LOGINFO \"$1\"; BackUp; exit 1; }");
 	        AppendLineToFile (cmd_script, "abort() { LOGINFO \"$1\"; exit 1; }");
-	        AppendLineToFile (cmd_script, "mkdir -p " + Fox_tmp_dir);
-	        AppendLineToFile (cmd_script, "mkdir -p " + Fox_ramdisk_dir);
-	        AppendLineToFile (cmd_script, cd_dir + Fox_tmp_dir);
+	        AppendLineToFile (cmd_script, "mkdir -p " + Aera_tmp_dir);
+	        AppendLineToFile (cmd_script, "mkdir -p " + Aera_ramdisk_dir);
+	        AppendLineToFile (cmd_script, cd_dir + Aera_tmp_dir);
 	        AppendLineToFile (cmd_script, "LOGINFO \"- Unpacking boot/recovery image - block device=\"");
 	        AppendLineToFile (cmd_script, "LOGINFO \"[" + tmpstr + "] \"");
 	        AppendLineToFile (cmd_script, magiskboot_sbin + " unpack -h \"" + tmpstr + "\" > /dev/null 2>&1");
@@ -3284,9 +3284,9 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 	        // processing boot image?
 		if (is_boot)
 		   {
-	              AppendLineToFile (cmd_script, cd_dir + Fox_tmp_dir);
+	              AppendLineToFile (cmd_script, cd_dir + Aera_tmp_dir);
 		      std::string keepdmverity, keepforcedencryption;
-		      if ((DataManager::GetIntValue(AERA_DISABLE_DM_VERITY) == 1)/* || (Fox_Force_Deactivate_Process == 1)*/)
+		      if ((DataManager::GetIntValue(AERA_DISABLE_DM_VERITY) == 1)/* || (Aera_Force_Deactivate_Process == 1)*/)
 		      	{
 		           keepverity = false;
 		           keepdmverity = "false ";
@@ -3297,7 +3297,7 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 		           keepdmverity = "true ";
 		        }
 		      
-			if ((DataManager::GetIntValue(AERA_DISABLE_FORCED_ENCRYPTION) == 1)/* || (Fox_Force_Deactivate_Process == 1)*/)
+			if ((DataManager::GetIntValue(AERA_DISABLE_FORCED_ENCRYPTION) == 1)/* || (Aera_Force_Deactivate_Process == 1)*/)
 		      	  {
 		      	     #ifdef OF_DONT_PATCH_ENCRYPTED_DEVICE
 		             if (StorageIsEncrypted())
@@ -3324,7 +3324,7 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 	        // continue processing the rest
 	        AppendLineToFile (cmd_script, "#");
 	        AppendLineToFile (cmd_script, "mv " + tmp_cpio + " " + ramdisk_cpio);
-	        AppendLineToFile (cmd_script, cd_dir + Fox_ramdisk_dir);
+	        AppendLineToFile (cmd_script, cd_dir + Aera_ramdisk_dir);
 	        AppendLineToFile (cmd_script, "LOGINFO \"- Extracting ramdisk files ...\"");
 	        /*
 	        #ifdef AERA_USE_UPDATED_MAGISKBOOT
@@ -3358,18 +3358,18 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 	        if (New_Fox_Installation == 1) 
 	         {
 	           AppendLineToFile (cmd_script2, 
-	           "BackUp() { cp -af /tmp/recovery.log " + Fox_Home + "/logs/post-install.log; cp -f " + cmd_script2 + " " + Fox_Home + "/logs/cmd_script2.log; }");
+	           "BackUp() { cp -af /tmp/recovery.log " + Aera_Home + "/logs/post-install.log; cp -f " + cmd_script2 + " " + Aera_Home + "/logs/cmd_script2.log; }");
 	         }
 	        else
-	           AppendLineToFile (cmd_script2, "BackUp() { cp -f " + cmd_script2 + " " + Fox_Home + "/logs/cmd_script2.log; }");
+	           AppendLineToFile (cmd_script2, "BackUp() { cp -f " + cmd_script2 + " " + Aera_Home + "/logs/cmd_script2.log; }");
 
 	        //AppendLineToFile (cmd_script2, "abort() { LOGINFO \"$1\"; BackUp; exit 1; }");
 	        AppendLineToFile (cmd_script2, "abort() { LOGINFO \"$1\"; exit 1; }");
-	        AppendLineToFile (cmd_script2, cd_dir + Fox_ramdisk_dir);
+	        AppendLineToFile (cmd_script2, cd_dir + Aera_ramdisk_dir);
 	        AppendLineToFile (cmd_script2, "LOGINFO \"- Archiving ramdisk.cpio ...\"");
 	        AppendLineToFile (cmd_script2, "find | cpio -o -H newc > \"" + tmp_cpio + "\"");
 	        AppendLineToFile (cmd_script2, "[ $? == 0 ] && LOGINFO \"- Succeeded.\" || abort \"- Archiving of ramdisk.cpio failed.\"");
-	        AppendLineToFile (cmd_script2, cd_dir + Fox_tmp_dir);
+	        AppendLineToFile (cmd_script2, cd_dir + Aera_tmp_dir);
 
 	        AppendLineToFile (cmd_script2, "LOGINFO \"- Repacking boot/recovery image ...\"");
 	        AppendLineToFile (cmd_script2, magiskboot_sbin + " repack \"" + tmpstr + "\" > /dev/null 2>&1");
@@ -3397,7 +3397,7 @@ bool TWFunc::PackRepackImage_MagiskBoot(bool do_unpack, bool is_boot)
 		
 	        if (res == 0) 
 	          retval = true;
-	  	TWFunc::removeDir(Fox_tmp_dir, false);
+          TWFunc::removeDir(Aera_tmp_dir, false);
 	}
     } // boot != null
     else
@@ -3520,9 +3520,9 @@ bool TWFunc::Unpack_Image(string mount_point)
 
 bool TWFunc::JustInstalledMiui(void)
 {
-  Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
-  if ((Fox_Zip_Installer_Code == 22) || (Fox_Zip_Installer_Code == 23) 
-  || (Fox_Zip_Installer_Code == 3) || (Fox_Zip_Installer_Code == 2)) {
+  Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+  if ((Aera_Zip_Installer_Code == 22) || (Aera_Zip_Installer_Code == 23)
+  || (Aera_Zip_Installer_Code == 3) || (Aera_Zip_Installer_Code == 2)) {
       	TWFunc::Fox_Property_Set("orangefox.miui.rom", "1");
       	return true;
       }
@@ -3532,7 +3532,7 @@ bool TWFunc::JustInstalledMiui(void)
 
 bool TWFunc::Fresh_Fox_Install()
 {
-  std::string fox_file = get_log_dir() + "recovery/Fox_Installed";
+  std::string aera_file = get_log_dir() + "recovery/AERA_Installed";
   bool CanProceed = true;
   New_Fox_Installation = 0;
   std::string build_theme_ver = DataManager::GetStrValue("fox_theme_version");
@@ -3547,10 +3547,10 @@ bool TWFunc::Fresh_Fox_Install()
 
   if (CanProceed)
     {
-	if (!Path_Exists(fox_file))
+	if (!Path_Exists(aera_file))
 	    return false;
 
-	unlink(fox_file.c_str());
+	unlink(aera_file.c_str());
 	
   	DataManager::SetValue("first_start", "1");
   	DataManager::SetValue("of_themes_version", build_theme_ver);
@@ -3560,13 +3560,13 @@ bool TWFunc::Fresh_Fox_Install()
 	#endif
 
 	#ifdef OF_DONT_PATCH_ON_FRESH_INSTALLATION
-	    gui_print("Fresh OrangeFox installation - not running the dm-verity/forced-encryption patches\n");
+	    gui_print("Fresh AERA installation - not running the dm-verity/forced-encryption patches\n");
 	#else
 	    New_Fox_Installation = 1;
-	    gui_print("Fresh OrangeFox installation - about to run the dm-verity/forced-encryption patches\n");
-     	    if (Fox_Current_ROM_IsMIUI == 1)
+	    gui_print("Fresh AERA installation - about to run the dm-verity/forced-encryption patches\n");
+	    if (Aera_Current_ROM_IsMIUI == 1)
      	       {
-		  Fox_Force_Deactivate_Process = 1;
+		  Aera_Force_Deactivate_Process = 1;
 		  DataManager::SetValue(AERA_FORCE_DEACTIVATE_PROCESS, 1);
 	       }
 	    TWFunc::Deactivation_Process();
@@ -3576,15 +3576,15 @@ bool TWFunc::Fresh_Fox_Install()
 	    New_Fox_Installation = 0;
 	#endif // OF_DONT_PATCH_ON_FRESH_INSTALLATION
 
-	LOGINFO ("DEBUG [Fresh_Fox_Install()] - copying log to:%s/logs/post-install.log \n", Fox_Home.c_str());
-	copy_file("/tmp/recovery.log",  Fox_Home + "/logs/post-install.log", 0644);
+	LOGINFO ("DEBUG [Fresh_Fox_Install()] - copying log to:%s/logs/post-install.log \n", Aera_Home.c_str());
+	copy_file("/tmp/recovery.log",  Aera_Home + "/logs/post-install.log", 0644);
 
 	return true;
    }    
    else
    {
-      	if (Path_Exists(fox_file)) {
-      	    unlink(fox_file.c_str());
+	if (Path_Exists(aera_file)) {
+	    unlink(aera_file.c_str());
       	    DataManager::SetValue("of_themes_version", build_theme_ver);
       	 }
       	return false;
@@ -3598,17 +3598,17 @@ bool TWFunc::Patch_DM_Verity(void)
   DIR *d = NULL;
   struct dirent *de = NULL;
   string path, cmp;
-  string firmware_key = ramdisk + Fox_Bin_Dir + "/firmware_key.cer";
+  string firmware_key = ramdisk + Aera_Bin_Dir + "/firmware_key.cer";
   string remove = "verify,;,verify;verify;avb,;,avb;avb;support_scfs,;,support_scfs;support_scfs;";
 
-  LOGINFO("OrangeFox: entering Patch_DM_Verity()\n");
+  LOGINFO("AERA: entering Patch_DM_Verity()\n");
   if (DataManager::GetIntValue(AERA_DISABLE_DM_VERITY) != 1)
     {
-	gui_print("OrangeFox: Not patching DM_Verity.\n");  
+	gui_print("AERA: Not patching DM_Verity.\n");
 	return false;
     }
 
-  // /tmp/orangefox/ramdisk
+  // /tmp/aera/ramdisk
   d = opendir(ramdisk.c_str());
   if (d == NULL)
     {
@@ -3628,14 +3628,14 @@ bool TWFunc::Patch_DM_Verity(void)
 	    {
 	      if (Fstab_Has_Verity_Flag(path))
 	        {
-	          LOGINFO("OrangeFox: Relevant DM_Verity flags are found in %s\n", path.c_str());
+	          LOGINFO("AERA: Relevant DM_Verity flags are found in %s\n", path.c_str());
 		  status = true;
 		  found_verity = true;
 	  	  TWFunc::Replace_Word_In_File(path, remove);
 		}
 		else
 		{
-	          LOGINFO("OrangeFox: Relevant DM_Verity flags are not found in %s\n", path.c_str());		
+	          LOGINFO("AERA: Relevant DM_Verity flags are not found in %s\n", path.c_str());
 		}
 	    }
 	}
@@ -3644,7 +3644,7 @@ bool TWFunc::Patch_DM_Verity(void)
 	{
 	  if (TWFunc::CheckWord(path, "ro.config.dmverity="))
 	    {
-                LOGINFO("OrangeFox: DM_Verity flags found in default.prop.\n");
+                LOGINFO("AERA: DM_Verity flags found in default.prop.\n");
 		found_verity = true;
 	        if (TWFunc::CheckWord(path, "ro.config.dmverity=true"))
 	           {
@@ -3654,7 +3654,7 @@ bool TWFunc::Patch_DM_Verity(void)
 	    }
 	  else
 	    {
-              LOGINFO("OrangeFox: DM_Verity flags not found in default.prop.\n");
+              LOGINFO("AERA: DM_Verity flags not found in default.prop.\n");
 	      ofstream File(path.c_str(), ios_base::app | ios_base::out);
 	      if (File.is_open())
 		{
@@ -3680,7 +3680,7 @@ bool TWFunc::Patch_DM_Verity(void)
       unlink(firmware_key.c_str());
     }
 
-  LOGINFO("OrangeFox: leaving Patch_DM_Verity()\n");
+  LOGINFO("AERA: leaving Patch_DM_Verity()\n");
   return status;
 }
 
@@ -3694,7 +3694,7 @@ void TWFunc::Patch_Verity_Flags(string path)
       string root = Get_Root_Path (path);
       if ((root == "/vendor") || (root == PartitionManager.Get_Android_Root_Path()))
       {
-        LOGINFO("OrangeFox: Patch_Encryption_Flags: trying again...\n");
+        LOGINFO("AERA: Patch_Encryption_Flags: trying again...\n");
 	int res;
 	string result;
 	string cmd_script = "/tmp/dmver.sh";
@@ -3751,13 +3751,13 @@ bool Patch_DM_Verity_In_System_Fstab(void)
   DIR *d1 = NULL;
   struct dirent *de = NULL;
   string path, cmp, command;
-  string firmware_key = ramdisk + Fox_Bin_Dir + "/firmware_key.cer";
+  string firmware_key = ramdisk + Aera_Bin_Dir + "/firmware_key.cer";
   string remove = "verify,;,verify;verify;avb,;,avb;avb;support_scfs,;,support_scfs;support_scfs;";
 
       DataManager::GetValue(AERA_DISABLE_DM_VERITY, verity);
       if (verity != 1)
        {
-          gui_print ("OrangeFox: 'Disable DM-Verity' not enabled.\n");
+          gui_print ("AERA: 'Disable DM-Verity' not enabled.\n");
           return false;
        }
   
@@ -3836,14 +3836,14 @@ bool Patch_DM_Verity_In_System_Fstab(void)
 		{
 		  if (TWFunc::Fstab_Has_Verity_Flag(path))
 		    {
-	               LOGINFO("OrangeFox: Relevant dm-verity settings are found in %s\n", path.c_str());
+	               LOGINFO("AERA: Relevant dm-verity settings are found in %s\n", path.c_str());
 		       status = true;
 		       found_verity = true;
 	      	       TWFunc::Replace_Word_In_File(path, remove);
 		    } 
 		    else
 		    {
-	               LOGINFO("OrangeFox: Relevant dm-verity settings are not found in %s\n", path.c_str());		    
+	               LOGINFO("AERA: Relevant dm-verity settings are not found in %s\n", path.c_str());
 		    }
 		}
 	    }
@@ -3904,7 +3904,7 @@ bool Patch_DM_Verity_In_System_Fstab(void)
 
 void TWFunc::Patch_Encryption_Flags(std::string path)
 {
-   LOGINFO("OrangeFox: Patch_Encryption_Flags: processing file:%s\n", path.c_str());
+   LOGINFO("AERA: Patch_Encryption_Flags: processing file:%s\n", path.c_str());
    TWFunc::Replace_Word_In_File(path, "fileencryption=ice;", "encryptable=footer");
    TWFunc::Replace_Word_In_File(path, "forcefdeorfbe=;forceencrypt=;fileencryption=;", "encryptable=");
    usleep(64000); 
@@ -3913,7 +3913,7 @@ void TWFunc::Patch_Encryption_Flags(std::string path)
       string root = Get_Root_Path (path);
       if ((root == "/vendor") || (root == PartitionManager.Get_Android_Root_Path()))
       {
-        LOGINFO("OrangeFox: Patch_Encryption_Flags: trying again...\n");
+        LOGINFO("AERA: Patch_Encryption_Flags: trying again...\n");
 	int res;
 	string result;
 	string cmd_script = "/tmp/fenc.sh";
@@ -3951,14 +3951,14 @@ bool Patch_Forced_Encryption_In_System_Fstab(void)
       DataManager::GetValue(AERA_DISABLE_FORCED_ENCRYPTION, encryption);
       if (encryption != 1)
          {
-            gui_print ("OrangeFox: 'Disable Forced-Encryption' not enabled.\n");
+            gui_print ("AERA: 'Disable Forced-Encryption' not enabled.\n");
             return false;
          }
   
       #ifdef OF_DONT_PATCH_ENCRYPTED_DEVICE
       if (StorageIsEncrypted())
         {
-            gui_print ("OrangeFox: Storage is encrypted. Not patching system fstab.\n");
+            gui_print ("AERA: Storage is encrypted. Not patching system fstab.\n");
             return false;
         }
       #endif
@@ -4012,7 +4012,7 @@ bool Patch_Forced_Encryption_In_System_Fstab(void)
  
       if (d1 == NULL)
         {
-	    gui_print ("OrangeFox: Forced-Encryption not patched in system fstab - cannot mount either /system or /vendor. Reboot OrangeFox and try again.\n");
+	    gui_print ("AERA: Forced-Encryption not patched in system fstab - cannot mount either /system or /vendor. Reboot AERA and try again.\n");
 	    if (stat == 2)
 		LOGINFO("Unable to open '%s'\n", fstab2.c_str());
 	    else 
@@ -4036,12 +4036,12 @@ bool Patch_Forced_Encryption_In_System_Fstab(void)
 	        {
 	          if (TWFunc::Fstab_Has_Encryption_Flag(path))
 	          {
-		      LOGINFO("OrangeFox: Relevant encryption settings are found in %s\n", path.c_str());
+		      LOGINFO("AERA: Relevant encryption settings are found in %s\n", path.c_str());
 		      status = true;
 		  } 
 		  else
 		  { 
-		      LOGINFO("OrangeFox: Relevant encryption settings are not found in %s\n", path.c_str());
+		      LOGINFO("AERA: Relevant encryption settings are not found in %s\n", path.c_str());
 		  }
 	       }
 	     
@@ -4072,17 +4072,17 @@ bool TWFunc::Patch_Forced_Encryption(void)
   DIR *d;
   struct dirent *de;
   
-  LOGINFO("OrangeFox: entering Patch_Forced_Encyption()\n");
+  LOGINFO("AERA: entering Patch_Forced_Encyption()\n");
   if (DataManager::GetIntValue(AERA_DISABLE_FORCED_ENCRYPTION) != 1)
   {
-  	gui_print("OrangeFox: Not patching forced encryption.\n");
+      gui_print("AERA: Not patching forced encryption.\n");
   	return false;  
   }
   
   #ifdef OF_DONT_PATCH_ENCRYPTED_DEVICE
   if (StorageIsEncrypted())
     {
-  	gui_print("OrangeFox: Storage is already encrypted. Not patching the boot image.\n");
+      gui_print("AERA: Storage is already encrypted. Not patching the boot image.\n");
   	return false;	     
     }
   #endif
@@ -4094,7 +4094,7 @@ bool TWFunc::Patch_Forced_Encryption(void)
       return false;
     }
 
-  //*** /tmp/orangefox/ramdisk/    
+  //*** /tmp/aera/ramdisk/
   while ((de = readdir(d)) != NULL)
     {
       usleep (32);
@@ -4107,12 +4107,12 @@ bool TWFunc::Patch_Forced_Encryption(void)
 	    {
 	      if (Fstab_Has_Encryption_Flag(path))
 	      {  
-		  LOGINFO("OrangeFox: Relevant encryption settings are found in %s\n", path.c_str());
+		  LOGINFO("AERA: Relevant encryption settings are found in %s\n", path.c_str());
 		  status = true;
 	      }
 	      else
 	      {
-		  LOGINFO("OrangeFox: Relevant encryption settings are not found in %s\n", path.c_str());
+		  LOGINFO("AERA: Relevant encryption settings are not found in %s\n", path.c_str());
 	      }
 	    }
 	  if (Fstab_Has_Encryption_Flag(path))
@@ -4125,7 +4125,7 @@ bool TWFunc::Patch_Forced_Encryption(void)
     
   closedir(d);  
 
-  LOGINFO("OrangeFox: leaving Patch_Forced_Encyption()\n");
+  LOGINFO("AERA: leaving Patch_Forced_Encyption()\n");
   return status;
 }
 
@@ -4142,11 +4142,11 @@ void TWFunc::PrepareToFinish(void)
      PartitionManager.UnMount_By_Path(PartitionManager.Get_Android_Root_Path(), false);
   //
   
-  Fox_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
-  Fox_Force_Deactivate_Process = DataManager::GetIntValue(AERA_FORCE_DEACTIVATE_PROCESS);
+  Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
+  Aera_Force_Deactivate_Process = DataManager::GetIntValue(AERA_FORCE_DEACTIVATE_PROCESS);
 
   // increment value, to show how many times we have called this
-  Fox_IsDeactivation_Process_Called++;
+  Aera_IsDeactivation_Process_Called++;
 
   // Check AromaFM Config
   if (
@@ -4154,7 +4154,7 @@ void TWFunc::PrepareToFinish(void)
   && (PartitionManager.Mount_By_Path("/sdcard", false))
      )
     {
-      string aromafm_path = Fox_Home;
+      string aromafm_path = Aera_Home;
       string aromafm_file = aromafm_path + "/aromafm.cfg";
       if (!Path_Exists(aromafm_path))
 	{
@@ -4166,9 +4166,9 @@ void TWFunc::PrepareToFinish(void)
 	}
 
       // Save AromaFM config (AromaFM.cfg)
-      if (Path_Exists(Fox_aroma_cfg))
+      if (Path_Exists(Aera_aroma_cfg))
       	 {
-      	   if (copy_file(Fox_aroma_cfg, aromafm_file, 0644))
+             if (copy_file(Aera_aroma_cfg, aromafm_file, 0644))
 	      {
 	         LOGERR("Error copying AromaFM config\n");
 	      }
@@ -4201,7 +4201,7 @@ void TWFunc::PrepareToFinish(void)
 
 bool TWFunc::DontPatchBootImage(void)
 {
-  // check whether to patch on new OrangeFox installations 
+  // check whether to patch on new AERA installations
   if (New_Fox_Installation == 1)
      { 
         if (Is_AB_Device()) // don't patch the boot image of A/B devices at post-install stage
@@ -4215,7 +4215,7 @@ bool TWFunc::DontPatchBootImage(void)
             #if defined(OF_FORCE_MAGISKBOOT_BOOT_PATCH_MIUI)
   	    if (MIUI_Is_Running())
   	       {
-     	  	  LOGINFO("OrangeFox: Fresh OrangeFox installation on MIUI. Processing will continue...\n");
+                 LOGINFO("AERA: Fresh AERA installation on MIUI. Processing will continue...\n");
      	  	  return false;
   	       }
 	    #endif
@@ -4224,9 +4224,9 @@ bool TWFunc::DontPatchBootImage(void)
      }
 
    // proceed with other checks
-   Fox_Force_Deactivate_Process = DataManager::GetIntValue(AERA_FORCE_DEACTIVATE_PROCESS);
+   Aera_Force_Deactivate_Process = DataManager::GetIntValue(AERA_FORCE_DEACTIVATE_PROCESS);
    if (
-          (Fox_Force_Deactivate_Process == 1) || 
+          (Aera_Force_Deactivate_Process == 1) ||
           (DataManager::GetIntValue(AERA_DISABLE_DM_VERITY) == 1) ||
           (DataManager::GetIntValue(AERA_DISABLE_FORCED_ENCRYPTION) == 1)
       )
@@ -4236,7 +4236,7 @@ bool TWFunc::DontPatchBootImage(void)
         #if defined(OF_FORCE_MAGISKBOOT_BOOT_PATCH_MIUI)
   	if (TWFunc::JustInstalledMiui())
   	   {
-     	      LOGINFO("OrangeFox: New MIUI installation. Processing will continue...\n");
+               LOGINFO("AERA: New MIUI installation. Processing will continue...\n");
      	      return false;
   	   }
 	#endif
@@ -4247,7 +4247,7 @@ bool TWFunc::DontPatchBootImage(void)
 std::string TWFunc::get_log_dir() {
 	if (PartitionManager.Find_Partition_By_Path(CACHE_LOGS_DIR) == NULL) {
 		if (PartitionManager.Find_Partition_By_Path(DATA_LOGS_DIR) == NULL) {
-			LOGINFO("Unable to find a directory to store OrangeFox logs.\n");
+			LOGINFO("Unable to find a directory to store AERA logs.\n");
 			return "";
 		} else {
 			return DATA_LOGS_DIR;
@@ -4417,9 +4417,9 @@ void TWFunc::Deactivation_Process(void)
 {
   if (TWFunc::To_Skip_OrangeFox_Process())
      {
-	LOGINFO("\nOrangeFox: Skipping the OrangeFox Process.\n");
+	LOGINFO("\nAERA: Skipping the AERA Process.\n");
 	New_Fox_Installation = 0;
-	Fox_Force_Deactivate_Process = 0;
+	Aera_Force_Deactivate_Process = 0;
 	DataManager::SetValue(AERA_FORCE_DEACTIVATE_PROCESS, 0);
 	return;
      }
@@ -4445,40 +4445,40 @@ void TWFunc::Deactivation_Process(void)
 	            if (JustInstalledMiui())
 	              {
 	            #ifdef OF_NO_MIUI_PATCH_WARNING
-	              	LOGINFO("OrangeFox: Not patching boot image. The ROM might not boot.\n");
-	            	LOGINFO("NOTE: It is possible that MIUI will replace OrangeFox with the stock MIUI recovery.\n");
+                      LOGINFO("AERA: Not patching boot image. The ROM might not boot.\n");
+                    LOGINFO("NOTE: It is possible that MIUI will replace AERA with the stock MIUI recovery.\n");
 	            #else
 	              	gui_print_color("warning", 
-	              	"\nOrangeFox: WARNING! Not patching boot image.The ROM might not boot.\n");
+                      "\nAERA: WARNING! Not patching boot image.The ROM might not boot.\n");
 	            	
 	            	gui_print_color("warning", 
-	            	"\nNOTE: It is possible that booting MIUI now will replace OrangeFox with the stock MIUI recovery.\n");
+                    "\nNOTE: It is possible that booting MIUI now will replace AERA with the stock MIUI recovery.\n");
 	            #endif
 	              }
 	         }
 	   }
-	LOGINFO("OrangeFox: skipping patching of boot image on device: %s\n", Fox_Current_Device.c_str());
+	LOGINFO("AERA: skipping patching of boot image on device: %s\n", Aera_Current_Device.c_str());
 	New_Fox_Installation = 0;
-        Fox_Force_Deactivate_Process = 0;
+        Aera_Force_Deactivate_Process = 0;
         DataManager::SetValue(AERA_FORCE_DEACTIVATE_PROCESS, 0);
         return;
      }   
 // end
   
   gui_msg(Msg(msg::kProcess, "of_run_process=Starting '{1}' process")
-      ("OrangeFox"));
+      ("AERA"));
 
 // --- new method, using magiskboot plus a modded script
   int res = TWFunc::Patch_DMVerity_ForcedEncryption_Magisk();
   if (res != 0)
      {
-	gui_msg(Msg(msg::kProcess, "of_run_process_fail=Unable to finish '{1}' process") ("OrangeFox"));
+	gui_msg(Msg(msg::kProcess, "of_run_process_fail=Unable to finish '{1}' process") ("AERA"));
      }
   else
      {
-    	gui_msg(Msg(msg::kProcess, "of_run_process_done=Finished '{1}' process") ("OrangeFox"));
+        gui_msg(Msg(msg::kProcess, "of_run_process_done=Finished '{1}' process") ("AERA"));
      }
-  Fox_Force_Deactivate_Process = 0;
+  Aera_Force_Deactivate_Process = 0;
   DataManager::SetValue(AERA_FORCE_DEACTIVATE_PROCESS, 0);
 }
 
@@ -4490,7 +4490,7 @@ int res=0, wipe_cache=0;
 std::string magiskboot = TWFunc::Get_MagiskBoot();
 
   if (DataManager::GetIntValue(AERA_ADVANCED_STOCK_REPLACE) != 1) {
-        gui_print("- NOTE: you have disabled the stock recovery deactivation feature.\n- Your ROM's recovery will now probably overwrite OrangeFox!\n");
+        gui_print("- NOTE: you have disabled the stock recovery deactivation feature.\n- Your ROM's recovery will now probably overwrite AERA!\n");
   	return;
   }
 
@@ -4588,7 +4588,7 @@ bool TWFunc::MIUI_Is_Running(void)
 #ifdef AERA_VANILLA_BUILD
 	return false;
 #endif
-   if (Fox_Current_ROM_IsMIUI == 1 || TWFunc::JustInstalledMiui() || TWFunc::Fox_Property_Get("orangefox.miui.rom") == "1")
+   if (Aera_Current_ROM_IsMIUI == 1 || TWFunc::JustInstalledMiui() || TWFunc::Fox_Property_Get("orangefox.miui.rom") == "1")
       return true;
    else
       return false; 
@@ -4625,7 +4625,7 @@ string sdkverstr = TWFunc::System_Property_Get("ro.build.version.sdk");
 
 string TWFunc::Get_MagiskBoot(void)
 {
-string s = Fox_Bin_Dir + "/magiskboot";
+string s = Aera_Bin_Dir + "/magiskboot";
   if (TWFunc::Path_Exists(s))
      return s;
   s = "/sbin/magiskboot";
@@ -4653,10 +4653,10 @@ void TWFunc::Dump_Current_Settings(void)
 void TWFunc::Reset_Clock(void)
 {
 #ifdef QCOM_RTC_FIX
-   string fox_build_date_utc = TWFunc::File_Property_Get (Fox_Cfg, "ro.build.date.utc_fox");
-   if (!fox_build_date_utc.empty())
+   string aera_build_date_utc = TWFunc::File_Property_Get (Aera_Cfg, "ro.build.date.utc_aera");
+   if (!aera_build_date_utc.empty())
       {
-        TWFunc::Exec_With_Output("date -s \"@" + fox_build_date_utc + "\" > /dev/null");
+        TWFunc::Exec_With_Output("date -s \"@" + aera_build_date_utc + "\" > /dev/null");
       }
 #endif
 }
@@ -4744,9 +4744,9 @@ string tmp = "\"";
   rom_finger_print = TWFunc::Fox_Property_Get("orangefox.system.fingerprint");
 
   if (rom_finger_print.empty()) {
-     if (TWFunc::Path_Exists(orangefox_cfg))
+     if (TWFunc::Path_Exists(aera_runtime_cfg))
        {
-	rom_finger_print = File_Property_Get(orangefox_cfg, "ROM_FINGERPRINT");
+	rom_finger_print = File_Property_Get(aera_runtime_cfg, "ROM_FINGERPRINT");
        }
    }
 
@@ -4976,13 +4976,13 @@ bool TWFunc::Fox_Property_Set(const std::string Prop_Name, const std::string Val
   if (!res && Fox_Property_Get(Prop_Name) != Value) {
     	usleep(1028);
 	string tmp = "\"";
-	string cmd = Fox_ResetProp_Bin;
+	string cmd = Aera_ResetProp_Bin;
 
   	if (!Path_Exists(cmd))
-    		cmd = Fox_Bin_Dir + "/resetprop";
+        cmd = Aera_Bin_Dir + "/resetprop";
 
   	if (!Path_Exists(cmd))
-    		cmd = Fox_Bin_Dir + "/setprop";
+        cmd = Aera_Bin_Dir + "/setprop";
 
     	if (Path_Exists(cmd)) {
   	    int ret = Exec_Cmd(cmd + " " + Prop_Name + " " + tmp + Value + tmp);
@@ -5028,7 +5028,7 @@ void TWFunc::PostWipeEncryption(void) {
 	LOGINFO("Bind mounting /data/media/0 to /sdcard after formatting\n");
 	mount(dir.c_str(), "/sdcard", "", MS_BIND, NULL);
 #endif
-	// run the OrangeFox postformatdata script here
+	// run the AERA postformatdata script here
 	TWFunc::RunFoxScript(AERA_POST_DATA_FORMAT_SCRIPT, "");
 }
 
@@ -5192,7 +5192,7 @@ void TWFunc::set_media_rw_permissions(const string pathname) {
 
 void TWFunc::update_permissions_on_reboot() {
   if (android::base::GetProperty("ro.orangefox.substitute_permissions", "") == "1") {
-	TWFunc::set_media_rw_permissions(Fox_Settings_Path);
+	TWFunc::set_media_rw_permissions(Aera_Settings_Path);
 	TWFunc::set_media_rw_permissions(AERA_NAVBAR_PATH);
 	TWFunc::set_media_rw_permissions(AERA_NAVBAR_PATH + "/navbar.xml");
 	TWFunc::set_media_rw_permissions(AERA_THEME_PATH);
@@ -5207,7 +5207,7 @@ void TWFunc::update_permissions_on_reboot() {
 bool TWFunc::Block_Operations_Until_Reboot() {
 #ifdef OF_BLOCK_OPERATIONS_AFTER_ROM_FLASH
 	if (TWFunc::Fox_Property_Get("fox_block_operations_pending_reboot") == "blocking") {
-		gui_print_color("error", "\n\nThis operation has been blocked. Reboot OrangeFox (NOW!) before doing anything else.\n\n");
+		gui_print_color("error", "\n\nThis operation has been blocked. Reboot AERA (NOW!) before doing anything else.\n\n");
 		return true;
 	}
 	return false;

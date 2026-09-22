@@ -267,7 +267,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo,
 		string injectcmd = "injecttwrp --backup /tmp/backup_recovery_ramdisk.img bd=" + Boot->Actual_Block_Device;
 		TWFunc::Exec_Cmd(injectcmd);
 	}
-	LOGINFO("Backup of OrangeFox ramdisk done.\n");
+	LOGINFO("Backup of AERA ramdisk done.\n");
 #endif
 
 #ifdef OF_ADVANCED_SECURITY
@@ -334,7 +334,7 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo,
 		DataManager::SetValue("tw_mtp_enabled", 0);
 		PartitionManager.Disable_MTP();
 	} else if (crash_counter == 1) {
-		LOGINFO("OrangeFox crashed; disabling MTP as a precaution.\n");
+		LOGINFO("AERA crashed; disabling MTP as a precaution.\n");
 		PartitionManager.Disable_MTP();
 	}
 #endif
@@ -615,27 +615,27 @@ int main(int argc, char **argv) {
 	property_set("ro.orangefox.substitute_permissions", "1");
 	#endif
 
-    	string fox_cfg = Fox_Cfg;
-    	if (!TWFunc::Path_Exists(fox_cfg))
-    	    fox_cfg = "/system" + Fox_Cfg;
-	string fox_build_date = TWFunc::File_Property_Get (fox_cfg, "AERA_BUILD_DATE");
-  	if (fox_build_date == "") {
-        	fox_build_date = TWFunc::File_Property_Get ("/default.prop", "ro.bootimage.build.date");
-        	if (fox_build_date == "") {
-              		fox_build_date = TWFunc::File_Property_Get ("/default.prop", "ro.build.date");
-              		if (fox_build_date == "")
-                 		fox_build_date = "[no date!]";
+	string aera_cfg = Aera_Cfg;
+	if (!TWFunc::Path_Exists(aera_cfg))
+	    aera_cfg = "/system" + Aera_Cfg;
+	string aera_build_date = TWFunc::File_Property_Get (aera_cfg, "AERA_BUILD_DATE");
+	if (aera_build_date == "") {
+		aera_build_date = TWFunc::File_Property_Get ("/default.prop", "ro.bootimage.build.date");
+		if (aera_build_date == "") {
+			aera_build_date = TWFunc::File_Property_Get ("/default.prop", "ro.build.date");
+			if (aera_build_date == "")
+				aera_build_date = "[no date!]";
          	}
      	}
 		 
-	DataManager::SetValue("AERA_BUILD_DATE_REAL", fox_build_date);
+	DataManager::SetValue("AERA_BUILD_DATE_REAL", aera_build_date);
 
   	// Set the start date to the recovery's build date
   	TWFunc::Reset_Clock();
 
-	DataManager::GetValue(AERA_COMPATIBILITY_DEVICE, Fox_Current_Device);
-	printf("Starting OrangeFox Recovery %s [%s, core: %s] (built on %s for %s [dev_ver: %s (branch: %s)]; pid %d)\n",
-		AERA_BUILD, AERA_VARIANT, AERA_MAIN_VERSION_STR, fox_build_date.c_str(), Fox_Current_Device.c_str(), AERA_CURRENT_DEV_STR, OF_CURRENT_BRANCH, getpid());
+	DataManager::GetValue(AERA_COMPATIBILITY_DEVICE, Aera_Current_Device);
+	printf("Starting AERA Recovery %s [%s, core: %s] (built on %s for %s [dev_ver: %s (branch: %s)]; pid %d)\n",
+		AERA_BUILD, AERA_VARIANT, AERA_MAIN_VERSION_STR, aera_build_date.c_str(), Aera_Current_Device.c_str(), AERA_CURRENT_DEV_STR, OF_CURRENT_BRANCH, getpid());
 
 	// refresh the specific device codename if we have a generic unified codename
 	TWFunc::Fox_Set_Current_Device_CodeName();

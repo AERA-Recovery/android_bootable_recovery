@@ -22,14 +22,14 @@ InitFox() {
   [ -z "$LINES" ] && export LINES=21;
   [ -z "$COLUMNS" ] && export COLUMNS=44;
 
-  if [ -f /sdcard/Fox/fox.mkshrc ]; then
-     source /sdcard/Fox/fox.mkshrc;
-  elif [ -f /FFiles/fox.mkshrc ]; then
-     source /FFiles/fox.mkshrc;
-  elif [ -f /data/recovery/fox.mkshrc ]; then
-     source /data/recovery/fox.mkshrc;
-  elif [ -f /sdcard1/Fox/fox.mkshrc ]; then
-     source /sdcard1/Fox/fox.mkshrc;
+  if [ -f /sdcard/AERA/aera.mkshrc ]; then
+     source /sdcard/AERA/aera.mkshrc;
+  elif [ -f /FFiles/aera.mkshrc ]; then
+     source /FFiles/aera.mkshrc;
+  elif [ -f /data/recovery/aera.mkshrc ]; then
+     source /data/recovery/aera.mkshrc;
+  elif [ -f /sdcard1/AERA/aera.mkshrc ]; then
+     source /sdcard1/AERA/aera.mkshrc;
   fi
 
   if [ -f $HOME/.mkshrc ]; then
