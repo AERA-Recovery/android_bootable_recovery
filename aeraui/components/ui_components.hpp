@@ -53,6 +53,44 @@ inline void OnClick(lv_obj_t *object, Handler callback) {
   }, LV_EVENT_ALL, handler);
 }
 
+struct PressOrHoldActions {
+  Handler click;
+  Handler hold;
+  bool held = false;
+};
+
+inline void OnPressOrHold(lv_obj_t *object, Handler click, Handler hold) {
+  auto *actions = new PressOrHoldActions{
+      std::move(click), std::move(hold), false};
+  lv_obj_add_event_cb(object, [](lv_event_t *event) {
+    auto *actions = static_cast<PressOrHoldActions *>(
+        lv_event_get_user_data(event));
+    switch (lv_event_get_code(event)) {
+      case LV_EVENT_DELETE:
+        delete actions;
+        break;
+      case LV_EVENT_PRESSED:
+        actions->held = false;
+        break;
+      case LV_EVENT_LONG_PRESSED:
+        actions->held = true;
+        RecoveryVibrate(Haptic::kTouch);
+        actions->hold();
+        break;
+      case LV_EVENT_CLICKED:
+        if (actions->held) {
+          actions->held = false;
+          break;
+        }
+        RecoveryVibrate(Haptic::kTouch);
+        actions->click();
+        break;
+      default:
+        break;
+    }
+  }, LV_EVENT_ALL, actions);
+}
+
 inline lv_obj_t *TextArea(lv_obj_t *parent) {
   auto *input = lv_textarea_create(parent);
   // Touch keyboards do not consistently put their textarea into LV_STATE_FOCUSED.
@@ -128,7 +166,7 @@ inline lv_obj_t *Button(lv_obj_t *parent, const char *text, Handler action,
     FitButtonLabel(lv_event_get_target_obj(event));
   }, LV_EVENT_SIZE_CHANGED, nullptr);
   FitButtonLabel(button);
-  OnClick(button, std::move(action));
+  if (action) OnClick(button, std::move(action));
   return button;
 }
 
@@ -316,8 +354,11 @@ inline lv_obj_t *Scroll(lv_obj_t *parent, int y, int height) {
 
 inline lv_obj_t *Row(lv_obj_t *parent, int y, const char *symbol,
                      const std::string &title, const std::string &detail,
-                     Handler action, const char *trailing = LV_SYMBOL_RIGHT) {
-  auto *row = Button(parent, "", std::move(action));
+                     Handler action, const char *trailing = LV_SYMBOL_RIGHT,
+                     Handler hold = {}) {
+  Handler click = action;
+  auto *row = Button(parent, "", hold ? Handler{} : std::move(action));
+  if (hold) OnPressOrHold(row, std::move(click), std::move(hold));
   lv_obj_set_pos(row, 0, y);
   // Newly-created scroll containers have not necessarily completed an LVGL
   // layout pass yet. Reading their width too early returns zero and collapses

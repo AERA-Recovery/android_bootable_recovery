@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
+#include <limits.h>
 #include <set>
 #include <sstream>
 #include <string>
@@ -93,6 +94,35 @@ std::atomic<bool> gSideloadCancelRequested{false};
 std::atomic<uint64_t> gSideloadReceivedBytes{0};
 std::atomic<uint64_t> gSideloadTotalBytes{0};
 bool gLiveFastbootPostDecryptReady = false;
+
+bool ResolveDirectBackupChild(const std::string &root,
+                              const std::string &folder,
+                              std::string *resolved_folder) {
+  if (root.empty() || folder.empty()) return false;
+  char root_path[PATH_MAX] = {};
+  char backup_path[PATH_MAX] = {};
+  if (realpath(root.c_str(), root_path) == nullptr ||
+      realpath(folder.c_str(), backup_path) == nullptr)
+    return false;
+
+  struct stat info {};
+  if (lstat(backup_path, &info) != 0 || !S_ISDIR(info.st_mode) ||
+      S_ISLNK(info.st_mode))
+    return false;
+
+  const std::string canonical_root(root_path);
+  const std::string canonical_backup(backup_path);
+  const std::string prefix = canonical_root + "/";
+  if (canonical_backup.compare(0, prefix.size(), prefix) != 0)
+    return false;
+  const std::string child = canonical_backup.substr(prefix.size());
+  if (child.empty() || child.find('/') != std::string::npos)
+    return false;
+
+  if (resolved_folder) *resolved_folder = canonical_backup;
+  return true;
+}
+
 }
 
 std::vector<AndroidUser> RecoveryAndroidUsers() {
@@ -154,6 +184,14 @@ std::vector<Volume> RecoveryImageVolumes() {
 
 std::string RecoveryStorage() { return DataManager::GetCurrentStoragePath(); }
 std::string RecoveryBackupRoot() { return DataManager::GetStrValue(TW_BACKUPS_FOLDER_VAR); }
+bool RecoveryDeleteBackup(const std::string &folder) {
+  std::string canonical_backup;
+  if (!ResolveDirectBackupChild(RecoveryBackupRoot(), folder,
+                                &canonical_backup))
+    return false;
+  return TWFunc::removeDir(canonical_backup, false) == 0;
+}
+
 std::string RecoverySlot() { return PartitionManager.Get_Active_Slot_Display(); }
 std::string RecoveryVersion() { return DataManager::GetStrValue(TW_VERSION_VAR); }
 std::string RecoveryBuildType() {

@@ -51,6 +51,7 @@ std::vector<Volume> RecoveryImageVolumes();
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder);
 std::string RecoveryStorage();
 std::string RecoveryBackupRoot();
+bool RecoveryDeleteBackup(const std::string &folder);
 std::string RecoverySlot();
 std::string RecoveryVersion();
 std::string RecoveryBuildType();

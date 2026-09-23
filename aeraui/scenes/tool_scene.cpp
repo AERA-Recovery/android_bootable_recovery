@@ -30,11 +30,100 @@ lv_obj_t *WorkflowModeCard(lv_obj_t *parent, int x, int y, int width,
                            const char *icon, const char *title,
                            const char *description, bool active,
                            Handler action);
+void RestoreFolders(Tools *state);
 
 void Open(Tools *state, Action action) { state->callback(action, state->context); }
 void Run(Tools *state, const JobRequest &request) {
   SetJobRequest(request);
   Open(state, Action::kRunOperation);
+}
+
+void CloseBackupActions(lv_obj_t *overlay) {
+  if (!overlay) return;
+  lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_delete_async(overlay);
+}
+
+void ConfirmBackupDeletion(Tools *state, const std::string &path,
+                           const std::string &name) {
+  Sheet(state->screen, "Delete backup?",
+        "Permanently delete " + name +
+            " and every partition stored inside it?\n\n"
+            "This cannot be undone.",
+        [state, path] {
+          if (RecoveryDeleteBackup(path)) {
+            RestoreFolders(state);
+          } else {
+            Sheet(state->screen, "Could not delete backup",
+                  "AERA could not remove this backup. Check that its "
+                  "storage is still mounted and writable.");
+          }
+        }, 0, false, SheetPresentation::kStandard, "Swipe to delete");
+}
+
+void BackupActions(Tools *state, const std::string &path,
+                   const std::string &name) {
+  auto *overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_30, 0);
+  lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
+    if (lv_event_get_target_obj(event) ==
+        lv_event_get_current_target_obj(event))
+      CloseBackupActions(lv_event_get_current_target_obj(event));
+  }, LV_EVENT_CLICKED, nullptr);
+
+  const bool landscape = Landscape(state->screen);
+  const int width = landscape
+      ? std::min(1800, static_cast<int>(lv_obj_get_width(state->screen)) - 256)
+      : 1312;
+  const int height = 530;
+  auto *sheet = lv_obj_create(overlay);
+  Panel(sheet, 48, kMainSheet);
+  lv_obj_set_size(sheet, width, height);
+  lv_obj_align(sheet, landscape ? LV_ALIGN_CENTER : LV_ALIGN_BOTTOM_MID,
+               0, landscape ? 0 : -40);
+  lv_obj_set_style_border_width(sheet, 1, 0);
+  lv_obj_set_style_border_color(sheet, kMainLine, 0);
+  lv_obj_set_style_border_opa(sheet, LV_OPA_50, 0);
+  lv_obj_set_style_bg_opa(sheet, IsLightMode() ? LV_OPA_90 : LV_OPA_80, 0);
+  lv_obj_set_style_blur_backdrop(sheet, true, 0);
+  lv_obj_set_style_blur_radius(sheet, 18, 0);
+  lv_obj_set_style_blur_quality(sheet, LV_BLUR_QUALITY_SPEED, 0);
+
+  auto *grabber = lv_obj_create(sheet);
+  Clear(grabber);
+  lv_obj_set_size(grabber, 112, 8);
+  lv_obj_align(grabber, LV_ALIGN_TOP_MID, 0, 18);
+  lv_obj_set_style_radius(grabber, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(grabber, kMutedStrong, 0);
+  lv_obj_set_style_bg_opa(grabber, LV_OPA_30, 0);
+
+  auto *title = Label(sheet, "Backup actions", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 48, 56);
+  auto *detail = Label(sheet, name.c_str(), &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(detail, 48, 124);
+  SingleLineLabel(detail, width - 190, &lv_font_montserrat_24);
+  auto *close = Button(sheet, LV_SYMBOL_CLOSE,
+                       [overlay] { CloseBackupActions(overlay); });
+  lv_obj_set_pos(close, width - 138, 42);
+  lv_obj_set_size(close, 96, 96);
+
+  auto *remove = Button(sheet, LV_SYMBOL_TRASH "  Delete backup",
+                        [state, overlay, path, name] {
+    CloseBackupActions(overlay);
+    ConfirmBackupDeletion(state, path, name);
+  });
+  lv_obj_set_pos(remove, 48, 200);
+  lv_obj_set_size(remove, width - 96, 140);
+  lv_obj_set_style_border_width(remove, 1, 0);
+  lv_obj_set_style_border_color(remove, kRed, 0);
+  lv_obj_set_style_border_opa(remove, LV_OPA_60, 0);
+  if (lv_obj_get_child_count(remove) > 0)
+    lv_obj_set_style_text_color(lv_obj_get_child(remove, 0), kRed, 0);
 }
 
 std::string WipeDescription(const std::string &path) {
@@ -216,8 +305,9 @@ void RestoreFolders(Tools *state) {
   if (state->selection_detail) i18n::BindLabel(state->selection_detail, "Choose a backup, then select partitions to restore");
   for (size_t i = 0; i < folders.size(); ++i) {
     const auto path = folders[i];
+    const auto name = path.substr(path.find_last_of('/') + 1);
     Row(state->list, static_cast<int>(i) * 190, LV_SYMBOL_SAVE,
-        path.substr(path.find_last_of('/') + 1), "Inspect available partitions", [state, path] {
+        name, "Inspect available partitions", [state, path] {
       state->restore_folder = path;
       state->selected.clear();
       state->volumes = RecoveryRestoreVolumes(path);
@@ -229,6 +319,8 @@ void RestoreFolders(Tools *state) {
         return;
       }
       PartitionRows(state);
+    }, LV_SYMBOL_RIGHT, [state, path, name] {
+      BackupActions(state, path, name);
     });
   }
   if (folders.empty()) {
