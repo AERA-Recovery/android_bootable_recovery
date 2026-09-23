@@ -114,6 +114,7 @@ const char *InitialTitle(Job job) {
     case Job::kSideload: return "Waiting for package";
     case Job::kFlashImage: return "Preparing image flash";
     case Job::kBackup: return "Preparing your backup";
+    case Job::kUploadBackup: return "Preparing network upload";
     case Job::kRestore: return "Preparing to restore";
     case Job::kWipe: return "Preparing to wipe";
     case Job::kFormatData: return "Preparing data format";
@@ -128,6 +129,7 @@ const char *OperationSymbol(Job job) {
     case Job::kSideload: return LV_SYMBOL_USB;
     case Job::kFlashImage: return LV_SYMBOL_UPLOAD;
     case Job::kBackup: return LV_SYMBOL_SAVE;
+    case Job::kUploadBackup: return LV_SYMBOL_UPLOAD;
     case Job::kRestore: return LV_SYMBOL_REFRESH;
     case Job::kWipe:
     case Job::kFormatData: return LV_SYMBOL_TRASH;
@@ -162,7 +164,8 @@ FriendlyProgress Explain(const std::string &raw, Job job, int progress) {
   if (lines.size() > 1) value.amount = CleanMetric(lines[1]);
   if (lines.size() > 2) value.files = CleanMetric(lines[2]);
 
-  if (all.find("nas upload") != std::string::npos ||
+  if (job == Job::kUploadBackup ||
+      all.find("nas upload") != std::string::npos ||
       all.find("uploading") != std::string::npos) {
     value.title = "Uploading to Network Storage";
     value.explanation = "Your local backup is ready. AERA is securely transferring it to your network storage.";
@@ -391,7 +394,8 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_width(result.files, 380);
   lv_obj_set_style_text_align(result.files, LV_TEXT_ALIGN_RIGHT, 0);
 
-  const bool network = request.path.find("/mnt/nas") != std::string::npos;
+  const bool network = request.job == Job::kUploadBackup ||
+      request.path.find("/mnt/nas") != std::string::npos;
   const std::string destination = request.job == Job::kSideload
       ? "Source  /  ADB over USB"
       : network ? "Destination  /  Network Storage" :
@@ -458,7 +462,8 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_size(result.details, landscape ? 1448 : 1216, 132);
   if (installer) lv_obj_add_flag(result.details, LV_OBJ_FLAG_HIDDEN);
 
-  const bool backup = request.job == Job::kBackup || request.job == Job::kRestore;
+  const bool backup = request.job == Job::kBackup ||
+      request.job == Job::kUploadBackup || request.job == Job::kRestore;
   const bool format = request.job == Job::kFormatData;
   const bool wipe = request.job == Job::kWipe;
   const bool mount = request.job == Job::kMount || request.job == Job::kUnmount;

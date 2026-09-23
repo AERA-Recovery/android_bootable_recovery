@@ -63,6 +63,7 @@ void ConfirmBackupDeletion(Tools *state, const std::string &path,
 
 void BackupActions(Tools *state, const std::string &path,
                    const std::string &name) {
+  const bool can_upload = RecoveryBackupCanUpload(path);
   auto *overlay = lv_obj_create(state->screen);
   lv_obj_set_user_data(overlay, &kModalMarker);
   Clear(overlay);
@@ -80,7 +81,7 @@ void BackupActions(Tools *state, const std::string &path,
   const int width = landscape
       ? std::min(1800, static_cast<int>(lv_obj_get_width(state->screen)) - 256)
       : 1312;
-  const int height = 530;
+  const int height = can_upload ? 700 : 530;
   auto *sheet = lv_obj_create(overlay);
   Panel(sheet, 48, kMainSheet);
   lv_obj_set_size(sheet, width, height);
@@ -112,12 +113,29 @@ void BackupActions(Tools *state, const std::string &path,
   lv_obj_set_pos(close, width - 138, 42);
   lv_obj_set_size(close, 96, 96);
 
+  int y = 200;
+  if (can_upload) {
+    auto *upload = Button(sheet, LV_SYMBOL_UPLOAD "  Upload to network storage",
+                          [state, overlay, path, name] {
+      CloseBackupActions(overlay);
+      JobRequest request;
+      request.job = Job::kUploadBackup;
+      request.title = "Upload Backup";
+      request.path = path;
+      request.name = name;
+      Run(state, request);
+    }, true);
+    lv_obj_set_pos(upload, 48, y);
+    lv_obj_set_size(upload, width - 96, 140);
+    y += 164;
+  }
+
   auto *remove = Button(sheet, LV_SYMBOL_TRASH "  Delete backup",
                         [state, overlay, path, name] {
     CloseBackupActions(overlay);
     ConfirmBackupDeletion(state, path, name);
   });
-  lv_obj_set_pos(remove, 48, 200);
+  lv_obj_set_pos(remove, 48, y);
   lv_obj_set_size(remove, width - 96, 140);
   lv_obj_set_style_border_width(remove, 1, 0);
   lv_obj_set_style_border_color(remove, kRed, 0);

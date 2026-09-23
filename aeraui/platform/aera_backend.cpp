@@ -5,8 +5,12 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
+#include <cstring>
 #include <cstdlib>
 #include <ctime>
+#include <dirent.h>
+#include <fcntl.h>
 #include <fstream>
 #include <limits.h>
 #include <set>
@@ -97,7 +101,9 @@ bool gLiveFastbootPostDecryptReady = false;
 
 bool ResolveDirectBackupChild(const std::string &root,
                               const std::string &folder,
-                              std::string *resolved_folder) {
+                              std::string *resolved_root,
+                              std::string *resolved_folder,
+                              std::string *name = nullptr) {
   if (root.empty() || folder.empty()) return false;
   char root_path[PATH_MAX] = {};
   char backup_path[PATH_MAX] = {};
@@ -119,8 +125,112 @@ bool ResolveDirectBackupChild(const std::string &root,
   if (child.empty() || child.find('/') != std::string::npos)
     return false;
 
+  if (resolved_root) *resolved_root = canonical_root;
   if (resolved_folder) *resolved_folder = canonical_backup;
+  if (name) *name = child;
   return true;
+}
+
+bool PathInside(const std::string &path, const std::string &parent) {
+  return path == parent ||
+      (path.size() > parent.size() &&
+       path.compare(0, parent.size(), parent) == 0 &&
+       path[parent.size()] == '/');
+}
+
+bool MeasureBackupTree(const std::string &path, uint64_t *bytes) {
+  struct stat info {};
+  if (lstat(path.c_str(), &info) != 0 || S_ISLNK(info.st_mode)) return false;
+  if (S_ISREG(info.st_mode)) {
+    *bytes += static_cast<uint64_t>(info.st_size);
+    return true;
+  }
+  if (!S_ISDIR(info.st_mode)) return false;
+  DIR *directory = opendir(path.c_str());
+  if (!directory) return false;
+  bool ok = true;
+  while (ok) {
+    dirent *entry = readdir(directory);
+    if (!entry) break;
+    if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+      continue;
+    ok = MeasureBackupTree(path + "/" + entry->d_name, bytes);
+  }
+  closedir(directory);
+  return ok;
+}
+
+void SetBackupUploadProgress(uint64_t copied, uint64_t total) {
+  const int percent = total == 0 ? 100 : static_cast<int>(
+      std::min<uint64_t>(copied, total) * 100ULL / total);
+  std::ostringstream detail;
+  detail << "NAS upload: " << copied / (1024ULL * 1024ULL) << " MB of "
+         << total / (1024ULL * 1024ULL) << " MB (" << percent << "%)";
+  DataManager::SetValue("tw_size_progress", detail.str());
+  DataManager::SetProgress(static_cast<float>(percent) / 100.0f);
+}
+
+bool CopyBackupTree(const std::string &source, const std::string &destination,
+                    uint64_t total, uint64_t *copied) {
+  struct stat info {};
+  if (lstat(source.c_str(), &info) != 0 || S_ISLNK(info.st_mode)) return false;
+  if (S_ISDIR(info.st_mode)) {
+    if (mkdir(destination.c_str(), info.st_mode & 0777) != 0 && errno != EEXIST)
+      return false;
+    DIR *directory = opendir(source.c_str());
+    if (!directory) return false;
+    bool ok = true;
+    while (ok) {
+      dirent *entry = readdir(directory);
+      if (!entry) break;
+      if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+        continue;
+      ok = CopyBackupTree(source + "/" + entry->d_name,
+                          destination + "/" + entry->d_name,
+                          total, copied);
+    }
+    closedir(directory);
+    return ok;
+  }
+  if (!S_ISREG(info.st_mode)) return false;
+
+  const int input = open(source.c_str(), O_RDONLY | O_CLOEXEC);
+  if (input < 0) return false;
+  const int output = open(destination.c_str(),
+                          O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+                          info.st_mode & 0777);
+  if (output < 0) {
+    close(input);
+    return false;
+  }
+  std::vector<char> buffer(1024 * 1024);
+  bool ok = true;
+  while (ok) {
+    const ssize_t read_bytes = read(input, buffer.data(), buffer.size());
+    if (read_bytes == 0) break;
+    if (read_bytes < 0) {
+      if (errno == EINTR) continue;
+      ok = false;
+      break;
+    }
+    ssize_t offset = 0;
+    while (offset < read_bytes) {
+      const ssize_t written = write(output, buffer.data() + offset,
+                                    read_bytes - offset);
+      if (written < 0) {
+        if (errno == EINTR) continue;
+        ok = false;
+        break;
+      }
+      offset += written;
+      *copied += static_cast<uint64_t>(written);
+      SetBackupUploadProgress(*copied, total);
+    }
+  }
+  if (close(output) != 0) ok = false;
+  close(input);
+  if (!ok) unlink(destination.c_str());
+  return ok;
 }
 
 }
@@ -186,10 +296,29 @@ std::string RecoveryStorage() { return DataManager::GetCurrentStoragePath(); }
 std::string RecoveryBackupRoot() { return DataManager::GetStrValue(TW_BACKUPS_FOLDER_VAR); }
 bool RecoveryDeleteBackup(const std::string &folder) {
   std::string canonical_backup;
-  if (!ResolveDirectBackupChild(RecoveryBackupRoot(), folder,
+  if (!ResolveDirectBackupChild(RecoveryBackupRoot(), folder, nullptr,
                                 &canonical_backup))
     return false;
   return TWFunc::removeDir(canonical_backup, false) == 0;
+}
+
+bool RecoveryBackupCanUpload(const std::string &folder) {
+#ifdef OF_ENABLE_WLAN
+  if (!NasManager::IsMounted()) return false;
+  std::string canonical_root;
+  if (!ResolveDirectBackupChild(RecoveryBackupRoot(), folder,
+                                &canonical_root, nullptr))
+    return false;
+  char storage_path[PATH_MAX] = {};
+  if (realpath(RecoveryStorage().c_str(), storage_path) == nullptr)
+    return false;
+  const std::string canonical_storage(storage_path);
+  return canonical_storage != NasManager::Mount_Point &&
+      PathInside(canonical_root, canonical_storage);
+#else
+  (void)folder;
+  return false;
+#endif
 }
 
 std::string RecoverySlot() { return PartitionManager.Get_Active_Slot_Display(); }
@@ -471,6 +600,62 @@ int RecoveryRunJob(const JobRequest &request) {
   DataManager::SetValue("aera_install_status", "");
   if (request.job == Job::kInstall) return aeraui_install_package(request.path.c_str());
   if (request.job == Job::kSideload) return RecoveryRunSideload();
+  if (request.job == Job::kUploadBackup) {
+#ifdef OF_ENABLE_WLAN
+    std::string canonical_root;
+    std::string canonical_backup;
+    std::string backup_name;
+    if (!NasManager::IsMounted() ||
+        !ResolveDirectBackupChild(RecoveryBackupRoot(), request.path,
+                                  &canonical_root, &canonical_backup,
+                                  &backup_name))
+      return 1;
+
+    char storage_path[PATH_MAX] = {};
+    if (realpath(RecoveryStorage().c_str(), storage_path) == nullptr)
+      return 1;
+    const std::string canonical_storage(storage_path);
+    if (canonical_storage == NasManager::Mount_Point ||
+        !PathInside(canonical_root, canonical_storage))
+      return 1;
+
+    const std::string relative_root =
+        canonical_root.substr(canonical_storage.size());
+    if (relative_root.empty() || relative_root[0] != '/') return 1;
+    const std::string destination_root =
+        NasManager::Mount_Point + relative_root;
+    const std::string destination = destination_root + "/" + backup_name;
+    struct stat destination_info {};
+    if (lstat(destination.c_str(), &destination_info) == 0 || errno != ENOENT) {
+      DataManager::SetValue("tw_size_progress",
+                            "A backup with this name already exists on NAS");
+      return 1;
+    }
+
+    uint64_t total = 0;
+    if (!MeasureBackupTree(canonical_backup, &total) ||
+        !TWFunc::Create_Dir_Recursive(destination_root, 0777))
+      return 1;
+
+    DataManager::SetValue("tw_partition", "NAS upload");
+    DataManager::SetProgress(0.0f);
+    SetBackupUploadProgress(0, total);
+    NasManager::ResetTransferStats();
+    uint64_t copied = 0;
+    TWFunc::SetPerformanceMode(true);
+    bool ok = CopyBackupTree(canonical_backup, destination, total, &copied);
+    if (ok) ok = NasManager::WaitForPendingUploads(0, total);
+    TWFunc::SetPerformanceMode(false);
+    if (!ok) {
+      TWFunc::removeDir(destination, false);
+      return 1;
+    }
+    SetBackupUploadProgress(total, total);
+    return 0;
+#else
+    return 1;
+#endif
+  }
   if (request.job == Job::kFlashImage) {
     if (request.partitions.size() != 1 || request.path.empty() ||
         request.path.find_first_of("'\r\n") != std::string::npos) return 1;
