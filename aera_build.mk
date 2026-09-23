@@ -925,8 +925,11 @@ endif
 # tree. Every ARM64 recovery receives the same verified KMI catalog and payloads.
 ifeq ($(TARGET_ARCH),arm64)
     AERA_ROOT_ASSETS_DIR := $(commands_TWRP_local_path)/prebuilt/aera/root
-    AERA_ROOT_ASSETS_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/root
-    AERA_ROOT_ASSETS_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/.root-assets.stamp
+    # mkbootfs intentionally skips directories whose basename is exactly
+    # "root", even below another directory.  Use an AERA-specific basename so
+    # the provider catalog and modules actually enter the recovery CPIO.
+    AERA_ROOT_ASSETS_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/root-providers
+    AERA_ROOT_ASSETS_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/.root-providers.stamp
     AERA_ROOT_ASSET_FILES := $(shell find $(AERA_ROOT_ASSETS_DIR) -type f 2>/dev/null)
 
 ifndef AERA_ROOT_ASSETS_RULE_DEFINED
@@ -957,6 +960,17 @@ $(AERA_REMOTE_CLIENT_STAMP): $(AERA_REMOTE_CLIENT_FILES)
 
 ALL_DEFAULT_INSTALLED_MODULES += $(AERA_REMOTE_CLIENT_STAMP)
 endif
+
+# The recovery ramdisk recipe is declared later by build/make.  Merely adding
+# these stamps to ALL_DEFAULT_INSTALLED_MODULES lets Kati schedule the copy and
+# ramdisk jobs in parallel, which can package either directory while its rule
+# is between rm -rf and cp.  Make the copy jobs direct prerequisites so every
+# image contains a complete, deterministic AERA asset tree.
+AERA_RECOVERY_RAMDISK_FILES_STAMP := \
+    $(PRODUCT_OUT)/obj/PACKAGING/recovery_intermediates/ramdisk_files-timestamp
+$(AERA_RECOVERY_RAMDISK_FILES_STAMP): \
+    $(AERA_ROOT_ASSETS_STAMP) \
+    $(AERA_REMOTE_CLIENT_STAMP)
 
 # whether to skip substituting some permissions
 ifeq ($(OF_DONT_SUBSTITUTE_PERMISSIONS),1)

@@ -12,6 +12,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/fs.h>
+#include <limits.h>
 #include <json/json.h>
 #include <openssl/evp.h>
 #include <poll.h>
@@ -32,6 +33,7 @@
 
 #include "android_icon.hpp"
 #include <aeraui/i18n.hpp>
+#include "twcommon.h"
 
 namespace aeraui::root {
 namespace {
@@ -43,8 +45,8 @@ constexpr char kCache[] = "/sdcard/AERA/RootManager/cache";
 constexpr char kBackups[] = "/sdcard/AERA/RootManager/backups";
 constexpr char kReceipts[] = "/sdcard/AERA/RootManager/receipts";
 constexpr char kWork[] = "/tmp/aera-root-manager";
-constexpr char kBundledRoot[] = "/system/etc/aera/root";
-constexpr char kBundledCatalog[] = "/system/etc/aera/root/providers.json";
+constexpr char kBundledRoot[] = "/system/etc/aera/root-providers";
+constexpr char kBundledCatalog[] = "/system/etc/aera/root-providers/providers.json";
 constexpr char kManagerStaging[] = "/data/adb/aera/root-manager";
 constexpr char kManagerModule[] = "/data/adb/modules/aera-manager-installer";
 constexpr uint64_t kMaxMetadata = 2 * 1024 * 1024;
@@ -58,9 +60,13 @@ std::vector<Module> gModules;
 
 void SetText(Progress &progress, const std::string &status,
              const std::string &detail = {}) {
-  std::lock_guard<std::mutex> lock(progress.text_mutex);
-  progress.status = status;
-  progress.detail = detail;
+  {
+    std::lock_guard<std::mutex> lock(progress.text_mutex);
+    progress.status = status;
+    progress.detail = detail;
+  }
+  LOGINFO("AERA Root Manager: %s%s%s\n", status.c_str(),
+          detail.empty() ? "" : " — ", detail.c_str());
 }
 
 std::string Trim(std::string value) {
@@ -285,10 +291,25 @@ bool WriteText(const std::string &path, const std::string &text, mode_t mode) {
 
 bool HashFile(const std::string &path, uint64_t expected_size,
               const std::string &expected_hash, std::string *actual_out = nullptr) {
-  int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  std::string open_path = path;
+  const bool trusted_block_alias =
+      path.compare(0, sizeof("/dev/block/by-name/") - 1,
+                   "/dev/block/by-name/") == 0;
+  if (trusted_block_alias) {
+    char resolved[PATH_MAX]{};
+    if (!realpath(path.c_str(), resolved) ||
+        strncmp(resolved, "/dev/block/", sizeof("/dev/block/") - 1) != 0)
+      return false;
+    open_path = resolved;
+  }
+  // User-controlled files must never be followed through a symlink.  The one
+  // exception is Android's trusted by-name block alias, resolved above to a
+  // concrete /dev/block node and validated again with fstat below.
+  int fd = open(open_path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
   struct stat info{};
   if (fd < 0 || fstat(fd, &info) ||
       (!S_ISREG(info.st_mode) && !S_ISBLK(info.st_mode)) ||
+      (trusted_block_alias && !S_ISBLK(info.st_mode)) ||
       (S_ISREG(info.st_mode) && info.st_size <= 0) ||
       (S_ISREG(info.st_mode) && expected_size &&
        static_cast<uint64_t>(info.st_size) != expected_size)) {
@@ -320,6 +341,32 @@ bool HashFile(const std::string &path, uint64_t expected_size,
   std::transform(expected.begin(), expected.end(), expected.begin(),
                  [](unsigned char c) { return std::tolower(c); });
   return ok && (expected.empty() || actual == expected);
+}
+
+bool VerifyBlockWrite(const std::string &path, uint64_t expected_size,
+                      const std::string &expected_hash,
+                      std::string *actual_out = nullptr) {
+  std::string actual;
+  for (unsigned attempt = 0; attempt < 10; ++attempt) {
+    // Some UFS/block drivers acknowledge fsync before a newly written boot
+    // partition is visible through a separately opened read descriptor.  Ask
+    // the block layer to flush and invalidate its buffers before each bounded
+    // readback attempt.  Unsupported ioctls are harmless; the retries remain.
+    sync();
+    const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd >= 0) {
+      ioctl(fd, BLKFLSBUF);
+      close(fd);
+    }
+    actual.clear();
+    if (HashFile(path, expected_size, expected_hash, &actual)) {
+      if (actual_out) *actual_out = actual;
+      return true;
+    }
+    if (attempt + 1 < 10) usleep(250000);
+  }
+  if (actual_out) *actual_out = actual;
+  return false;
 }
 
 bool Download(const std::string &url, const std::string &path, uint64_t limit,
@@ -996,7 +1043,7 @@ bool Patch(const Request &request, Progress &progress) {
     return false;
   }
   std::string flashed_hash;
-  if (!HashFile(block, partition_size, patched_hash, &flashed_hash)) {
+  if (!VerifyBlockWrite(block, partition_size, patched_hash, &flashed_hash)) {
     SetText(progress, "Flash verification failed",
             "The partition readback did not match the patched image. Restore before rebooting.");
     return false;
@@ -1067,7 +1114,8 @@ bool Rollback(const Request &request, Progress &progress) {
     SetText(progress, "Restore failed", "The partition write did not complete."); return false;
   }
   std::string hash;
-  if (!HashFile(backup, size, "", &hash) || !HashFile(block, size, hash)) {
+  if (!HashFile(backup, size, "", &hash) ||
+      !VerifyBlockWrite(block, size, hash)) {
     SetText(progress, "Restore verification failed", "Partition readback differs from the backup.");
     return false;
   }
