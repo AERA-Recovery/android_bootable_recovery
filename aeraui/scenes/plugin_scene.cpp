@@ -46,6 +46,12 @@ const plugins::Plugin *InstalledVersion(
   return found == installed.end() ? nullptr : &*found;
 }
 
+std::string VersionAndDownloadSize(const plugins::Plugin &plugin) {
+  const std::string version =
+      i18n::Format("Version %s", plugin.version.c_str());
+  return version + "  •  " + Size(plugin.package_size);
+}
+
 void Request(State *state, plugins::Job job, const std::string &id) {
   if (!state || state->busy) return;
   // Do not enter the plugin worker's download/retry path when recovery is
@@ -115,8 +121,7 @@ void Render(State *state) {
     FitLabelToLines(description, card_width - 230, 2,
                     {&lv_font_montserrat_24, &lv_font_montserrat_20,
                      &lv_font_montserrat_18, &lv_font_montserrat_16});
-    const std::string version =
-        i18n::Format("Version %s", plugin.version.c_str());
+    const std::string version = VersionAndDownloadSize(plugin);
     auto *version_label = Label(card, version.c_str(), &lv_font_montserrat_18, kDim);
     lv_obj_set_pos(version_label, 154, 156);
 

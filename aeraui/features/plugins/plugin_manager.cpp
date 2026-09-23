@@ -362,10 +362,9 @@ bool ParseCatalog(const std::string &text, std::vector<Plugin> &plugins,
     const bool package_hash_ok = plugin.package_sha256.size() == 64 &&
         std::all_of(plugin.package_sha256.begin(), plugin.package_sha256.end(),
                     [](unsigned char c) { return std::isxdigit(c); });
-    const bool package_complete = plugin.package_url.empty()
-        ? plugin.package_size == 0 && plugin.package_sha256.empty()
-        : OfficialUrl(plugin.package_url) && plugin.package_size > 0 &&
-              plugin.package_size <= kMaxPackage && package_hash_ok;
+    const bool package_complete = OfficialUrl(plugin.package_url) &&
+        plugin.package_size > 0 && plugin.package_size <= kMaxPackage &&
+        package_hash_ok;
     if (!SafeId(plugin.id) || plugin.name.empty() || plugin.name.size() > 80 ||
         plugin.version.empty() || plugin.description.size() > 320 ||
         !OfficialUrl(plugin.manifest_url) || !OfficialUrl(plugin.signature_url) ||
@@ -382,12 +381,22 @@ Plugin BrowserFallback() {
   Plugin plugin;
   plugin.id = "browser";
   plugin.name = "AERA Browser";
-  plugin.version = "1.0.0";
-  plugin.description = "Private WebKit browser with modern mobile-site support.";
+  plugin.version = "1.5.2";
+  plugin.description =
+      "Full-height mobile WebKit browser with downloads, video, GPU "
+      "rendering, and speaker audio.";
   plugin.manifest_url =
-      "https://raw.githubusercontent.com/AERA-Plugins/browser/main/plugin.json";
+      "https://raw.githubusercontent.com/AERA-Plugins/browser/"
+      "0a0ddfa1bb46f9004c6436416f7f6cea57772661/plugin.json";
   plugin.signature_url =
-      "https://raw.githubusercontent.com/AERA-Plugins/browser/main/plugin.json.sig";
+      "https://raw.githubusercontent.com/AERA-Plugins/browser/"
+      "0a0ddfa1bb46f9004c6436416f7f6cea57772661/plugin.json.sig";
+  plugin.package_url =
+      "https://github.com/AERA-Plugins/browser/releases/download/v1.5.2/"
+      "AERA-Browser-1.5.2.aerap";
+  plugin.package_size = 40963537;
+  plugin.package_sha256 =
+      "4a2302aaeb2ae3e7683545dab74c407ba21c7b1ce57ff626c88559faa2f08ced";
   return plugin;
 }
 
