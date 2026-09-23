@@ -24,8 +24,8 @@ InitFox() {
 
   if [ -f /sdcard/AERA/aera.mkshrc ]; then
      source /sdcard/AERA/aera.mkshrc;
-  elif [ -f /FFiles/aera.mkshrc ]; then
-     source /FFiles/aera.mkshrc;
+  elif [ -f /AERA/Files/aera.mkshrc ]; then
+     source /AERA/Files/aera.mkshrc;
   elif [ -f /data/recovery/aera.mkshrc ]; then
      source /data/recovery/aera.mkshrc;
   elif [ -f /sdcard1/AERA/aera.mkshrc ]; then
@@ -36,8 +36,8 @@ InitFox() {
      source $HOME/.mkshrc;
   elif [ -f /sdcard/.mkshrc ]; then
      source /sdcard/.mkshrc;
-  elif [ -f /FFiles/.mkshrc ]; then
-     source /FFiles/.mkshrc;
+  elif [ -f /AERA/Files/.mkshrc ]; then
+     source /AERA/Files/.mkshrc;
   elif [ -f /data/recovery/.mkshrc ]; then
      source /data/recovery/.mkshrc;
   elif [ -f /sdcard1/.mkshrc ]; then

@@ -57,6 +57,7 @@ bool RecoveryBackupCanUpload(const std::string &folder);
 std::string RecoverySlot();
 std::string RecoveryVersion();
 std::string RecoveryBuildType();
+std::string RecoveryBuildStatus();
 std::string RecoveryDevice();
 std::string RecoveryBuildDate();
 std::string RecoveryMaintainer();

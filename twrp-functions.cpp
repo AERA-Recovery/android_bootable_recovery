@@ -161,7 +161,7 @@ static bool Is_Real_Treble(void)
    }
    else
    {
-      if (Get_Property ("orangefox.realtreble.rom") == "1" || TWFunc::Has_Vendor_Partition())
+      if (Get_Property ("aera.realtreble.rom") == "1" || TWFunc::Has_Vendor_Partition())
         {
            ROM_IsRealTreble = 1;
            return true;
@@ -208,12 +208,12 @@ std::string s;
 std::vector<std::string> props = TWFunc::Split_String (
 "ro.miui.ui.version.code,ro.miui.ui.version.name,ro.miui.build.region,ro.miui.product.home,ro.miui.customized_clientid", ",", true);
 
-	if (TWFunc::Fox_Property_Get("orangefox.miui.rom") == "1")
+	if (TWFunc::Fox_Property_Get("aera.miui.rom") == "1")
 		return true;
 
 	for (auto && prop: props) {
 		s = TWFunc::System_Property_Get(prop);
-		if (s.empty() && TWFunc::Fox_Property_Get("orangefox.product.partition") == "1") {
+		if (s.empty() && TWFunc::Fox_Property_Get("aera.product.partition") == "1") {
 		       s = TWFunc::Product_Property_Get(prop);
 		}
 
@@ -222,7 +222,7 @@ std::vector<std::string> props = TWFunc::Split_String (
 		}
 
 		if (i > 2) {
-			TWFunc::Fox_Property_Set("orangefox.miui.rom", "1");
+			TWFunc::Fox_Property_Set("aera.miui.rom", "1");
 			return true;
 		}
 	}
@@ -268,7 +268,7 @@ bool TWFunc::Has_Vendor_Partition(void)
 /* run startup script, if not already run by init */
 bool TWFunc::RunStartupScript(void)
 {
-string tprop = Get_Property("orangefox.postinit.status");
+string tprop = Get_Property("aera.postinit.status");
 bool i = Path_Exists(aera_runtime_cfg);
    
    if (i == true || tprop == "1")
@@ -310,7 +310,7 @@ bool ret = false;
     if (ret)
        res = "1";
 
-    Fox_Property_Set("orangefox.miui.rom", res);
+    Fox_Property_Set("aera.miui.rom", res);
     return ret;
 }
 
@@ -363,6 +363,8 @@ void TWFunc::Run_Before_Reboot(void)
     TWFunc::write_to_file(Logs_Dir + "/releaseinfo.json",
 "{\"json_ver\":\"2\",\"codename\":\"" + DataManager::GetStrValue(AERA_COMPATIBILITY_DEVICE) +
                      "\",\"type\":\"" + AERA_BUILD_TYPE                                     +
+                   "\",\"status\":\"" + AERA_BUILD_STATUS                                  +
+                  "\",\"channel\":\"" + AERA_BUILD_TYPE                                    +
                   "\",\"version\":\"" + AERA_BUILD                                          +
                    "\",\"commit\":\"" + AERA_CURRENT_DEV_STR                                +
                      "\",\"date\":\"" + DataManager::GetStrValue("AERA_BUILD_DATE_REAL")    +
@@ -2565,9 +2567,9 @@ int TWFunc::Check_MIUI_Treble(void)
   // *
 
   int rom_sdk=Get_Android_SDK_Version();
-  TWFunc::Fox_Property_Set("orangefox.rom.sdk", std::to_string(rom_sdk));
+  TWFunc::Fox_Property_Set("aera.rom.sdk", std::to_string(rom_sdk));
 
-  finger_print = TWFunc::Fox_Property_Get("orangefox.system.fingerprint");
+  finger_print = TWFunc::Fox_Property_Get("aera.system.fingerprint");
   
   if (TWFunc::Path_Exists(aera_runtime_cfg))
     {
@@ -2622,14 +2624,14 @@ int TWFunc::Check_MIUI_Treble(void)
        gui_msg(Msg("fox_display=* Display:    {1}")(display_panel.c_str()));
 
   // device name
-  string device_model = TWFunc::Fox_Property_Get("ro.orangefox.device_model");
+  string device_model = TWFunc::Fox_Property_Get("ro.aera.device_model");
   if (!device_model.empty())
        gui_msg(Msg("fox_device=* Device:     {1} ({2})")(device_model.c_str())(TWFunc::Fox_Property_Get("ro.product.device").c_str()));
   else
        gui_msg(Msg("fox_device=* Device:     {1} ({2})")(TWFunc::Fox_Property_Get("ro.product.device").c_str())(TWFunc::Fox_Property_Get("ro.product.system.device").c_str()));
 
   // Dynamic partitions
-  string tmp = Fox_Property_Get("orangefox.super.partition");
+  string tmp = Fox_Property_Get("aera.super.partition");
   if (tmp == "true")
        gui_msg(Msg("fox_dynamic_yes=* Dynamic:    yes"));
   else
@@ -2648,7 +2650,7 @@ int TWFunc::Check_MIUI_Treble(void)
 
   // kernel version for A/B
 #ifdef AB_OTA_UPDATER
-    string kernel_version = TWFunc::Fox_Property_Get("ro.orangefox.kernel");
+    string kernel_version = TWFunc::Fox_Property_Get("ro.aera.kernel");
     if (!kernel_version.empty())
        gui_msg(Msg("fox_kernel=* Kernel:     {1}")(kernel_version.c_str()));
 #endif
@@ -2657,7 +2659,7 @@ int TWFunc::Check_MIUI_Treble(void)
   rom_desc = GetInstalledRom();
   if (!rom_desc.empty()) 
     {  
-  	if (fox_is_miui_rom_installed == "1" || TWFunc::Fox_Property_Get("orangefox.miui.rom") == "1")
+	if (fox_is_miui_rom_installed == "1" || TWFunc::Fox_Property_Get("aera.miui.rom") == "1")
      	  {
 	     Aera_Current_ROM_IsMIUI = 1;
   	     gui_msg(Msg("fox_miui_rom=* MIUI ROM (SDK:{1}, {2})")(rom_sdk)(sdknum_to_text(rom_sdk).c_str()));
@@ -2698,7 +2700,7 @@ void TWFunc::Welcome_Message(void)
     gui_msg(Msg(msg::kGreen, "fox_welcome=Welcome to AERA Recovery!"));
     gui_msg(Msg("fox_release=[Release]   : {1}")(AERA_BUILD));
     gui_msg(Msg("fox_variant=[Variant]   : {1}")(AERA_VARIANT));
-    gui_msg(Msg("fox_codebase=[Codebase]  : {1}, {2}")
+    gui_msg(Msg("aera_codebase=[Codebase]  : {1}, {2}")
         (Fox_Property_Get("ro.build.version.sdk").c_str())
         (AERA_CURRENT_DEV_STR));
     gui_print("[Branch]    : %s\n", OF_CURRENT_BRANCH);
@@ -2710,10 +2712,12 @@ void TWFunc::Welcome_Message(void)
 #endif
     gui_msg(Msg("aera_build_date=[Build date]: {1}")(DataManager::GetStrValue("AERA_BUILD_DATE_REAL").c_str()));
 
-    if (uppercase(AERA_BUILD) == "UNOFFICIAL")
-        gui_msg(Msg(msg::kWarning, "fox_build_type_unofficial=[Build type]: Unofficial. No official support for unofficial builds"));
+    gui_msg(Msg("aera_build_type=[Build type]: {1}")(AERA_BUILD_TYPE));
+    gui_print("[Build status]: %s\n", AERA_BUILD_STATUS);
+
+    if (uppercase(AERA_BUILD_STATUS) == "UNOFFICIAL")
+        gui_msg(Msg(msg::kWarning, "aera_build_type_unofficial=[Build status]: Unofficial. No official support for unofficial builds"));
     else {
-        gui_msg(Msg("fox_build_type=[Build type]: {1}")(AERA_BUILD_TYPE));
         if (uppercase(AERA_BUILD_TYPE) == "BETA" || uppercase(AERA_BUILD_TYPE) == "STABLE") {
             string tg_link = "https://t.me/aera_recovery_project";
             gui_msg(Msg("fox_support=[Support]   : {1}")(tg_link.c_str()));
@@ -2891,9 +2895,9 @@ void TWFunc::OrangeFox_Startup(void)
 
   DataManager::SetValue("aera_home_files_dir", Aera_Home_Files.c_str());
 
-  if (TWFunc::Path_Exists(FFiles_dir.c_str()))
+  if (TWFunc::Path_Exists(Aera_Ramdisk_Files.c_str()))
     {
-      DataManager::SetValue("aera_resource_dir", FFiles_dir.c_str());
+      DataManager::SetValue("aera_resource_dir", Aera_Ramdisk_Files.c_str());
       if (TWFunc::Path_Exists(Aera_sdcard_aroma_cfg)) // Is there a backup CFG file under /sdcard/AERA/?
 	{
 	  if (TWFunc::Path_Exists(Aera_Home_Files + "/AromaFM"))
@@ -3522,8 +3526,8 @@ bool TWFunc::JustInstalledMiui(void)
   Aera_Zip_Installer_Code = DataManager::GetIntValue(AERA_ZIP_INSTALLER_CODE);
   if ((Aera_Zip_Installer_Code == 22) || (Aera_Zip_Installer_Code == 23)
   || (Aera_Zip_Installer_Code == 3) || (Aera_Zip_Installer_Code == 2)) {
-      	TWFunc::Fox_Property_Set("orangefox.miui.rom", "1");
-      	return true;
+	TWFunc::Fox_Property_Set("aera.miui.rom", "1");
+	return true;
       }
   else
       return false;
@@ -4488,7 +4492,7 @@ void TWFunc::Deactivation_Process(void)
 void TWFunc::Patch_AVB20(bool silent)
 {
 #if defined(OF_PATCH_AVB20) && !defined(OF_SKIP_ORANGEFOX_PROCESS) && !defined(AERA_VANILLA_BUILD) && !defined(AERA_AB_DEVICE) && !defined(AB_OTA_UPDATER)
-std::string zipname = FFiles_dir + "/OF_avb20/OF_avb20.zip";
+std::string zipname = Aera_Ramdisk_Files + "/OF_avb20/OF_avb20.zip";
 int res=0, wipe_cache=0;
 std::string magiskboot = TWFunc::Get_MagiskBoot();
 
@@ -4526,7 +4530,7 @@ std::string magiskboot = TWFunc::Get_MagiskBoot();
 int TWFunc::Patch_DMVerity_ForcedEncryption_Magisk(void)
 {
 std::string keepdmverity, keepforcedencryption;
-std::string zipname = FFiles_dir + "/OF_verity_crypt/OF_verity_crypt.zip";
+std::string zipname = Aera_Ramdisk_Files + "/OF_verity_crypt/OF_verity_crypt.zip";
 int res=0, wipe_cache=0;
 
   #if defined(AB_OTA_UPDATER) || defined(AERA_AB_DEVICE)
@@ -4571,9 +4575,9 @@ int res=0, wipe_cache=0;
 
    // see whether we have just installed a MIUI ROM or a custom ROM
    if (TWFunc::JustInstalledMiui())
-      TWFunc::Fox_Property_Set("orangefox.miui.rom", "1");
+      TWFunc::Fox_Property_Set("aera.miui.rom", "1");
     else
-      TWFunc::Fox_Property_Set("orangefox.miui.rom", "0"); // if we have just installed a custom ROM, don't abandon the DFE process
+      TWFunc::Fox_Property_Set("aera.miui.rom", "0"); // if we have just installed a custom ROM, don't abandon the DFE process
 
    usleep(4096);
 
@@ -4591,7 +4595,7 @@ bool TWFunc::MIUI_Is_Running(void)
 #ifdef AERA_VANILLA_BUILD
 	return false;
 #endif
-   if (Aera_Current_ROM_IsMIUI == 1 || TWFunc::JustInstalledMiui() || TWFunc::Fox_Property_Get("orangefox.miui.rom") == "1")
+   if (Aera_Current_ROM_IsMIUI == 1 || TWFunc::JustInstalledMiui() || TWFunc::Fox_Property_Get("aera.miui.rom") == "1")
       return true;
    else
       return false; 
@@ -4617,7 +4621,7 @@ string sdkverstr = TWFunc::System_Property_Get("ro.build.version.sdk");
     sdkverstr = TWFunc::System_Property_Get("ro.system.build.version.sdk");
 
  if (sdkverstr.empty())
-    sdkverstr = TWFunc::Fox_Property_Get("orangefox.rom.sdk");
+    sdkverstr = TWFunc::Fox_Property_Get("aera.rom.sdk");
 
  if (!sdkverstr.empty()) {
       sdkver = atoi(sdkverstr.c_str());
@@ -4744,7 +4748,7 @@ void TWFunc::UseSystemFingerprint(void)
 string rom_finger_print = "";
 string tmp = "\"";
 
-  rom_finger_print = TWFunc::Fox_Property_Get("orangefox.system.fingerprint");
+  rom_finger_print = TWFunc::Fox_Property_Get("aera.system.fingerprint");
 
   if (rom_finger_print.empty()) {
      if (TWFunc::Path_Exists(aera_runtime_cfg))
@@ -5194,7 +5198,7 @@ void TWFunc::set_media_rw_permissions(const string pathname) {
 }
 
 void TWFunc::update_permissions_on_reboot() {
-  if (android::base::GetProperty("ro.orangefox.substitute_permissions", "") == "1") {
+  if (android::base::GetProperty("ro.aera.substitute_permissions", "") == "1") {
 	TWFunc::set_media_rw_permissions(Aera_Settings_Path);
 	TWFunc::set_media_rw_permissions(AERA_NAVBAR_PATH);
 	TWFunc::set_media_rw_permissions(AERA_NAVBAR_PATH + "/navbar.xml");

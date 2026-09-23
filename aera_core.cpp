@@ -832,10 +832,10 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
 
 		  string fingerprint = TWFunc::System_Property_Get(fingerprint_property); // try to get system fingerprint - ro.build.fingerprint
 		  if (fingerprint.empty()) {
-   			fingerprint = TWFunc::Fox_Property_Get("orangefox.system.fingerprint");
-   			if (fingerprint.empty()) {
+			fingerprint = TWFunc::Fox_Property_Get("aera.system.fingerprint");
+			if (fingerprint.empty()) {
 			    fingerprint = TWFunc::File_Property_Get(aera_runtime_cfg, "ROM_FINGERPRINT");
-   			}
+			}
 		  }
 
 		  // appropriate "pre-build" entry in META-INF/com/android/metadata ? == incremental block-based OTA zip installer
@@ -868,7 +868,7 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
        				usleep(4096);
 				TWFunc::Exec_Cmd(Aera_ResetProp_Bin + " ro.build.fingerprint " + atmp + metadata_fingerprint + atmp);
        				usleep(250000);
-				TWFunc::Exec_Cmd(Aera_ResetProp_Bin + " orangefox.system.fingerprint " + atmp + metadata_fingerprint + atmp);
+				TWFunc::Exec_Cmd(Aera_ResetProp_Bin + " aera.system.fingerprint " + atmp + metadata_fingerprint + atmp);
        				usleep(100000);
    			     }
 		        }

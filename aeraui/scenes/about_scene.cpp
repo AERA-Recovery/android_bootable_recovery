@@ -155,6 +155,8 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
 
   const std::string version = OrUnknown(RecoveryVersion());
   const std::string build_type = OrUnknown(RecoveryBuildType());
+  const std::string build_status = OrUnknown(RecoveryBuildStatus());
+  const std::string build_identity = build_type + " · " + build_status;
   const std::string device = OrUnknown(RecoveryDevice());
   const std::string slot = OrUnknown(RecoverySlot());
   const std::string maintainer = OrUnknown(RecoveryMaintainer());
@@ -178,7 +180,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_set_style_border_opa(identity, LV_OPA_30, 0);
     IdentityRow(identity, 38, 38, 520, "MAINTAINER", maintainer);
     IdentityRow(identity, 650, 38, 240, "VERSION", version);
-    IdentityRow(identity, 982, 38, 300, "BUILD", build_type);
+    IdentityRow(identity, 982, 38, 300, "BUILD", build_identity);
     IdentityRow(identity, 1374, 38, 360, "DEVICE", device);
     IdentityRow(identity, 1810, 38, 150, "SLOT", slot);
     auto *foundation = Label(identity,
@@ -208,7 +210,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_set_pos(identity_title, 38, 30);
     IdentityRow(identity, 38, 98, 1236, "MAINTAINER", maintainer);
     IdentityRow(identity, 38, 224, 530, "VERSION", version);
-    IdentityRow(identity, 696, 224, 520, "BUILD", build_type);
+    IdentityRow(identity, 696, 224, 520, "BUILD", build_identity);
     IdentityRow(identity, 38, 362, 530, "DEVICE", device);
     IdentityRow(identity, 696, 362, 520, "ACTIVE SLOT", slot);
     AnimateEnter(identity, 102, 10);

@@ -25,7 +25,9 @@
 #define AERA_MAIN_VERSION_STR    AERA_INTERNAL_RELEASE // defined in aera_build.mk
 #define AERA_BRANCH		"1"
 #define TW_VERSION_STR 		AERA_MAIN_VERSION_STR
-#define BUILD_TYPE_STR 		AERA_BUILD_TYPE
+#define BUILD_TYPE_STR 		"aera_build_type"
+#define AERA_BUILD_STATUS_STR   "aera_build_status"
+#define AERA_RELEASE_CHANNEL_STR "aera_release_channel"
 
 // OrangeFox - Values
 #define AERA_DEVICE              AERA_DEVICE_MODEL
@@ -104,7 +106,7 @@ static const std::string Aera_Logs_Dir = Aera_Home + "/logs";
 static const std::string AERA_OTA_PATH =  Aera_Home + "/OTA";
 static const std::string Aera_sdcard_aroma_cfg = Aera_Home + "/aromafm.cfg";
 static const std::string Aera_aroma_cfg = Aera_Home_Files + "/AromaFM/AromaFM.zip.cfg";
-static const std::string FFiles_dir = "/FFiles";
+static const std::string Aera_Ramdisk_Files = "/AERA/Files";
 static const std::string Aera_tmp_dir = Aera_Tmp + "/aera";
 static const std::string Aera_ramdisk_dir = Aera_tmp_dir + "/ramdisk";
 static const std::string Aera_ramdisk_sbin_dir = Aera_ramdisk_dir + "/sbin";
@@ -128,9 +130,9 @@ static int Aera_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI
 #define AERA_ZIP_INSTALLER_CODE 		"fox_zip_installer_code"
 #define AERA_ZIP_INSTALLER_TREBLE 	"fox_zip_installer_treble"
 #define AERA_DISABLE_OTA_AUTO_REBOOT 	"fox_disable_ota_auto_reboot_check"
-#define AERA_STARTUP_SCRIPT 		"/sbin/foxstart.sh"
-#define AERA_PS_BIN 			"/FFiles/ps"
-#define AERA_NEW_MAGISKBOOT 		"/FFiles/magiskboot_new"
+#define AERA_STARTUP_SCRIPT 		"/sbin/aerastart.sh"
+#define AERA_PS_BIN 			"/AERA/Files/ps"
+#define AERA_NEW_MAGISKBOOT 		"/AERA/Files/magiskboot_new"
 #define AERA_MAGISK_ZIP_INSTALLER 	"Magisk.zip"
 #define AERA_MAGISK_UNINSTALLER 		"uninstall.zip"
 

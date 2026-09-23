@@ -142,14 +142,14 @@ static void process_fastbootd_mode() {
 #endif
 
 		gui_msg(Msg("fastboot_console_msg=Entered Fastboot mode..."));
-		property_set("ro.orangefox.fastbootd", "1");
+		property_set("ro.aera.fastbootd", "1");
 		property_set("ro.boot.verifiedbootstate", "orange");
 		TWFunc::RunFoxScript("/system/bin/runatboot.sh", "");
 		TWFunc::RunFoxScript("/system/bin/postfastboot.sh", "");
 		if (gui_startPage("fastboot", 1, 1) != 0) {
 			LOGERR("Failed to start fastbootd page.\n");
 		}
-		property_set("ro.orangefox.fastbootd", "0");
+		property_set("ro.aera.fastbootd", "0");
 }
 
 static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo,
@@ -162,17 +162,17 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo,
 		// normal MTP and startup behavior when returning from fastbootd.
 		crash_counter = 0;
 	} else {
-		property_get("orangefox.crash_counter", crash_prop_val, "-1");
+		property_get("aera.crash_counter", crash_prop_val, "-1");
 		crash_counter = atoi(crash_prop_val) + 1;
 	}
 	snprintf(crash_prop_val, sizeof(crash_prop_val), "%d", crash_counter);
-	property_set("orangefox.crash_counter", crash_prop_val);
+	property_set("aera.crash_counter", crash_prop_val);
 
 	if (crash_counter == 0) {
 		property_list(Print_Prop, NULL);
 		printf("\n");
 	} else {
-		printf("orangefox.crash_counter=%d\n", crash_counter);
+		printf("aera.crash_counter=%d\n", crash_counter);
 	}
 
 	// Set the props for OrangeFox dynamic partitions
@@ -269,8 +269,8 @@ static void process_recovery_mode(twrpAdbBuFifo* adb_bu_fifo,
 #endif
 
 #ifdef OF_ADVANCED_SECURITY
-  	property_set("ctl.stop", "adbd");
-  	property_set("orangefox.adb.status", "0");
+	property_set("ctl.stop", "adbd");
+	property_set("aera.adb.status", "0");
 #endif
 
 #ifdef TW_INCLUDE_CRYPTO
@@ -515,7 +515,7 @@ static bool Aera_Soft_Switch(bool fastboot_mode) {
 static bool Fox_CheckReload_Themes() {
   if (DataManager::GetStrValue("data_decrypted") == "1" 
   || DataManager::GetIntValue(TW_IS_FBE) == 1 
-  || TWFunc::Fox_Property_Get("orangefox.mount_to_decrypt") == "1") {
+  || TWFunc::Fox_Property_Get("aera.mount_to_decrypt") == "1") {
 	DataManager::SetValue(AERA_ENCRYPTED_DEVICE, "1");
     }
 #if defined(OF_ALLOW_EARLY_SETTINGS_LOAD) && defined(OF_SETTINGS_ROOT_DIRECTORY)
@@ -570,12 +570,15 @@ int main(int argc, char **argv) {
 
 	// Fox stuff
 	TWFunc::Set_Sbin_Dir_Executable_Flags();
-  	property_set("ro.orangefox.boot", "1");
-	property_set("ro.orangefox.type", AERA_BUILD_TYPE);
-	property_set("ro.orangefox.variant", AERA_VARIANT);
-  	property_set("ro.orangefox.build", "orangefox");
-	property_set("ro.orangefox.release.version", AERA_BUILD);
-  	TWFunc::Fox_Property_Set("ro.orangefox.boot.header.version", std::to_string(BOARD_BOOT_HEADER_VERSION));
+	property_set("ro.aera.boot", "1");
+	property_set("ro.aera.type", AERA_BUILD_STATUS);
+	property_set("ro.aera.status", AERA_BUILD_STATUS);
+	property_set("ro.aera.variant", AERA_VARIANT);
+	property_set("ro.aera.build", "aera");
+	property_set("ro.aera.release.version", AERA_BUILD);
+	property_set("ro.aera.build.status", AERA_BUILD_STATUS);
+	property_set("ro.aera.release.channel", AERA_BUILD_TYPE);
+	TWFunc::Fox_Property_Set("ro.aera.boot.header.version", std::to_string(BOARD_BOOT_HEADER_VERSION));
 
 	#ifdef AERA_TARGET_DEVICES
 	property_set("ro.twrp.target.devices", AERA_TARGET_DEVICES);
@@ -594,23 +597,23 @@ int main(int argc, char **argv) {
 	#endif
 
 	#ifdef AERA_VIRTUAL_AB_DEVICE
-	property_set("ro.orangefox.virtual_ab", "1");
+	property_set("ro.aera.virtual_ab", "1");
 	#endif
 
 	#ifdef AERA_VANILLA_BUILD
-	property_set("ro.orangefox.vanilla", "1");
+	property_set("ro.aera.vanilla", "1");
 	#endif
 
 	#ifdef TW_INCLUDE_CRYPTO
-	property_set("ro.orangefox.crypto_enabled", "1");
+	property_set("ro.aera.crypto_enabled", "1");
 	#else
-	property_set("ro.orangefox.crypto_enabled", "0");
+	property_set("ro.aera.crypto_enabled", "0");
 	#endif
 
 	#ifdef OF_DONT_SUBSTITUTE_PERMISSIONS
-	property_set("ro.orangefox.substitute_permissions", "0");
+	property_set("ro.aera.substitute_permissions", "0");
 	#else
-	property_set("ro.orangefox.substitute_permissions", "1");
+	property_set("ro.aera.substitute_permissions", "1");
 	#endif
 
 	string aera_cfg = Aera_Cfg;

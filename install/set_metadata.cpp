@@ -75,7 +75,7 @@ int tw_set_default_metadata(const char* filename) {
 	bool selinux_context_needs_substitution = false;
 	char substitute_context[128];
 
-	if (android::base::GetProperty("ro.orangefox.substitute_permissions", "") == "1") {
+	if (android::base::GetProperty("ro.aera.substitute_permissions", "") == "1") {
 		if (strstr(filename, "/sdcard/AERA") || strstr(filename, "/data/media/0/AERA") || strstr(filename, "recovery/AERA")
 		|| strstr(filename, "/persist/AERA") || strstr(filename, "/AERA/BACKUPS")) {
 			selinux_context_needs_substitution = true;

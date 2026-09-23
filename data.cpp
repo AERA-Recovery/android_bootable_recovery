@@ -750,6 +750,8 @@ void DataManager::SetDefaultValues()
   mConst.SetValue(TW_VERSION_VAR, AERA_BUILD);
   mConst.SetValue(AERA_MAINTAINER_STR, AERA_MAINTAINER);
   mConst.SetValue(BUILD_TYPE_STR, AERA_BUILD_TYPE);
+  mConst.SetValue(AERA_BUILD_STATUS_STR, AERA_BUILD_STATUS);
+  mConst.SetValue(AERA_RELEASE_CHANNEL_STR, AERA_BUILD_TYPE);
   mConst.SetValue("fox_branch", AERA_BRANCH);
 
 #ifdef OF_ENABLE_FRP_ADDON
@@ -759,7 +761,7 @@ void DataManager::SetDefaultValues()
 #endif
 
 #ifdef AERA_MOVE_MAGISK_INSTALLER_TO_RAMDISK
-  mConst.SetValue("aera_magisk_path", FFiles_dir + "/OF_Magisk");
+  mConst.SetValue("aera_magisk_path", Aera_Ramdisk_Files + "/OF_Magisk");
 #else
   mConst.SetValue("aera_magisk_path", Aera_Home_Files);
 #endif
@@ -882,8 +884,6 @@ void DataManager::SetDefaultValues()
       mData.SetValue("of_flash_on", "0");
     }
   #endif
-
-  mConst.SetValue("fox_build_type1", AERA_BUILD_TYPE);
 
   // dispense with the "Create Digest" button (it is only for the 9.0 branch)
   mConst.SetValue("fox_show_digest_btn", "0");
@@ -1126,12 +1126,12 @@ void DataManager::SetDefaultValues()
 		mData.SetValue("fox_dynamic_device", "0");
 		if (TWFunc::Fox_Property_Get("ro.fastbootd.available").empty())
 			TWFunc::Fox_Property_Set("ro.fastbootd.available", "0");
-		TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
+		TWFunc::Fox_Property_Set("aera.super.partition", "false");
 	}
 	else {
 		mData.SetValue(TW_IS_SUPER, "1");
 		mData.SetValue("fox_dynamic_device", "1");
-		TWFunc::Fox_Property_Set("orangefox.super.partition", "true");
+		TWFunc::Fox_Property_Set("aera.super.partition", "true");
 		#ifdef OF_NO_REBOOT_FASTBOOT
 		printf("OF_NO_REBOOT_FASTBOOT := 1\n");
 		mData.SetValue(TW_FASTBOOT_MODE, "0");
@@ -1146,16 +1146,16 @@ void DataManager::SetDefaultValues()
 #else
 	mData.SetValue(TW_IS_SUPER, "0");
 	mData.SetValue("fox_dynamic_device", "0");
-	TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
+	TWFunc::Fox_Property_Set("aera.super.partition", "false");
 #endif
 
 #ifdef AERA_VENDOR_BOOT_RECOVERY
-  	TWFunc::Fox_Property_Set("orangefox.vendor_boot.recovery", "true");
-  	mConst.SetValue("vendor_boot_recovery", "1");
+	TWFunc::Fox_Property_Set("aera.vendor_boot.recovery", "true");
+	mConst.SetValue("vendor_boot_recovery", "1");
 #endif
 
 #if defined(AERA_ENABLE_KERNELSU_SUPPORT) || defined(AERA_ENABLE_KERNELSU_NEXT_SUPPORT) || defined(AERA_ENABLE_SUKISU_SUPPORT)
-	TWFunc::Fox_Property_Set("orangefox.support_kernelsu", "true");
+	TWFunc::Fox_Property_Set("aera.support_kernelsu", "true");
 	mConst.SetValue("fox_support_ksu", "1");
 #else
 	mConst.SetValue("fox_support_ksu", "0");

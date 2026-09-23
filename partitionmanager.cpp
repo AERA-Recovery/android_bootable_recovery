@@ -1004,17 +1004,17 @@ void TWPartitionManager::Fox_Set_Dynamic_Partition_Props() {
   	if (Get_Super_Status()) {
 		if (TWFunc::Fox_Property_Get("fox_dynamic_device") == "0") {
 			DataManager::SetValue("fox_dynamic_device", "0");
-			TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
+			TWFunc::Fox_Property_Set("aera.super.partition", "false");
 			DataManager::SetValue(TW_IS_SUPER, "0");
 		}
 		else {
-			TWFunc::Fox_Property_Set("orangefox.super.partition", "true");
+			TWFunc::Fox_Property_Set("aera.super.partition", "true");
 			DataManager::SetValue("fox_dynamic_device", "1");
 			DataManager::SetValue(TW_IS_SUPER, "1");
 		}
 	}
 	else {
-		TWFunc::Fox_Property_Set("orangefox.super.partition", "false");
+		TWFunc::Fox_Property_Set("aera.super.partition", "false");
 		DataManager::SetValue("fox_dynamic_device", "0");
 		DataManager::SetValue(TW_IS_SUPER, "0");
 	}
@@ -1025,20 +1025,20 @@ void TWPartitionManager::Fox_Set_Dynamic_Partition_Props() {
        		//Output_Partition((*iter));
        		Part = *iter;
        		if (Part->Mount_Point == "/vendor") {
-		   TWFunc::Fox_Property_Set("orangefox.vendor.mount_point", Part->Mount_Point);
-		   TWFunc::Fox_Property_Set("orangefox.vendor.block_device", Part->Actual_Block_Device);
+		   TWFunc::Fox_Property_Set("aera.vendor.mount_point", Part->Mount_Point);
+		   TWFunc::Fox_Property_Set("aera.vendor.block_device", Part->Actual_Block_Device);
 		}
 		else if (Part->Mount_Point == "/product") {
-		   TWFunc::Fox_Property_Set("orangefox.product.mount_point", Part->Mount_Point);
-		   TWFunc::Fox_Property_Set("orangefox.product.block_device", Part->Actual_Block_Device);
+		   TWFunc::Fox_Property_Set("aera.product.mount_point", Part->Mount_Point);
+		   TWFunc::Fox_Property_Set("aera.product.block_device", Part->Actual_Block_Device);
 		}
 		else if (Part->Mount_Point == Get_Android_Root_Path()) {
-		   TWFunc::Fox_Property_Set("orangefox.system.mount_point", Part->Mount_Point);
-		   TWFunc::Fox_Property_Set("orangefox.system.block_device", Part->Actual_Block_Device);
+		   TWFunc::Fox_Property_Set("aera.system.mount_point", Part->Mount_Point);
+		   TWFunc::Fox_Property_Set("aera.system.block_device", Part->Actual_Block_Device);
 		}
 		else if (Part->Mount_Point == "/super") {
-		   TWFunc::Fox_Property_Set("orangefox.super.mount_point", Part->Mount_Point);
-		   TWFunc::Fox_Property_Set("orangefox.super.block_device", Part->Actual_Block_Device);
+		   TWFunc::Fox_Property_Set("aera.super.mount_point", Part->Mount_Point);
+		   TWFunc::Fox_Property_Set("aera.super.block_device", Part->Actual_Block_Device);
 		}
     	}
 }
@@ -2661,7 +2661,7 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 	}
     }
 
-  property_set("orangefox.mount_to_decrypt", "1");
+  property_set("aera.mount_to_decrypt", "1");
   Set_Crypto_State();
   Set_Crypto_Type("block");
 
@@ -2739,7 +2739,7 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 	}
     }
 
-  property_set("orangefox.mount_to_decrypt", "0");
+  property_set("aera.mount_to_decrypt", "0");
 
   if (pwret != 0)
     {

@@ -324,7 +324,10 @@ bool RecoveryBackupCanUpload(const std::string &folder) {
 std::string RecoverySlot() { return PartitionManager.Get_Active_Slot_Display(); }
 std::string RecoveryVersion() { return DataManager::GetStrValue(TW_VERSION_VAR); }
 std::string RecoveryBuildType() {
-  return DataManager::GetStrValue("fox_build_type1");
+  return DataManager::GetStrValue(BUILD_TYPE_STR);
+}
+std::string RecoveryBuildStatus() {
+  return DataManager::GetStrValue(AERA_BUILD_STATUS_STR);
 }
 std::string RecoveryDevice() {
   char model[PROPERTY_VALUE_MAX] = {};
@@ -392,7 +395,7 @@ bool RecoveryEnterFastbootd() {
                         PartitionManager.Get_Active_Slot_Display());
 #endif
   android::base::SetProperty(TW_FASTBOOT_MODE_PROP, "1");
-  property_set("ro.orangefox.fastbootd", "1");
+  property_set("ro.aera.fastbootd", "1");
   property_set("ro.boot.verifiedbootstate", "orange");
   TWFunc::RunFoxScript("/system/bin/postfastboot.sh", "");
   property_set("sys.usb.config", "fastboot");
@@ -405,7 +408,7 @@ bool RecoveryLeaveFastbootd(bool initialize_recovery) {
       android::base::GetBoolProperty("post.decrypt.modules", false);
   property_set("sys.usb.config", "none");
   usleep(200000);
-  property_set("ro.orangefox.fastbootd", "0");
+  property_set("ro.aera.fastbootd", "0");
   android::base::SetProperty(TW_FASTBOOT_MODE_PROP, "0");
 
   PartitionManager.Setup_Super_Devices();
@@ -413,7 +416,7 @@ bool RecoveryLeaveFastbootd(bool initialize_recovery) {
     LOGERR("AERA live fastbootd: could not restore dynamic partitions.\n");
     PartitionManager.Unmap_Super_Devices(true);
     property_set("sys.usb.config", "fastboot");
-    property_set("ro.orangefox.fastbootd", "1");
+    property_set("ro.aera.fastbootd", "1");
     android::base::SetProperty(TW_FASTBOOT_MODE_PROP, "1");
     return false;
   }

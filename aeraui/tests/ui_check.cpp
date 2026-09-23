@@ -115,7 +115,8 @@ std::string RecoveryStorage() { return file_root.empty() ? "/tmp" : file_root; }
 std::string RecoveryBackupRoot() { return backup_root; }
 std::string RecoverySlot() { return active_slot; }
 std::string RecoveryVersion() { return "R1.0"; }
-std::string RecoveryBuildType() { return "Unofficial"; }
+std::string RecoveryBuildType() { return "Stable"; }
+std::string RecoveryBuildStatus() { return "Unofficial"; }
 std::string RecoveryDevice() { return "dodge"; }
 std::string RecoveryBuildDate() { return "2026-09-13"; }
 std::string RecoveryMaintainer() { return "Jonas Salo & Daniel Springer"; }
