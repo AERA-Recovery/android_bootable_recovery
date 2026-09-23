@@ -53,6 +53,7 @@
 #include "gui.h"
 #ifdef OF_ENABLE_WLAN
 #include "../wlan.hpp"
+#include "../aera_wifi_dispatcher.hpp"
 #include "../nas/NasManager.hpp"
 #endif
 
@@ -272,6 +273,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(setpassword);
       ADD_ACTION(passwordcheck);
 
+      // AERA WLAN: toggle and status actions dispatch outside the UI thread
       // background thread (or are fast file/secret ops) and return immediately,
       // so they run in the caller thread. Keeping them off the shared
       // ActionThread is what stops the wlan page's status refresh from being
@@ -309,6 +311,7 @@ GUIAction::GUIAction(xml_node <> *node):GUIObject(node)
       ADD_ACTION(installsu);
       ADD_ACTION(fixsu);
 
+      // AERA WLAN: modal operations stay threaded so their overlay opens,
       // blocks on the work, then closes within one batch (enable/disable/info
       // are caller-thread, registered above).
       #ifdef OF_ENABLE_WLAN
@@ -3178,25 +3181,31 @@ int GUIAction::setvaluebyfile(std::string arg) {
 
 #ifdef OF_ENABLE_WLAN
 // Enable/disable/info are the toggle + status path that used to block the GUI
+// for ~10-20s. They are dispatched to AERA's Wi-Fi background service and
 // return immediately, so they run in the caller thread without ever stalling it
 // or colliding with the shared ActionThread. Progress is published through the
+// wlan_state DataManager variable and the UI reacts to it.
 int GUIAction::wlan_enable(std::string arg) {
+    AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::StartRadio);
     return 0;
 }
 
 int GUIAction::wlan_disable(std::string arg) {
+    AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::StopRadio);
     return 0;
 }
 
 int GUIAction::wlan_autostart(std::string arg) {
     // Boot hook: the worker brings WiFi up and re-joins the last network if the
     // of_wlan_auto_* settings are on (it no-ops otherwise). Fire-and-forget.
+    AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::RestoreSession);
     return 0;
 }
 
 int GUIAction::wlan_info(std::string arg) {
     // Cheap async status refresh; the cached DataManager vars are read by the
     // reactive UI, so this never blocks the caller thread.
+    AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::RefreshStatus);
     return 0;
 }
 

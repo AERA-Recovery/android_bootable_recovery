@@ -64,6 +64,7 @@ private:
     // connection, transparently falling back to a wpa_cli passthrough if the
     // control socket cannot be opened. SuppWaitEvent blocks for an unsolicited
     // CTRL-EVENT-* via the attached monitor connection. All are serialized by
+    // an internal mutex so the GUI ActionThread and AERA dispatcher can
     // share the connection safely.
     static bool SuppCmd(const std::string& ctrl_cmd, std::string& out);
     static bool SuppCmd(const std::string& ctrl_cmd);

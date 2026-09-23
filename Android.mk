@@ -72,6 +72,8 @@ LOCAL_C_INCLUDES += \
 ifeq ($(OF_ENABLE_WLAN),1)
 LOCAL_SRC_FILES += \
     wlan.cpp \
+    aera_wifi_dispatcher.cpp \
+    aera_supplicant_link.cpp \
     aera_adbd.cpp \
     aera_secrets/aera_secrets.cpp \
     nas/NasManager.cpp

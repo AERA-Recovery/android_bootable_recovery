@@ -34,6 +34,7 @@
 #include "../aera_adbd.hpp"
 #include "../nas/NasManager.hpp"
 #include "../wlan.hpp"
+#include "../aera_wifi_dispatcher.hpp"
 #endif
 
 extern "C" int recovery_ui2_install_package(const char *path) {
@@ -1018,6 +1019,7 @@ void RecoveryWifiInitialize() {
 #ifdef OF_ENABLE_WLAN
   LoadAeraPreferencesIfAvailable();
   Wlan::Init();
+  AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::RestoreSession);
 #endif
 }
 

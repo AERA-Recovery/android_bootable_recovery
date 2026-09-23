@@ -30,6 +30,7 @@
 #include "gui/pages.hpp"
 #include "twcommon.h"
 #include "twrp-functions.hpp"
+#include "aera_supplicant_link.hpp"
 
 #ifndef LOGINFO
 #define LOGINFO(...) printf(__VA_ARGS__)
@@ -40,6 +41,7 @@
 #endif
 
 // Serializes whole high-level WLAN operations (Enable/Disable/Scan/Connect/
+// ConnectSaved/Info) so the AERA Wi-Fi dispatcher and the GUI ActionThread
 // can never interleave their multi-step supplicant sequences — e.g. a background
 // scan rewriting "network 0" in the middle of a user-initiated connect. This is
 // deliberately coarser than g_supp_mutex (which only guards a single ctrl-socket
@@ -1566,9 +1568,12 @@ bool Wlan::RunCommand(const std::string& cmd, std::string& output) {
 // wpa_supplicant control-interface transport (replaces fork+exec wpa_cli).
 //
 // One persistent command connection + one attached monitor connection, shared
+// between the GUI ActionThread (scan/connect) and the AERA dispatcher
 // (status). All access is serialized by g_supp_mutex.
 // ---------------------------------------------------------------------------
 namespace {
+AeraSupplicantLink g_supp_cmd;  // command/reply channel
+AeraSupplicantLink g_supp_mon;  // attached event channel
 std::mutex g_supp_mutex;
 
 // Single-quote a string for safe inclusion as ONE shell argument. The whole
@@ -1590,8 +1595,14 @@ std::string ShellSingleQuote(const std::string& s) {
 bool Wlan::EnsureSuppChannel() {
     // Caller must hold g_supp_mutex.
     const std::string path = GetCtrlDir() + "/" + GetIface();
+    if (!g_supp_cmd.Connected()) {
+        if (!g_supp_cmd.Connect(path))
             return false;
     }
+    if (!g_supp_mon.Connected()) {
+        if (g_supp_mon.Connect(path)) {
+            if (!g_supp_mon.Subscribe())
+                g_supp_mon.Reset();  // commands still work without event delivery
         }
     }
     return true;
@@ -1599,6 +1610,8 @@ bool Wlan::EnsureSuppChannel() {
 
 void Wlan::CloseSuppChannel() {
     std::lock_guard<std::mutex> lk(g_supp_mutex);
+    g_supp_cmd.Reset();
+    g_supp_mon.Reset();
 }
 
 void Wlan::RefreshWlanPageIfShown() {
@@ -1618,11 +1631,14 @@ void Wlan::RefreshWlanPageIfShown() {
 bool Wlan::SuppCmd(const std::string& ctrl_cmd, std::string& out) {
     std::lock_guard<std::mutex> lk(g_supp_mutex);
 
+    if (EnsureSuppChannel() && g_supp_cmd.Execute(ctrl_cmd, &out))
         return true;
 
     // Fallback: the control socket is unavailable — shell out to wpa_cli,
     // passing the ctrl command as one shell-quoted argument so wpa_cli forwards
     // it unchanged. Drop the stale connection so we retry opening it next time.
+    g_supp_cmd.Reset();
+    g_supp_mon.Reset();
 
     const std::string wpacli = GetWpaCliBinary();
     if (wpacli.empty())
@@ -1641,7 +1657,9 @@ bool Wlan::SuppCmd(const std::string& ctrl_cmd) {
 bool Wlan::SuppWaitEvent(const std::vector<std::string>& any_of, int timeout_ms,
                          std::string& matched) {
     std::lock_guard<std::mutex> lk(g_supp_mutex);
+    if (!EnsureSuppChannel() || !g_supp_mon.Connected())
         return false;
+    return g_supp_mon.AwaitAny(any_of, timeout_ms, &matched);
 }
 
 bool Wlan::WriteFile(const std::string& path, const std::string& content) {
