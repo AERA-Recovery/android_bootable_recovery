@@ -29,9 +29,7 @@
 #include "variables.h"
 #include "partitions.hpp"
 #include "twrp-functions.hpp"
-#include "gui/gui.hpp"
-#include "gui/objects.hpp"
-#include "gui/pages.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "adbbu/twadbstream.h"
 #include "adbbu/libtwadbbu.hpp"
 

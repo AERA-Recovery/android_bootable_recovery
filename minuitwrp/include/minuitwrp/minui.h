@@ -17,7 +17,7 @@
 #ifndef _MINUI_H_
 #define _MINUI_H_
 
-#include "gui/placement.h"
+#include "minuitwrp/placement.h"
 #include <stdbool.h>
 
 struct GRSurface {

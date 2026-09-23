@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #ifndef BUILD_TWRPTAR_MAIN
-#include "gui/gui.h"
+#include "aeraui/platform/aera_ui_host.h"
 #define LOGERR(...) gui_print_color("error", "E:" __VA_ARGS__)
 #define LOGINFO(...) fprintf(stdout, "I:" __VA_ARGS__)
 #else

@@ -185,6 +185,11 @@ void twrpTruetype::gr_ttf_freeFont(void *font) {
 	TrueTypeFont *d = (TrueTypeFont *)font;
 	if(--d->refcount == 0)
 	{
+		// Locate the map entry now, while d->key is still valid: the map is
+		// keyed by *d->key, so we must find() before freeing the key (doing it
+		// afterwards is a use-after-free that can return end()).
+		TrueTypeFontMap::iterator trueTypeFontIt = font_data.fonts.find(*(d->key));
+
 		delete d->key;
 
 		FT_Done_Face(d->face);
@@ -203,9 +208,9 @@ void twrpTruetype::gr_ttf_freeFont(void *font) {
 
 		pthread_mutex_destroy(&d->mutex);
 
-		TrueTypeFontMap::iterator trueTypeFontIt = font_data.fonts.find(*(d->key));
 		delete d;
-		font_data.fonts.erase(trueTypeFontIt);
+		if (trueTypeFontIt != font_data.fonts.end())
+			font_data.fonts.erase(trueTypeFontIt);
 
 	}
 
@@ -425,8 +430,8 @@ StringCacheEntry* twrpTruetype::gr_ttf_string_cache_peek(TrueTypeFont *font,
 	const std::string text, 
 	__attribute__((unused)) int max_width) {
 		StringCacheKey k = {
-			.text = text,
-			.max_width = max_width
+			.max_width = max_width,
+			.text = text
 		};
 		StringCacheMap::iterator stringCacheItr = font->string_cache.find(k);
 		if (stringCacheItr != font->string_cache.end()) {
@@ -458,8 +463,8 @@ StringCacheEntry* twrpTruetype::gr_ttf_string_cache_get(TrueTypeFont *font, cons
 	StringCacheMap::iterator stringCacheItr;
 
 	StringCacheKey k = {
-		.text = text,
-		.max_width = max_width
+		.max_width = max_width,
+		.text = text
 	};
 
 	stringCacheItr = font->string_cache.find(k);

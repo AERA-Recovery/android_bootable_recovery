@@ -53,7 +53,7 @@
 #include "exclude.hpp"
 #include "infomanager.hpp"
 #include "set_metadata.h"
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "adbbu/libtwadbbu.hpp"
 #ifdef TW_INCLUDE_CRYPTO
 	#include "cryptfs.h"

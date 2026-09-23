@@ -55,7 +55,7 @@
 #include "aera_core.hpp"
 #include "abx-functions.hpp"
 #include "twcommon.h"
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include <fs_mgr_priv.h>
 #ifndef BUILD_TWRPTAR_MAIN
 #include "data.hpp"
@@ -66,7 +66,7 @@
 #include "cutils/android_reboot.h"
 #include <sys/reboot.h>
 #ifdef TW_INCLUDE_CRYPTO
-#include "gui/rapidxml.hpp"
+#include "third_party/rapidxml/rapidxml.hpp"
 #endif
 #endif // ndef BUILD_TWRPTAR_MAIN
 #ifndef TW_EXCLUDE_ENCRYPTED_BACKUPS
@@ -74,7 +74,6 @@
 #endif
 #include "set_metadata.h"
 #include "twinstall.h"
-#include "gui/pages.hpp"
 
 extern "C"
 {
@@ -4375,20 +4374,24 @@ bool TWFunc::Get_Service_From_Manifest(std::string basepath, std::string service
 		}
 	}
 	if (Path_Exists(filename)) {
-		char* manifest = PageManager::LoadFileToBuffer(filename, NULL);
+		char* manifest = aera_read_file_buffer(filename);
+		if (manifest == nullptr) {
+			LOGERR("Unable to read VINTF manifest '%s'\n", filename.c_str());
+			return false;
+		}
 		LOGINFO("Looking for '%s' service in manifest\n", service.c_str());
-		xml_document<>* vintfManifest = new xml_document<>();
+		rapidxml::xml_document<>* vintfManifest = new rapidxml::xml_document<>();
 		vintfManifest->parse<0>(manifest);
-		xml_node<>* manifestNode = vintfManifest->first_node("manifest");
+		rapidxml::xml_node<>* manifestNode = vintfManifest->first_node("manifest");
 		std::string version;
 		if (manifestNode) {
-			for (xml_node<>* child = manifestNode->first_node(); child; child = child->next_sibling()) {
+			for (rapidxml::xml_node<>* child = manifestNode->first_node(); child; child = child->next_sibling()) {
 				std::string type = child->name();
 				if (type == "hal") {
-					xml_node<>* nameNode = child->first_node("name");
+					rapidxml::xml_node<>* nameNode = child->first_node("name");
 					type = nameNode->value();
 					if (type == service) {
-						xml_node<> *versionNode = child->first_node("version");
+						rapidxml::xml_node<> *versionNode = child->first_node("version");
 						if (versionNode != nullptr) {
 							LOGINFO("Found version in manifest: %s\n", versionNode->value());
 						} else {

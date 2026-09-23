@@ -48,7 +48,7 @@ extern "C" {
 #include "variables.h"
 #include "adbbu/libtwadbbu.hpp"
 #include "twrp-functions.hpp"
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "progresstracking.hpp"
 
 #ifndef BUILD_TWRPTAR_MAIN
@@ -451,6 +451,8 @@ int twrpTar::createTarFork(pid_t *tar_fork_pid) {
 			} else if (first_data == 1) {
 				// Second incoming data is total size
 				first_data = 2;
+				if (part_settings->Part)
+					part_settings->progress->SetLabel(part_settings->Part->Backup_Display_Name);
 				part_settings->progress->SetSizeCount(fs, file_count);
 			} else {
 				if (fs > 0) {

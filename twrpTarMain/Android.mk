@@ -10,7 +10,7 @@ LOCAL_SRC_FILES:= \
 	../tarWrite.c \
 	../exclude.cpp \
 	../progresstracking.cpp \
-	../gui/twmsg.cpp
+	aera_tar_message.cpp
 LOCAL_CFLAGS:= -g -c -W -DBUILD_TWRPTAR_MAIN
 
 LOCAL_C_INCLUDES += bionic
@@ -52,7 +52,7 @@ LOCAL_SRC_FILES:= \
 	../tarWrite.c \
 	../exclude.cpp \
 	../progresstracking.cpp \
-	../gui/twmsg.cpp
+	aera_tar_message.cpp
 LOCAL_CFLAGS:= -g -c -W -DBUILD_TWRPTAR_MAIN
 
 LOCAL_C_INCLUDES += bionic

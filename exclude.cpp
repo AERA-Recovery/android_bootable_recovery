@@ -27,7 +27,7 @@ extern "C" {
 #include <vector>
 #include "exclude.hpp"
 #include "twrp-functions.hpp"
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "twcommon.h"
 
 using namespace std;

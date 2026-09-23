@@ -52,9 +52,8 @@
 #include "twrpDigest/twrpDigest.hpp"
 #include "twrpDigest/twrpMD5.hpp"
 #include "twrp-functions.hpp"
-#include "gui/gui.hpp"
-#include "gui/pages.hpp"
-#include "gui/blanktimer.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
+#include "aeraui/platform/aera_screen_timer.hpp"
 #include "aera_core.hpp"
 #include "twrpRepacker.hpp"
 
@@ -63,7 +62,7 @@
 #include "twinstall.h"
 #include "installcommand.h"
 extern "C" {
-	#include "gui/gui.h"
+	#include "aeraui/platform/aera_ui_host.h"
 }
 
 bool storage_is_encrypted()
@@ -1057,11 +1056,11 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
     
     } // (DataManager::GetIntValue(AERA_INSTALL_PREBUILT_ZIP) != 1)
 
-  if (blankTimer.isScreenOff())
+  if (aeraScreenTimer.IsScreenOff())
     {
       if (zip_EntryExists(Zip, AROMA_CONFIG))
 	{
-	  blankTimer.toggleBlank();
+	  aeraScreenTimer.Toggle();
 	  gui_changeOverlay("");
 	}
     }

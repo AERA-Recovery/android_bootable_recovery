@@ -75,8 +75,7 @@
 #include "exclude.hpp"
 #include "set_metadata.h"
 #include "tw_atomic.hpp"
-#include "gui/gui.hpp"
-#include "gui/pages.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "progresstracking.hpp"
 #include "twrpDigestDriver.hpp"
 #include "twrpRepacker.hpp"
@@ -105,12 +104,12 @@
 
 extern "C" {
 	#include "cutils/properties.h"
-	#include "gui/gui.h"
+	#include "aeraui/platform/aera_ui_host.h"
 }
 
 #ifdef TW_INCLUDE_CRYPTO
 //#include "crypto/fde/cryptfs.h"
-#include "gui/rapidxml.hpp"
+#include "third_party/rapidxml/rapidxml.hpp"
 #ifdef TW_INCLUDE_FBE
 #include "Decrypt.h"
 #ifdef TW_INCLUDE_FBE_METADATA_DECRYPT
@@ -2574,18 +2573,18 @@ void TWPartitionManager::Parse_Users() {
 			if (converted <= 0)
 				user.userName = to_string(userId);
 			else {
-				char* userFile = PageManager::LoadFileToBuffer(path, NULL);
+				char* userFile = aera_read_file_buffer(path);
 				if (userFile == NULL) {
 					user.userName = to_string(userId);
 				}
 				else {
-					xml_document<> *userXml = new xml_document<>();
+					rapidxml::xml_document<> *userXml = new rapidxml::xml_document<>();
 					userXml->parse<0>(userFile);
-					xml_node<>* userNode = userXml->first_node("user");
+					rapidxml::xml_node<>* userNode = userXml->first_node("user");
 					if (userNode == nullptr) {
 						user.userName = to_string(userId);
 					} else {
-						xml_node<>* nameNode = userNode->first_node("name");
+						rapidxml::xml_node<>* nameNode = userNode->first_node("name");
 						if (nameNode == nullptr)
 							user.userName = to_string(userId);
 						else {
@@ -3835,20 +3834,19 @@ bool TWPartitionManager::Decrypt_Adopted()
 
   DataManager::SetValue("tw_settings_path", Aera_Home);
   LOGINFO("Decrypt adopted storage starting\n");
-  char *xmlFile =
-    PageManager::LoadFileToBuffer(path, NULL);
-  xml_document <> *doc = NULL;
-  xml_node <> *volumes = NULL;
+  char *xmlFile = aera_read_file_buffer(path);
+  rapidxml::xml_document <> *doc = NULL;
+  rapidxml::xml_node <> *volumes = NULL;
   string Primary_Storage_UUID = "";
   if (xmlFile != NULL)
     {
       LOGINFO("successfully loaded %s\n", path.c_str());
-      doc = new xml_document <> ();
+      doc = new rapidxml::xml_document <> ();
       doc->parse < 0 > (xmlFile);
       volumes = doc->first_node("volumes");
       if (volumes)
 	{
-	  xml_attribute <> *psuuid =
+	  rapidxml::xml_attribute <> *psuuid =
 	    volumes->first_attribute("primaryStorageUuid");
 	  if (psuuid)
 	    {
@@ -3882,10 +3880,10 @@ bool TWPartitionManager::Decrypt_Adopted()
 	      ret = true;
 	      if (volumes)
 		{
-		  xml_node <> *volume = volumes->first_node("volume");
+		  rapidxml::xml_node <> *volume = volumes->first_node("volume");
 		  while (volume)
 		    {
-		      xml_attribute <> *guid =
+		      rapidxml::xml_attribute <> *guid =
 			volume->first_attribute("partGuid");
 		      if (guid)
 			{
@@ -3897,7 +3895,7 @@ bool TWPartitionManager::Decrypt_Adopted()
 
 			  if (strcasecmp(GUID.c_str(), guid->value()) == 0)
 			    {
-			      xml_attribute <> *attr =
+			      rapidxml::xml_attribute <> *attr =
 				volume->first_attribute("nickname");
 			      if (attr && attr->value()
 				  && strlen(attr->value()) > 0)
@@ -5270,8 +5268,6 @@ mount:
 	mtp_was_enabled = TWFunc::Toggle_MTP(false);
 	usbotg->Mount(true);
 	usbotg_mounted = true;
-	if (PageManager::GetCurrentPage() == "filemanagerlist" && DataManager::GetStrValue("tw_file_location1") == "/usb_otg")
-		gui_changePage("filemanagerlist");
 	return;
 
 unmount:
@@ -5281,8 +5277,6 @@ unmount:
 	usbotg->Used = 0;
 	usbotg->Free = 0;
 	usbotg_mounted = false;
-	if (PageManager::GetCurrentPage() == "filemanagerlist" && DataManager::GetStrValue("tw_file_location1") == "/usb_otg")
-		gui_changePage("filemanagerlist");
 	TWFunc::Toggle_MTP(mtp_was_enabled);
 }
 

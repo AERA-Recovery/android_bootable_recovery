@@ -36,7 +36,7 @@
 
 #include <cutils/properties.h>
 #include <pixelflinger/pixelflinger.h>
-#include "gui/placement.h"
+#include "minuitwrp/placement.h"
 #include "minuitwrp/minui.h"
 #include "graphics.h"
 // For std::min and std::max
@@ -120,9 +120,30 @@ int gr_textEx_scaleW(int x, int y, const char *s, void* pFont, int max_width, in
     return twrpTruetype::gr_ttf_textExWH(gl, x, y + y_scale, s, vfont, measured_width + x, -1, gr_draw);
 }
 
-void gr_clip(int x, int y, int w, int h)
+// Active clip-region stack (unrotated logical coords). Empty == no bounds, so
+// gr_clip() behaves exactly as before. When non-empty, gr_clip() and
+// gr_clip_push() intersect with the top so nested viewports compose.
+#define GR_CLIP_STACK_MAX 8
+static struct { int x, y, w, h; } gr_clip_stack[GR_CLIP_STACK_MAX];
+// True logical nesting depth: always incremented on push / decremented on pop so
+// the stack can never desync, even past GR_CLIP_STACK_MAX. Stored regions stop at
+// GR_CLIP_STACK_MAX; deeper levels reuse the last stored region (a superset).
+static int gr_clip_stack_depth = 0;
+
+// Index of the active stored region, clamped to the storage capacity.
+static int gr_clip_top_index()
+{
+    int d = gr_clip_stack_depth < GR_CLIP_STACK_MAX ? gr_clip_stack_depth : GR_CLIP_STACK_MAX;
+    return d - 1;
+}
+
+// Apply a logical (unrotated) rectangle to the GL scissor.
+static void gr_apply_scissor(int x, int y, int w, int h)
 {
     GGLContext *gl = gr_context;
+
+    if (w < 0) w = 0;
+    if (h < 0) h = 0;
 
     switch (gr_rotation) {
         case 90:
@@ -141,9 +162,83 @@ void gr_clip(int x, int y, int w, int h)
     gl->enable(gl, GGL_SCISSOR_TEST);
 }
 
+// Intersect (x,y,w,h) with the active clip bounds, if any.
+static void gr_clip_intersect_active(int* x, int* y, int* w, int* h)
+{
+    if (gr_clip_stack_depth <= 0)
+        return;
+
+    int top = gr_clip_top_index();
+    int bx = gr_clip_stack[top].x;
+    int by = gr_clip_stack[top].y;
+    int bw = gr_clip_stack[top].w;
+    int bh = gr_clip_stack[top].h;
+
+    int x0 = *x > bx ? *x : bx;
+    int y0 = *y > by ? *y : by;
+    int x1 = (*x + *w) < (bx + bw) ? (*x + *w) : (bx + bw);
+    int y1 = (*y + *h) < (by + bh) ? (*y + *h) : (by + bh);
+
+    *x = x0;
+    *y = y0;
+    *w = x1 - x0;
+    *h = y1 - y0;
+}
+
+void gr_clip(int x, int y, int w, int h)
+{
+    // Honor an active pushed region so child widgets can't draw outside it.
+    gr_clip_intersect_active(&x, &y, &w, &h);
+    gr_apply_scissor(x, y, w, h);
+}
+
+void gr_clip_push(int x, int y, int w, int h)
+{
+    // Intersect with the current top before storing, so the stack always holds
+    // the effective (already-clamped) region.
+    gr_clip_intersect_active(&x, &y, &w, &h);
+
+    if (gr_clip_stack_depth < GR_CLIP_STACK_MAX) {
+        gr_clip_stack[gr_clip_stack_depth].x = x;
+        gr_clip_stack[gr_clip_stack_depth].y = y;
+        gr_clip_stack[gr_clip_stack_depth].w = w;
+        gr_clip_stack[gr_clip_stack_depth].h = h;
+    }
+    // Always advance the logical depth so a matching pop stays balanced even when
+    // nesting exceeds the storage capacity.
+    gr_clip_stack_depth++;
+    gr_apply_scissor(x, y, w, h);
+}
+
+void gr_clip_pop()
+{
+    if (gr_clip_stack_depth > 0)
+        gr_clip_stack_depth--;
+
+    if (gr_clip_stack_depth > 0) {
+        int top = gr_clip_top_index();
+        gr_apply_scissor(gr_clip_stack[top].x,
+                         gr_clip_stack[top].y,
+                         gr_clip_stack[top].w,
+                         gr_clip_stack[top].h);
+    } else {
+        gr_noclip();
+    }
+}
+
 void gr_noclip()
 {
     GGLContext *gl = gr_context;
+    // While a region is pushed, "no clip" means "back to that region", not the
+    // whole screen - otherwise a child widget could escape its viewport.
+    if (gr_clip_stack_depth > 0) {
+        int top = gr_clip_top_index();
+        gr_apply_scissor(gr_clip_stack[top].x,
+                         gr_clip_stack[top].y,
+                         gr_clip_stack[top].w,
+                         gr_clip_stack[top].h);
+        return;
+    }
     gl->scissor(gl, 0, 0,
                 gr_draw->width - 2 * overscan_offset_x,
                 gr_draw->height - 2 * overscan_offset_y);

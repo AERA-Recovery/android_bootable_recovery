@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 
 #include "data.hpp"
-#include "gui/pages.hpp"
+#include "aeraui/platform/aera_ui_host.h"
 #include "wlan.hpp"
 
 namespace {
@@ -50,8 +50,8 @@ void PublishRestingState() {
 }
 
 void Toast(const char* message, int duration) {
-    const std::string text(message);
-    gui_run_on_main([text, duration]() { gui_toast(text, duration); });
+    gui_print("I:Wi-Fi: %s\n", message);
+    (void)duration;
 }
 
 bool ScanProducedResults() {

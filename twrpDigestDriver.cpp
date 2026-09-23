@@ -27,7 +27,7 @@
 #include "twrp-functions.hpp"
 #include "twcommon.h"
 #include "variables.h"
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "twrpDigest/twrpDigest.hpp"
 #include "twrpDigest/twrpMD5.hpp"
 #include "twrpDigest/twrpSHA.hpp"

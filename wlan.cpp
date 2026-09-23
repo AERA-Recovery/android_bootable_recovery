@@ -26,8 +26,7 @@
 #include "data.hpp"
 #include "aera_adbd.hpp"
 #include "aera_secrets/aera_secrets.hpp"
-#include "gui/gui.hpp"
-#include "gui/pages.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "twcommon.h"
 #include "twrp-functions.hpp"
 #include "aera_supplicant_link.hpp"
@@ -1615,17 +1614,9 @@ void Wlan::CloseSuppChannel() {
 }
 
 void Wlan::RefreshWlanPageIfShown() {
-    // Re-running the page's load action re-stats /tmp/wlan/list.txt and sets
-    // of_file_to_read, which is what makes the scan list appear. Only do it when
-    // "wlan" is actually on screen so we never pull the user off another page.
-    //
-    // This is routinely called from the WLAN worker thread, so both the
-    // GetCurrentPage() read and the gui_changePage() mutation must be marshalled
-    // onto the GUI thread — touching PageManager from off-thread races Render().
-    gui_run_on_main([]() {
-        if (PageManager::GetCurrentPage() == "wlan")
-            gui_changePage("wlan");
-    });
+    // AERA UI reads Wi-Fi state directly from the backend. Updating the
+    // DataManager values and scan result file is enough; no page framework is
+    // involved and worker threads never touch the renderer.
 }
 
 bool Wlan::SuppCmd(const std::string& ctrl_cmd, std::string& out) {

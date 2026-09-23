@@ -43,6 +43,8 @@ public:
 	static int Run_OpenRecoveryScript_Action();                                    // Actually runs the ORS scripts for the GUI action
 	static void Call_After_CLI_Command(VoidFunction fn) { call_after_cli_command = fn; }
 	static void Run_CLI_Command(const char* command);                              // Runs a command for orscmd (twrp binary)
+	static int Run_ORS_Line(const std::string& command);                           // Runs a single ORS command line, returns its exit code (used by the AERA CLI)
+	static int Run_ORS_File(const std::string& filename);                          // Copies and runs an ORS script file, returns exit code (used by 'fox ors')
 	static int remountrw();                                                        // Remount system and vendor rw
 	static void Run_Fox_Process_After_ORS(int result);			       // Runs the Deactivation_Process after standard ORS script (non-MIUI OTA)
 };

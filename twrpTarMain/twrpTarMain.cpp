@@ -21,8 +21,7 @@
 #include "../twrpTar.hpp"
 #include "../exclude.hpp"
 #include "../progresstracking.hpp"
-#include "../gui/gui.hpp"
-#include "../gui/twmsg.h"
+#include "../aeraui/platform/aera_message.hpp"
 #include <string.h>
 
 void gui_msg(const char* text)

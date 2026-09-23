@@ -30,7 +30,7 @@ public:
     // /tmp/wlan/list.txt is displayed) but only if it is the page currently
     // shown — so a background scan can surface results without yanking the user
     // off whatever page they navigated to. Safe to call from any thread: the
-    // actual page work is marshalled onto the GUI thread via gui_run_on_main().
+    // Native AERA UI observes the published state without page reload hooks.
     static void RefreshWlanPageIfShown();
 
 private:

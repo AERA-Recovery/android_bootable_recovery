@@ -19,6 +19,7 @@
 #ifndef __PROGRESSTRACKING_HPP
 #define __PROGRESSTRACKING_HPP
 
+#include <string>
 #include <time.h>
 
 // Progress tracking class for tracking backup progess and updating the progress bar as appropriate
@@ -29,6 +30,7 @@ public:
 
 	void SetPartitionSize(const unsigned long long part_size);
 	void SetSizeCount(const unsigned long long part_size, unsigned long long f_count);
+	void SetLabel(const std::string& label);
 
 	void UpdateSize(const unsigned long long size);
 	void UpdateSizeCount(const unsigned long long size, const unsigned long long count);
@@ -46,8 +48,10 @@ private:
 	unsigned long long current_count;                  // Count of files that have already been backed up for the current partition
 
 	unsigned long long previous_partitions_size;       // Total data already backed up from previous partitions (for the progress bar)
+	std::string current_label;                         // Current partition/file label for remote progress clients
 
 	bool display_file_count;                           // Inidicates if we will display the file count text
+	timespec start_time;                               // Start time for average speed/ETA
 	timespec last_update;                              // Tracks last update of the displayed progress (frequent updates tax the CPU and slow us down)
 };
 

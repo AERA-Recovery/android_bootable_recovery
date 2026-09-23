@@ -29,8 +29,7 @@ cc_library_shared {
     include_dirs: [
         "bootable/recovery",
         "bootable/recovery/twrpinstall/include",
-        "bootable/recovery/libpixelflinger/include",
-        "bootable/recovery/gui/include"
+        "bootable/recovery/libpixelflinger/include"
     ],
     srcs: [
         "graphics.cpp",

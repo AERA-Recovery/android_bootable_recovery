@@ -50,7 +50,6 @@ LOCAL_SRC_FILES := \
     startupArgs.cpp \
     twrp-functions.cpp \
     aera_core.cpp \
-    gui/nanosvg.cpp \
     twrpDigestDriver.cpp \
     openrecoveryscript.cpp \
     aera_rpc/aera_channel.cpp \
@@ -60,7 +59,7 @@ LOCAL_SRC_FILES := \
     aera_remote/aera_remote.cpp \
     aera_remote/frame_broker.cpp \
     aera_remote/input.cpp \
-    ui2/plugin_api/operations.cpp \
+    aeraui/features/plugin_api/operations.cpp \
     tarWrite.c \
     twrpAdbBuFifo.cpp \
     twrpRepacker.cpp
@@ -155,7 +154,6 @@ LOCAL_C_INCLUDES += \
     system/gsid/include \
     system/core/libsparse \
     external/freetype/include \
-    $(LOCAL_PATH)/gui/include \
     $(LOCAL_PATH)/recovery_ui/include \
     $(LOCAL_PATH)/otautil/include \
     $(LOCAL_PATH)/install/include \
@@ -167,10 +165,7 @@ LOCAL_C_INCLUDES += \
     $(LOCAL_PATH)/minuitwrp/include \
     $(LOCAL_PATH)/twinstall/include
 
-LOCAL_STATIC_LIBRARIES += libaera_gui_backend librecoveryui2 libaera_webp_decoder liblvgl_recovery libxz libvold
-# libvterm backs the in-UI terminal (gui/terminal.cpp). Always linked, because
-# the terminal page is part of the always-built GUI (not gated by OF_ENABLE_WLAN).
-LOCAL_STATIC_LIBRARIES += libvterm
+LOCAL_STATIC_LIBRARIES += libaera_recovery_host libaeraui libaera_webp_decoder liblvgl_recovery libxz libvold
 LOCAL_SHARED_LIBRARIES += libz libc libcutils libstdc++ libtar libblkid libminuitwrp libmtdutils libtwadbbu libpng
 LOCAL_SHARED_LIBRARIES += libbootloader_message libcrecovery libtwrpdigest libc++ libaosprecovery libcrypto libbase
 LOCAL_SHARED_LIBRARIES += libandroidfw libziparchive libselinux libdl_android.bootstrap libft2
@@ -758,7 +753,7 @@ ifeq ($(OF_USE_NANO_EDITOR),1)
 endif
 
 # Ship the terminfo database so terminal apps (vi/htop/less/...) work in the
-# in-UI terminal, which advertises TERM=xterm-256color (see gui/terminal.cpp).
+# AERA terminal, which advertises TERM=xterm-256color.
 # This is independent of the nano editor; copy it whenever the source exists.
 ifneq ($(wildcard external/libncurses/lib/terminfo),)
 	LOCAL_POST_INSTALL_CMD += \
@@ -897,6 +892,6 @@ ifeq ($(TW_INCLUDE_FB2PNG), true)
     include $(commands_TWRP_local_path)/fb2png/Android.mk
 endif
 
-include $(commands_TWRP_local_path)/ui2/browser/Android.mk
+include $(commands_TWRP_local_path)/aeraui/features/browser/Android.mk
 
 commands_TWRP_local_path :=

@@ -33,7 +33,7 @@
 #include <thread>
 #include <chrono>
 #include "recovery_utils/battery_utils.h"
-#include "gui/twmsg.h"
+#include "aeraui/platform/aera_message.hpp"
 #include "cutils/properties.h"
 
 #ifdef ANDROID_RB_RESTART
@@ -43,12 +43,10 @@
 #endif
 
 extern "C" {
-#include "gui/gui.h"
+#include "aeraui/platform/aera_ui_host.h"
 }
 #include "set_metadata.h"
-#include "gui/gui.hpp"
-#include "gui/pages.hpp"
-#include "gui/objects.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "twcommon.h"
 #include "twrp-functions.hpp"
 #include "data.hpp"
@@ -63,7 +61,7 @@ extern "C" {
 #include "variables.h"
 #include "startupArgs.hpp"
 #include "twrpAdbBuFifo.hpp"
-#include <recovery_ui2/runner.hpp>
+#include <aeraui/runner.hpp>
 #ifdef TW_USE_NEW_MINADBD
 // #include "minadbd/minadbd.h"
 #else
@@ -99,17 +97,17 @@ static void Decrypt_Page(bool SkipDecryption, bool datamedia) {
 			const bool file_based = DataManager::GetIntValue(TW_IS_FBE) != 0;
 			if (file_based)
 				DataManager::SetValue("tw_crypto_user_id", "0");
-			const auto native_result = recovery_ui2::RunRecoveryUi2Decryption(
+			const auto native_result = aeraui::RunAeraUiDecryption(
 				DataManager::GetIntValue(TW_CRYPTO_PWTYPE), file_based, 0,
 				DataManager::GetIntValue("tw_gui_pattern_grid_size"));
-			if (native_result == recovery_ui2::DecryptionResult::kUnavailable) {
+			if (native_result == aeraui::DecryptionResult::kUnavailable) {
 				if (gui_startPage("decrypt", 1, 1) != 0)
 					LOGERR("Failed to start decrypt GUI page.\n");
 				else {
 					DataManager::SetValue("OTA_decrypted", "1");
 					usleep(16);
 				}
-			} else if (native_result == recovery_ui2::DecryptionResult::kSuccess) {
+			} else if (native_result == aeraui::DecryptionResult::kSuccess) {
 				// OrangeFox - make note of this decryption
 				DataManager::SetValue("OTA_decrypted", "1");
 				usleep(16);
@@ -752,27 +750,15 @@ int main(int argc, char **argv) {
 			startup.Should_Skip_Decryption() || startup.Get_Aera_Soft_Switch(),
 			startup.Get_Aera_Soft_Switch());
 	}
-#ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
-	// The native AERA path intentionally skips loading the legacy XML page
-	// package in gui_loadResources(). PageManager::LoadLanguage() requires that
-	// package and dereferences mCurrentSet, so calling it here would dereference
-	// null immediately after decryption. Native scenes own their strings; keep
-	// this legacy translation step only for the XML fallback.
-	if (!gui_is_recovery_ui2_active()) {
-		PageManager::LoadLanguage(DataManager::GetStrValue("tw_language"));
-		GUIConsole::Translate_Now();
-	}
-#endif
 	// Fox extra setup
   	TWFunc::Setup_Verity_Forced_Encryption();
 
-	// Launch the main GUI
+	// Launch the native AERA interface. It owns settings and language reloads;
+	// there is no XML package to refresh.
 	if (Fox_CheckReload_Themes()) {
-		//[f/d] Start UI using reapply_settings page (executed on recovery startup)
 		DataManager::SetValue("of_reload_back", "main");
-		PageManager::RequestReload();
-		gui_startPage("reapply_settings", 1, 0);
-	} else gui_start();
+	}
+	gui_start();
 
 	delete adb_bu_fifo;
 	TWFunc::Update_Intent_File(startup.Get_Intent());

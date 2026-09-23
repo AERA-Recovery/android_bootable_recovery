@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <vector>
 
-#include <recovery_ui2/backend.hpp>
+#include <aeraui/backend.hpp>
 
 #include "../aera_remote/aera_remote.hpp"
 #include "../data.hpp"
@@ -20,9 +20,9 @@
 namespace aera::rpc {
 namespace {
 
-using recovery_ui2::Job;
-using recovery_ui2::JobRequest;
-using recovery_ui2::Volume;
+using aeraui::Job;
+using aeraui::JobRequest;
+using aeraui::Volume;
 
 std::string Text(const Json::Value &args, const char *name,
                  const std::string &fallback = {}) {
@@ -69,17 +69,17 @@ int Fail(EventSink &events, const std::string &code,
 
 int Status(EventSink &events) {
   Json::Value status(Json::objectValue);
-  status["release"] = recovery_ui2::RecoveryVersion();
-  status["build_type"] = recovery_ui2::RecoveryBuildType();
-  status["build_date"] = recovery_ui2::RecoveryBuildDate();
-  status["device"] = recovery_ui2::RecoveryDevice();
-  status["maintainer"] = recovery_ui2::RecoveryMaintainer();
-  status["active_slot"] = recovery_ui2::RecoverySlot();
-  status["storage"] = recovery_ui2::RecoveryStorage();
-  status["storage_locked"] = recovery_ui2::RecoveryDataLocked();
-  status["mtp"] = recovery_ui2::RecoveryMtpEnabled();
-  status["brightness"] = recovery_ui2::RecoveryBrightness();
-  const auto wifi = recovery_ui2::RecoveryWifiStatus();
+  status["release"] = aeraui::RecoveryVersion();
+  status["build_type"] = aeraui::RecoveryBuildType();
+  status["build_date"] = aeraui::RecoveryBuildDate();
+  status["device"] = aeraui::RecoveryDevice();
+  status["maintainer"] = aeraui::RecoveryMaintainer();
+  status["active_slot"] = aeraui::RecoverySlot();
+  status["storage"] = aeraui::RecoveryStorage();
+  status["storage_locked"] = aeraui::RecoveryDataLocked();
+  status["mtp"] = aeraui::RecoveryMtpEnabled();
+  status["brightness"] = aeraui::RecoveryBrightness();
+  const auto wifi = aeraui::RecoveryWifiStatus();
   status["wifi_supported"] = wifi.supported;
   status["wifi_enabled"] = wifi.enabled;
   status["wifi_connected"] = wifi.connected;
@@ -92,7 +92,7 @@ int Status(EventSink &events) {
 int Mount(const Request &request, EventSink &events, bool unmount) {
   const auto paths = Strings(request.arguments, "paths");
   if (paths.empty()) {
-    events.Data("mounts", Volumes(recovery_ui2::RecoveryVolumes("mount"), true));
+    events.Data("mounts", Volumes(aeraui::RecoveryVolumes("mount"), true));
     return 0;
   }
   for (const auto &path : paths) {
@@ -100,7 +100,7 @@ int Mount(const Request &request, EventSink &events, bool unmount) {
     job.job = unmount ? Job::kUnmount : Job::kMount;
     job.title = unmount ? "Unmount" : "Mount";
     job.path = path;
-    if (recovery_ui2::RecoveryRunJob(job) != 0)
+    if (aeraui::RecoveryRunJob(job) != 0)
       return Fail(events, unmount ? "unmount_failed" : "mount_failed",
                   "Could not " + std::string(unmount ? "unmount " : "mount ") + path);
   }
@@ -116,7 +116,7 @@ int Install(const Request &request, EventSink &events) {
     job.title = "Install package";
     job.path = path;
     events.Log("Installing " + path + "\n");
-    if (recovery_ui2::RecoveryRunJob(job) != 0)
+    if (aeraui::RecoveryRunJob(job) != 0)
       return Fail(events, "install_failed", "Package installation failed: " + path);
   }
   return 0;
@@ -128,12 +128,12 @@ int Backup(const Request &request, EventSink &events) {
   JobRequest job;
   job.job = Job::kBackup;
   job.title = "Create backup";
-  job.path = Text(request.arguments, "storage", recovery_ui2::RecoveryStorage());
+  job.path = Text(request.arguments, "storage", aeraui::RecoveryStorage());
   job.partitions = partitions;
   job.compression = Flag(request.arguments, "compress", true);
   job.name = Text(request.arguments, "name");
   job.digest = Flag(request.arguments, "digest", true);
-  return recovery_ui2::RecoveryRunJob(job) == 0
+  return aeraui::RecoveryRunJob(job) == 0
       ? 0 : Fail(events, "backup_failed", "AERA could not create the backup");
 }
 
@@ -141,12 +141,12 @@ int Restore(const Request &request, EventSink &events) {
   std::string folder = Text(request.arguments, "path");
   if (folder.empty()) {
     const std::string name = Text(request.arguments, "name");
-    if (!name.empty()) folder = recovery_ui2::RecoveryBackupRoot() + "/" + name;
+    if (!name.empty()) folder = aeraui::RecoveryBackupRoot() + "/" + name;
   }
   if (folder.empty()) return Fail(events, "missing_backup", "Restore requires a backup name or path", 2);
   auto partitions = Strings(request.arguments, "parts");
   if (partitions.empty()) {
-    for (const auto &volume : recovery_ui2::RecoveryRestoreVolumes(folder))
+    for (const auto &volume : aeraui::RecoveryRestoreVolumes(folder))
       if (volume.path != "ADB Backup") partitions.push_back(volume.path);
   }
   JobRequest job;
@@ -155,21 +155,21 @@ int Restore(const Request &request, EventSink &events) {
   job.path = folder;
   job.partitions = std::move(partitions);
   job.digest = Flag(request.arguments, "digest_check", true);
-  return recovery_ui2::RecoveryRunJob(job) == 0
+  return aeraui::RecoveryRunJob(job) == 0
       ? 0 : Fail(events, "restore_failed", "AERA could not restore the backup");
 }
 
 int Wipe(const Request &request, EventSink &events) {
   const auto partitions = Strings(request.arguments, "parts");
   if (partitions.empty()) {
-    events.Data("wipe_targets", Volumes(recovery_ui2::RecoveryVolumes("wipe"), false));
+    events.Data("wipe_targets", Volumes(aeraui::RecoveryVolumes("wipe"), false));
     return 0;
   }
   JobRequest job;
   job.job = Job::kWipe;
   job.title = "Wipe partitions";
   job.partitions = partitions;
-  return recovery_ui2::RecoveryRunJob(job) == 0
+  return aeraui::RecoveryRunJob(job) == 0
       ? 0 : Fail(events, "wipe_failed", "AERA could not wipe every selected partition");
 }
 
@@ -181,14 +181,14 @@ int FormatData(const Request &request, EventSink &events) {
   job.title = "Format Data";
   job.path = "/data";
   job.confirmation = "yes";
-  return recovery_ui2::RecoveryRunJob(job) == 0
+  return aeraui::RecoveryRunJob(job) == 0
       ? 0 : Fail(events, "format_failed", "AERA could not format /data");
 }
 
 int Wifi(const Request &request, EventSink &events) {
   const std::string action = Text(request.arguments, "action", "status");
   if (action == "status" || action == "list") {
-    const auto status = recovery_ui2::RecoveryWifiStatus();
+    const auto status = aeraui::RecoveryWifiStatus();
     Json::Value value(Json::objectValue);
     value["supported"] = status.supported;
     value["enabled"] = status.enabled;
@@ -210,19 +210,19 @@ int Wifi(const Request &request, EventSink &events) {
     events.Data("wifi", value);
     return 0;
   }
-  recovery_ui2::WifiRequest wifi;
-  if (action == "enable" || action == "start") wifi.operation = recovery_ui2::WifiOperation::kEnable;
-  else if (action == "disable" || action == "stop") wifi.operation = recovery_ui2::WifiOperation::kDisable;
-  else if (action == "disconnect") wifi.operation = recovery_ui2::WifiOperation::kDisconnect;
-  else if (action == "scan") wifi.operation = recovery_ui2::WifiOperation::kScan;
-  else if (action == "connect") wifi.operation = recovery_ui2::WifiOperation::kConnect;
-  else if (action == "forget") wifi.operation = recovery_ui2::WifiOperation::kForget;
-  else if (action == "test") wifi.operation = recovery_ui2::WifiOperation::kTest;
+  aeraui::WifiRequest wifi;
+  if (action == "enable" || action == "start") wifi.operation = aeraui::WifiOperation::kEnable;
+  else if (action == "disable" || action == "stop") wifi.operation = aeraui::WifiOperation::kDisable;
+  else if (action == "disconnect") wifi.operation = aeraui::WifiOperation::kDisconnect;
+  else if (action == "scan") wifi.operation = aeraui::WifiOperation::kScan;
+  else if (action == "connect") wifi.operation = aeraui::WifiOperation::kConnect;
+  else if (action == "forget") wifi.operation = aeraui::WifiOperation::kForget;
+  else if (action == "test") wifi.operation = aeraui::WifiOperation::kTest;
   else return Fail(events, "invalid_wifi_action", "Unknown Wi-Fi action: " + action, 2);
   wifi.ssid = Text(request.arguments, "ssid");
   wifi.password = Text(request.arguments, "password");
   wifi.use_saved_credentials = wifi.password.empty();
-  return recovery_ui2::RecoveryRunWifi(wifi) == 0
+  return aeraui::RecoveryRunWifi(wifi) == 0
       ? 0 : Fail(events, "wifi_failed", "The Wi-Fi operation failed");
 }
 
@@ -230,7 +230,7 @@ int Partition(const Request &request, EventSink &events) {
   const std::string path = Text(request.arguments, "path");
   const std::string action = Text(request.arguments, "action", "list");
   if (path.empty() || action == "list") {
-    events.Data("partitions", Volumes(recovery_ui2::RecoveryVolumes("part_option"), false));
+    events.Data("partitions", Volumes(aeraui::RecoveryVolumes("part_option"), false));
     return 0;
   }
   int success = 0;
@@ -305,7 +305,7 @@ int Execute(const Request &request, EventSink &events) {
   const std::string &op = request.operation;
   if (op == "status") return Status(events);
   if (op == "storages") {
-    events.Data("storages", Volumes(recovery_ui2::RecoveryVolumes("storage"), false));
+    events.Data("storages", Volumes(aeraui::RecoveryVolumes("storage"), false));
     return 0;
   }
   if (op == "mount") return Mount(request, events, false);
@@ -318,14 +318,14 @@ int Execute(const Request &request, EventSink &events) {
   if (op == "decrypt") {
     const std::string password = Text(request.arguments, "password");
     if (password.empty()) return Fail(events, "missing_password", "Decrypt requires a credential", 2);
-    return recovery_ui2::RecoveryDecrypt(password, Number(request.arguments, "user")) == 0
+    return aeraui::RecoveryDecrypt(password, Number(request.arguments, "user")) == 0
         ? 0 : Fail(events, "decrypt_failed", "The supplied credential did not unlock storage");
   }
   if (op == "sideload") {
     JobRequest job;
     job.job = Job::kSideload;
     job.title = "ADB sideload";
-    return recovery_ui2::RecoveryRunJob(job) == 0
+    return aeraui::RecoveryRunJob(job) == 0
         ? 0 : Fail(events, "sideload_failed", "ADB sideload failed or was cancelled");
   }
   if (op == "wlan" || op == "wifi") return Wifi(request, events);
@@ -334,14 +334,14 @@ int Execute(const Request &request, EventSink &events) {
     const std::string action = Text(request.arguments, "action", "status");
     if (action == "status") {
       Json::Value value(Json::objectValue);
-      value["enabled"] = recovery_ui2::RecoveryMtpEnabled();
+      value["enabled"] = aeraui::RecoveryMtpEnabled();
       events.Data("mtp", value);
       return 0;
     }
     const bool enabled = action == "enable" || action == "start";
     if (!enabled && action != "disable" && action != "stop")
       return Fail(events, "invalid_mtp_action", "Unknown MTP action: " + action, 2);
-    return recovery_ui2::RecoverySetMtp(enabled)
+    return aeraui::RecoverySetMtp(enabled)
         ? 0 : Fail(events, "mtp_failed", "Could not change MTP state");
   }
   if (op == "reboot") return Reboot(request, events);

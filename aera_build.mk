@@ -20,17 +20,6 @@
 
 LOCAL_CFLAGS += -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable
 
-# libvterm backs the in-UI terminal (gui/terminal.cpp) and is ALWAYS required
-# (the terminal page is part of the always-built GUI, independent of OF_ENABLE_WLAN).
-# It is built from sources (external/libvterm, Soong cc_library_static "libvterm");
-# the pre-generated encoding tables ship in-tree so no codegen step is needed.
-ifeq ($(wildcard external/libvterm/Android.bp),)
-    $(warning libvterm sources not found! You need to clone the sources.)
-    $(warning Please run: "git clone --depth=1 https://github.com/neovim/libvterm -b master external/libvterm")
-    $(warning (then add external/libvterm/Android.bp from the OrangeFox tree if your clone lacks it))
-    $(error libvterm sources not present; exiting.)
-endif
-
 # Canonical release version
 AERA_INTERNAL_RELEASE := R1.0
 LOCAL_CFLAGS += -DAERA_INTERNAL_RELEASE='"$(AERA_INTERNAL_RELEASE)"'

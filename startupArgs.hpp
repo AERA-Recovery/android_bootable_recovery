@@ -21,7 +21,7 @@
 #include <android-base/properties.h>
 
 #include "data.hpp"
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "openrecoveryscript.hpp"
 #include "partitions.hpp"
 #include "twcommon.h"

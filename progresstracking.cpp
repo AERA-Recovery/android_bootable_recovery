@@ -22,7 +22,7 @@
 #include "progresstracking.hpp"
 #include "twcommon.h"
 #ifndef BUILD_TWRPTAR_MAIN
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "data.hpp"
 #endif
 #include "twrp-functions.hpp"

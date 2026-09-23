@@ -58,14 +58,12 @@
 #include "twrpDigest/twrpMD5.hpp"
 #include "twrp-functions.hpp"
 #include "aera_core.hpp"
-#include "gui/gui.hpp"
-#include "gui/pages.hpp"
-#include "gui/blanktimer.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "twinstall.h"
 #include "installcommand.h"
 #include "../twrpRepacker.hpp"
 extern "C" {
-	#include "gui/gui.h"
+	#include "aeraui/platform/aera_ui_host.h"
 }
 
 #define AB_OTA "payload_properties.txt"
@@ -121,7 +119,7 @@ static int Install_Theme(const char* path, ZipArchiveHandle Zip) {
 		return INSTALL_ERROR;
 	}
 	LOGINFO("Installing custom theme '%s' to '%s'\n", path, theme_path.c_str());
-	PageManager::RequestReload();
+	LOGINFO("Custom XML themes are not loaded by AERA UI.\n");
 	return INSTALL_SUCCESS;
 #endif
 }

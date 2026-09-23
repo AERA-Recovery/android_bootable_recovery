@@ -8,11 +8,11 @@
 #include <thread>
 #include <utility>
 
-#include <recovery_ui2/backend.hpp>
+#include <aeraui/backend.hpp>
 
 #include "aera_channel.hpp"
 #include "aera_engine.hpp"
-#include "../gui/gui.h"
+#include "aeraui/platform/aera_ui_host.h"
 #include "../partitions.hpp"
 
 namespace aera::rpc {
@@ -113,7 +113,7 @@ bool Dispatcher::Active() {
 bool Dispatcher::Cancel() {
   if (!Active()) return false;
   g_cancelled.store(true, std::memory_order_release);
-  const bool sideload = recovery_ui2::RecoveryCancelSideload();
+  const bool sideload = aeraui::RecoveryCancelSideload();
   const int backup = PartitionManager.Cancel_Backup();
   std::lock_guard<std::mutex> guard(g_lock);
   FlushLog();

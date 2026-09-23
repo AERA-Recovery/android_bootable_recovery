@@ -14,7 +14,7 @@
 #include "aera_dispatcher.hpp"
 #include "aera_protocol.hpp"
 #include "../data.hpp"
-#include "../gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "../orscmd/orscmd.h"
 #include "../twcommon.h"
 

@@ -51,13 +51,12 @@
 #include "install/adb_install.h"
 #include "data.hpp"
 #include "fuse_sideload.h"
-#include "gui/gui.hpp"
-#include "gui/pages.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "orscmd/orscmd.h"
 #include "twinstall.h"
 #include "twinstall/adb_install.h"
 extern "C" {
-	#include "gui/gui.h"
+	#include "aeraui/platform/aera_ui_host.h"
 	#include "cutils/properties.h"
 }
 
@@ -472,8 +471,7 @@ int OpenRecoveryScript::run_script_file(void) {
 			} else if (strcmp(command, "listmounts") == 0) {
 				TWFunc::List_Mounts();
 			} else if (strcmp(command, "reloadtheme") == 0 || strcmp(command, "reload_theme") == 0) {
-				LOGINFO("Requesting theme reload via ORS\n");
-				PageManager::RequestReload();
+				LOGINFO("Ignoring XML theme reload request; AERA UI is native.\n");
 			} else {
 				LOGERR("Unrecognized script command: '%s'\n", command);
 				ret_val = 1;

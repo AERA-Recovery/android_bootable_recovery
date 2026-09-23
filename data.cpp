@@ -33,11 +33,11 @@
 #include "partitions.hpp"
 #include "twrp-functions.hpp"
 #ifndef TW_NO_SCREEN_TIMEOUT
-#include "gui/blanktimer.hpp"
+#include "aeraui/platform/aera_screen_timer.hpp"
 #endif
 #include "find_file.hpp"
 #include "set_metadata.h"
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "infomanager.hpp"
 
 #define DEVID_MAX 64
@@ -46,9 +46,7 @@
 extern "C"
 {
 #include "twcommon.h"
-#include "gui/pages.h"
-  void gui_notifyVarChange(const char *name, const char *value);
-  void gui_aera_progress_overall(const int percent);
+#include "aeraui/platform/aera_ui_host.h"
 }
 #include "minuitwrp/minui.h"
 
@@ -268,7 +266,7 @@ int DataManager::LoadValues(const string & filename)
   mPersist.LoadValues();
 
 #ifndef TW_NO_SCREEN_TIMEOUT
-  blankTimer.setTime(mPersist.GetIntValue("tw_screen_timeout_secs"));
+  aeraScreenTimer.SetTimeout(mPersist.GetIntValue("tw_screen_timeout_secs"));
 #endif
 
   pthread_mutex_unlock(&m_valuesLock);
@@ -343,7 +341,7 @@ int DataManager::LoadPersistValues(void)
   mPersist.LoadValues();
 
 #ifndef TW_NO_SCREEN_TIMEOUT
-  blankTimer.setTime(mPersist.GetIntValue("tw_screen_timeout_secs"));
+  aeraScreenTimer.SetTimeout(mPersist.GetIntValue("tw_screen_timeout_secs"));
 #endif
 
   update_tz_environment_variables();
@@ -574,7 +572,7 @@ int DataManager::SetValue(const string & varName, const string & value,
 #ifndef TW_NO_SCREEN_TIMEOUT
   if (varName == "tw_screen_timeout_secs")
     {
-      blankTimer.setTime(atoi(value.c_str()));
+      aeraScreenTimer.SetTimeout(atoi(value.c_str()));
     }
   else
 #endif

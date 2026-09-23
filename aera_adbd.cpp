@@ -23,7 +23,7 @@
 #include <json/json.h>
 
 #include "data.hpp"
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 #include "twcommon.h"
 #include "twrp-functions.hpp"
 #include "wlan.hpp"

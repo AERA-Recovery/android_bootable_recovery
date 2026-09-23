@@ -27,7 +27,7 @@
 #include "twrpRepacker.hpp"
 #include "twcommon.h"
 #include "variables.h"
-#include "gui/gui.hpp"
+#include "aeraui/platform/aera_ui_host.hpp"
 
 bool twrpRepacker::Prepare_Empty_Folder(const std::string& Folder) {
 	if (TWFunc::Path_Exists(Folder))
