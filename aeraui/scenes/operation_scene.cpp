@@ -346,16 +346,16 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_style_radius(result.progress, 16, LV_PART_MAIN);
   lv_obj_set_style_radius(result.progress, 16, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(result.progress, kMainLine, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(result.progress, LV_OPA_40, LV_PART_MAIN);
   lv_obj_set_style_bg_color(result.progress, kAccent, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(result.progress, LV_OPA_COVER, LV_PART_INDICATOR);
+  lv_obj_set_style_border_width(result.progress, 0, LV_PART_MAIN);
 
-  const bool transfer =
-      request.job == Job::kBackup || request.job == Job::kRestore;
-  if (transfer || result.indeterminate_progress) {
+  if (result.indeterminate_progress) {
     result.progress_pulse = lv_obj_create(card);
     Clear(result.progress_pulse);
     lv_obj_set_pos(result.progress_pulse, 48, 314);
-    lv_obj_set_size(result.progress_pulse,
-                    result.indeterminate_progress ? 240 : 24, 24);
+    lv_obj_set_size(result.progress_pulse, 240, 24);
     lv_obj_set_style_radius(result.progress_pulse, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(result.progress_pulse, kAccent, 0);
     lv_obj_set_style_bg_opa(result.progress_pulse, LV_OPA_COVER, 0);
@@ -363,21 +363,15 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
     lv_obj_set_style_shadow_width(result.progress_pulse, 18, 0);
     lv_obj_set_style_shadow_opa(result.progress_pulse, LV_OPA_40, 0);
     lv_obj_remove_flag(result.progress_pulse, LV_OBJ_FLAG_CLICKABLE);
-    if (!result.indeterminate_progress)
-      lv_obj_add_flag(result.progress_pulse, LV_OBJ_FLAG_HIDDEN);
     lv_anim_t pulse;
     lv_anim_init(&pulse);
     lv_anim_set_var(&pulse, result.progress_pulse);
-    lv_anim_set_values(&pulse,
-        result.indeterminate_progress ? 48 : LV_OPA_50,
-        result.indeterminate_progress ? 1024 : LV_OPA_COVER);
-    lv_anim_set_duration(&pulse, result.indeterminate_progress ? 1100 : 760);
-    lv_anim_set_playback_duration(&pulse,
-                                  result.indeterminate_progress ? 1100 : 760);
+    lv_anim_set_values(&pulse, 48, 1024);
+    lv_anim_set_duration(&pulse, 1100);
+    lv_anim_set_playback_duration(&pulse, 1100);
     lv_anim_set_repeat_count(&pulse, LV_ANIM_REPEAT_INFINITE);
     lv_anim_set_path_cb(&pulse, lv_anim_path_ease_in_out);
-    lv_anim_set_exec_cb(&pulse, result.indeterminate_progress
-        ? SetIndeterminateProgressX : SetProgressPulseOpacity);
+    lv_anim_set_exec_cb(&pulse, SetIndeterminateProgressX);
     lv_anim_start(&pulse);
   }
 
