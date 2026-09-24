@@ -10,6 +10,7 @@
 
 #include "design.hpp"
 #include "aera_logo.hpp"
+#include "aera_fallback.hpp"
 #include "aeraui/status_bar.hpp"
 
 namespace aeraui {
@@ -71,7 +72,10 @@ void RefreshClock(LockState *state) {
   lv_obj_set_style_transform_pivot_y(state->clock,
                                       lv_obj_get_height(state->clock) / 2, 0);
   lv_obj_align(state->clock, LV_ALIGN_TOP_MID,
-               state->landscape ? 700 : 0, 250);
+               state->landscape ? 700 : 0,
+               state->landscape ? 180 : 185);
+  lv_obj_align_to(state->date, state->clock, LV_ALIGN_OUT_BOTTOM_MID,
+                  0, state->landscape ? 10 : 18);
 }
 
 void SetSliderOffset(void *object, int32_t value) {
@@ -215,19 +219,22 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent, ActionCallback callback,
   lv_obj_fade_in(accent_edge, 680, 160);
   lv_obj_fade_in(mark, 680, 190);
 
-  state->clock = Label(content, "--:--", &lv_font_montserrat_48, kText);
-  lv_obj_set_style_transform_scale(state->clock, 800, 0);
+  const uint32_t clock_size = state->landscape
+      ? std::clamp(screen_height * 15 / 100, 112, 184)
+      : std::clamp(screen_width * 23 / 100, 176, 288);
+  state->clock = Label(content, "--:--", fonts::DisplayFont(clock_size), kText);
   lv_obj_set_style_text_outline_stroke_color(state->clock, kText, 0);
   lv_obj_set_style_text_outline_stroke_width(state->clock, 1, 0);
   lv_obj_set_style_text_outline_stroke_opa(state->clock, LV_OPA_80, 0);
   lv_obj_set_style_text_letter_space(state->clock, 3, 0);
   lv_obj_align(state->clock, LV_ALIGN_TOP_MID,
-               state->landscape ? 700 : 0, 250);
+               state->landscape ? 700 : 0,
+               state->landscape ? 180 : 185);
 
-  state->date = Label(content, "", &lv_font_montserrat_32, kMutedStrong);
+  state->date = Label(content, "", &lv_font_montserrat_28, kMutedStrong);
   lv_obj_set_style_text_letter_space(state->date, 1, 0);
-  lv_obj_align(state->date, LV_ALIGN_TOP_MID,
-               state->landscape ? 700 : 0, 535);
+  lv_obj_align_to(state->date, state->clock, LV_ALIGN_OUT_BOTTOM_MID,
+                  0, state->landscape ? 10 : 18);
 
   auto *slider = lv_obj_create(content);
   state->slider = slider;

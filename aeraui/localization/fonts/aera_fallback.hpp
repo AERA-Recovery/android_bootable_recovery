@@ -13,5 +13,6 @@ namespace aeraui::fonts {
 void InitializeFallbackFonts();
 void SetFallbackLanguage(const std::string &language);
 const lv_font_t *WithLanguageFallback(const lv_font_t *font);
+const lv_font_t *DisplayFont(uint32_t size);
 
 }  // namespace aeraui::fonts

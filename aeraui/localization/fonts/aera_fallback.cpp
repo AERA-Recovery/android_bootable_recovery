@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -57,6 +58,7 @@ struct FontSize {
 };
 
 std::array<FontSize, kSizes.size()> fonts;
+std::map<uint32_t, lv_font_t *> display_fonts;
 bool initialized = false;
 std::string language = "en";
 
@@ -145,6 +147,20 @@ const lv_font_t *WithLanguageFallback(const lv_font_t *font) {
       return &fonts[i].wrapper;
     }
   }
+  return font;
+}
+
+const lv_font_t *DisplayFont(uint32_t size) {
+  InitializeFallbackFonts();
+  const auto existing = display_fonts.find(size);
+  if (existing != display_fonts.end()) return existing->second;
+
+  lv_font_t *font = lv_freetype_font_create(
+      kFontPaths[static_cast<size_t>(Script::kGeneral)],
+      LV_FREETYPE_FONT_RENDER_MODE_BITMAP, size,
+      LV_FREETYPE_FONT_STYLE_NORMAL);
+  if (font == nullptr) return WithLanguageFallback(&lv_font_montserrat_48);
+  display_fonts.emplace(size, font);
   return font;
 }
 
