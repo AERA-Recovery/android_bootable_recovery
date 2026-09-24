@@ -474,6 +474,24 @@ std::string ManagerStagingPath(Provider provider) {
   return std::string(kManagerStaging) + "/" + ProviderId(provider) + ".apk";
 }
 
+bool ManagerInstallerPending(Provider provider) {
+  const std::string service = std::string(kManagerModule) + "/service.sh";
+  const std::string removed = std::string(kManagerModule) + "/remove";
+  struct stat apk_info{};
+  struct stat service_info{};
+  const std::string apk = ManagerStagingPath(provider);
+  if (lstat(apk.c_str(), &apk_info) || !S_ISREG(apk_info.st_mode) ||
+      apk_info.st_size <= 0 || lstat(service.c_str(), &service_info) ||
+      !S_ISREG(service_info.st_mode) || access(removed.c_str(), F_OK) == 0)
+    return false;
+
+  std::string script;
+  if (!ReadText(service, script, 64 * 1024)) return false;
+  return script.find("APK='" + apk + "'") != std::string::npos &&
+      script.find("PACKAGE='" + std::string(ManagerPackage(provider)) + "'") !=
+          std::string::npos;
+}
+
 bool ManagerAssetName(Provider provider, const std::string &name) {
   std::string lower = name;
   std::transform(lower.begin(), lower.end(), lower.begin(),
@@ -803,7 +821,8 @@ bool StageDataApp(const std::string &apk, const std::string &package_name,
 
 bool StageManagerFallback(const std::string &apk,
                           const std::string &package_name,
-                          const std::string &provider_name) {
+                          const std::string &provider_name,
+                          uint64_t apk_size) {
   if (!EnsureDirectory("/data/adb") ||
       !EnsureDirectory("/data/adb/modules") ||
       !EnsureDirectory(kManagerModule)) return false;
@@ -818,24 +837,51 @@ bool StageManagerFallback(const std::string &apk,
   const std::string script =
       "#!/system/bin/sh\n"
       "APK='" + apk + "'\n"
+      "APK_SIZE='" + std::to_string(apk_size) + "'\n"
       "PACKAGE='" + package_name + "'\n"
+      "MODULE_ID='aera-manager-installer'\n"
       "MODDIR='/data/adb/modules/aera-manager-installer'\n"
       "LOG='/data/adb/aera/root-manager/install.log'\n"
-      "attempt=0\n"
+      "boot_attempt=0\n"
       "while [ \"$(getprop sys.boot_completed)\" != \"1\" ] && "
-          "[ \"$attempt\" -lt 180 ]; do\n"
+          "[ \"$boot_attempt\" -lt 180 ]; do\n"
       "  sleep 1\n"
-      "  attempt=$((attempt + 1))\n"
+      "  boot_attempt=$((boot_attempt + 1))\n"
       "done\n"
-      "if /system/bin/pm path \"$PACKAGE\" >/dev/null 2>&1; then\n"
-      "  result=0\n"
-      "else\n"
-      "  /system/bin/pm install -r --user 0 \"$APK\" >\"$LOG\" 2>&1\n"
+      ": >\"$LOG\"\n"
+      "result=1\n"
+      "install_attempt=0\n"
+      "while [ \"$install_attempt\" -lt 60 ]; do\n"
+      "  if /system/bin/pm path \"$PACKAGE\" >/dev/null 2>&1; then\n"
+      "    result=0\n"
+      "    break\n"
+      "  fi\n"
+      // system_server cannot open files below /data/adb under enforcing
+      // SELinux.  Stream the verified APK through stdin so Package Manager
+      // never needs direct access to the protected staging path.  Its output
+      // must not be redirected to the /data/adb log: the descriptor crosses
+      // Binder into system_server, which is forbidden from writing an
+      // adb_data_file and aborts the install transaction.
+      "  cat \"$APK\" | /system/bin/pm install -S \"$APK_SIZE\" -r "
+          "--user 0 >/dev/null 2>&1\n"
       "  result=$?\n"
-      "fi\n"
+      "  [ \"$result\" -eq 0 ] && break\n"
+      "  echo \"Package Manager attempt $((install_attempt + 1)) failed "
+          "($result)\" >>\"$LOG\"\n"
+      "  install_attempt=$((install_attempt + 1))\n"
+      "  sleep 2\n"
+      "done\n"
       "if [ \"$result\" -eq 0 ]; then\n"
       "  rm -f \"$APK\"\n"
-      "  touch \"$MODDIR/remove\"\n"
+      // Ask the provider runtime to retire the one-shot module.  Directly
+      // creating its marker can be denied when recovery-created module files
+      // retain adb_data_file labels under enforcing Android SELinux.
+      "  if [ -x /data/adb/ksud ]; then\n"
+      "    /data/adb/ksud module uninstall \"$MODULE_ID\" "
+          ">/dev/null 2>&1\n"
+      "  else\n"
+      "    touch \"$MODDIR/remove\"\n"
+      "  fi\n"
       "fi\n";
   return WriteText(module + "/module.prop", module_prop, 0644) &&
       WriteText(module + "/service.sh", script, 0755) &&
@@ -902,7 +948,7 @@ bool InstallManager(Provider provider, Progress &progress) {
                                    progress, code_path);
   progress.value.store(92);
   const bool fallback = StageManagerFallback(
-      staged, package_name, ProviderName(provider));
+      staged, package_name, ProviderName(provider), release.size);
   if (!direct && !fallback) {
     unlink(staged.c_str());
     SetText(progress, "Installation failed",
@@ -1437,18 +1483,32 @@ ManagerStatus InspectManager(Provider provider) {
     return status;
   }
   status.installed = PackageListed(status.package_name);
-  status.staged = access(ManagerStagingPath(provider).c_str(), R_OK) == 0;
-  if (status.installed)
+  const std::string staged_apk = ManagerStagingPath(provider);
+  const bool has_staged_apk = access(staged_apk.c_str(), R_OK) == 0;
+  const bool installer_pending =
+      has_staged_apk && ManagerInstallerPending(provider);
+  if (status.installed) {
+    // The boot-time installer normally removes this after pm succeeds.  Also
+    // clean it here so an interrupted or older installer cannot leave a stale
+    // APK that makes recovery claim another installation is pending.
+    if (installer_pending)
+      WriteText(std::string(kManagerModule) + "/remove", "", 0600);
+    if (has_staged_apk) unlink(staged_apk.c_str());
     status.detail = i18n::Format("%s is installed in Android.",
                                  ProviderName(provider));
-  else if (status.staged)
+  } else if (installer_pending) {
+    status.staged = true;
     status.detail = i18n::Format(
         "%s is ready and will be installed when Android boots.",
         ProviderName(provider));
-  else
+  } else {
+    // An APK without its matching active one-shot installer cannot be
+    // installed on boot.  Remove the orphan instead of presenting it as ready.
+    if (has_staged_apk) unlink(staged_apk.c_str());
     status.detail = i18n::Format(
         "%s is not installed. Download the official manager app from GitHub.",
         ProviderName(provider));
+  }
   return status;
 }
 
