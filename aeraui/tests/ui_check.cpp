@@ -143,6 +143,9 @@ std::string installer_status;
 int RecoveryProgress() { return recovery_progress; }
 std::string RecoveryOperationDetail() { return "Backing up / Boot\n38MB of 100MB (38%)"; }
 std::string RecoveryInstallerStatus() { return installer_status; }
+InstallerPresentation RecoveryInstallerPresentation() { return {}; }
+InstallerPrompt RecoveryInstallerPrompt() { return {}; }
+bool RecoveryAnswerInstallerPrompt(bool) { return true; }
 SideloadStatus RecoverySideloadStatus() { return sideload_status; }
 bool RecoveryCancelSideload() {
   sideload_status.cancel_requested = true;

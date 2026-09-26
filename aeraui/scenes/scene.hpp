@@ -24,9 +24,14 @@ struct OperationScene {
   lv_obj_t *percent = nullptr;
   lv_obj_t *elapsed = nullptr;
   lv_obj_t *files = nullptr;
+  lv_obj_t *activity_title = nullptr;
   lv_obj_t *activity_summary = nullptr;
   lv_obj_t *notice = nullptr;
   lv_obj_t *steps[4] = {};
+  lv_obj_t *step_icons[4] = {};
+  lv_obj_t *step_titles[4] = {};
+  lv_obj_t *step_details[4] = {};
+  lv_obj_t *step_states[4] = {};
   lv_obj_t *log_overlay = nullptr;
   lv_obj_t *details = nullptr;
   lv_obj_t *done = nullptr;
@@ -36,6 +41,11 @@ struct OperationScene {
   lv_obj_t *metrics = nullptr;
   lv_obj_t *destination = nullptr;
   lv_obj_t *cancel = nullptr;
+  lv_obj_t *installer_prompt = nullptr;
+  lv_obj_t *installer_prompt_title = nullptr;
+  lv_obj_t *installer_prompt_message = nullptr;
+  lv_obj_t *installer_prompt_accept = nullptr;
+  lv_obj_t *installer_prompt_decline = nullptr;
   uint32_t started = 0;
   unsigned installer_lines = 0;
   Job job = Job::kInstall;

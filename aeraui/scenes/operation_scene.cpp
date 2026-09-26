@@ -152,6 +152,79 @@ void SetIndeterminateProgressX(void *target, int32_t x) {
   lv_obj_set_x(static_cast<lv_obj_t *>(target), x);
 }
 
+constexpr const char *kInstallerStepTitles[4] = {
+    "Boot partitions", "Device firmware", "Super image", "Finishing up"};
+
+constexpr const char *kInstallerStepDetails[4] = {
+    "Prepare the boot chain on both slots",
+    "Update the device firmware safely",
+    "Stream and write the super partition",
+    "Verify the installation and clean up"};
+
+void SetInstallerTimelineVisible(const OperationScene &scene, bool visible) {
+  for (auto *step : scene.steps) {
+    if (!step) continue;
+    if (visible)
+      lv_obj_remove_flag(step, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_add_flag(step, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (scene.activity_summary) {
+    if (visible)
+      lv_obj_add_flag(scene.activity_summary, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_remove_flag(scene.activity_summary, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void RefreshInstallerTimeline(const OperationScene &scene, int current_stage,
+                              const std::string &current_detail,
+                              bool finished = false, bool failed = false) {
+  for (int i = 0; i < 4; ++i) {
+    if (!scene.steps[i]) continue;
+    const int number = i + 1;
+    const bool complete = finished || current_stage > number;
+    const bool current = !finished && current_stage == number;
+    const auto color = failed && current ? design::kRed
+        : complete ? design::kGreen
+        : current ? kAccent : kMuted;
+
+    // Keep every stage on the same calm surface. Status belongs to the icon
+    // and label; tinting an entire completed row makes the timeline noisy.
+    lv_obj_set_style_bg_color(scene.steps[i], kMainPanel, 0);
+    lv_obj_set_style_bg_opa(scene.steps[i], LV_OPA_70, 0);
+    lv_obj_set_style_border_color(scene.steps[i],
+                                  current ? color : kMainLine, 0);
+    lv_obj_set_style_border_opa(scene.steps[i],
+        current ? LV_OPA_30 : LV_OPA_10, 0);
+
+    if (scene.step_icons[i]) {
+      i18n::BindLabel(scene.step_icons[i], complete ? LV_SYMBOL_OK
+          : current ? LV_SYMBOL_PLAY : i18n::Format("%02d", number).c_str());
+      lv_obj_set_style_text_color(scene.step_icons[i], color, 0);
+    }
+    if (scene.step_titles[i]) {
+      i18n::BindLabel(scene.step_titles[i], kInstallerStepTitles[i]);
+      lv_obj_set_style_text_color(scene.step_titles[i],
+                                  complete || current ? kText : kMutedStrong, 0);
+    }
+    if (scene.step_details[i]) {
+      std::string detail = kInstallerStepDetails[i];
+      if (current && !current_detail.empty()) detail = current_detail;
+      if (complete) detail = "Completed safely";
+      if (failed && current) detail = "Stopped before this stage could finish";
+      i18n::BindLabel(scene.step_details[i], detail.c_str());
+      lv_obj_set_style_text_color(scene.step_details[i],
+                                  complete || current ? kMutedStrong : kMuted, 0);
+    }
+    if (scene.step_states[i]) {
+      i18n::BindLabel(scene.step_states[i], complete ? "DONE"
+          : failed && current ? "STOPPED" : current ? "IN PROGRESS" : "UP NEXT");
+      lv_obj_set_style_text_color(scene.step_states[i], color, 0);
+    }
+  }
+}
+
 FriendlyProgress Explain(const std::string &raw, Job job, int progress) {
   FriendlyProgress value;
   const auto lines = Lines(raw);
@@ -273,10 +346,105 @@ void ShowTechnicalLog(lv_obj_t *screen) {
   lv_obj_set_width(log, landscape ? 2010 : 1120);
   lv_obj_set_style_text_line_space(log, 8, 0);
 
-  auto *close = Button(sheet, "Close", [overlay] { lv_obj_delete_async(overlay); }, true);
+  auto *close = Button(sheet, "Back to operation",
+                       [overlay] { lv_obj_delete_async(overlay); }, true);
   lv_obj_set_pos(close, 48, landscape ? 1060 : 2342);
   lv_obj_set_size(close, landscape ? 2104 : 1216, 136);
   AnimateEnter(sheet, 0, 36);
+}
+
+void BuildInstallerPrompt(OperationScene *scene, lv_obj_t *screen,
+                          bool landscape) {
+  if (scene == nullptr) return;
+  scene->installer_prompt = lv_obj_create(screen);
+  lv_obj_set_user_data(scene->installer_prompt, &kModalMarker);
+  Clear(scene->installer_prompt);
+  lv_obj_set_size(scene->installer_prompt, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(scene->installer_prompt, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(scene->installer_prompt, LV_OPA_70, 0);
+  lv_obj_add_flag(scene->installer_prompt, LV_OBJ_FLAG_HIDDEN);
+
+  auto *sheet = lv_obj_create(scene->installer_prompt);
+  Panel(sheet, 44, kMainSheet);
+  lv_obj_set_size(sheet, landscape ? 1800 : 1248,
+                  landscape ? 850 : 1040);
+  lv_obj_align(sheet, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_border_width(sheet, 2, 0);
+  lv_obj_set_style_border_color(sheet, kAccent, 0);
+  lv_obj_set_style_border_opa(sheet, LV_OPA_30, 0);
+  lv_obj_set_style_shadow_color(sheet, lv_color_black(), 0);
+  lv_obj_set_style_shadow_width(sheet, 70, 0);
+  lv_obj_set_style_shadow_opa(sheet, LV_OPA_50, 0);
+
+  auto *badge = lv_obj_create(sheet);
+  Panel(badge, LV_RADIUS_CIRCLE, kAccentSoft);
+  lv_obj_set_pos(badge, 48, 48);
+  lv_obj_set_size(badge, 116, 116);
+  lv_obj_set_style_border_width(badge, 2, 0);
+  lv_obj_set_style_border_color(badge, kAccent, 0);
+  lv_obj_set_style_border_opa(badge, LV_OPA_40, 0);
+  auto *icon = Label(badge, LV_SYMBOL_UPLOAD, &lv_font_montserrat_48, kAccent);
+  lv_obj_center(icon);
+
+  auto *eyebrow = Label(sheet, "AERA INTERACTIVE INSTALLER",
+                        &lv_font_montserrat_20, kAccent);
+  lv_obj_set_pos(eyebrow, 198, 50);
+  lv_obj_set_style_text_letter_space(eyebrow, 3, 0);
+  scene->installer_prompt_title =
+      Label(sheet, "Ready to install?", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(scene->installer_prompt_title, 198, 88);
+  lv_obj_set_width(scene->installer_prompt_title,
+                   landscape ? 1510 : 980);
+  lv_label_set_long_mode(scene->installer_prompt_title, LV_LABEL_LONG_DOT);
+
+  auto *line = lv_obj_create(sheet);
+  Clear(line);
+  lv_obj_set_pos(line, 48, 202);
+  lv_obj_set_size(line, landscape ? 1704 : 1152, 2);
+  lv_obj_set_style_bg_color(line, kMainLine, 0);
+  lv_obj_set_style_bg_opa(line, LV_OPA_30, 0);
+
+  scene->installer_prompt_message = Label(
+      sheet,
+      "Review the package information before allowing it to write to your device.",
+      &lv_font_montserrat_32, kMutedStrong);
+  lv_obj_set_pos(scene->installer_prompt_message, 48, 260);
+  lv_obj_set_size(scene->installer_prompt_message,
+                  landscape ? 1704 : 1152,
+                  landscape ? 270 : 430);
+  lv_label_set_long_mode(scene->installer_prompt_message,
+                         LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_line_space(scene->installer_prompt_message, 12, 0);
+
+  auto *warning = Label(
+      sheet,
+      LV_SYMBOL_WARNING "  The installer can modify boot and system partitions.",
+      &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(warning, 48, landscape ? 555 : 720);
+  lv_obj_set_width(warning, landscape ? 1704 : 1152);
+
+  scene->installer_prompt_decline = Button(
+      sheet, "Cancel",
+      [overlay = scene->installer_prompt] {
+        if (RecoveryAnswerInstallerPrompt(false))
+          lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+      });
+  lv_obj_set_pos(scene->installer_prompt_decline, 48,
+                 landscape ? 650 : 830);
+  lv_obj_set_size(scene->installer_prompt_decline,
+                  landscape ? 820 : 552, 142);
+
+  scene->installer_prompt_accept = Button(
+      sheet, "Install now",
+      [overlay = scene->installer_prompt] {
+        if (RecoveryAnswerInstallerPrompt(true))
+          lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+      }, true);
+  lv_obj_set_pos(scene->installer_prompt_accept,
+                 landscape ? 932 : 648,
+                 landscape ? 650 : 830);
+  lv_obj_set_size(scene->installer_prompt_accept,
+                  landscape ? 820 : 552, 142);
 }
 
 }  // namespace
@@ -290,8 +458,9 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   OperationScene result;
   result.job = request.job;
   result.format_data = request.job == Job::kFormatData;
-  result.indeterminate_progress =
+  const bool installer =
       request.job == Job::kInstall || request.job == Job::kSideload;
+  result.indeterminate_progress = request.job == Job::kSideload;
   result.started = lv_tick_get();
   const bool landscape = Landscape(screen);
 
@@ -304,36 +473,44 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
 
-  // A calm status beacon replaces the continuously rotating spinner. The
-  // icon remains stable while only its thin outline breathes very slowly.
+  // Interactive installers use a clean standalone glyph. Other operations
+  // retain the calm status beacon used throughout AERA.
   result.activity = lv_obj_create(card);
-  Panel(result.activity, LV_RADIUS_CIRCLE, kAccentSoft);
-  lv_obj_set_pos(result.activity, 48, 46);
-  lv_obj_set_size(result.activity, 124, 124);
-  lv_obj_set_style_border_width(result.activity, 3, 0);
-  lv_obj_set_style_border_color(result.activity, kAccent, 0);
-  lv_obj_set_style_border_opa(result.activity, LV_OPA_30, 0);
+  if (installer) {
+    Clear(result.activity);
+    lv_obj_set_pos(result.activity, 48, 48);
+    lv_obj_set_size(result.activity, 96, 96);
+  } else {
+    Panel(result.activity, LV_RADIUS_CIRCLE, kAccentSoft);
+    lv_obj_set_pos(result.activity, 48, 46);
+    lv_obj_set_size(result.activity, 124, 124);
+    lv_obj_set_style_border_width(result.activity, 3, 0);
+    lv_obj_set_style_border_color(result.activity, kAccent, 0);
+    lv_obj_set_style_border_opa(result.activity, LV_OPA_30, 0);
+  }
   auto *activity_icon = Label(result.activity, OperationSymbol(request.job),
                               &lv_font_montserrat_48, kAccent);
   lv_obj_center(activity_icon);
-  lv_anim_t breathe;
-  lv_anim_init(&breathe);
-  lv_anim_set_var(&breathe, result.activity);
-  lv_anim_set_values(&breathe, LV_OPA_20, LV_OPA_60);
-  lv_anim_set_duration(&breathe, 1450);
-  lv_anim_set_playback_duration(&breathe, 1450);
-  lv_anim_set_repeat_count(&breathe, LV_ANIM_REPEAT_INFINITE);
-  lv_anim_set_path_cb(&breathe, lv_anim_path_ease_in_out);
-  lv_anim_set_exec_cb(&breathe, SetActivityBorderOpacity);
-  lv_anim_start(&breathe);
+  if (!installer) {
+    lv_anim_t breathe;
+    lv_anim_init(&breathe);
+    lv_anim_set_var(&breathe, result.activity);
+    lv_anim_set_values(&breathe, LV_OPA_20, LV_OPA_60);
+    lv_anim_set_duration(&breathe, 1450);
+    lv_anim_set_playback_duration(&breathe, 1450);
+    lv_anim_set_repeat_count(&breathe, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&breathe, lv_anim_path_ease_in_out);
+    lv_anim_set_exec_cb(&breathe, SetActivityBorderOpacity);
+    lv_anim_start(&breathe);
+  }
 
   result.status = Label(card, InitialTitle(request.job), &lv_font_montserrat_48, kText);
-  lv_obj_set_pos(result.status, 208, 42);
-  lv_obj_set_width(result.status, 1010);
+  lv_obj_set_pos(result.status, installer ? 176 : 208, 42);
+  lv_obj_set_width(result.status, installer ? 1042 : 1010);
   lv_label_set_long_mode(result.status, LV_LABEL_LONG_DOT);
   result.detail = Label(card, "Waiting for the recovery backend to begin.", &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(result.detail, 208, 112);
-  lv_obj_set_width(result.detail, 1010);
+  lv_obj_set_pos(result.detail, installer ? 176 : 208, 112);
+  lv_obj_set_width(result.detail, installer ? 1042 : 1010);
 
   result.percent = Label(card, "0%", &lv_font_montserrat_48, kAccent);
   lv_obj_set_pos(result.percent, 48, 222);
@@ -405,12 +582,9 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_width(result.destination, 1216);
   lv_label_set_long_mode(result.destination, LV_LABEL_LONG_DOT);
 
-  const bool installer =
-      request.job == Job::kInstall || request.job == Job::kSideload;
   const int activity_y = landscape ? 340 : 1230;
   const int activity_height = installer
-      ? std::max(500, static_cast<int>(lv_obj_get_height(screen)) -
-                          activity_y - (landscape ? 250 : 360))
+      ? (landscape ? 850 : 1230)
       : (landscape ? 850 : 600);
   auto *activity_card = lv_obj_create(screen);
   Panel(activity_card, 40, kMainSheet);
@@ -420,12 +594,12 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_style_border_width(activity_card, 1, 0);
   lv_obj_set_style_border_color(activity_card, kMainLine, 0);
   lv_obj_set_style_border_opa(activity_card, LV_OPA_20, 0);
-  auto *activity_title = Label(activity_card,
+  result.activity_title = Label(activity_card,
       request.job == Job::kSideload ? "SIDELOAD & INSTALLER OUTPUT" :
           installer ? "INSTALLER OUTPUT" : "WHAT'S HAPPENING",
       &lv_font_montserrat_24, kAccent);
-  lv_obj_set_pos(activity_title, 48, 42);
-  lv_obj_set_style_text_letter_space(activity_title, 3, 0);
+  lv_obj_set_pos(result.activity_title, 48, 42);
+  lv_obj_set_style_text_letter_space(result.activity_title, 3, 0);
   const lv_font_t *activity_font = installer
       ? (landscape ? &lv_font_montserrat_20 : &lv_font_montserrat_24)
       : &lv_font_montserrat_32;
@@ -446,6 +620,46 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
         1, activity_text_height / line_height));
     lv_label_set_long_mode(result.activity_summary, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_line_space(result.activity_summary, line_space, 0);
+
+    const int row_height = landscape ? 118 : 184;
+    const int row_gap = landscape ? 12 : 18;
+    const int row_top = landscape ? 90 : 106;
+    const int row_width = landscape ? 1448 : 1216;
+    for (int i = 0; i < 4; ++i) {
+      result.steps[i] = lv_obj_create(activity_card);
+      Panel(result.steps[i], 26, kMainPanel);
+      lv_obj_set_pos(result.steps[i], 48,
+                     row_top + i * (row_height + row_gap));
+      lv_obj_set_size(result.steps[i], row_width, row_height);
+      lv_obj_set_style_border_width(result.steps[i], 2, 0);
+      lv_obj_set_style_border_color(result.steps[i], kMainLine, 0);
+      lv_obj_set_style_border_opa(result.steps[i], LV_OPA_10, 0);
+
+      result.step_icons[i] = Label(result.steps[i],
+          i18n::Format("%02d", i + 1).c_str(), &lv_font_montserrat_32, kMuted);
+      lv_obj_set_pos(result.step_icons[i], 28, landscape ? 34 : 52);
+      lv_obj_set_width(result.step_icons[i], 70);
+      lv_obj_set_style_text_align(result.step_icons[i], LV_TEXT_ALIGN_CENTER, 0);
+
+      result.step_titles[i] = Label(result.steps[i], kInstallerStepTitles[i],
+          &lv_font_montserrat_32, kMutedStrong);
+      lv_obj_set_pos(result.step_titles[i], 126, landscape ? 14 : 34);
+      lv_obj_set_width(result.step_titles[i], landscape ? 850 : 720);
+
+      result.step_details[i] = Label(result.steps[i], kInstallerStepDetails[i],
+          &lv_font_montserrat_20, kMuted);
+      lv_obj_set_pos(result.step_details[i], 126, landscape ? 66 : 94);
+      lv_obj_set_width(result.step_details[i], landscape ? 930 : 800);
+      lv_label_set_long_mode(result.step_details[i], LV_LABEL_LONG_DOT);
+
+      result.step_states[i] = Label(result.steps[i], "UP NEXT",
+          &lv_font_montserrat_20, kMuted);
+      lv_obj_align(result.step_states[i], LV_ALIGN_RIGHT_MID, -30, 0);
+      lv_obj_set_width(result.step_states[i], 220);
+      lv_obj_set_style_text_align(result.step_states[i], LV_TEXT_ALIGN_RIGHT, 0);
+      lv_obj_set_style_text_letter_space(result.step_states[i], 2, 0);
+      lv_obj_add_flag(result.steps[i], LV_OBJ_FLAG_HIDDEN);
+    }
   } else {
     result.notice = Label(activity_card,
         LV_SYMBOL_WARNING "  Keep the device powered on until the operation completes.",
@@ -460,7 +674,6 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
                  installer ? activity_height - 200 :
                      (landscape ? 650 : 400));
   lv_obj_set_size(result.details, landscape ? 1448 : 1216, 132);
-  if (installer) lv_obj_add_flag(result.details, LV_OBJ_FLAG_HIDDEN);
 
   const bool backup = request.job == Job::kBackup ||
       request.job == Job::kUploadBackup || request.job == Job::kRestore;
@@ -479,6 +692,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_align(result.done, LV_ALIGN_BOTTOM_MID, 0,
                landscape ? -70 : -130);
   result.done_label = lv_obj_get_child(result.done, 0);
+  lv_obj_set_style_text_align(result.done_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_add_flag(result.done, LV_OBJ_FLAG_HIDDEN);
 
   if (request.job == Job::kSideload) {
@@ -492,6 +706,8 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
     lv_obj_align(result.cancel, LV_ALIGN_BOTTOM_MID, 0,
                  landscape ? -70 : -130);
   }
+
+  if (installer) BuildInstallerPrompt(&result, screen, landscape);
 
   AnimateEnter(card, 45, 24);
   AnimateEnter(activity_card, 85, 24);
@@ -527,13 +743,7 @@ void RefreshOperationScene(const OperationScene &scene) {
   } else if (scene.progress_pulse) {
     if (scene.indeterminate_progress)
       lv_anim_delete(scene.progress_pulse, SetIndeterminateProgressX);
-    if (progress <= 0) {
-      lv_obj_add_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
-    } else {
-      lv_obj_remove_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
-      const int x = 48 + std::clamp(progress * 1216 / 100 - 12, 0, 1192);
-      lv_obj_set_x(scene.progress_pulse, x);
-    }
+    lv_obj_add_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
   }
 
   const unsigned seconds = lv_tick_elaps(scene.started) / 1000;
@@ -587,10 +797,45 @@ void RefreshOperationScene(const OperationScene &scene) {
     const std::string history =
         CleanInstallerHistory(RecoveryInstallerStatus(),
                               std::max(1U, scene.installer_lines));
+    const auto presentation = RecoveryInstallerPresentation();
     const auto installer_lines = Lines(history);
     const std::string installer =
         installer_lines.empty() ? "" : installer_lines.back();
-    if (!installer.empty()) {
+    if (presentation.active) {
+      friendly.title = presentation.stage_title.empty()
+          ? (presentation.package_name.empty() ? "AERA interactive installer"
+                                               : presentation.package_name)
+          : presentation.stage_title;
+      friendly.explanation = presentation.stage_detail.empty()
+          ? "The package is preparing its next step."
+          : presentation.stage_detail;
+      if (presentation.stage_count > 0) {
+        friendly.amount = i18n::Format(
+            "Step %d of %d", presentation.stage, presentation.stage_count);
+      } else {
+        friendly.amount = "Waiting for confirmation";
+      }
+      friendly.files = presentation.device;
+      friendly.activity = presentation.stage_detail;
+      SetInstallerTimelineVisible(scene, true);
+      RefreshInstallerTimeline(scene, presentation.stage,
+                               presentation.stage_detail);
+      if (scene.activity_title)
+        i18n::BindLabel(scene.activity_title, "INSTALLATION PROGRESS");
+      std::string identity = presentation.package_name;
+      if (!presentation.device.empty()) {
+        if (!identity.empty()) identity += "  /  ";
+        identity += presentation.device;
+      }
+      if (!presentation.author.empty()) {
+        if (!identity.empty()) identity += "  /  ";
+        identity += presentation.author;
+      }
+      if (!identity.empty()) i18n::BindLabel(scene.destination, identity.c_str());
+    } else if (!installer.empty()) {
+      SetInstallerTimelineVisible(scene, false);
+      if (scene.activity_title)
+        i18n::BindLabel(scene.activity_title, "INSTALLER OUTPUT");
       const std::string lower = Lower(installer);
       if (lower.find("installing aera to slot") != std::string::npos ||
           lower.find("flashing aera") != std::string::npos) {
@@ -610,6 +855,7 @@ void RefreshOperationScene(const OperationScene &scene) {
       friendly.files.clear();
       friendly.activity = history;
     } else {
+      SetInstallerTimelineVisible(scene, false);
       friendly.amount = "Waiting for installer output";
       friendly.activity = "Waiting for installer output...";
     }
@@ -619,7 +865,41 @@ void RefreshOperationScene(const OperationScene &scene) {
   i18n::BindLabel(scene.metrics,
       friendly.amount.empty() ? "Working..." : friendly.amount.c_str());
   i18n::BindLabel(scene.files, friendly.files.c_str());
-  i18n::BindLabel(scene.activity_summary, friendly.activity.c_str());
+  if (scene.activity_summary &&
+      !lv_obj_has_flag(scene.activity_summary, LV_OBJ_FLAG_HIDDEN))
+    i18n::BindLabel(scene.activity_summary, friendly.activity.c_str());
+
+  if (scene.installer_prompt) {
+    const auto prompt = RecoveryInstallerPrompt();
+    if (prompt.active) {
+      i18n::BindLabel(scene.installer_prompt_title,
+                      prompt.title.empty() ? "Ready to install?"
+                                           : prompt.title.c_str());
+      i18n::BindLabel(scene.installer_prompt_message,
+                      prompt.message.empty()
+                          ? "Review the package before continuing."
+                          : prompt.message.c_str());
+      if (scene.installer_prompt_accept &&
+          lv_obj_get_child_count(scene.installer_prompt_accept) > 0) {
+        i18n::BindLabel(lv_obj_get_child(scene.installer_prompt_accept, 0),
+                        prompt.accept.empty() ? "Install now"
+                                              : prompt.accept.c_str());
+      }
+      if (scene.installer_prompt_decline &&
+          lv_obj_get_child_count(scene.installer_prompt_decline) > 0) {
+        i18n::BindLabel(lv_obj_get_child(scene.installer_prompt_decline, 0),
+                        prompt.decline.empty() ? "Cancel"
+                                               : prompt.decline.c_str());
+      }
+      if (lv_obj_has_flag(scene.installer_prompt, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_remove_flag(scene.installer_prompt, LV_OBJ_FLAG_HIDDEN);
+        if (lv_obj_get_child_count(scene.installer_prompt) > 0)
+          AnimateEnter(lv_obj_get_child(scene.installer_prompt, 0), 0, 30);
+      }
+    } else {
+      lv_obj_add_flag(scene.installer_prompt, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
 }
 
 void CompleteOperationScene(const OperationScene &scene, bool success,
@@ -628,6 +908,8 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
       scene.job == Job::kSideload &&
       RecoverySideloadStatus().cancel_requested;
   RecoveryVibrate(Haptic::kAction);
+  if (scene.installer_prompt)
+    lv_obj_add_flag(scene.installer_prompt, LV_OBJ_FLAG_HIDDEN);
   RefreshOperationScene(scene);
   lv_anim_delete(scene.activity, SetActivityBorderOpacity);
   if (scene.progress_pulse)
@@ -639,23 +921,19 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
     i18n::BindLabel(scene.percent, "100%");
   }
   const auto result_color = success ? design::kGreen : design::kRed;
-  lv_obj_set_style_bg_color(scene.activity,
-      success ? design::kGreenSoft : design::kRedSoft, 0);
-  lv_obj_set_style_border_color(scene.activity, result_color, 0);
-  lv_obj_set_style_border_opa(scene.activity, LV_OPA_50, 0);
+  if (scene.job != Job::kInstall && scene.job != Job::kSideload) {
+    lv_obj_set_style_bg_color(scene.activity,
+        success ? design::kGreenSoft : design::kRedSoft, 0);
+    lv_obj_set_style_border_color(scene.activity, result_color, 0);
+    lv_obj_set_style_border_opa(scene.activity, LV_OPA_50, 0);
+  }
   if (lv_obj_get_child_count(scene.activity) > 0) {
     auto *icon = lv_obj_get_child(scene.activity, 0);
     i18n::BindLabel(icon, success ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
     lv_obj_set_style_text_color(icon, result_color, 0);
   }
   lv_obj_set_style_bg_color(scene.progress, result_color, LV_PART_INDICATOR);
-  if (scene.progress_pulse && !scene.indeterminate_progress) {
-    lv_obj_remove_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_opa(scene.progress_pulse, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(scene.progress_pulse, result_color, 0);
-    lv_obj_set_style_shadow_color(scene.progress_pulse, result_color, 0);
-    if (success) lv_obj_set_x(scene.progress_pulse, 1240);
-  } else if (scene.progress_pulse) {
+  if (scene.progress_pulse) {
     lv_obj_add_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
   }
   i18n::BindLabel(scene.status,
@@ -663,6 +941,17 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
       success ? "Operation complete" : "Operation stopped");
   lv_obj_set_style_text_color(scene.status, result_color, 0);
   lv_obj_set_style_text_color(scene.percent, result_color, 0);
+  const bool structured_installer = scene.steps[0] &&
+      RecoveryInstallerPresentation().active;
+  if (structured_installer) {
+    SetInstallerTimelineVisible(scene, true);
+    RefreshInstallerTimeline(scene,
+        std::max(1, RecoveryInstallerPresentation().stage),
+        detail && *detail ? detail : "", success, !success);
+    if (scene.activity_title)
+      i18n::BindLabel(scene.activity_title,
+          success ? "INSTALLATION COMPLETE" : "INSTALLATION STOPPED");
+  }
   if (scene.format_data && success) {
     i18n::BindLabel(scene.detail, "Data was formatted successfully. Reboot recovery before using /data again.");
     i18n::BindLabel(scene.activity_summary,
@@ -676,9 +965,10 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
   } else {
     i18n::BindLabel(scene.detail, detail && *detail ? detail :
         success ? "Everything finished successfully." : "Open technical details to see what went wrong.");
-    i18n::BindLabel(scene.activity_summary, success ?
-        "The requested operation completed successfully. It is now safe to continue." :
-        "AERA could not finish this operation. Open technical details for troubleshooting information.");
+    if (!structured_installer)
+      i18n::BindLabel(scene.activity_summary, success ?
+          "The requested operation completed successfully. It is now safe to continue." :
+          "AERA could not finish this operation. Open technical details for troubleshooting information.");
   }
   if (scene.notice) {
     i18n::BindLabel(scene.notice, success ?

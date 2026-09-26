@@ -601,6 +601,20 @@ int RecoveryRunJob(const JobRequest &request) {
   DataManager::SetValue("tw_size_progress", "");
   DataManager::SetValue("tw_file_progress", "");
   DataManager::SetValue("aera_install_status", "");
+  DataManager::SetValue("aera_installer_native", 0);
+  DataManager::SetValue("aera_installer_package", "");
+  DataManager::SetValue("aera_installer_device", "");
+  DataManager::SetValue("aera_installer_author", "");
+  DataManager::SetValue("aera_installer_stage_title", "");
+  DataManager::SetValue("aera_installer_stage_detail", "");
+  DataManager::SetValue("aera_installer_stage", 0);
+  DataManager::SetValue("aera_installer_stage_count", 0);
+  DataManager::SetValue("aera_installer_prompt_active", 0);
+  DataManager::SetValue("aera_installer_prompt_id", "");
+  DataManager::SetValue("aera_installer_prompt_title", "");
+  DataManager::SetValue("aera_installer_prompt_message", "");
+  DataManager::SetValue("aera_installer_prompt_accept", "");
+  DataManager::SetValue("aera_installer_prompt_decline", "");
   if (request.job == Job::kInstall) return aeraui_install_package(request.path.c_str());
   if (request.job == Job::kSideload) return RecoveryRunSideload();
   if (request.job == Job::kUploadBackup) {
@@ -806,6 +820,59 @@ std::string RecoveryOperationDetail() {
 }
 std::string RecoveryInstallerStatus() {
   return DataManager::GetStrValue("aera_install_status");
+}
+
+InstallerPresentation RecoveryInstallerPresentation() {
+  InstallerPresentation state;
+  state.active = DataManager::GetIntValue("aera_installer_native") == 1;
+  state.package_name = DataManager::GetStrValue("aera_installer_package");
+  state.device = DataManager::GetStrValue("aera_installer_device");
+  state.author = DataManager::GetStrValue("aera_installer_author");
+  state.stage_title =
+      DataManager::GetStrValue("aera_installer_stage_title");
+  state.stage_detail =
+      DataManager::GetStrValue("aera_installer_stage_detail");
+  state.stage = DataManager::GetIntValue("aera_installer_stage");
+  state.stage_count = DataManager::GetIntValue("aera_installer_stage_count");
+  return state;
+}
+
+InstallerPrompt RecoveryInstallerPrompt() {
+  InstallerPrompt prompt;
+  prompt.active =
+      DataManager::GetIntValue("aera_installer_prompt_active") == 1;
+  prompt.id = DataManager::GetStrValue("aera_installer_prompt_id");
+  prompt.title = DataManager::GetStrValue("aera_installer_prompt_title");
+  prompt.message =
+      DataManager::GetStrValue("aera_installer_prompt_message");
+  prompt.accept = DataManager::GetStrValue("aera_installer_prompt_accept");
+  prompt.decline = DataManager::GetStrValue("aera_installer_prompt_decline");
+  return prompt;
+}
+
+bool RecoveryAnswerInstallerPrompt(bool accepted) {
+  const auto prompt = RecoveryInstallerPrompt();
+  if (!prompt.active || prompt.id.empty() || prompt.id.size() > 48) return false;
+  for (const unsigned char c : prompt.id) {
+    if (!std::isalnum(c) && c != '-' && c != '_' && c != '.') return false;
+  }
+
+  constexpr const char *kDirectory = "/tmp/aera-installer";
+  if (mkdir(kDirectory, 0700) != 0 && errno != EEXIST) return false;
+  const std::string path = std::string(kDirectory) + "/response." + prompt.id;
+  const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC |
+                                      O_NOFOLLOW,
+                      0600);
+  if (fd < 0) return false;
+  const char *answer = accepted ? "yes\n" : "no\n";
+  const size_t length = strlen(answer);
+  const bool written = write(fd, answer, length) ==
+                       static_cast<ssize_t>(length);
+  fsync(fd);
+  close(fd);
+  if (!written) return false;
+  DataManager::SetValue("aera_installer_prompt_active", 0);
+  return true;
 }
 int RecoveryBrightness() {
   LoadAeraPreferencesIfAvailable();

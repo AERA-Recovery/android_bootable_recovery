@@ -33,8 +33,10 @@
 #include <sys/wait.h>
 #include <sys/mount.h>
 #include <unistd.h>
+#include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <vector>
 
 #include <string.h>
 #include <stdio.h>
@@ -95,6 +97,35 @@ static void Append_Aera_Install_Status(const char* line) {
 		--lines;
 	}
 	DataManager::SetValue("aera_install_status", history);
+}
+
+static std::vector<std::string> Split_Aera_Installer_Fields(
+		const char* payload, size_t maximum_fields) {
+	std::vector<std::string> fields;
+	if (payload == nullptr || maximum_fields == 0)
+		return fields;
+	std::string value(payload);
+	while (!value.empty() && (value.back() == '\n' || value.back() == '\r'))
+		value.pop_back();
+	size_t begin = 0;
+	while (fields.size() + 1 < maximum_fields) {
+		const size_t separator = value.find('|', begin);
+		if (separator == std::string::npos)
+			break;
+		fields.emplace_back(value.substr(begin, separator - begin));
+		begin = separator + 1;
+	}
+	fields.emplace_back(value.substr(begin));
+	return fields;
+}
+
+static int Aera_Installer_Integer(const std::string& value, int minimum,
+		int maximum) {
+	char* end = nullptr;
+	const long parsed = strtol(value.c_str(), &end, 10);
+	if (end == value.c_str() || *end != '\0')
+		return minimum;
+	return std::max(minimum, std::min(maximum, static_cast<int>(parsed)));
 }
 
 static int Install_Theme(const char* path, ZipArchiveHandle Zip) {
@@ -253,6 +284,26 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype) 
 		} else if (strcmp(command, "ui_print") == 0) {
 			char* display_value = strtok(NULL, "\n");
 	  		if (display_value) {
+				unsigned int super_percent = 0;
+				unsigned long long super_written = 0;
+				unsigned long long super_total = 0;
+				const bool native_super_progress =
+					DataManager::GetIntValue("aera_installer_native") == 1 &&
+					sscanf(display_value,
+					       "super.img progress: %u%% (%llu / %llu MiB)",
+					       &super_percent, &super_written, &super_total) == 3;
+				if (native_super_progress) {
+					super_percent = std::min(super_percent, 100U);
+					const int overall_progress =
+						68 + static_cast<int>((super_percent * 27U) / 100U);
+					char detail[160];
+					snprintf(detail, sizeof(detail),
+					         "Writing super image  •  %u%%  •  %llu / %llu MiB",
+					         super_percent, super_written, super_total);
+					DataManager::SetValue("ui_progress", overall_progress);
+					DataManager::SetValue("aera_installer_stage_detail", detail);
+					continue;
+				}
 	      		     if (strcmp(display_value, "AROMA Filemanager Finished...") == 0 && (aroma_running == 1)) {
 		  		aroma_running = 0;
 		  		gui_changeOverlay("");
@@ -269,6 +320,58 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype) 
 	  		else {
 	      			gui_print("\n");
 	    		}
+		} else if (strcmp(command, "aera_package") == 0) {
+			const auto fields = Split_Aera_Installer_Fields(strtok(NULL, "\n"), 4);
+			if (fields.size() == 4) {
+				DataManager::SetValue("aera_installer_package", fields[0]);
+				DataManager::SetValue("aera_installer_device", fields[1]);
+				DataManager::SetValue("aera_installer_author", fields[2]);
+				DataManager::SetValue("aera_installer_packager", fields[3]);
+				DataManager::SetValue("aera_installer_native", 1);
+			}
+		} else if (strcmp(command, "aera_stage") == 0) {
+			const auto fields = Split_Aera_Installer_Fields(strtok(NULL, "\n"), 5);
+			if (fields.size() == 5) {
+				const int progress = Aera_Installer_Integer(fields[0], 0, 100);
+				DataManager::SetValue("ui_progress", progress);
+				DataManager::SetValue("aera_installer_stage",
+					Aera_Installer_Integer(fields[1], 0, 99));
+				DataManager::SetValue("aera_installer_stage_count",
+					Aera_Installer_Integer(fields[2], 0, 99));
+				DataManager::SetValue("aera_installer_stage_title", fields[3]);
+				DataManager::SetValue("aera_installer_stage_detail", fields[4]);
+				DataManager::SetValue("aera_installer_native", 1);
+				Append_Aera_Install_Status(fields[3].c_str());
+			}
+		} else if (strcmp(command, "aera_status") == 0) {
+			char* message = strtok(NULL, "\n");
+			if (message != nullptr) {
+				DataManager::SetValue("aera_installer_stage_detail", message);
+				Append_Aera_Install_Status(message);
+				DataManager::SetValue("aera_installer_native", 1);
+			}
+		} else if (strcmp(command, "aera_prompt") == 0) {
+			const auto fields = Split_Aera_Installer_Fields(strtok(NULL, "\n"), 5);
+			if (fields.size() == 5 && !fields[0].empty()) {
+				DataManager::SetValue("aera_installer_prompt_id", fields[0]);
+				DataManager::SetValue("aera_installer_prompt_title", fields[1]);
+				DataManager::SetValue("aera_installer_prompt_message", fields[2]);
+				DataManager::SetValue("aera_installer_prompt_accept", fields[3]);
+				DataManager::SetValue("aera_installer_prompt_decline", fields[4]);
+				DataManager::SetValue("aera_installer_native", 1);
+				DataManager::SetValue("aera_installer_prompt_active", 1);
+			}
+		} else if (strcmp(command, "aera_complete") == 0) {
+			const auto fields = Split_Aera_Installer_Fields(strtok(NULL, "\n"), 2);
+			if (!fields.empty()) {
+				DataManager::SetValue("aera_installer_stage_title", fields[0]);
+				Append_Aera_Install_Status(fields[0].c_str());
+			}
+			if (fields.size() > 1)
+				DataManager::SetValue("aera_installer_stage_detail", fields[1]);
+			DataManager::SetValue("aera_installer_prompt_active", 0);
+			DataManager::SetValue("aera_installer_native", 1);
+			DataManager::SetValue("ui_progress", 100);
 		} else if (strcmp(command, "wipe_cache") == 0) {
 			*wipe_cache = 1;
 		} else if (strcmp(command, "clear_display") == 0) {
@@ -280,6 +383,7 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype) 
 		}
 	}
 	fclose(child_data);
+	DataManager::SetValue("aera_installer_prompt_active", 0);
 
 	int waitrc = TWFunc::Wait_For_Child(pid, &status, "Updater");
 

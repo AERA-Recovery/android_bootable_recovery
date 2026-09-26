@@ -44,6 +44,9 @@ bool RecoveryDockHideInApps() { return false; }
 int RecoveryProgress() { return 0; }
 std::string RecoveryOperationDetail() { return {}; }
 std::string RecoveryInstallerStatus() { return g_installer_status; }
+InstallerPresentation RecoveryInstallerPresentation() { return {}; }
+InstallerPrompt RecoveryInstallerPrompt() { return {}; }
+bool RecoveryAnswerInstallerPrompt(bool) { return true; }
 SideloadStatus RecoverySideloadStatus() { return g_status; }
 void RecoveryVibrate(Haptic) {}
 }  // namespace aeraui

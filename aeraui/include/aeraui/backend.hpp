@@ -87,6 +87,27 @@ bool RecoveryCancelSideload();
 int RecoveryProgress();
 std::string RecoveryOperationDetail();
 std::string RecoveryInstallerStatus();
+struct InstallerPresentation {
+  bool active = false;
+  std::string package_name;
+  std::string device;
+  std::string author;
+  std::string stage_title;
+  std::string stage_detail;
+  int stage = 0;
+  int stage_count = 0;
+};
+struct InstallerPrompt {
+  bool active = false;
+  std::string id;
+  std::string title;
+  std::string message;
+  std::string accept;
+  std::string decline;
+};
+InstallerPresentation RecoveryInstallerPresentation();
+InstallerPrompt RecoveryInstallerPrompt();
+bool RecoveryAnswerInstallerPrompt(bool accepted);
 int RecoveryBrightness();
 void RecoverySetBrightness(int percent);
 bool RecoveryFlashlightSupported();
