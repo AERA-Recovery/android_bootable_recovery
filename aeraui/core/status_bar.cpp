@@ -206,7 +206,7 @@ void BrightnessChanged(lv_event_t *event) {
   const int percent = lv_slider_get_value(state->brightness_slider);
   char text[16];
   snprintf(text, sizeof(text), "%d%%", percent);
-  i18n::BindLabel(state->brightness_value, text);
+  lv_label_set_text(state->brightness_value, text);
   // Update while dragging, but avoid hammering sysfs for every input sample.
   if (lv_event_get_code(event) == LV_EVENT_RELEASED ||
       state->applied_brightness < 0 ||

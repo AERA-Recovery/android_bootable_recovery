@@ -511,13 +511,29 @@ RunResult RunLoop(bool fastboot_mode = false,
         CaptureFrameIfRequested();
         input_event event{};
         int result = ev_get(&event, wait_ms);
-        if (result >= 0 && HandleEvent(engine, performance, hardware, event))
-            return RunResult::kUnexpectedExit;
 
-        // Drain the queue so touch movement reaches LVGL before the next frame.
-        while ((result = ev_get(&event, 0)) >= 0) {
-            if (HandleEvent(engine, performance, hardware, event))
+        // minuitwrp's touch translator returns -1 after consuming a raw input
+        // record that does not yet form a complete pointer sample (for
+        // example ABS_MT_POSITION_X before Y/SYN_REPORT).  Treating that as an
+        // empty queue leaves the remaining coordinates behind, so a fast drag
+        // is visibly replayed several frames late.  Keep consuming filtered
+        // records and stop only on -2, which means poll found no more input.
+        // The budget prevents a continuously reporting controller from
+        // starving LVGL; pointer state itself is latest-value, so all motion
+        // consumed here is naturally coalesced before the next rendered frame.
+        constexpr unsigned kInputDrainBudget = 512;
+        for (unsigned reads = 0; reads < kInputDrainBudget; ++reads) {
+            if (result >= 0 &&
+                HandleEvent(engine, performance, hardware, event))
                 return RunResult::kUnexpectedExit;
+            if (result == -2)
+                break;
+            // Do not fetch one more translated event after the final budgeted
+            // iteration: ev_get() consumes it, and that event may be the
+            // contact release we must preserve for LVGL.
+            if (reads + 1 == kInputDrainBudget)
+                break;
+            result = ev_get(&event, 0);
         }
     }
 }

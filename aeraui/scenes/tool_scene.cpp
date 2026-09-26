@@ -818,11 +818,13 @@ void HapticSlider(Tools *state, int y, const char *title,
     }
     if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
     const int duration = lv_slider_get_value(lv_event_get_target_obj(event));
-    RecoverySetHapticDuration(binding->haptic, duration);
     const std::string text = duration == 0 ? "Off" :
         std::to_string(duration) + " ms";
-    i18n::BindLabel(binding->value, text.c_str());
-    if (code == LV_EVENT_RELEASED) RecoveryVibrate(binding->haptic);
+    lv_label_set_text(binding->value, text.c_str());
+    if (code == LV_EVENT_RELEASED) {
+      RecoverySetHapticDuration(binding->haptic, duration);
+      RecoveryVibrate(binding->haptic);
+    }
   }, LV_EVENT_ALL, binding);
 }
 
@@ -1398,12 +1400,15 @@ void BuildTheme(Tools *state) {
         delete binding;
         return;
       }
-      if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) return;
+      const auto code = lv_event_get_code(event);
+      if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
       const int value = lv_slider_get_value(lv_event_get_target_obj(event));
-      i18n::BindLabel(binding->amount,
-                        (std::to_string(value) + "%").c_str());
-      if (binding->blur) RecoverySetDockBlur(value);
-      else RecoverySetDockTransparency(value);
+      const std::string text = std::to_string(value) + "%";
+      lv_label_set_text(binding->amount, text.c_str());
+      if (code == LV_EVENT_RELEASED) {
+        if (binding->blur) RecoverySetDockBlur(value);
+        else RecoverySetDockTransparency(value);
+      }
     }, LV_EVENT_ALL, binding);
   };
   dock_slider(2730, "Transparency",
@@ -1462,12 +1467,15 @@ void BuildPreferences(Tools *state) {
   lv_slider_set_value(slider, std::max(10, RecoveryBrightness()), LV_ANIM_OFF);
   RangeSlider(slider);
   lv_obj_add_event_cb(slider, [](lv_event_t *event) {
+    const auto code = lv_event_get_code(event);
+    if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
     auto *target = lv_event_get_target_obj(event);
     const int percent = lv_slider_get_value(target);
-    i18n::BindLabel(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),
-                       (std::to_string(percent) + "%").c_str());
-    RecoverySetBrightness(percent);
-  }, LV_EVENT_VALUE_CHANGED, value);
+    const std::string text = std::to_string(percent) + "%";
+    lv_label_set_text(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),
+                      text.c_str());
+    if (code == LV_EVENT_RELEASED) RecoverySetBrightness(percent);
+  }, LV_EVENT_ALL, value);
 
   PreferenceToggle(state, 340, "24-hour clock", "Off uses 12-hour time with AM / PM", Preference::kClock24);
   auto *zone = Label(state->list, "", &lv_font_montserrat_32, kText);
