@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include "ui_components.hpp"
+#include "power_transition.hpp"
 #include <cctype>
 
 namespace aeraui {
@@ -125,7 +126,17 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
       if (active != "—" && !power_off)
         detail += "Active slot: " + active + "  •  ";
       detail += "The current recovery session will end.";
-      Sheet(screen, title, detail, [=] { callback(d.action, context); },
+      Sheet(screen, title, detail, [=] {
+        if (d.action == Action::kRebootFastbootd) {
+          ModeTransition(screen, true,
+                         [=] { callback(d.action, context); });
+          return;
+        }
+        const std::string transition_title = power_off
+            ? "Powering off" : std::string("Rebooting to ") + d.name;
+        PowerTransition(screen, transition_title,
+                        [=] { callback(d.action, context); });
+      },
             0, false, SheetPresentation::kCompactGlass,
             power_off ? "Slide to power off" : "Slide to reboot");
     });

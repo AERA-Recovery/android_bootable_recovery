@@ -23,6 +23,7 @@ cc_library_static {
         "components/matrix_engraving.cpp",
         "components/picture_decode.cpp",
         "components/picture_viewer.cpp",
+        "components/power_transition.cpp",
         "components/retroarch_icon.cpp",
         "components/webkit_icon.cpp",
         "core/engine.cpp",

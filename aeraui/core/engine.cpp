@@ -718,11 +718,11 @@ public:
     backend_ready_ = true;
     interactive_ready_ = true;
     if (enabled) {
-      ShowFastboot();
+      ShowFastboot(true);
     } else {
       ApplyStoredAppearance();
       if (show_recovery_home) {
-        ShowHome();
+        ShowHome(true, true);
       } else {
         // A cold fastbootd boot has not passed recovery's decryption gate.
         // Leave the current frame in place until BeginDecryption() replaces
@@ -2108,12 +2108,15 @@ private:
     recents_transition_active_ = false;
   }
 
-  void ShowFastboot() {
+  void ShowFastboot(bool mode_transition = false) {
     current_tool_ = Action::kNone;
     on_home_ = false;
     lv_obj_t *screen = lv_obj_create(nullptr);
     BuildFastbootScene(screen, HandleSceneAction, this);
-    lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
+    lv_screen_load_anim(screen,
+        mode_transition ? LV_SCR_LOAD_ANIM_FADE_IN
+                        : LV_SCR_LOAD_ANIM_FADE_ON,
+        mode_transition ? 260 : 120, 0, true);
   }
 
   void DismissPowerMenu() {
@@ -2549,7 +2552,7 @@ private:
     self->pending_action_ = action;
   }
 
-  void ShowHome(bool capture_current = true) {
+  void ShowHome(bool capture_current = true, bool mode_transition = false) {
     if (capture_current && IsRecentAppAction(current_scene_))
       CaptureRecentPreview(current_scene_);
     CancelEdgeSwipe();
@@ -2561,7 +2564,10 @@ private:
     on_home_ = true;
     lv_obj_t *screen = lv_obj_create(nullptr);
     BuildHomeScene(screen, HandleSceneAction, this);
-    lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 140, 0, true);
+    lv_screen_load_anim(screen,
+        mode_transition ? LV_SCR_LOAD_ANIM_FADE_IN
+                        : LV_SCR_LOAD_ANIM_FADE_ON,
+        mode_transition ? 260 : 140, 0, true);
   }
 
   void ShowUpdates() {

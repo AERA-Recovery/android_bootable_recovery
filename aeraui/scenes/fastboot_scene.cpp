@@ -18,6 +18,7 @@
 
 #include "aera_logo.hpp"
 #include "design.hpp"
+#include "power_transition.hpp"
 #include "ui_components.hpp"
 
 namespace aeraui {
@@ -397,8 +398,21 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
       if (!slot.empty() && destination.action != Action::kPowerOff)
         detail += "Active slot: " + slot + "  •  ";
       detail += "The current Fastbootd session will end.";
-      Sheet(screen, title, detail, [callback, context, destination] {
-        callback(destination.action, context);
+      Sheet(screen, title, detail, [screen, callback, context, destination] {
+        if (destination.action == Action::kRebootRecovery) {
+          ModeTransition(screen, false, [callback, context, destination] {
+            callback(destination.action, context);
+          });
+          return;
+        }
+        const bool power_off = destination.action == Action::kPowerOff;
+        const std::string transition_title = power_off
+            ? "Powering off"
+            : std::string("Rebooting to ") + destination.name;
+        PowerTransition(screen, transition_title,
+                        [callback, context, destination] {
+                          callback(destination.action, context);
+                        });
       }, 0, false, SheetPresentation::kCompactGlass,
             destination.action == Action::kPowerOff
                 ? "Slide to power off" : "Slide to reboot");
