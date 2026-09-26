@@ -933,9 +933,16 @@ void TWPartitionManager::Decrypt_Data() {
 				while (!Decrypt_Data->Mount(false) && --retry_count)
 					usleep(500);
 				if (Decrypt_Data->Mount(false)) {
-					if (!Decrypt_Data->Decrypt_FBE_DE()) {
+					const bool fbe_de_ready = Decrypt_Data->Decrypt_FBE_DE();
+					if (!fbe_de_ready) {
 						LOGERR("Unable to decrypt FBE device\n");
 					}
+
+#ifdef TW_POST_DECRYPT_MODULES
+					if (fbe_de_ready && DataManager::GetIntValue(TW_CRYPTO_PWTYPE) == 0 &&
+						!android::base::GetBoolProperty("post.decrypt.modules", false))
+						KernelModuleLoader::Load_Post_Decrypt_Modules();
+#endif
 
 				} else {
 					LOGINFO("Failed to mount data after metadata decrypt\n");
@@ -2503,7 +2510,8 @@ void TWPartitionManager::Post_Decrypt(const string& Block_Device) {
 		property_set("twrp.decrypt.done", "true");
 
 #ifdef TW_POST_DECRYPT_MODULES
-		KernelModuleLoader::Load_Post_Decrypt_Modules();
+		if (!android::base::GetBoolProperty("post.decrypt.modules", false))
+			KernelModuleLoader::Load_Post_Decrypt_Modules();
 #endif
 
 		dat->Setup_File_System(false);
@@ -2680,6 +2688,9 @@ int TWPartitionManager::Decrypt_Device(string Password, int user_id) {
 		}
 		if (!user_need_decrypt) {
 			LOGINFO("User %d does not require decryption\n", user_id);
+			if (user_id == 0 &&
+				android::base::GetProperty("twrp.decrypt.done", "") != "true")
+				Post_Decrypt("");
 			return 0;
 		}
 
