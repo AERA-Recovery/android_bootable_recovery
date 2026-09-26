@@ -23,6 +23,8 @@ struct Volume {
   std::string path;
   uint64_t bytes = 0;
   bool selected = false;
+  bool slot_select = false;
+  bool logical = false;
 };
 struct AndroidUser {
   int id = 0;

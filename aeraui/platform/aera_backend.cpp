@@ -278,17 +278,23 @@ std::vector<Volume> RecoveryVolumes(const std::string &kind) {
 std::vector<Volume> RecoveryImageVolumes() {
   static const std::vector<std::string> allowed = {
       "/boot", "/init_boot", "/vendor_boot", "/recovery", "/dtbo", "/abl"};
-  const auto flashable = RecoveryVolumes("flashimg");
+  const auto flashable = RecoveryVolumes("aera_flashimg");
   std::vector<Volume> result;
-  for (const auto &path : allowed) {
-    const auto found = std::find_if(
-        flashable.begin(), flashable.end(), [&](const Volume &volume) {
-          return volume.path == path;
-        });
-    TWPartition *partition = PartitionManager.Find_Partition_By_Path(path);
-    if (found != flashable.end() && partition && partition->Is_SlotSelect())
-      result.push_back(*found);
+  for (auto volume : flashable) {
+    TWPartition *partition = PartitionManager.Find_Partition_By_Path(volume.path);
+    if (!partition) continue;
+    volume.slot_select = partition->Is_SlotSelect();
+    volume.logical = partition->Get_Super_Status();
+    const bool allowed_physical =
+        std::find(allowed.begin(), allowed.end(), volume.path) != allowed.end();
+    if (volume.logical || (allowed_physical && volume.slot_select))
+      result.push_back(std::move(volume));
   }
+  std::stable_sort(result.begin(), result.end(),
+                   [](const Volume &left, const Volume &right) {
+                     if (left.logical != right.logical) return !left.logical;
+                     return left.name < right.name;
+                   });
   return result;
 }
 
@@ -699,7 +705,9 @@ int RecoveryRunJob(const JobRequest &request) {
     std::string directory = slash == 0 ? "/" : request.path.substr(0, slash);
     std::string filename = request.path.substr(slash + 1);
     TWPartition *flash_partition = PartitionManager.Find_Partition_By_Path(target);
-    if (!flash_partition || !flash_partition->Is_SlotSelect()) return 1;
+    const bool logical = flash_partition && flash_partition->Get_Super_Status();
+    if (!flash_partition || (!logical && !flash_partition->Is_SlotSelect()) ||
+        (logical && request.both_slots)) return 1;
     DataManager::SetValue("tw_flash_partition", target + ";");
     DataManager::SetValue("tw_flash_both_slots", request.both_slots ? 1 : 0);
     DataManager::SetValue("tw_partition", target);

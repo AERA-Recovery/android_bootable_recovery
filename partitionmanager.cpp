@@ -27,6 +27,7 @@
 #include <sys/vfs.h>
 #include <unistd.h>
 #include <algorithm>
+#include <chrono>
 #include <map>
 #include <set>
 #include <vector>
@@ -65,6 +66,7 @@
 #include <libgsi/libgsi.h>
 #include <liblp/builder.h>
 #include <libsnapshot/snapshot.h>
+#include <sparse_format.h>
 #include "variables.h"
 #include "twcommon.h"
 #include "partitions.hpp"
@@ -3318,18 +3320,20 @@ void TWPartitionManager::Get_Partition_List(string ListType,
 				Partition_List->push_back(datamedia);
 			}
 		}
-	} else if (ListType == "flashimg") {
+	} else if (ListType == "flashimg" || ListType == "aera_flashimg") {
 		for (iter = Partitions.begin(); iter != Partitions.end(); iter++) {
-			if ((*iter)->Can_Flash_Img && (*iter)->Is_Present) {
+			const bool aera_logical = ListType == "aera_flashimg" && (*iter)->Is_Super;
+			if (((*iter)->Can_Flash_Img || aera_logical) && (*iter)->Is_Present) {
 				struct PartitionList part;
 				part.Display_Name = (*iter)->Backup_Display_Name;
 				part.Mount_Point = (*iter)->Backup_Path;
+				part.PartitionSize = (*iter)->IOCTL_Get_Block_Size();
 				part.selected = 0;
 				Partition_List->push_back(part);
 			}
 		}
 
-		if (DataManager::GetIntValue("tw_has_repack_tools") != 0 && DataManager::GetIntValue("tw_has_boot_slots") != 0 && DataManager::GetIntValue("tw_include_install_recovery_ramdisk") != 0) {
+		if (ListType == "flashimg" && DataManager::GetIntValue("tw_has_repack_tools") != 0 && DataManager::GetIntValue("tw_has_boot_slots") != 0 && DataManager::GetIntValue("tw_include_install_recovery_ramdisk") != 0) {
 			std::string dest_partition = "/boot";
 			#if defined(BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT) || defined(AERA_VENDOR_BOOT_RECOVERY)
 				dest_partition = "/vendor_boot";
@@ -3638,6 +3642,154 @@ bool TWPartitionManager::Remove_MTP_Storage(unsigned int Storage_ID) {
 	return false;
 }
 
+namespace {
+
+bool AeraExpandedImageSize(const std::string& path, uint64_t* size) {
+	if (!size)
+		return false;
+	struct stat image_stat {};
+	if (stat(path.c_str(), &image_stat) != 0 || !S_ISREG(image_stat.st_mode) ||
+		image_stat.st_size <= 0)
+		return false;
+
+	*size = static_cast<uint64_t>(image_stat.st_size);
+	int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return false;
+	sparse_header_t header {};
+	const ssize_t bytes = read(fd, &header, sizeof(header));
+	close(fd);
+	if (bytes < static_cast<ssize_t>(sizeof(header.magic)) ||
+		header.magic != SPARSE_HEADER_MAGIC)
+		return true;
+	if (bytes != static_cast<ssize_t>(sizeof(header)) ||
+		header.major_version != 1 || header.blk_sz == 0 ||
+		header.total_blks == 0 ||
+		header.total_blks > UINT64_MAX / static_cast<uint64_t>(header.blk_sz)) {
+		LOGERR("Invalid Android sparse image header in '%s'\n", path.c_str());
+		return false;
+	}
+	*size = static_cast<uint64_t>(header.total_blks) * header.blk_sz;
+	return true;
+}
+
+bool AeraMapLogicalPartition(const std::string& super_device, uint32_t metadata_slot,
+							 const std::string& partition_name,
+							 std::string* mapped_path) {
+	android::fs_mgr::CreateLogicalPartitionParams params = {
+		.block_device = super_device,
+		.metadata_slot = metadata_slot,
+		.partition_name = partition_name,
+		.force_writable = true,
+		.timeout_ms = std::chrono::seconds(5),
+	};
+	return android::fs_mgr::CreateLogicalPartition(params, mapped_path);
+}
+
+bool AeraGrowLogicalPartition(TWPartitionManager* manager, TWPartition* twrp_part,
+							  uint64_t requested_size) {
+	if (!manager || !twrp_part || !twrp_part->Get_Super_Status())
+		return false;
+	auto snapshots = android::snapshot::SnapshotManager::NewForFirstStageMount();
+	if (snapshots && snapshots->GetUpdateState() != android::snapshot::UpdateState::None) {
+		LOGERR("Refusing to resize a logical partition while a snapshot update is active\n");
+		gui_err("Logical partitions cannot be resized while an Android snapshot update is active.");
+		return false;
+	}
+
+	const std::string slot_suffix = manager->Get_Active_Slot_Suffix();
+	const uint32_t metadata_slot = android::fs_mgr::SlotNumberForSlotSuffix(slot_suffix);
+	const std::string super_device = manager->Get_Super_Partition();
+	const std::string bare_name =
+		manager->Get_Bare_Partition_Name(twrp_part->Get_Mount_Point());
+	auto builder = MetadataBuilder::New(super_device, metadata_slot);
+	if (!builder) {
+		LOGERR("Unable to read logical partition metadata from '%s'\n", super_device.c_str());
+		gui_err("Unable to read the Super partition metadata.");
+		return false;
+	}
+
+	std::string partition_name = bare_name + slot_suffix;
+	auto logical = builder->FindPartition(partition_name);
+	if (!logical) {
+		partition_name = bare_name;
+		logical = builder->FindPartition(partition_name);
+	}
+	if (!logical) {
+		LOGERR("Logical partition '%s' was not found in Super metadata\n", bare_name.c_str());
+		gui_err("The selected logical partition is missing from Super metadata.");
+		return false;
+	}
+	const uint64_t current_size = logical->size();
+	if (requested_size <= logical->size())
+		return true;
+	if (!builder->ResizePartition(logical, requested_size)) {
+		LOGERR("Not enough free space in logical group to grow '%s' from %llu to %llu bytes\n",
+			partition_name.c_str(), static_cast<unsigned long long>(logical->size()),
+			static_cast<unsigned long long>(requested_size));
+		gui_err("The image is larger than the logical partition and its Super group has insufficient free space.");
+		return false;
+	}
+	auto updated = builder->Export();
+	if (!updated) {
+		gui_err("Unable to prepare updated Super partition metadata.");
+		return false;
+	}
+
+	// liblp's slot argument is an Android boot slot (A or B), not an index over
+	// geometry.metadata_slot_count. Virtual A/B devices may reserve a third
+	// metadata area for snapshots, but SlotSuffixForSlotNumber intentionally
+	// accepts only 0 and 1. Update only the table we loaded and are about to map.
+	auto original = android::fs_mgr::ReadMetadata(super_device, metadata_slot);
+	if (!original) {
+		LOGERR("Unable to preserve Super metadata slot %u before resize\n", metadata_slot);
+		gui_err("Unable to preserve the current Super partition metadata.");
+		return false;
+	}
+
+	if (!DestroyLogicalPartition(partition_name)) {
+		LOGERR("Unable to release logical mapping '%s' before resize\n", partition_name.c_str());
+		gui_err("Unable to release the logical partition before resizing it.");
+		return false;
+	}
+
+	const bool metadata_written =
+		android::fs_mgr::UpdatePartitionTable(super_device, *updated, metadata_slot);
+	auto restore_metadata = [&] {
+		android::fs_mgr::UpdatePartitionTable(super_device, *original, metadata_slot);
+	};
+	if (!metadata_written) {
+		LOGERR("Failed to commit resized logical partition metadata; restoring original table\n");
+		restore_metadata();
+		std::string restored_path;
+		AeraMapLogicalPartition(super_device, metadata_slot, partition_name, &restored_path);
+		if (!restored_path.empty())
+			twrp_part->Set_Block_Device(restored_path);
+		gui_err("Unable to update the Super partition metadata; the original layout was restored.");
+		return false;
+	}
+
+	std::string mapped_path;
+	if (!AeraMapLogicalPartition(super_device, metadata_slot, partition_name, &mapped_path)) {
+		LOGERR("Unable to map resized logical partition '%s'; restoring original table\n",
+			partition_name.c_str());
+		restore_metadata();
+		AeraMapLogicalPartition(super_device, metadata_slot, partition_name, &mapped_path);
+		if (!mapped_path.empty())
+			twrp_part->Set_Block_Device(mapped_path);
+		gui_err("Unable to map the resized logical partition; the original layout was restored.");
+		return false;
+	}
+	twrp_part->Set_Block_Device(mapped_path);
+	twrp_part->Update_Size(true);
+	LOGINFO("AERA grew logical partition '%s' from %llu to %llu bytes\n",
+		partition_name.c_str(), static_cast<unsigned long long>(current_size),
+		static_cast<unsigned long long>(requested_size));
+	return true;
+}
+
+}  // namespace
+
 bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 	twrpRepacker repacker;
 	int partition_count = 0;
@@ -3710,8 +3862,56 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 
 	DataManager::SetProgress(0.0);
 	if (flash_part) {
+		const bool logical = flash_part->Get_Super_Status();
+		const bool remount = logical && flash_part->Is_Mounted();
+		const bool replay_post_decrypt = logical &&
+			android::base::GetBoolProperty("post.decrypt.modules", false);
+		bool dependencies_quiesced = false;
+		auto restore_dynamic_dependencies = [&] {
+			if (!dependencies_quiesced)
+				return;
+			if (replay_post_decrypt) {
+				property_set("post.decrypt.modules", "false");
+				usleep(100000);
+				property_set("post.decrypt.modules", "true");
+			}
+			Restart_Quiesced_Dynamic_Services();
+			dependencies_quiesced = false;
+		};
+		if (logical) {
+			dependencies_quiesced = true;
+			if (!QuiesceDynamicPartitionUsers()) {
+				restore_dynamic_dependencies();
+				gui_err("Unable to stop services using logical partitions; flashing was cancelled.");
+				return false;
+			}
+		}
+		if (logical && !flash_part->UnMount(true)) {
+			restore_dynamic_dependencies();
+			gui_err("Unable to unmount the logical partition before flashing.");
+			return false;
+		}
+		uint64_t expanded_size = 0;
+		if (!AeraExpandedImageSize(full_filename, &expanded_size)) {
+			gui_err("Unable to determine the image size.");
+			if (remount)
+				flash_part->Mount(false);
+			restore_dynamic_dependencies();
+			return false;
+		}
+		if (logical && !AeraGrowLogicalPartition(this, flash_part, expanded_size)) {
+			if (remount)
+				flash_part->Mount(false);
+			restore_dynamic_dependencies();
+			return false;
+		}
 		flash_part->Backup_FileName = filename;
-		if (!flash_part->Flash_Image(&part_settings))
+		const bool flashed = flash_part->Flash_Image(&part_settings);
+		if (remount && !flash_part->Mount(false))
+			LOGINFO("Unable to remount logical partition '%s' after image flash\n",
+				flash_part->Get_Mount_Point().c_str());
+		restore_dynamic_dependencies();
+		if (!flashed)
 			return false;
 	} else {
 		gui_err("invalid_flash=Invalid flash partition specified.");

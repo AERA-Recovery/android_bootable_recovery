@@ -133,6 +133,24 @@ std::string SuggestedImageTarget(const std::string &name) {
   const std::string lower = Lower(name);
   if (lower.find("init_boot") != std::string::npos) return "/init_boot";
   if (lower.find("vendor_boot") != std::string::npos) return "/vendor_boot";
+  if (lower.find("system_ext") != std::string::npos) return "/system_ext";
+  if (lower.find("system_dlkm") != std::string::npos) return "/system_dlkm";
+  if (lower.find("vendor_dlkm") != std::string::npos) return "/vendor_dlkm";
+  if (lower.find("odm_dlkm") != std::string::npos) return "/odm_dlkm";
+  if (lower.find("my_engineering") != std::string::npos) return "/my_engineering";
+  if (lower.find("my_manifest") != std::string::npos) return "/my_manifest";
+  if (lower.find("my_product") != std::string::npos) return "/my_product";
+  if (lower.find("my_company") != std::string::npos) return "/my_company";
+  if (lower.find("my_carrier") != std::string::npos) return "/my_carrier";
+  if (lower.find("my_region") != std::string::npos) return "/my_region";
+  if (lower.find("my_bigball") != std::string::npos) return "/my_bigball";
+  if (lower.find("my_heytap") != std::string::npos) return "/my_heytap";
+  if (lower.find("my_stock") != std::string::npos) return "/my_stock";
+  if (lower.find("my_preload") != std::string::npos) return "/my_preload";
+  if (lower.find("product") != std::string::npos) return "/product";
+  if (lower.find("vendor") != std::string::npos) return "/vendor";
+  if (lower.find("system") != std::string::npos) return "/system";
+  if (lower.find("odm") != std::string::npos) return "/odm";
   if (lower.find("abl") != std::string::npos) return "/abl";
   if (lower.find("dtbo") != std::string::npos) return "/dtbo";
   if (lower.find("recovery") != std::string::npos ||
@@ -150,6 +168,16 @@ const char *ImageTargetDescription(const std::string &path) {
   if (path == "/dtbo") return "Device-tree overlays used by the kernel";
   if (path == "/recovery") return "AERA or another compatible recovery image";
   if (path == "/abl") return "Android bootloader image - device-specific and high risk";
+  if (path == "/system" || path == "/system_root")
+    return "Android operating-system image in Super";
+  if (path == "/system_ext") return "Android system extensions in Super";
+  if (path == "/system_dlkm") return "System kernel modules in Super";
+  if (path == "/vendor") return "Hardware vendor image in Super";
+  if (path == "/vendor_dlkm") return "Vendor kernel modules in Super";
+  if (path == "/product") return "Product applications and configuration in Super";
+  if (path == "/odm") return "Device-manufacturer image in Super";
+  if (path == "/odm_dlkm") return "ODM kernel modules in Super";
+  if (path.rfind("/my_", 0) == 0) return "Device-specific logical image in Super";
   return "Raw flashable partition";
 }
 
@@ -607,10 +635,13 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
       request.title = "Flash Image";
       request.path = entry.path;
       request.partitions = {target.path};
-      request.both_slots = *both_slots;
-      const std::string slot_destination = *both_slots
+      request.both_slots = *both_slots && !target.logical;
+      const std::string slot_destination = request.both_slots
           ? i18n::Translate("Both slots A + B")
-          : i18n::Format("Current slot %s", RecoverySlot().c_str());
+          : target.logical
+              ? i18n::Format("Logical partition  /  slot %s",
+                             RecoverySlot().c_str())
+              : i18n::Format("Current slot %s", RecoverySlot().c_str());
       const std::string warning = i18n::Format(
           "Image\n%s\n\nTarget\n%s  /  %s\n\nDestination\n%s\n\n"
           "This writes directly to the selected partition. An incorrect image "
@@ -643,7 +674,10 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
     auto *name = Label(row, target.name.c_str(), &lv_font_montserrat_32, kText);
     lv_obj_set_pos(name, 132, 28);
     SingleLineLabel(name, target_width - 430, &lv_font_montserrat_32);
-    auto *description = Label(row, ImageTargetDescription(target.path),
+    std::string target_description = ImageTargetDescription(target.path);
+    if (target.logical)
+      target_description += "  /  " + Size(target.bytes) + " allocated";
+    auto *description = Label(row, target_description.c_str(),
                               &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(description, 132, 92);
     SingleLineLabel(description, target_width - 300,
@@ -659,7 +693,8 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
   const std::string suggestion = SuggestedImageTarget(entry.name);
   const auto recommended = std::find_if(
       targets.begin(), targets.end(), [&](const Volume &target) {
-        return target.path == suggestion;
+        return target.path == suggestion ||
+               (suggestion == "/system" && target.path == "/system_root");
       });
   if (recommended != targets.end()) {
     auto *recommended_title = Label(list, "DETECTED FROM FILENAME",

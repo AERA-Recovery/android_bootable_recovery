@@ -31,6 +31,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <climits>
 #include <iostream>
 #include <libgen.h>
 #include <pwd.h>
@@ -3559,10 +3560,10 @@ bool TWPartition::Flash_Image(PartitionSettings *part_settings) {
 
 	LOGINFO("Image filename is: %s\n", Backup_FileName.c_str());
 
-	if (Backup_Method == BM_FILES) {
+	if (Backup_Method == BM_FILES && !Is_Super) {
 		LOGERR("Cannot flash images to file systems\n");
 		return false;
-	} else if (!Can_Flash_Img) {
+	} else if (!Can_Flash_Img && !Is_Super) {
 		LOGERR("Cannot flash images to partitions %s\n", Display_Name.c_str());
 		return false;
 	} else {
@@ -3571,13 +3572,33 @@ bool TWPartition::Flash_Image(PartitionSettings *part_settings) {
 			return false;
 		}
 		unsigned long long image_size = TWFunc::Get_File_Size(full_filename);
+		if (Is_Sparse_Image(full_filename)) {
+			int sparse_fd = open(full_filename.c_str(), O_RDONLY | O_CLOEXEC);
+			sparse_header_t sparse_header = {};
+			const bool header_ok = sparse_fd >= 0 &&
+				read(sparse_fd, &sparse_header, sizeof(sparse_header)) ==
+					static_cast<ssize_t>(sizeof(sparse_header));
+			if (sparse_fd >= 0)
+				close(sparse_fd);
+			if (!header_ok || sparse_header.magic != SPARSE_HEADER_MAGIC ||
+				sparse_header.major_version != 1 ||
+				sparse_header.blk_sz == 0 || sparse_header.total_blks == 0 ||
+				sparse_header.total_blks >
+					ULLONG_MAX / static_cast<unsigned long long>(sparse_header.blk_sz)) {
+				LOGERR("Invalid Android sparse image header in '%s'\n", full_filename.c_str());
+				gui_err("Invalid Android sparse image.");
+				return false;
+			}
+			image_size = static_cast<unsigned long long>(sparse_header.total_blks) *
+				static_cast<unsigned long long>(sparse_header.blk_sz);
+		}
 		if (image_size > Size) {
 			LOGINFO("Size (%llu bytes) of image '%s' is larger than target device '%s' (%llu bytes)\n",
 				image_size, Backup_FileName.c_str(), Actual_Block_Device.c_str(), Size);
 			gui_err("img_size_err=Size of image is larger than target device");
 			return false;
 		}
-		if (Backup_Method == BM_DD) {
+		if (Backup_Method == BM_DD || Is_Super) {
 			if (!part_settings->adbbackup) {
 				if (Is_Sparse_Image(full_filename)) {
 					return Flash_Sparse_Image(full_filename);
@@ -3623,7 +3644,14 @@ bool TWPartition::Flash_Sparse_Image(const string& Filename) {
 
 	Command = "simg2img '" + Filename + "' '" + Actual_Block_Device + "'";
 	LOGINFO("Flash command: '%s'\n", Command.c_str());
-	TWFunc::Exec_Cmd(Command);
+	const bool flashed = TWFunc::Exec_Cmd(Command) == 0;
+	if (!flashed) {
+		LOGERR("simg2img failed while flashing '%s' to '%s'\n",
+			Filename.c_str(), Actual_Block_Device.c_str());
+		gui_err("Sparse image flashing failed.");
+		return false;
+	}
+	sync();
 	return true;
 }
 
