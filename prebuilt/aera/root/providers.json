@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated": "2026-09-10",
+  "generated": "2026-09-26",
   "architecture": "aarch64",
   "providers": [
     {
@@ -18,11 +18,11 @@
       "id": "kernelsu-next",
       "name": "KernelSU Next",
       "repository": "KernelSU-Next/KernelSU-Next",
-      "version": "v3.3.0",
+      "version": "v3.4.0",
       "assets": [
-        {"kmi":"android14-6.1","name":"android14-6.1_kernelsu.ko","size":421800,"sha256":"4e69edfc1157c56051ce247f9a0a02df916e94f01a0ae6e72565237a483549f2","archive":false},
-        {"kmi":"android15-6.6","name":"android15-6.6_kernelsu.ko","size":325952,"sha256":"0ddcd6d91bc4217ac0b3ff0bfbfb376ad4b333f23c2ccca23b5c89dbc9087e2b","archive":false},
-        {"kmi":"android16-6.12","name":"android16-6.12_kernelsu.ko","size":392144,"sha256":"a6d29a9880530c6069afd9bbd23be8114225b1f5e8a3687d4b0d0fd0ba368d6e","archive":false}
+        {"kmi":"android14-6.1","name":"aarch64-android14-6.1_kernelsu.ko","size":434048,"sha256":"0d6f528552f520644c55626ba714a6b0ce2c6e83f501860b3fcd739823bd80c0","archive":false},
+        {"kmi":"android15-6.6","name":"aarch64-android15-6.6_kernelsu.ko","size":338928,"sha256":"6577efc517b4af260854bfa18af1c0cc33b6eb93de732fe47870af00d394e680","archive":false},
+        {"kmi":"android16-6.12","name":"aarch64-android16-6.12_kernelsu.ko","size":403952,"sha256":"45e645f4a0af7c5d9b27a25002ac89a8a93862ab1b37f57fd895929552794c91","archive":false}
       ]
     },
     {

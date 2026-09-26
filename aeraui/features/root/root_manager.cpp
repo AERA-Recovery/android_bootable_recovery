@@ -587,7 +587,7 @@ bool FetchManagerApk(Provider provider, Progress &progress, Release &release) {
 std::string ExpectedAsset(Provider provider, const std::string &kmi) {
   switch (provider) {
     case Provider::kKernelSU: return "lkm-aarch64-" + kmi + "_kernelsu.ko";
-    case Provider::kKernelSUNext: return kmi + "_kernelsu.ko";
+    case Provider::kKernelSUNext: return "aarch64-" + kmi + "_kernelsu.ko";
     case Provider::kSukiSU: return "aarch64-" + kmi + "-lkm.zip";
   }
   return {};
@@ -619,17 +619,24 @@ bool FetchRelease(Provider provider, const Status &device, Progress &progress,
   }
   release.version = root["tag_name"].asString();
   release.kmi = device.kmi;
-  const std::string wanted = ExpectedAsset(provider, device.kmi);
+  const std::string preferred = ExpectedAsset(provider, device.kmi);
+  std::vector<std::string> accepted = {preferred};
+  if (provider == Provider::kKernelSUNext)
+    accepted.push_back(device.kmi + "_kernelsu.ko");
   unsigned matches = 0;
-  for (const auto &asset : root["assets"]) {
-    if (asset["name"].asString() != wanted) continue;
-    ++matches;
-    release.asset_name = wanted;
-    release.asset_url = asset["browser_download_url"].asString();
-    release.size = asset["size"].asUInt64();
-    std::string digest = asset.get("digest", "").asString();
-    if (digest.compare(0, 7, "sha256:") == 0) digest.erase(0, 7);
-    release.sha256 = digest;
+  for (const auto &wanted : accepted) {
+    matches = 0;
+    for (const auto &asset : root["assets"]) {
+      if (asset["name"].asString() != wanted) continue;
+      ++matches;
+      release.asset_name = wanted;
+      release.asset_url = asset["browser_download_url"].asString();
+      release.size = asset["size"].asUInt64();
+      std::string digest = asset.get("digest", "").asString();
+      if (digest.compare(0, 7, "sha256:") == 0) digest.erase(0, 7);
+      release.sha256 = digest;
+    }
+    if (matches != 0) break;
   }
   release.archive = provider == Provider::kSukiSU;
   const bool hash_ok = release.sha256.size() == 64 &&
