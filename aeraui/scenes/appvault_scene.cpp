@@ -118,6 +118,10 @@ struct State {
   std::atomic<bool> cancel{false};
   std::atomic<pid_t> child{-1};
   std::atomic<unsigned> work_progress{0};
+  std::atomic<uint64_t> work_bytes_done{0};
+  std::atomic<uint64_t> work_bytes_total{0};
+  std::atomic<uint64_t> work_files_done{0};
+  std::atomic<uint64_t> work_files_total{0};
   std::atomic<bool> work_success{false};
   std::mutex result_mutex;
   std::string runtime;
@@ -427,18 +431,27 @@ std::string LastUsefulLine(const std::string &text) {
   return line;
 }
 
-void ParseProgress(State *state, const std::string &text) {
-  size_t pos = 0;
-  while ((pos = text.find("\"percent_done\"", pos)) != std::string::npos) {
-    pos = text.find(':', pos);
-    if (pos == std::string::npos) return;
-    char *end = nullptr;
-    const double value = strtod(text.c_str() + pos + 1, &end);
-    if (end != text.c_str() + pos + 1)
-      state->work_progress.store(static_cast<unsigned>(
-          std::clamp(value * 100.0, 1.0, 99.0)));
-    pos++;
+void ParseProgressLine(State *state, const std::string &line) {
+  Json::Value message;
+  Json::CharReaderBuilder builder;
+  std::string errors;
+  std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+  if (!reader->parse(line.data(), line.data() + line.size(), &message, &errors) ||
+      !message.isObject() || message["message_type"].asString() != "status")
+    return;
+
+  if (message["percent_done"].isNumeric()) {
+    state->work_progress.store(static_cast<unsigned>(
+        std::clamp(message["percent_done"].asDouble() * 100.0, 0.0, 99.0)));
   }
+  state->work_bytes_total.store(message["total_bytes"].asUInt64());
+  state->work_files_total.store(message["total_files"].asUInt64());
+  state->work_bytes_done.store(
+      message.isMember("bytes_done") ? message["bytes_done"].asUInt64()
+                                      : message["bytes_restored"].asUInt64());
+  state->work_files_done.store(
+      message.isMember("files_done") ? message["files_done"].asUInt64()
+                                      : message["files_restored"].asUInt64());
 }
 
 bool WriteAll(int fd, const std::string &value) {
@@ -494,6 +507,7 @@ int RunRestic(State *state, const std::vector<std::string> &arguments,
     close(channel[1]);
     setenv("TMPDIR", "/tmp", 1);
     setenv("RESTIC_CACHE_DIR", "/tmp/aera-restic-cache", 1);
+    setenv("RESTIC_PROGRESS_FPS", "2", 1);
     setenv("GOMAXPROCS", "4", 1);
     execv(program.c_str(), argv.data());
     _exit(127);
@@ -507,15 +521,22 @@ int RunRestic(State *state, const std::vector<std::string> &arguments,
   }
   state->child.store(child);
   char buffer[8192];
+  std::string pending;
   while (true) {
     const ssize_t count = read(channel[0], buffer, sizeof(buffer));
     if (count < 0 && errno == EINTR) continue;
     if (count <= 0) break;
     output.append(buffer, static_cast<size_t>(count));
-    ParseProgress(state, output);
+    pending.append(buffer, static_cast<size_t>(count));
+    size_t newline = 0;
+    while ((newline = pending.find('\n')) != std::string::npos) {
+      ParseProgressLine(state, pending.substr(0, newline));
+      pending.erase(0, newline + 1);
+    }
     if (output.size() > (1U << 20)) output.erase(0, output.size() - (1U << 19));
     if (state->cancel.load()) kill(child, SIGTERM);
   }
+  if (!pending.empty()) ParseProgressLine(state, pending);
   close(channel[0]);
   int status = 0;
   while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
@@ -921,14 +942,19 @@ void StartWork(State *state, Work work) {
   state->work_success.store(false);
   state->cancel.store(false);
   state->busy.store(true);
-  state->work_progress.store(4);
+  state->work_progress.store(work == Work::kBackup || work == Work::kRestore ? 0 : 4);
+  state->work_bytes_done.store(0);
+  state->work_bytes_total.store(0);
+  state->work_files_done.store(0);
+  state->work_files_total.store(0);
   SetActions(state, false);
   lv_obj_remove_flag(state->progress, LV_OBJ_FLAG_HIDDEN);
-  lv_bar_set_value(state->progress, 4, LV_ANIM_OFF);
+  lv_bar_set_value(state->progress, state->work_progress.load(), LV_ANIM_OFF);
   const char *title = work == Work::kBackup ? "Backing up selected apps…" :
       work == Work::kRestore ? "Restoring latest snapshot…" :
       "Reading backups…";
   i18n::BindLabel(state->status, title);
+  i18n::BindLabel(state->detail, "Preparing backup engine…");
   state->worker =
       std::thread(Worker, state, work, std::move(paths), state->user_id);
 }
@@ -1236,8 +1262,30 @@ void Poll(State *state) {
       SetActions(state, false);
     }
   }
-  if (state->busy.load())
-    lv_bar_set_value(state->progress, state->work_progress.load(), LV_ANIM_ON);
+  if (state->busy.load()) {
+    const unsigned progress = state->work_progress.load();
+    lv_bar_set_value(state->progress, progress, LV_ANIM_ON);
+    if (state->work == Work::kBackup || state->work == Work::kRestore) {
+      const char *base = state->work == Work::kBackup
+          ? "Backing up selected apps…" : "Restoring latest snapshot…";
+      const std::string status = i18n::Format(
+          "%s %u%%", i18n::Translate(base), progress);
+      i18n::BindLabel(state->status, status.c_str());
+      const uint64_t bytes_done = state->work_bytes_done.load();
+      const uint64_t bytes_total = state->work_bytes_total.load();
+      const uint64_t files_done = state->work_files_done.load();
+      const uint64_t files_total = state->work_files_total.load();
+      std::string detail;
+      if (bytes_total)
+        detail = HumanBytes(bytes_done) + " / " + HumanBytes(bytes_total);
+      if (files_total) {
+        if (!detail.empty()) detail += "  •  ";
+        detail += std::to_string(files_done) + " / " +
+                  std::to_string(files_total);
+      }
+      if (!detail.empty()) i18n::BindLabel(state->detail, detail.c_str());
+    }
+  }
   if (state->busy.load() && state->done.exchange(false)) {
     if (state->worker.joinable()) state->worker.join();
     std::string result;
