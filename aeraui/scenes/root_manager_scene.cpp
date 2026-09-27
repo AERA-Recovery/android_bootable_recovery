@@ -237,14 +237,12 @@ void RenderModules(RootUi *state) {
     lv_obj_center(icon);
     auto *name = Label(card, module.name.c_str(), &lv_font_montserrat_32, kText);
     lv_obj_set_pos(name, 120, 22);
-    lv_obj_set_width(name, 720);
-    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    SingleLineLabel(name, 720, &lv_font_montserrat_32);
     std::string version = module.version;
     if (!module.author.empty()) version += " • " + module.author;
     auto *meta = Label(card, version.c_str(), &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(meta, 120, 76);
-    lv_obj_set_width(meta, 720);
-    lv_label_set_long_mode(meta, LV_LABEL_LONG_DOT);
+    SingleLineLabel(meta, 720, &lv_font_montserrat_24);
 
     auto *toggle = Button(card, module.enabled ? "Disable" : "Enable",
         [state, module] {
@@ -269,8 +267,7 @@ void RenderModules(RootUi *state) {
           module.description.empty() ? module.id.c_str() : module.description.c_str(),
           &lv_font_montserrat_24, kMutedStrong);
       lv_obj_set_pos(description, 24, 126);
-      lv_obj_set_width(description, 1196);
-      lv_label_set_long_mode(description, LV_LABEL_LONG_DOT);
+      SingleLineLabel(description, 1196, &lv_font_montserrat_24);
     }
     y += module.update_available ? 262 : 214;
   }
@@ -282,6 +279,7 @@ void RenderModules(RootUi *state) {
         &lv_font_montserrat_32, kMuted);
     lv_obj_set_pos(empty, 24, 50);
   }
+  lv_obj_set_height(state->module_list, std::max(y, 196));
 }
 
 void RefreshUi(RootUi *state) {
