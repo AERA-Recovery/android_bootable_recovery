@@ -71,6 +71,77 @@ static constexpr int WLAN_SUPP_READY_TIMEOUT_MS = 60000;
  * wrapper (mondrian_wlan_up.sh); it is now native init builtins. */
 static const char* WLAN_SUPP_PREP_PROP = "sys.aera.wlan.up";
 
+static int HexDigitValue(char value) {
+    if (value >= '0' && value <= '9') return value - '0';
+    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+    return -1;
+}
+
+static std::string DecodeSupplicantText(const std::string& encoded) {
+    std::string decoded;
+    decoded.reserve(encoded.size());
+
+    for (size_t i = 0; i < encoded.size(); ++i) {
+        if (encoded[i] != '\\' || i + 1 >= encoded.size()) {
+            decoded.push_back(encoded[i]);
+            continue;
+        }
+
+        const char escaped = encoded[i + 1];
+        if (escaped == 'x' && i + 3 < encoded.size()) {
+            const int high = HexDigitValue(encoded[i + 2]);
+            const int low = HexDigitValue(encoded[i + 3]);
+            if (high >= 0 && low >= 0) {
+                decoded.push_back(static_cast<char>((high << 4) | low));
+                i += 3;
+                continue;
+            }
+        }
+
+        switch (escaped) {
+            case '\\': decoded.push_back('\\'); ++i; continue;
+            case '"': decoded.push_back('"'); ++i; continue;
+            case 'n': decoded.push_back('\n'); ++i; continue;
+            case 'r': decoded.push_back('\r'); ++i; continue;
+            case 't': decoded.push_back('\t'); ++i; continue;
+            case 'e': decoded.push_back('\x1b'); ++i; continue;
+            default: break;
+        }
+
+        if (escaped >= '0' && escaped <= '7') {
+            unsigned value = 0;
+            size_t end = i + 1;
+            size_t digits = 0;
+            while (end < encoded.size() && digits < 3 &&
+                   encoded[end] >= '0' && encoded[end] <= '7') {
+                value = (value << 3) | static_cast<unsigned>(encoded[end] - '0');
+                ++end;
+                ++digits;
+            }
+            decoded.push_back(static_cast<char>(value & 0xff));
+            i = end - 1;
+            continue;
+        }
+
+        // Preserve unknown escape sequences instead of silently changing an
+        // SSID produced by a different supplicant version.
+        decoded.push_back('\\');
+    }
+    return decoded;
+}
+
+static std::string HexEncode(const std::string& value) {
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string encoded;
+    encoded.reserve(value.size() * 2);
+    for (unsigned char byte : value) {
+        encoded.push_back(kHex[byte >> 4]);
+        encoded.push_back(kHex[byte & 0x0f]);
+    }
+    return encoded;
+}
+
 static void SetWlanTestResult(const std::string& title,
                               const std::string& line1,
                               const std::string& line2,
@@ -257,7 +328,7 @@ bool Wlan::Connect() {
     }
 
     std::string enc;
-    if (!ReadFile(std::string(WLAN_LIST_DIR) + "/" + ssid, enc)) {
+    if (!ReadFile(NetworkMetadataPath(ssid), enc)) {
         gui_print("WLAN: missing metadata for selected SSID\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -328,10 +399,8 @@ bool Wlan::Connect() {
         return false;
     }
 
-    std::string esc_ssid = EscapeDoubleQuotes(ssid);
-
     gui_print("Add SSID to new config...\n");
-    if (!SuppCmd("SET_NETWORK 0 ssid \"" + esc_ssid + "\"")) {
+    if (!SuppCmd("SET_NETWORK 0 ssid " + HexEncode(ssid))) {
         gui_print("WLAN: failed setting SSID\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -413,17 +482,10 @@ bool Wlan::Connect() {
 
         std::string status;
         if (SuppCmd("STATUS", status)) {
-            std::istringstream iss(status);
-            std::string line;
             std::string wpa_state;
             std::string current_ssid;
-
-            while (std::getline(iss, line)) {
-                if (line.rfind("wpa_state=", 0) == 0)
-                    wpa_state = line.substr(10);
-                else if (line.rfind("ssid=", 0) == 0)
-                    current_ssid = line.substr(5);
-            }
+            std::string ip_addr;
+            ParseSupplicantStatus(status, wpa_state, current_ssid, ip_addr);
 
             gui_print("Connection state: %s (%d/12)\n", wpa_state.c_str(), tries);
 
@@ -524,7 +586,8 @@ bool Wlan::Connect() {
     std::string saved_line;
 
     while (std::getline(iss_saved, saved_line)) {
-        if (Trim(saved_line) == ssid) {
+        if (!saved_line.empty() && saved_line.back() == '\r') saved_line.pop_back();
+        if (saved_line == ssid) {
             already_saved = true;
             break;
         }
@@ -675,10 +738,8 @@ bool Wlan::ConnectSaved() {
         return false;
     }
 
-    std::string esc_ssid = EscapeDoubleQuotes(ssid);
-
     gui_print("Add saved SSID to config...\n");
-    if (!SuppCmd("SET_NETWORK 0 ssid \"" + esc_ssid + "\"")) {
+    if (!SuppCmd("SET_NETWORK 0 ssid " + HexEncode(ssid))) {
         gui_print("WLAN: failed setting saved SSID\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -1021,7 +1082,7 @@ bool Wlan::RefreshSaved() {
 
 bool Wlan::ForgetSaved()
 {
-    std::string ssid = Trim(DataManager::GetStrValue("wlanselectedid"));
+    std::string ssid = DataManager::GetStrValue("wlanselectedid");
 
     if (ssid.empty()) {
         gui_print("WLAN: no saved network selected for delete\n");
@@ -1041,7 +1102,8 @@ bool Wlan::ForgetSaved()
         std::string line;
 
         while (std::getline(iss, line)) {
-            std::string saved_ssid = Trim(line);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            std::string saved_ssid = line;
 
             if (saved_ssid.empty())
                 continue;
@@ -1369,9 +1431,14 @@ bool Wlan::BuildScanList() {
             continue;
 
         std::string flags = cols[3];
-        std::string ssid = Trim(cols[4]);
+        std::string encoded_ssid = cols[4];
+        if (!encoded_ssid.empty() && encoded_ssid.back() == '\r')
+            encoded_ssid.pop_back();
+        std::string ssid = DecodeSupplicantText(encoded_ssid);
 
-        if (ssid.empty())
+        if (ssid.empty() || ssid.find('\0') != std::string::npos ||
+            ssid.find('\n') != std::string::npos ||
+            ssid.find('\r') != std::string::npos)
             continue;
 
         std::string encryption = "OPEN";
@@ -1383,29 +1450,16 @@ bool Wlan::BuildScanList() {
             encryption = "WPA";
         }
 
-        std::string safe = ssid;
-        for (size_t i = 0; i < safe.size(); ++i) {
-            char& c = safe[i];
-            if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' ||
-                c == '"' || c == '<' || c == '>' || c == '|') {
-                c = '_';
-            }
-        }
-
-        safe = Trim(safe);
-        if (safe.empty())
-            continue;
-
         bool exists = false;
         for (size_t i = 0; i < networks.size(); ++i) {
-            if (networks[i].first == safe) {
+            if (networks[i].first == ssid) {
                 exists = true;
                 break;
             }
         }
 
         if (!exists) {
-            networks.push_back(std::make_pair(safe, encryption));
+            networks.push_back(std::make_pair(ssid, encryption));
         }
     }
 
@@ -1417,7 +1471,7 @@ bool Wlan::BuildScanList() {
     std::ostringstream list;
     for (size_t i = 0; i < networks.size(); ++i) {
         list << networks[i].first << "\n";
-        WriteFile(std::string(WLAN_LIST_DIR) + "/" + networks[i].first, networks[i].second);
+        WriteFile(NetworkMetadataPath(networks[i].first), networks[i].second);
     }
 
     return WriteFile(WLAN_LIST_FILE, list.str());
@@ -1459,7 +1513,8 @@ bool Wlan::BuildSavedList() {
         std::string line;
 
         while (std::getline(iss, line)) {
-            std::string ssid = Trim(line);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            std::string ssid = line;
 
             if (ssid.empty())
                 continue;
@@ -1526,17 +1581,21 @@ bool Wlan::ParseSupplicantStatus(const std::string& status, std::string& wpa_sta
     std::string line;
 
     while (std::getline(iss, line)) {
-        line = Trim(line);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
 
         if (line.rfind("wpa_state=", 0) == 0)
-            wpa_state = line.substr(10);
+            wpa_state = Trim(line.substr(10));
         else if (line.rfind("ssid=", 0) == 0)
-            ssid = line.substr(5);
+            ssid = DecodeSupplicantText(line.substr(5));
         else if (line.rfind("ip_address=", 0) == 0)
-            ip_addr = line.substr(11);
+            ip_addr = Trim(line.substr(11));
     }
 
     return !wpa_state.empty();
+}
+
+std::string Wlan::NetworkMetadataPath(const std::string& ssid) {
+    return std::string(WLAN_LIST_DIR) + "/ssid-" + HexEncode(ssid);
 }
 
 bool Wlan::RunCommand(const std::string& cmd) {
@@ -1724,8 +1783,10 @@ std::string Wlan::GetSupplicantConf() {
 std::string Wlan::EscapeDoubleQuotes(const std::string& s) {
     std::string out;
     for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '"')
-            out += "\\\"";
+        if (s[i] == '"' || s[i] == '\\') {
+            out += '\\';
+            out += s[i];
+        }
         else
             out += s[i];
     }

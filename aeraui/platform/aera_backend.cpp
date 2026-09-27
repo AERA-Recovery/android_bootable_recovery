@@ -1379,8 +1379,8 @@ WifiStatus RecoveryWifiStatus() {
   for (const auto &ssid : Lines(ReadText("/tmp/wlan/list.txt"))) {
     WifiNetwork network;
     network.ssid = ssid;
-    network.security = Lines(ReadText("/tmp/wlan/list/" + ssid)).empty()
-        ? "UNKNOWN" : Lines(ReadText("/tmp/wlan/list/" + ssid)).front();
+    const auto security = Lines(ReadText(Wlan::NetworkMetadataPath(ssid)));
+    network.security = security.empty() ? "UNKNOWN" : security.front();
     network.saved = saved.count(ssid) != 0;
     network.connected = status.connected && status.ssid == ssid;
     status.networks.push_back(std::move(network));

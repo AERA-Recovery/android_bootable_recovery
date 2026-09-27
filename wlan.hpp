@@ -25,6 +25,7 @@ public:
     static bool RefreshSaved();
     static bool UpdateConnectedName();
     static bool TestConnection();
+    static std::string NetworkMetadataPath(const std::string& ssid);
 
     // Reload the "wlan" page (re-running its load action so a freshly written
     // /tmp/wlan/list.txt is displayed) but only if it is the page currently

@@ -425,6 +425,7 @@ public:
     decrypt_running_ = false;
     wifi_running_ = false;
     wifi_scene_report_ = false;
+    wifi_report_state_ = nullptr;
     nas_running_ = false;
     plugin_running_ = false;
     plugin_task_ = PluginTask::kNone;
@@ -516,8 +517,12 @@ public:
     if (wifi_complete_.exchange(false, std::memory_order_acq_rel)) {
       if (wifi_thread_.joinable()) wifi_thread_.join();
       const bool success = wifi_result_.load(std::memory_order_acquire) == 0;
-      if (wifi_scene_report_) CompleteWifiOperation(wifi_scene_, success);
+      if (wifi_scene_report_ && current_scene_ == Action::kWifi &&
+          wifi_scene_.state == wifi_report_state_) {
+        CompleteWifiOperation(wifi_scene_, success);
+      }
       wifi_scene_report_ = false;
+      wifi_report_state_ = nullptr;
       wifi_running_ = false;
     }
     if (nas_complete_.exchange(false, std::memory_order_acq_rel)) {
@@ -618,21 +623,19 @@ public:
       DismissRecents();
       return;
     }
-    if (backend_ready_ && !operation_running_ && !wifi_running_ &&
-        !nas_running_ && !plugin_running_ &&
+    if (backend_ready_ && !operation_running_ && !nas_running_ &&
+        !plugin_running_ &&
         widgets::DismissModal(lv_screen_active())) return;
     if (backend_ready_ && current_tool_ == Action::kFiles && !operation_running_ &&
-        !wifi_running_ && !nas_running_ && !plugin_running_ &&
-        NavigateFileBack()) return;
-    if (backend_ready_ && !operation_running_ && !wifi_running_ &&
-        !nas_running_ && !plugin_running_ &&
+        !nas_running_ && !plugin_running_ && NavigateFileBack()) return;
+    if (backend_ready_ && !operation_running_ && !nas_running_ &&
+        !plugin_running_ &&
         current_tool_ == Action::kFormatData) {
       HandleSceneAction(Action::kWipe, this);
       return;
     }
     if (backend_ready_ && !decryption_active_ && !on_home_ &&
-        !operation_running_ && !wifi_running_ && !nas_running_ &&
-        !plugin_running_) {
+        !operation_running_ && !nas_running_ && !plugin_running_) {
       navigation_history_.clear();
       ShowHome();
     }
@@ -645,7 +648,7 @@ public:
       return;
     }
     if (lock_overlay_ != nullptr || !backend_ready_ || decryption_active_ ||
-        operation_running_ || wifi_running_ || nas_running_ || plugin_running_)
+        operation_running_ || nas_running_ || plugin_running_)
       return;
     if (widgets::DismissModal(lv_screen_active())) return;
     if (fastboot_mode_) {
@@ -757,8 +760,8 @@ public:
     // those consumers from stealing contacts that belong to trusted AERA UI.
     if (suspended_ || lock_overlay_ != nullptr || power_overlay_ != nullptr ||
         !backend_ready_ ||
-        operation_running_ || wifi_running_ || nas_running_ ||
-        plugin_running_ || update_installing_ ||
+        operation_running_ || nas_running_ || plugin_running_ ||
+        update_installing_ ||
         (update_running_ && update_task_ == UpdateTask::kDownload)) {
       if (event.slot != 0) return;
       pointer_.x = visible_x;
@@ -1859,8 +1862,8 @@ private:
     if (!recents_swipe_active_ || recents_swipe_hold_committed_ ||
         recents_swipe_hold_started_ms_ == 0)
       return;
-    if (operation_running_ || wifi_running_ || nas_running_ ||
-        plugin_running_ || update_installing_ ||
+    if (operation_running_ || nas_running_ || plugin_running_ ||
+        update_installing_ ||
         (update_running_ && update_task_ == UpdateTask::kDownload)) {
       CancelRecentsSwipe();
       return;
@@ -2179,8 +2182,7 @@ private:
       return;
     }
 
-    if (self->operation_running_ || self->wifi_running_ || self->nas_running_ ||
-        self->plugin_running_ ||
+    if (self->operation_running_ || self->nas_running_ || self->plugin_running_ ||
         (self->update_running_ &&
          self->update_task_ == UpdateTask::kDownload)) return;
     self->CancelEdgeSwipe();
@@ -2672,6 +2674,7 @@ private:
   void StartWifi(const WifiRequest &request, bool report_to_scene) {
     if (wifi_running_ || operation_running_ || nas_running_) return;
     wifi_scene_report_ = report_to_scene;
+    wifi_report_state_ = report_to_scene ? wifi_scene_.state : nullptr;
     if (wifi_scene_report_) SetWifiBusy(wifi_scene_, request);
     wifi_running_ = true;
     wifi_result_.store(-1, std::memory_order_release);
@@ -3334,6 +3337,7 @@ private:
   bool decrypt_running_ = false;
   bool wifi_running_ = false;
   bool wifi_scene_report_ = false;
+  void *wifi_report_state_ = nullptr;
   bool nas_running_ = false;
   bool plugin_running_ = false;
   bool plugin_connection_seen_ = false;
