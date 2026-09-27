@@ -27,6 +27,8 @@ static InterfaceSize interface_size = InterfaceSize::kNormal;
 static std::string active_slot = "A";
 static bool wifi_auto_enable = false;
 static bool wifi_auto_connect = false;
+static bool adb_over_wifi = false;
+static bool adb_pairing = false;
 static WifiRequest wifi_request;
 static SideloadStatus sideload_status;
 static int callback_count = 0;
@@ -156,7 +158,10 @@ WifiStatus RecoveryWifiStatus() {
   WifiStatus status;
   status.supported = true;
   status.enabled = true;
+  status.connected = true;
   status.state = "enabled";
+  status.ssid = "AERA Lab";
+  status.ip_address = "192.168.1.42";
   status.networks = {{"AERA Lab", "WPA2", false, false},
                      {"Saved network", "WPA3", true, false},
                      {"Guest", "OPEN", false, false}};
@@ -167,6 +172,36 @@ bool RecoveryWifiAutoEnable() { return wifi_auto_enable; }
 bool RecoveryWifiAutoConnect() { return wifi_auto_connect; }
 bool RecoverySetWifiAutoEnable(bool enabled) { wifi_auto_enable = enabled; return true; }
 bool RecoverySetWifiAutoConnect(bool enabled) { wifi_auto_connect = enabled; return true; }
+bool RecoveryAdbOverWifi() { return adb_over_wifi; }
+bool RecoverySetAdbOverWifi(bool enabled) { adb_over_wifi = enabled; return true; }
+AdbWifiStatus RecoveryAdbWifiStatus() {
+  AdbWifiStatus status;
+  status.enabled = adb_over_wifi;
+  status.secure = adb_over_wifi;
+  status.wifi_connected = true;
+  status.pairing = adb_pairing;
+  status.ip_address = "192.168.1.42";
+  if (adb_over_wifi) {
+    status.connect_port = "5555";
+    status.connect_command = "adb connect 192.168.1.42:5555";
+  }
+  if (adb_pairing) {
+    status.pairing_command = "adb pair 192.168.1.42:37123";
+    status.pairing_code = "482913";
+  }
+  return status;
+}
+bool RecoveryStartAdbPairing() {
+  adb_over_wifi = true;
+  adb_pairing = true;
+  return true;
+}
+bool RecoveryStopAdbPairing() { adb_pairing = false; return true; }
+std::vector<AdbPairedDevice> RecoveryAdbPairedDevices() {
+  return {{"5d4b9f8a74ce91b2", "koaan@pop-os", 0},
+          {"a21c44881e730a56", "Workshop laptop", 0}};
+}
+bool RecoveryForgetAdbDevice(const std::string &) { return true; }
 void SetPluginRequest(const plugins::Request &) {}
 }
 namespace aeraui::plugins {
@@ -324,6 +359,17 @@ int main(int argc,char **argv) {
   assert(last_action==Action::kRunWifiOperation);
   assert(GetWifiRequest().ssid=="AERA Lab");
   assert(GetWifiRequest().password=="correct horse battery staple");
+  auto *wifi_settings = Find(wifi,"Wi-Fi settings");
+  assert(wifi_settings);
+  lv_obj_send_event(wifi_settings,LV_EVENT_CLICKED,nullptr); Tick();
+  assert(Find(wifi,"Automation & wireless debugging"));
+  assert(Find(wifi,"Wireless ADB is off"));
+  assert(RecoverySetAdbOverWifi(true)); Tick();
+  assert(Find(wifi,"adb connect 192.168.1.42:5555"));
+  auto *pair = Find(wifi,"Pair new computer"); assert(pair);
+  lv_obj_send_event(pair,LV_EVENT_CLICKED,nullptr); Tick();
+  assert(Find(wifi,"adb pair 192.168.1.42:37123"));
+  assert(Find(wifi,"482913"));
   lv_screen_load(screen); lv_obj_delete(wifi);
   auto *web = lv_obj_create(nullptr); BuildWebScene(web, RecordAction, nullptr, -1, -1, false);
   lv_screen_load(web); Tick();

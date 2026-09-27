@@ -1450,6 +1450,12 @@ int RecoveryRunWifi(const WifiRequest &request) {
                  DataManager::GetStrValue("wlan_test_line4") == "DNS: OK";
       }
       break;
+    case WifiOperation::kEnableAdb:
+      result = RecoverySetAdbOverWifi(true);
+      break;
+    case WifiOperation::kDisableAdb:
+      result = RecoverySetAdbOverWifi(false);
+      break;
   }
   const bool enabled = Wlan::IsEnabled();
   const bool connected = DataManager::GetIntValue("tw_wlan_connected") == 1;
@@ -1495,6 +1501,60 @@ bool RecoverySetAdbOverWifi(bool enabled) {
   return AeraAdbd::StartSecure(5555);
 #else
   (void)enabled;
+  return false;
+#endif
+}
+
+AdbWifiStatus RecoveryAdbWifiStatus() {
+  AdbWifiStatus result;
+#ifdef OF_ENABLE_WLAN
+  const auto status = AeraAdbd::GetStatus();
+  result.enabled = status.enabled;
+  result.secure = status.secure;
+  result.no_auth = status.no_auth;
+  result.wifi_connected = status.wlan_connected;
+  result.pairing = status.pairing;
+  result.ip_address = status.ip;
+  result.connect_port = status.connect_port;
+  result.connect_command = status.connect_command;
+  result.pairing_command = status.pairing_command;
+  result.pairing_code = status.pairing_code;
+#endif
+  return result;
+}
+
+std::vector<AdbPairedDevice> RecoveryAdbPairedDevices() {
+  std::vector<AdbPairedDevice> result;
+#ifdef OF_ENABLE_WLAN
+  for (const auto &device : AeraAdbd::ListDevices()) {
+    result.push_back({device.fingerprint, device.name, device.last_seen});
+  }
+#endif
+  return result;
+}
+
+bool RecoveryForgetAdbDevice(const std::string &fingerprint) {
+#ifdef OF_ENABLE_WLAN
+  return AeraAdbd::ForgetDevice(fingerprint);
+#else
+  (void)fingerprint;
+  return false;
+#endif
+}
+
+bool RecoveryStartAdbPairing() {
+#ifdef OF_ENABLE_WLAN
+  if (!RecoveryWifiConnection().connected) return false;
+  return AeraAdbd::StartPairing(120);
+#else
+  return false;
+#endif
+}
+
+bool RecoveryStopAdbPairing() {
+#ifdef OF_ENABLE_WLAN
+  return AeraAdbd::StopPairing();
+#else
   return false;
 #endif
 }

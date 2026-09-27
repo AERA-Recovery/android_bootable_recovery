@@ -43,7 +43,7 @@ std::mutex g_pair_mutex;
 PairingServerCtx* g_pairing_server = nullptr;
 std::string g_pairing_code;
 int g_pairing_port = 0;
-// Bumped on every StartPairing()/StopPairingLocked(). The timeout and result
+// Bumped whenever a pairing session is detached. The timeout and result
 // callbacks capture the generation that was current when they were armed and
 // only tear down if it still matches, so a stale timer from a previous session
 // can never kill a newer one started within its window.
@@ -278,7 +278,7 @@ PeerInfo MakeDevicePeerInfo()
 	return info;
 }
 
-void StopPairingLocked()
+PairingServerCtx* DetachPairingLocked()
 {
 	PairingServerCtx* server = g_pairing_server;
 	g_pairing_server = nullptr;
@@ -286,31 +286,41 @@ void StopPairingLocked()
 	g_pairing_code.clear();
 	// Invalidate any armed timeout/result-callback teardown for this session.
 	g_pairing_generation++;
-	if (server)
-		pairing_server_destroy(server);
+	return server;
 }
 
 // Tear down only if the session that armed us is still the active one.
 void StopPairingForGeneration(unsigned gen)
 {
-	std::lock_guard<std::mutex> lock(g_pair_mutex);
-	if (gen == g_pairing_generation)
-		StopPairingLocked();
+	PairingServerCtx* server = nullptr;
+	{
+		std::lock_guard<std::mutex> lock(g_pair_mutex);
+		if (gen == g_pairing_generation)
+			server = DetachPairingLocked();
+	}
+	// Destroying the AOSP server joins its worker threads and may invoke its
+	// callback. Never wait for that while holding the UI-visible state mutex.
+	if (server)
+		pairing_server_destroy(server);
 }
 
 void PairingResultCallback(const PeerInfo* peer_info, void*)
 {
-	if (peer_info && peer_info->type == ADB_RSA_PUB_KEY) {
-		const char* key = reinterpret_cast<const char*>(peer_info->data);
-		std::string key_str(key, strnlen(key, sizeof(peer_info->data)));
-		if (AppendAdbKey(key_str)) {
-			LOGINFO("ADB WiFi pairing: stored host key\n");
-			// Record the paired host in the registry so `web adb list/forget`
-			// can present and revoke it later.
-			AeraSecrets::AddAdbDevice(key_str);
-		} else {
-			LOGERR("ADB WiFi pairing: failed to store host key\n");
-		}
+	// AOSP also invokes the callback with nullptr while a cancelled server is
+	// being destroyed. That server is already tearing down; scheduling another
+	// teardown could target a newer pairing session.
+	if (!peer_info || peer_info->type != ADB_RSA_PUB_KEY)
+		return;
+
+	const char* key = reinterpret_cast<const char*>(peer_info->data);
+	std::string key_str(key, strnlen(key, sizeof(peer_info->data)));
+	if (AppendAdbKey(key_str)) {
+		LOGINFO("ADB WiFi pairing: stored host key\n");
+		// Record the paired host in the registry so `web adb list/forget`
+		// can present and revoke it later.
+		AeraSecrets::AddAdbDevice(key_str);
+	} else {
+		LOGERR("ADB WiFi pairing: failed to store host key\n");
 	}
 
 	unsigned gen;
@@ -396,49 +406,62 @@ bool AeraAdbd::StartPairing(int timeout_sec)
 	if (!StartSecure(kDefaultPort))
 		return false;
 
-	std::lock_guard<std::mutex> lock(g_pair_mutex);
-	StopPairingLocked();
+	// Retire an earlier session without holding g_pair_mutex while AOSP joins
+	// its server threads.
+	StopPairing();
 
-	g_pairing_code = RandomDigits(6);
-	if (g_pairing_code.empty()) {
+	std::string pairing_code = RandomDigits(6);
+	if (pairing_code.empty()) {
 		gui_print("AERA: no entropy available for ADB pairing code\n");
 		return false;
 	}
 	PeerInfo info = MakeDevicePeerInfo();
-	g_pairing_server = pairing_server_new_no_cert(
-		reinterpret_cast<const uint8_t*>(g_pairing_code.data()),
-		g_pairing_code.size(), &info, 0);
-	if (!g_pairing_server) {
-		g_pairing_code.clear();
+	PairingServerCtx* server = pairing_server_new_no_cert(
+		reinterpret_cast<const uint8_t*>(pairing_code.data()),
+		pairing_code.size(), &info, 0);
+	if (!server) {
 		gui_print("AERA: failed to create ADB pairing server\n");
 		return false;
 	}
 
-	g_pairing_port = pairing_server_start(g_pairing_server, PairingResultCallback, nullptr);
-	if (g_pairing_port <= 0) {
-		StopPairingLocked();
+	const int pairing_port =
+		pairing_server_start(server, PairingResultCallback, nullptr);
+	if (pairing_port <= 0) {
+		pairing_server_destroy(server);
 		gui_print("AERA: failed to start ADB pairing server\n");
 		return false;
 	}
 
 	int timeout = ClampPairTimeout(timeout_sec);
-	unsigned gen = g_pairing_generation;  // current session (g_pair_mutex held)
+	unsigned gen;
+	{
+		std::lock_guard<std::mutex> lock(g_pair_mutex);
+		g_pairing_server = server;
+		g_pairing_code = pairing_code;
+		g_pairing_port = pairing_port;
+		gen = g_pairing_generation;
+	}
 	std::thread([timeout, gen]() {
 		sleep(timeout);
 		StopPairingForGeneration(gen);
 	}).detach();
 
 	gui_print("ADB pairing active\n");
-	gui_print("pair=adb pair %s:%d\n", ip.c_str(), g_pairing_port);
-	gui_print("code=%s\n", g_pairing_code.c_str());
+	gui_print("pair=adb pair %s:%d\n", ip.c_str(), pairing_port);
+	gui_print("code=%s\n", pairing_code.c_str());
 	gui_print("timeout=%d\n", timeout);
 	return true;
 }
 
 bool AeraAdbd::StopPairing()
 {
-	std::lock_guard<std::mutex> lock(g_pair_mutex);
-	StopPairingLocked();
+	PairingServerCtx* server;
+	{
+		std::lock_guard<std::mutex> lock(g_pair_mutex);
+		server = DetachPairingLocked();
+	}
+	if (server)
+		pairing_server_destroy(server);
 	return true;
 }
 
@@ -456,49 +479,76 @@ bool AeraAdbd::StopAll()
 void AeraAdbd::PrintStatus()
 {
 	Wlan::Info();
-	std::string ip = DataManager::GetStrValue("wlan_info_ip");
-	std::string tls_enabled = GetProp(kTlsEnableProp);
-	std::string tls_port = GetProp(kTlsPortProp);
-	std::string requested = GetProp(kTlsRequestedPortProp);
-	std::string tcp_port = GetProp(kTcpPortProp);
-
-	std::lock_guard<std::mutex> lock(g_pair_mutex);
-	const bool pairing = g_pairing_server != nullptr;
-	std::string mode = "off";
-	if (!tcp_port.empty() && tcp_port != "0")
-		mode = "no-auth";
-	else if (pairing)
-		mode = "pairing";
-	else if (tls_enabled == "1")
-		mode = "secure-paired";
+	const Status status = GetStatus();
 
 	Json::Value s(Json::objectValue);
-	s["mode"] = mode;
-	s["wlan_connected"] = DataManager::GetIntValue("tw_wlan_connected") == 1;
-	s["ip"] = ip;
-	s["secure_enabled"] = tls_enabled == "1";
-	s["connect_port"] = tls_port.empty() ? requested : tls_port;
-	s["no_auth_port"] = tcp_port;
-	s["pairing_active"] = pairing;
-	s["pairing_port"] = g_pairing_port;
-	s["pairing_code"] = g_pairing_code;
-	if (!ip.empty()) {
-		std::string port = tls_port.empty() ? requested : tls_port;
-		if (port.empty())
-			port = std::to_string(kDefaultPort);
-		s["connect"] = "adb connect " + ip + ":" + port;
-		if (pairing)
-			s["pair"] = "adb pair " + ip + ":" + std::to_string(g_pairing_port);
-	}
+	s["mode"] = status.mode;
+	s["wlan_connected"] = status.wlan_connected;
+	s["ip"] = status.ip;
+	s["secure_enabled"] = status.secure;
+	s["connect_port"] = status.connect_port;
+	s["no_auth"] = status.no_auth;
+	s["pairing_active"] = status.pairing;
+	s["pairing_port"] = status.pairing_port;
+	s["pairing_code"] = status.pairing_code;
+	s["connect"] = status.connect_command;
+	s["pair"] = status.pairing_command;
 	Json::StreamWriterBuilder writer;
 	writer["indentation"] = "";
 	gui_print("%s\n", Json::writeString(writer, s).c_str());
 }
 
+AeraAdbd::Status AeraAdbd::GetStatus()
+{
+	Status status;
+	status.wlan_connected =
+		DataManager::GetIntValue("tw_wlan_connected") == 1;
+	status.ip = DataManager::GetStrValue("wlan_info_ip");
+
+	const std::string tls_enabled = GetProp(kTlsEnableProp);
+	const std::string tls_port = GetProp(kTlsPortProp);
+	const std::string requested = GetProp(kTlsRequestedPortProp);
+	const std::string tcp_port = GetProp(kTcpPortProp);
+	status.secure = tls_enabled == "1";
+	status.no_auth = !tcp_port.empty() && tcp_port != "0";
+
+	{
+		std::lock_guard<std::mutex> lock(g_pair_mutex);
+		status.pairing = g_pairing_server != nullptr;
+		status.pairing_port = g_pairing_port;
+		status.pairing_code = g_pairing_code;
+	}
+
+	status.enabled = status.secure || status.no_auth || status.pairing;
+	status.mode = "off";
+	if (status.no_auth)
+		status.mode = "no-auth";
+	else if (status.pairing)
+		status.mode = "pairing";
+	else if (status.secure)
+		status.mode = "secure-paired";
+
+	if (status.no_auth)
+		status.connect_port = tcp_port;
+	else if (!tls_port.empty())
+		status.connect_port = tls_port;
+	else if (!requested.empty())
+		status.connect_port = requested;
+	else if (status.enabled)
+		status.connect_port = std::to_string(kDefaultPort);
+
+	if (!status.ip.empty() && !status.connect_port.empty())
+		status.connect_command =
+			"adb connect " + status.ip + ":" + status.connect_port;
+	if (status.pairing && !status.ip.empty() && status.pairing_port > 0)
+		status.pairing_command = "adb pair " + status.ip + ":" +
+			std::to_string(status.pairing_port);
+	return status;
+}
+
 void AeraAdbd::PrintDevices()
 {
-	std::vector<AeraSecrets::AdbDevice> devices;
-	AeraSecrets::ListAdbDevices(devices);
+	const std::vector<PairedDevice> devices = ListDevices();
 	Json::Value items(Json::arrayValue);
 	for (const auto& dev : devices) {
 		Json::Value item(Json::objectValue);
@@ -512,6 +562,22 @@ void AeraAdbd::PrintDevices()
 	Json::StreamWriterBuilder writer;
 	writer["indentation"] = "";
 	gui_print("%s\n", Json::writeString(writer, payload).c_str());
+}
+
+std::vector<AeraAdbd::PairedDevice> AeraAdbd::ListDevices()
+{
+	std::vector<AeraSecrets::AdbDevice> stored;
+	AeraSecrets::ListAdbDevices(stored);
+	std::vector<PairedDevice> devices;
+	devices.reserve(stored.size());
+	for (const auto& entry : stored) {
+		PairedDevice device;
+		device.fingerprint = entry.fingerprint;
+		device.name = entry.name;
+		device.last_seen = entry.last_seen;
+		devices.push_back(std::move(device));
+	}
+	return devices;
 }
 
 bool AeraAdbd::ForgetDevice(const std::string& id)
@@ -528,6 +594,9 @@ bool AeraAdbd::ForgetDevice(const std::string& id)
 	// Best-effort: also strip the key from the adb_keys files so the host can no
 	// longer authenticate. The registry removal already succeeded.
 	RemoveAdbKey(removed_key);
+	// Drop any transport which authenticated before its key was revoked. Secure
+	// ADB comes back using the existing properties and publishes its new port.
+	SetProp("ctl.restart", "adbd");
 	gui_print("Forgot adb device '%s'\n", id.c_str());
 	return true;
 }

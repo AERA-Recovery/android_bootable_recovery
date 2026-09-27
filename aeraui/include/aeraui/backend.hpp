@@ -214,7 +214,15 @@ struct WifiConnection {
   std::string ssid;
 };
 enum class WifiOperation {
-  kEnable, kDisable, kDisconnect, kScan, kConnect, kForget, kTest
+  kEnable,
+  kDisable,
+  kDisconnect,
+  kScan,
+  kConnect,
+  kForget,
+  kTest,
+  kEnableAdb,
+  kDisableAdb,
 };
 struct WifiRequest {
   WifiOperation operation = WifiOperation::kScan;
@@ -232,6 +240,28 @@ bool RecoverySetWifiAutoEnable(bool enabled);
 bool RecoverySetWifiAutoConnect(bool enabled);
 bool RecoveryAdbOverWifi();
 bool RecoverySetAdbOverWifi(bool enabled);
+struct AdbWifiStatus {
+  bool enabled = false;
+  bool secure = false;
+  bool no_auth = false;
+  bool wifi_connected = false;
+  bool pairing = false;
+  std::string ip_address;
+  std::string connect_port;
+  std::string connect_command;
+  std::string pairing_command;
+  std::string pairing_code;
+};
+struct AdbPairedDevice {
+  std::string fingerprint;
+  std::string name;
+  long long last_seen = 0;
+};
+AdbWifiStatus RecoveryAdbWifiStatus();
+std::vector<AdbPairedDevice> RecoveryAdbPairedDevices();
+bool RecoveryForgetAdbDevice(const std::string &fingerprint);
+bool RecoveryStartAdbPairing();
+bool RecoveryStopAdbPairing();
 
 // Native presentation of OrangeFox's existing rclone/FUSE NAS manager.
 struct NasConfig {
