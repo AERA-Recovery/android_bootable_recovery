@@ -45,7 +45,7 @@ inline constexpr const char *kUpperQwertz[] = {
 
 inline constexpr const char *kSpecial[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
-    " ", "@", "#", "$", "&", "*", "(", ")", "'", "\"", " ", "\n",
+    " ", "@", "#", "$", "%", "&", "*", "(", ")", "'", "\"", " ", "\n",
     "!", "?", "/", ":", ";", "-", "+", "=", LV_SYMBOL_BACKSPACE, "\n",
     "ABC", ",", " ", ".", LV_SYMBOL_OK, ""};
 
@@ -66,6 +66,7 @@ inline constexpr lv_buttonmatrix_ctrl_t kSpecialControls[] = {
     Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(),
     Key(1, LV_BUTTONMATRIX_CTRL_HIDDEN),
     Key(2), Key(2), Key(2), Key(2), Key(2), Key(2), Key(2), Key(2), Key(2),
+    Key(2),
     Key(1, LV_BUTTONMATRIX_CTRL_HIDDEN),
     Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(2, kUtility),
     Key(2, kUtility), Key(1), Key(8), Key(1), Key(2, kUtility)};
