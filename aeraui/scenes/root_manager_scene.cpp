@@ -334,6 +334,7 @@ void RefreshUi(RootUi *state) {
   i18n::BindLabel(lv_obj_get_child(state->manager_button, 0),
       manager.installed ? "Installed" :
       manager.staged ? "Ready on next boot" : "Download & install");
+  FitButtonLabel(state->manager_button);
   if (manager.installed || manager.staged || !state->device.storage_ready)
     lv_obj_add_state(state->manager_button, LV_STATE_DISABLED);
   else if (!state->busy.load())
@@ -508,7 +509,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
       "Checking Android's installed packages.", &lv_font_montserrat_24,
       kMutedStrong);
   lv_obj_set_pos(state->manager_detail, 136, 80);
-  lv_obj_set_width(state->manager_detail, 760);
+  lv_obj_set_width(state->manager_detail, 688);
   state->manager_progress = lv_bar_create(manager_card);
   lv_obj_set_pos(state->manager_progress, 28, 142);
   lv_obj_set_size(state->manager_progress, 1256, 12);
@@ -530,8 +531,8 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
             Start(state, request);
           });
   }, true);
-  lv_obj_set_pos(state->manager_button, 936, 52);
-  lv_obj_set_size(state->manager_button, 348, 106);
+  lv_obj_set_pos(state->manager_button, 864, 52);
+  lv_obj_set_size(state->manager_button, 420, 106);
 
   auto *modules_title = Label(state->list, "MODULES", &lv_font_montserrat_20, kMuted);
   lv_obj_set_pos(modules_title, 18, 1340);
