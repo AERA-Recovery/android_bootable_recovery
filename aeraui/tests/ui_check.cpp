@@ -115,6 +115,17 @@ std::vector<Volume> RecoveryVolumes(const std::string &kind) {
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &) { return RecoveryVolumes(""); }
 std::string RecoveryStorage() { return file_root.empty() ? "/tmp" : file_root; }
 std::string RecoveryBackupRoot() { return backup_root; }
+bool RecoveryDeleteBackup(const std::string &) { return true; }
+bool RecoveryBackupCanUpload(const std::string &) { return true; }
+SnapshotCowStatus RecoverySnapshotCowStatus() {
+  SnapshotCowStatus status;
+  status.supported = true;
+  status.metadata_readable = true;
+  status.safe_to_remove = true;
+  status.bytes = 384 * 1024 * 1024ULL;
+  status.partitions = {"system_a-cow", "vendor_a-cow"};
+  return status;
+}
 std::string RecoverySlot() { return active_slot; }
 std::string RecoveryVersion() { return "R1.0"; }
 std::string RecoveryBuildType() { return "Stable"; }
@@ -448,9 +459,14 @@ int main(int argc,char **argv) {
   format_request.path="/metadata"; assert(!FormatDataAuthorized(format_request));
   format_request.path="/data"; format_request.partitions={"/data"}; assert(!FormatDataAuthorized(format_request));
   format_request.partitions.clear(); format_request.job=Job::kWipe; assert(!FormatDataAuthorized(format_request));
+  JobRequest cow_request; cow_request.job=Job::kClearSnapshotCow;
+  assert(!SnapshotCowCleanupAuthorized(cow_request));
+  cow_request.confirmation="remove-cow"; assert(SnapshotCowCleanupAuthorized(cow_request));
+  cow_request.path="/super"; assert(!SnapshotCowCleanupAuthorized(cow_request));
   auto *wipe=lv_obj_create(nullptr); BuildToolScene(wipe,Action::kWipe,RecordAction,nullptr);
   lv_screen_load(wipe); Tick();
   assert(Find(wipe,"Format Data"));
+  assert(Find(wipe,"Snapshot COW cleanup"));
   auto *wipe_review=Find(wipe,"Review wipe"); assert(wipe_review && lv_obj_has_state(wipe_review,LV_STATE_DISABLED));
   auto *wipe_data=Find(wipe,"Data"); assert(wipe_data); lv_obj_send_event(wipe_data,LV_EVENT_CLICKED,nullptr);
   assert(!lv_obj_has_state(wipe_review,LV_STATE_DISABLED));

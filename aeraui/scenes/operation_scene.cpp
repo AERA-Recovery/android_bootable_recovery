@@ -118,6 +118,7 @@ const char *InitialTitle(Job job) {
     case Job::kRestore: return "Preparing to restore";
     case Job::kWipe: return "Preparing to wipe";
     case Job::kFormatData: return "Preparing data format";
+    case Job::kClearSnapshotCow: return "Preparing snapshot cleanup";
     case Job::kMount: return "Mounting storage";
     case Job::kUnmount: return "Unmounting storage";
     default: return "Preparing installation";
@@ -132,7 +133,8 @@ const char *OperationSymbol(Job job) {
     case Job::kUploadBackup: return LV_SYMBOL_UPLOAD;
     case Job::kRestore: return LV_SYMBOL_REFRESH;
     case Job::kWipe:
-    case Job::kFormatData: return LV_SYMBOL_TRASH;
+    case Job::kFormatData:
+    case Job::kClearSnapshotCow: return LV_SYMBOL_TRASH;
     case Job::kMount:
     case Job::kUnmount: return LV_SYMBOL_DRIVE;
     default: return LV_SYMBOL_DOWNLOAD;
@@ -269,6 +271,11 @@ FriendlyProgress Explain(const std::string &raw, Job job, int progress) {
     value.title = "Formatting data";
     value.explanation = "AERA is recreating the data volume and internal storage.";
     value.activity = "Removing encryption metadata and preparing a clean data volume.";
+    value.step = progress > 1 ? 1 : 0;
+  } else if (job == Job::kClearSnapshotCow) {
+    value.title = "Removing snapshot COW partitions";
+    value.explanation = "AERA is releasing stale Android snapshot storage from Super.";
+    value.activity = "Only verified partitions in the COW metadata group are removed.";
     value.step = progress > 1 ? 1 : 0;
   } else if (job == Job::kWipe || all.find("wip") != std::string::npos) {
     value.title = i18n::Format("Wiping %s", subject.c_str());
@@ -573,7 +580,9 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
 
   const bool network = request.job == Job::kUploadBackup ||
       request.path.find("/mnt/nas") != std::string::npos;
-  const std::string destination = request.job == Job::kSideload
+  const std::string destination = request.job == Job::kClearSnapshotCow
+      ? "Target  /  Super metadata"
+      : request.job == Job::kSideload
       ? "Source  /  ADB over USB"
       : network ? "Destination  /  Network Storage" :
       request.path.empty() ? "Destination  /  Recovery storage" : "Destination  /  " + request.path;
@@ -678,7 +687,8 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   const bool backup = request.job == Job::kBackup ||
       request.job == Job::kUploadBackup || request.job == Job::kRestore;
   const bool format = request.job == Job::kFormatData;
-  const bool wipe = request.job == Job::kWipe;
+  const bool wipe = request.job == Job::kWipe ||
+      request.job == Job::kClearSnapshotCow;
   const bool mount = request.job == Job::kMount || request.job == Job::kUnmount;
   result.done = Button(screen,
       format ? "Reboot options" : backup ? "Back to backups" : wipe ? "Back to wipe" : "Done",

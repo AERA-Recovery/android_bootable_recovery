@@ -16,7 +16,8 @@ enum class Job {
   kWipe,
   kMount,
   kUnmount,
-  kFormatData
+  kFormatData,
+  kClearSnapshotCow
 };
 struct Volume {
   std::string name;
@@ -48,6 +49,10 @@ inline bool FormatDataAuthorized(const JobRequest &request) {
   return request.job == Job::kFormatData && request.path == "/data" &&
          request.confirmation == "yes" && request.partitions.empty();
 }
+inline bool SnapshotCowCleanupAuthorized(const JobRequest &request) {
+  return request.job == Job::kClearSnapshotCow && request.path.empty() &&
+         request.partitions.empty() && request.confirmation == "remove-cow";
+}
 // Implemented beside the stock GUI bridge, using the same recovery backend.
 std::vector<Volume> RecoveryVolumes(const std::string &kind);
 std::vector<Volume> RecoveryImageVolumes();
@@ -64,6 +69,14 @@ std::string RecoveryDevice();
 std::string RecoveryBuildDate();
 std::string RecoveryMaintainer();
 bool RecoverySetActiveSlot(const std::string &slot);
+struct SnapshotCowStatus {
+  bool supported = false;
+  bool metadata_readable = false;
+  bool safe_to_remove = false;
+  uint64_t bytes = 0;
+  std::vector<std::string> partitions;
+};
+SnapshotCowStatus RecoverySnapshotCowStatus();
 bool RecoveryDataLocked();
 int RecoveryDecrypt(const std::string &credential, int user_id = 0);
 

@@ -363,6 +363,21 @@ bool RecoverySetActiveSlot(const std::string &slot) {
   PartitionManager.Set_Active_Slot(slot);
   return RecoverySlot() == slot;
 }
+SnapshotCowStatus RecoverySnapshotCowStatus() {
+  SnapshotCowStatus status;
+  status.supported = PartitionManager.Get_Super_Status();
+  if (!status.supported) return status;
+
+  std::vector<AeraSnapshotCowPartition> partitions;
+  status.metadata_readable = PartitionManager.Get_Snapshot_Cow_Partitions(
+      &partitions, &status.safe_to_remove);
+  if (!status.metadata_readable) return status;
+  for (const auto &partition : partitions) {
+    status.bytes += partition.bytes;
+    status.partitions.push_back(partition.name);
+  }
+  return status;
+}
 bool RecoveryDataLocked() {
   return DataManager::GetIntValue(TW_IS_ENCRYPTED) != 0 &&
          DataManager::GetIntValue(TW_IS_DECRYPTED) == 0;
@@ -595,6 +610,8 @@ int RecoveryRunSideload() {
 
 int RecoveryRunJob(const JobRequest &request) {
   if (request.job == Job::kFormatData && !FormatDataAuthorized(request)) return 1;
+  if (request.job == Job::kClearSnapshotCow &&
+      !SnapshotCowCleanupAuthorized(request)) return 1;
   DataManager::SetValue("ui_progress", 0);
   DataManager::SetValue("ui_portion_start", 0.0f);
   DataManager::SetValue("ui_portion_size",
@@ -621,6 +638,26 @@ int RecoveryRunJob(const JobRequest &request) {
   DataManager::SetValue("aera_installer_prompt_message", "");
   DataManager::SetValue("aera_installer_prompt_accept", "");
   DataManager::SetValue("aera_installer_prompt_decline", "");
+  if (request.job == Job::kClearSnapshotCow) {
+    const auto status = RecoverySnapshotCowStatus();
+    if (!status.supported || !status.metadata_readable ||
+        !status.safe_to_remove || status.partitions.empty()) return 1;
+
+    std::ostringstream names;
+    for (size_t index = 0; index < status.partitions.size(); ++index) {
+      if (index != 0) names << ", ";
+      names << status.partitions[index];
+    }
+    DataManager::SetValue("tw_partition", "Snapshot COWs");
+    DataManager::SetValue("tw_size_progress",
+        std::to_string(status.partitions.size()) + " partitions / " +
+        std::to_string(status.bytes / (1024ULL * 1024ULL)) + " MB");
+    DataManager::SetValue("tw_file_progress", names.str());
+    DataManager::SetProgress(0.1f);
+    const bool removed = PartitionManager.Remove_Snapshot_Cow_Partitions();
+    if (removed) DataManager::SetProgress(1.0f);
+    return removed ? 0 : 1;
+  }
   if (request.job == Job::kInstall) return aeraui_install_package(request.path.c_str());
   if (request.job == Job::kSideload) return RecoveryRunSideload();
   if (request.job == Job::kUploadBackup) {

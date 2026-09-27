@@ -388,6 +388,44 @@ void WipeTabs(Tools *state) {
                    [state] { Open(state, Action::kFormatData); });
 }
 
+std::string SnapshotCowDetail(const SnapshotCowStatus &status) {
+  if (!status.supported)
+    return "Dynamic partitions are not available on this device.";
+  if (!status.metadata_readable)
+    return "Super metadata could not be read.";
+  if (!status.safe_to_remove)
+    return "Cleanup is locked while an Android snapshot update is active.";
+  if (status.partitions.empty())
+    return "No stale snapshot COW partitions were found.";
+  return i18n::Format("%zu partitions / %s can be released",
+                      status.partitions.size(), Size(status.bytes).c_str());
+}
+
+void ConfirmSnapshotCowCleanup(Tools *state) {
+  const auto status = RecoverySnapshotCowStatus();
+  if (!status.supported || !status.metadata_readable ||
+      !status.safe_to_remove || status.partitions.empty()) {
+    Sheet(state->screen, "Snapshot cleanup unavailable",
+          SnapshotCowDetail(status));
+    return;
+  }
+
+  std::string copy = i18n::Format(
+      "Release %s used by these stale snapshot partitions?\n\n",
+      Size(status.bytes).c_str());
+  for (const auto &partition : status.partitions)
+    copy += "- " + partition + "\n";
+  copy += "\nRegular Android partitions and their data are not touched.";
+  Sheet(state->screen, "Remove snapshot COWs?", copy,
+        [state] {
+          JobRequest request;
+          request.job = Job::kClearSnapshotCow;
+          request.title = "Snapshot COW cleanup";
+          request.confirmation = "remove-cow";
+          Run(state, request);
+        }, 0, false, SheetPresentation::kStandard, "Swipe to remove COWs");
+}
+
 void UpdateFormatConfirmation(Tools *state) {
   const bool confirmed = std::string(lv_textarea_get_text(state->format_input)) == "yes";
   if (confirmed) lv_obj_remove_state(state->format_submit, LV_STATE_DISABLED);
@@ -592,6 +630,7 @@ void BuildPartitions(Tools *state) {
     }
   } else {
     WipeTabs(state);
+    const auto cow_status = RecoverySnapshotCowStatus();
     auto *notice = Label(state->screen,
         "Only selected partitions will be wiped.", &lv_font_montserrat_32, kAmber);
     lv_obj_set_pos(notice, 80, landscape ? 570 : 690);
@@ -601,10 +640,28 @@ void BuildPartitions(Tools *state) {
         &lv_font_montserrat_24, kMutedStrong);
     lv_obj_set_pos(hint, 80, landscape ? 650 : 758);
     lv_obj_set_width(hint, landscape ? 940 : 1270);
-    lv_obj_set_pos(state->summary, 80, landscape ? 760 : 866);
+    auto *cow_cleanup = Button(state->screen, "Snapshot COW cleanup",
+        [state] { ConfirmSnapshotCowCleanup(state); });
+    lv_obj_set_pos(cow_cleanup, 80, landscape ? 730 : 830);
+    lv_obj_set_size(cow_cleanup, landscape ? 940 : 1280, 112);
+    const bool cow_ready = cow_status.supported &&
+        cow_status.metadata_readable && cow_status.safe_to_remove &&
+        !cow_status.partitions.empty();
+    if (!cow_ready) {
+      lv_obj_add_state(cow_cleanup, LV_STATE_DISABLED);
+      if (lv_obj_get_child_count(cow_cleanup) > 0)
+        lv_obj_set_style_text_color(lv_obj_get_child(cow_cleanup, 0), kMuted, 0);
+    }
+    auto *cow_detail = Label(state->screen,
+        SnapshotCowDetail(cow_status).c_str(), &lv_font_montserrat_20,
+        cow_status.safe_to_remove && !cow_status.partitions.empty()
+            ? kMutedStrong : kMuted);
+    lv_obj_set_pos(cow_detail, 80, landscape ? 858 : 958);
+    lv_obj_set_width(cow_detail, landscape ? 940 : 1270);
+    lv_label_set_long_mode(cow_detail, LV_LABEL_LONG_DOT);
+    lv_obj_set_pos(state->summary, 80, landscape ? 940 : 1032);
     if (!landscape) {
-      lv_obj_set_pos(state->list, 64, 948);
-      lv_obj_set_height(state->list, 1650);
+      lv_obj_set_pos(state->list, 64, 1110);
     }
   }
   auto *review = Button(state->screen, backup ? "Review backup" :
@@ -618,6 +675,11 @@ void BuildPartitions(Tools *state) {
   lv_obj_set_size(review, landscape ? 940 : 1280, review_height);
   if (!landscape && (backup || restore)) {
     constexpr int list_top = 1070;
+    constexpr int list_to_review_gap = 28;
+    lv_obj_set_height(state->list,
+                      std::max(600, review_y - list_top - list_to_review_gap));
+  } else if (!landscape) {
+    constexpr int list_top = 1110;
     constexpr int list_to_review_gap = 28;
     lv_obj_set_height(state->list,
                       std::max(600, review_y - list_top - list_to_review_gap));

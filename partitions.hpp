@@ -23,6 +23,7 @@
 #define __TWRP_Partition_Manager
 
 #include <map>
+#include <cstdint>
 #include <vector>
 #include <string>
 #include <sys/poll.h>
@@ -337,6 +338,11 @@ struct users_struct {
 	bool isDecrypted;
 };
 
+struct AeraSnapshotCowPartition {
+	std::string name;
+	uint64_t bytes;
+};
+
 class TWPartitionManager
 {
 public:
@@ -370,6 +376,9 @@ public:
    
      	bool Prepare_Super_Volume(TWPartition* twrpPart);				  // Prepare logical super partition volume for mounting
 	std::string Get_Super_Partition();					  // Get Super Partition block device path
+	bool Get_Snapshot_Cow_Partitions(std::vector<AeraSnapshotCowPartition>* partitions,
+		bool* safe_to_remove);
+	bool Remove_Snapshot_Cow_Partitions();
 	void Setup_Super_Devices();						  // Setup logical dm devices on super partition
 	bool Get_Super_Status();						  // Return whether device has a super partition
 	void Setup_Super_Partition();						  // Setup the super partition for backup and restore

@@ -5228,6 +5228,106 @@ std::string TWPartitionManager::Get_Super_Partition() {
 	return "/dev/block/by-name/" + super_device;
 }
 
+bool TWPartitionManager::Get_Snapshot_Cow_Partitions(
+		std::vector<AeraSnapshotCowPartition>* partitions,
+		bool* safe_to_remove) {
+	if (!partitions || !safe_to_remove)
+		return false;
+	partitions->clear();
+	*safe_to_remove = false;
+	if (!Get_Super_Status())
+		return false;
+
+	const std::string slot_suffix = Get_Active_Slot_Suffix();
+	const uint32_t metadata_slot = slot_suffix.empty() ? 0 :
+		android::fs_mgr::SlotNumberForSlotSuffix(slot_suffix);
+	const std::string super_device = Get_Super_Partition();
+	auto builder = MetadataBuilder::New(super_device, metadata_slot);
+	if (!builder) {
+		LOGERR("Unable to read Super metadata while listing snapshot COW partitions\n");
+		return false;
+	}
+
+	for (const auto* partition : builder->ListPartitionsInGroup("cow")) {
+		const std::string name = partition->name();
+		if (name.size() <= 4 || name.compare(name.size() - 4, 4, "-cow") != 0)
+			continue;
+		partitions->push_back({name, partition->size()});
+	}
+	std::sort(partitions->begin(), partitions->end(),
+		[](const auto& left, const auto& right) { return left.name < right.name; });
+
+	auto snapshots = android::snapshot::SnapshotManager::NewForFirstStageMount();
+	*safe_to_remove = !snapshots ||
+		snapshots->GetUpdateState() == android::snapshot::UpdateState::None;
+	return true;
+}
+
+bool TWPartitionManager::Remove_Snapshot_Cow_Partitions() {
+	std::vector<AeraSnapshotCowPartition> cows;
+	bool safe_to_remove = false;
+	if (!Get_Snapshot_Cow_Partitions(&cows, &safe_to_remove) ||
+		!safe_to_remove) {
+		LOGERR("Refusing to remove snapshot COW partitions while an update is active or metadata is unavailable\n");
+		return false;
+	}
+	if (cows.empty()) {
+		LOGINFO("No snapshot COW partitions need cleanup\n");
+		return true;
+	}
+
+	const std::string slot_suffix = Get_Active_Slot_Suffix();
+	const uint32_t metadata_slot = slot_suffix.empty() ? 0 :
+		android::fs_mgr::SlotNumberForSlotSuffix(slot_suffix);
+	const std::string super_device = Get_Super_Partition();
+	auto original = android::fs_mgr::ReadMetadata(super_device, metadata_slot);
+	if (!original) {
+		LOGERR("Unable to preserve Super metadata before snapshot COW cleanup\n");
+		return false;
+	}
+	auto builder = MetadataBuilder::New(*original);
+	if (!builder)
+		return false;
+
+	for (const auto& cow : cows) {
+		auto* partition = builder->FindPartition(cow.name);
+		if (!partition || partition->group_name() != "cow" ||
+			cow.name.size() <= 4 ||
+			cow.name.compare(cow.name.size() - 4, 4, "-cow") != 0) {
+			LOGERR("Snapshot COW metadata changed before cleanup; refusing to continue\n");
+			return false;
+		}
+	}
+
+	for (const auto& cow : cows) {
+		const std::string mapper = "/dev/block/mapper/" + cow.name;
+		struct stat status {};
+		if (lstat(mapper.c_str(), &status) == 0 &&
+			!DestroyLogicalPartition(cow.name)) {
+			LOGERR("Unable to release mapped snapshot COW '%s'\n", cow.name.c_str());
+			return false;
+		}
+		builder->RemovePartition(cow.name);
+	}
+
+	auto updated = builder->Export();
+	if (!updated)
+		return false;
+	if (!android::fs_mgr::UpdatePartitionTable(super_device, *updated,
+			metadata_slot)) {
+		LOGERR("Failed to commit snapshot COW cleanup; restoring Super metadata\n");
+		android::fs_mgr::UpdatePartitionTable(super_device, *original,
+			metadata_slot);
+		return false;
+	}
+
+	sync();
+	for (const auto& cow : cows)
+		LOGINFO("AERA removed snapshot COW partition '%s' (%llu bytes)\n",
+			cow.name.c_str(), static_cast<unsigned long long>(cow.bytes));
+	return true;
+}
+
 void TWPartitionManager::Setup_Super_Devices() {
 	std::string superPart = Get_Super_Partition();
 	android::fs_mgr::CreateLogicalPartitions(superPart);
