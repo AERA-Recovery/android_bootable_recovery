@@ -21,6 +21,7 @@ void PowerTransition(lv_obj_t *screen, const std::string &title,
 // Live recovery <-> Fastbootd switches keep the process and renderer alive.
 // Give that handoff a spatial transition instead of presenting it as a reboot.
 void ModeTransition(lv_obj_t *screen, bool toward_fastbootd,
-                    std::function<void()> complete);
+                    std::function<void()> complete,
+                    uint32_t duration_ms = 720);
 
 }  // namespace aeraui::widgets

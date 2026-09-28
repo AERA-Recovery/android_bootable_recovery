@@ -34,6 +34,7 @@ struct ModeTransitionState {
   int height = 0;
   int direction = -1;
   int progress = 0;
+  int end_progress = 1000;
   std::function<void()> complete;
   bool dispatched = false;
 };
@@ -69,7 +70,7 @@ void Dispatch(lv_anim_t *animation) {
 void SetModeProgress(void *object, int32_t value) {
   auto *state = static_cast<ModeTransitionState *>(object);
   if (state == nullptr) return;
-  state->progress = std::clamp<int32_t>(value, 0, 1000);
+  state->progress = std::clamp<int32_t>(value, 0, state->end_progress);
 
   // The current interface accelerates toward the viewer and vanishes before
   // the light trails take over.  It is deliberately brief: the transition
@@ -127,8 +128,9 @@ void DrawModeTransition(lv_event_t *event) {
     const int outer = inner + 12 + phase * phase / 1350;
     int opacity = std::min(
         190, std::min(phase, std::max(0, (1100 - phase) * 2)));
-    if (progress > 840)
-      opacity = opacity * std::max(0, 1000 - progress) / 160;
+    const int fade_start = state->end_progress - 160;
+    if (progress > fade_start)
+      opacity = opacity * std::max(0, state->end_progress - progress) / 160;
     ray.p1 = TransitionPoint(centre_x + dx * inner / 100,
                              centre_y + dy * inner / 100);
     ray.p2 = TransitionPoint(centre_x + dx * outer / 100,
@@ -274,12 +276,17 @@ void PowerTransition(lv_obj_t *screen, const std::string &title,
 }
 
 void ModeTransition(lv_obj_t *screen, bool toward_fastbootd,
-                    std::function<void()> complete) {
+                    std::function<void()> complete, uint32_t duration_ms) {
   if (screen == nullptr || !complete) return;
   auto *state = new ModeTransitionState;
   state->width = lv_obj_get_width(screen);
   state->height = lv_obj_get_height(screen);
   state->direction = toward_fastbootd ? -1 : 1;
+  // Preserve the original 1000 units / 720 ms travel speed. A longer
+  // transition adds more star-field travel instead of slowing the same
+  // animation down.
+  state->end_progress = std::max<int>(
+      1000, static_cast<int>((static_cast<uint64_t>(duration_ms) * 1000) / 720));
   state->complete = std::move(complete);
 
   const uint32_t count = lv_obj_get_child_count(screen);
@@ -307,8 +314,8 @@ void ModeTransition(lv_obj_t *screen, bool toward_fastbootd,
   lv_anim_t throw_animation;
   lv_anim_init(&throw_animation);
   lv_anim_set_var(&throw_animation, state);
-  lv_anim_set_values(&throw_animation, 0, 1000);
-  lv_anim_set_duration(&throw_animation, 720);
+  lv_anim_set_values(&throw_animation, 0, state->end_progress);
+  lv_anim_set_duration(&throw_animation, duration_ms);
   lv_anim_set_path_cb(&throw_animation, lv_anim_path_linear);
   lv_anim_set_exec_cb(&throw_animation, SetModeProgress);
   lv_anim_set_user_data(&throw_animation, state);

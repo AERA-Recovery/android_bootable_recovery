@@ -128,8 +128,11 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
       detail += "The current recovery session will end.";
       Sheet(screen, title, detail, [=] {
         if (d.action == Action::kRebootFastbootd) {
+          const uint32_t transition_duration =
+              RecoveryFastbootWifiStatus().enabled ? 1080 : 720;
           ModeTransition(screen, true,
-                         [=] { callback(d.action, context); });
+                         [=] { callback(d.action, context); },
+                         transition_duration);
           return;
         }
         const std::string transition_title = power_off
