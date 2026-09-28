@@ -1281,10 +1281,34 @@ void RecoveryVibrate(Haptic haptic) {
 namespace {
 constexpr const char *kAeraPreferencesPath =
     "/data/media/0/AERA/preferences.conf";
-constexpr const char* kAeraEarlyPreferencesDirectory = "/data/recovery/AERA";
-constexpr const char* kAeraEarlyPreferencesPath = "/data/recovery/AERA/early-ui.conf";
 constexpr const char *kNasProfilePath =
     "/data/media/0/AERA/network_storage.conf";
+
+#ifdef OF_ALLOW_EARLY_SETTINGS_LOAD
+#ifdef OF_SETTINGS_ROOT_DIRECTORY
+constexpr const char* kAeraEarlyPreferencesRoot = OF_SETTINGS_ROOT_DIRECTORY;
+#else
+constexpr const char* kAeraEarlyPreferencesRoot = "/data/media/0";
+#endif
+
+std::string EarlyPreferencesDirectory() {
+  std::string root = kAeraEarlyPreferencesRoot;
+  while (root.size() > 1 && root.back() == '/') root.pop_back();
+  return root + "/AERA";
+}
+
+const std::string kAeraEarlyPreferencesDirectory = EarlyPreferencesDirectory();
+const std::string kAeraEarlyPreferencesPath =
+    kAeraEarlyPreferencesDirectory + "/early-ui.conf";
+
+bool PrepareEarlyPreferencesRoot() {
+  // Mount the backing recovery partition when the configured path belongs to
+  // one. Custom roots on an already available filesystem need no special
+  // handling and are created below like any other directory.
+  if (PartitionManager.Find_Partition_By_Path(kAeraEarlyPreferencesRoot) == nullptr) return true;
+  return PartitionManager.Mount_By_Path(kAeraEarlyPreferencesRoot, false);
+}
+#endif
 
 struct EarlyUiPreferences {
   int clock24;
@@ -1562,19 +1586,26 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
 }
 
 bool SaveEarlyUiPreferences() {
-  if (!PartitionManager.Mount_By_Path("/data", false) ||
+#ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
+  return true;
+#else
+  if (!PrepareEarlyPreferencesRoot() ||
       !TWFunc::Recursive_Mkdir(kAeraEarlyPreferencesDirectory, false))
     return false;
   return WriteFileAtomically(kAeraEarlyPreferencesPath,
                              SerializeEarlyUiPreferences(CaptureCurrentEarlyUiPreferences()));
+#endif
 }
 
 void LoadEarlyUiPreferencesIfAvailable() {
+#ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
+  return;
+#else
   if (gEarlyPreferencesAttempted) return;
   CaptureEarlyDefaultsIfNeeded();
   std::ifstream input(kAeraEarlyPreferencesPath);
   if (!input) {
-    if (!PartitionManager.Mount_By_Path("/data", false)) return;
+    if (!PrepareEarlyPreferencesRoot()) return;
     input.clear();
     input.open(kAeraEarlyPreferencesPath);
   }
@@ -1610,7 +1641,9 @@ void LoadEarlyUiPreferencesIfAvailable() {
 
   ApplyEarlyUiPreferences(preferences);
   ApplyEarlyUiSideEffects();
-  LOGINFO("AERA: restored early UI preferences from /data/recovery.\n");
+  LOGINFO("AERA: restored early UI preferences from %s.\n",
+          kAeraEarlyPreferencesPath.c_str());
+#endif
 }
 
 void LoadAeraPreferencesIfAvailable() {
