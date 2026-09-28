@@ -26,14 +26,16 @@ jobs:
           echo "$HOME/bin" >> $GITHUB_PATH
 
       - name: Initialize Manifest Workspace
+        env:
+          GIT_TERMINAL_PROMPT: 0
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          # Rewrite SSH URLs to HTTPS so repo sync does not require an SSH key
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-          repo init -u https://github.com/AERA-Recovery/android_manifest -b aera-16.0 --depth=1
-          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+          
+          repo init -u https://github.com/AERA-Recovery/android_manifest -b aera-16.0 --depth=1 --no-repo-verify
+          repo sync -c -j4 --force-sync --no-clone-bundle --no-tags --no-manifest-update
 
       - name: Inject Custom Recovery Source
         uses: actions/checkout@v4
@@ -48,11 +50,12 @@ jobs:
       - name: Build Recovery Image
         run: |
           source build/envsetup.sh
-          lunch aera_infiniti-userdebug
+          # Try standard lunch targets sequentially
+          lunch aera_infiniti-trunk_staging-userdebug || lunch aera_infiniti-userdebug || lunch omni_infiniti-userdebug
           mka recoveryimage
 
       - name: Upload Recovery Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AERA-Recovery-Infiniti
-          path: out/target/product/infiniti/recovery.img
+          path: out/target/product/infiniti/*.img
