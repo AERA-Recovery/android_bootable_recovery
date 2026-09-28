@@ -10,6 +10,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <ctime>
 #include <functional>
 #include <memory>
 #include <set>
@@ -1256,6 +1257,17 @@ std::string EntryDetail(const Entry& entry) {
   return i18n::Format("%s  /  %s", Size(entry.bytes).c_str(), i18n::Translate(kind));
 }
 
+std::string EntryModifiedDate(const Entry& entry, bool clock24) {
+  if (entry.directory || entry.symlink || entry.modified <= 0) return {};
+  struct tm local_time{};
+  if (localtime_r(&entry.modified, &local_time) == nullptr) return {};
+  char formatted[24] = {};
+  if (strftime(formatted, sizeof(formatted), clock24 ? "%Y-%m-%d  %H:%M" : "%Y-%m-%d  %I:%M %p",
+               &local_time) == 0)
+    return {};
+  return formatted;
+}
+
 const char* EntryIcon(const Entry& entry) {
   if (entry.directory) return LV_SYMBOL_DIRECTORY;
   if (entry.symlink) return LV_SYMBOL_RIGHT;
@@ -1271,7 +1283,7 @@ void ToggleSelection(Files* state, const Entry& entry) {
   UpdateActionBar(state);
 }
 
-void FileRow(Files* state, int y, const Entry& entry) {
+void FileRow(Files* state, int y, const Entry& entry, bool alternate) {
   lv_obj_update_layout(state->list);
   const int width = std::max(320, static_cast<int>(lv_obj_get_width(state->list)));
   const FileListMetrics metrics = FileListLayout();
@@ -1300,12 +1312,18 @@ void FileRow(Files* state, int y, const Entry& entry) {
   lv_obj_set_size(row, width, metrics.row_height);
   lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
   lv_obj_set_style_bg_color(row, selected ? kAccentSoft : kMainPanel, 0);
-  lv_obj_set_style_bg_opa(row, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+  lv_obj_set_style_bg_opa(row, selected ? LV_OPA_COVER : (alternate ? LV_OPA_20 : LV_OPA_TRANSP),
+                          0);
   lv_obj_set_style_radius(row, 24, 0);
   if (selected) {
     lv_obj_set_style_border_width(row, 2, 0);
     lv_obj_set_style_border_color(row, kAccent, 0);
     lv_obj_set_style_border_opa(row, LV_OPA_70, 0);
+  } else {
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(row, kMainLine, 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_40, 0);
   }
   auto* icon = Label(row, EntryIcon(entry), metrics.icon_font,
                      selected ? kAccent : kMutedStrong);
@@ -1318,7 +1336,22 @@ void FileRow(Files* state, int y, const Entry& entry) {
   const std::string detail = EntryDetail(entry);
   auto* copy = Label(row, detail.c_str(), metrics.detail_font, kMuted);
   lv_obj_set_pos(copy, metrics.text_x, metrics.detail_y);
-  SingleLineLabel(copy, width - text_margin, metrics.detail_font);
+  int detail_width = width - text_margin;
+  const bool clock24 = RecoveryPreference(Preference::kClock24);
+  const std::string modified = EntryModifiedDate(entry, clock24);
+  if (!modified.empty()) {
+    const bool large = RecoveryInterfaceSize() == InterfaceSize::kLarge;
+    const int date_width = large ? (clock24 ? 340 : 410) : (clock24 ? 280 : 340);
+    detail_width = std::max(120, detail_width - date_width - 28);
+    auto* date = lv_label_create(row);
+    lv_label_set_text(date, modified.c_str());
+    lv_obj_set_pos(date, width - (state->selecting ? 104 : 54) - date_width, metrics.detail_y);
+    lv_obj_set_size(date, date_width, lv_font_get_line_height(UiFont(metrics.detail_font)));
+    lv_obj_set_style_text_align(date, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_font(date, UiFont(metrics.detail_font), 0);
+    lv_obj_set_style_text_color(date, kDim, 0);
+  }
+  SingleLineLabel(copy, detail_width, metrics.detail_font);
   if (state->selecting) {
     if (selected) {
       auto* mark = Label(row, LV_SYMBOL_OK, metrics.icon_font, kAccent);
@@ -1378,7 +1411,7 @@ void RenderEntries(Files *state) {
   const size_t count = std::min(state->entries.size(), state->visible);
   for (size_t i = 0; i < count; ++i) {
     const auto entry = state->entries[i];
-    FileRow(state, y, entry);
+    FileRow(state, y, entry, (i % 2) != 0);
     y += metrics.row_pitch;
   }
   if (count < state->entries.size()) {
