@@ -64,10 +64,8 @@
 #include "bootloader_message/include/bootloader_message/bootloader_message.h"
 #include "cutils/properties.h"
 #include "cutils/android_reboot.h"
-#include <sys/reboot.h>
-#ifdef TW_INCLUDE_CRYPTO
 #include "third_party/rapidxml/rapidxml.hpp"
-#endif
+#include <sys/reboot.h>
 #endif // ndef BUILD_TWRPTAR_MAIN
 #ifndef TW_EXCLUDE_ENCRYPTED_BACKUPS
 #include "openaes/inc/oaes_lib.h"
