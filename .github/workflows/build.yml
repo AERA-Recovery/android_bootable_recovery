@@ -56,18 +56,12 @@ jobs:
           # 1. Blank out roomservice completely before envsetup
           echo "#!/bin/bash" > device/oneplus/infiniti/vendorsetup.sh
           
-          # 2. Force write a complete release_config_map textproto overriding existing files
+          # 2. Force write a complete release_config_map textproto using simple echo statements
           mkdir -p build/release/release_configs
-          cat << 'PROTO' > build/release/release_config_map.textproto
-default_release_config: "trunk_staging"
-default_containers: "VENDOR"
-default_containers: "SYSTEM"
-PROTO
-
-          cat << 'PROTO' > build/release/release_configs/trunk_staging.textproto
-name: "trunk_staging"
-inherits: "ap1a"
-PROTO
+          echo 'default_release_config: "trunk_staging"' > build/release/release_config_map.textproto
+          echo 'default_containers: "VENDOR"' >> build/release/release_config_map.textproto
+          echo 'default_containers: "SYSTEM"' >> build/release/release_config_map.textproto
+          echo 'name: "trunk_staging"' > build/release/release_configs/trunk_staging.textproto
 
       - name: Build Recovery Image
         run: |
