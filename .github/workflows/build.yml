@@ -49,14 +49,13 @@ jobs:
 
       - name: Neutralize Roomservice & Patch Release Config Map
         run: |
-          # 1. Neutralize roomservice script in vendorsetup
+          # 1. Disable roomservice execution in vendorsetup
           echo "#!/bin/bash" > device/oneplus/infiniti/vendorsetup.sh
 
           # 2. Prevent Soong release_config panic by creating dummy trunk_staging release map if missing
           mkdir -p build/release
           if [ ! -f build/release/release_config_map.textproto ]; then
             cat << 'RELEOF' > build/release/release_config_map.textproto
-# Fallback minimal release config for recovery builds
 default_release_config: "trunk_staging"
 RELEOF
           fi
@@ -70,7 +69,7 @@ RELEOF
           
           source build/envsetup.sh
           
-          # Target 3-part combo with trunk_staging
+          # Target valid 3-part combo
           lunch aera_infiniti-trunk_staging-userdebug || lunch omni_infiniti-trunk_staging-eng
           
           mka recoveryimage
