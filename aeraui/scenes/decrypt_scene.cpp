@@ -44,6 +44,7 @@ struct DecryptState {
   int sequence_length = 0;
   bool tracking = false;
   bool busy = false;
+  bool submit_pending = false;
   bool secondary = false;
 };
 
@@ -51,11 +52,23 @@ void DeleteState(lv_event_t *event) {
   delete static_cast<DecryptState *>(lv_event_get_user_data(event));
 }
 
+void SubmitDecrypt(DecryptState *state) {
+  if (state == nullptr || state->callback == nullptr || state->busy ||
+      state->submit_pending)
+    return;
+  state->submit_pending = true;
+  state->callback(Action::kDecryptSubmit, state->context);
+}
+
 void Dispatch(lv_event_t *event) {
   auto *state = static_cast<DecryptState *>(lv_event_get_user_data(event));
   if (state == nullptr || state->callback == nullptr || state->busy) return;
   const auto action = static_cast<Action>(reinterpret_cast<uintptr_t>(
       lv_obj_get_user_data(lv_event_get_target_obj(event))));
+  if (action == Action::kDecryptSubmit) {
+    SubmitDecrypt(state);
+    return;
+  }
   state->callback(action, state->context);
 }
 
@@ -173,9 +186,13 @@ void PatternTouch(lv_event_t *event) {
       state->tracking)
     AddPatternDot(state, PatternDotAt(state, point));
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    if (!state->tracking) return;
     state->tracking = false;
-    if (state->sequence_length > 0)
-      i18n::BindLabel(state->status, "Pattern ready - swipe again to redraw");
+    if (state->sequence_length >= 4) {
+      SubmitDecrypt(state);
+    } else if (state->sequence_length > 0) {
+      i18n::BindLabel(state->status, "Pattern too short - try again");
+    }
   }
 }
 
@@ -491,6 +508,7 @@ void CompleteDecryptAttempt(const DecryptScene &scene, bool success) {
     return;
   }
   state->busy = false;
+  state->submit_pending = false;
   i18n::BindLabel(state->status,
                     state->secondary
                         ? "That credential did not unlock this user. Please try again."
