@@ -7,14 +7,10 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Maximize Build Space
-        uses: easimon/minimize-disk-usage@v2
-        with:
-          root-reserve-mb: 2048
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell
+          sudo apt-get clean
 
       - name: Install Build Dependencies
         run: |
