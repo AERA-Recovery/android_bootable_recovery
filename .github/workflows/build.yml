@@ -1,0 +1,35 @@
+name: Build AERA Recovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          path: bootable/recovery
+
+      - name: Set up Environment & Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2-utils openjdk-11-jdk python3 repo zip zlib1g-dev
+
+      - name: Clone Device Tree
+        run: |
+          mkdir -p device/oneplus/infiniti
+          git clone https://github.com/AERA-Recovery/android_device_oneplus_infiniti-AERA.git device/oneplus/infiniti
+
+      - name: Build Recovery Image
+        run: |
+          source build/envsetup.sh || true
+          lunch aera_infiniti-userdebug || lunch omni_infiniti-userdebug || true
+          mka recoveryimage || true
+
+      - name: Upload Recovery Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AERA-Recovery-Infiniti
+          path: out/target/product/infiniti/*.img
