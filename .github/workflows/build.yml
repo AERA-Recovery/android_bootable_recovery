@@ -53,20 +53,28 @@ jobs:
 
       - name: Apply Build Fixes
         run: |
-          # Neutralize roomservice completely before envsetup
+          # 1. Blank out roomservice completely before envsetup
           echo "#!/bin/bash" > device/oneplus/infiniti/vendorsetup.sh
           
-          # Populate release_config map with default_containers to satisfy Soong parser
+          # 2. Force write a complete release_config_map textproto overriding existing files
           mkdir -p build/release/release_configs
-          echo 'default_release_config: "trunk_staging"' > build/release/release_config_map.textproto
-          echo 'default_containers: "VENDOR"' >> build/release/release_config_map.textproto
-          echo 'name: "trunk_staging"' > build/release/release_configs/trunk_staging.textproto
+          cat << 'PROTO' > build/release/release_config_map.textproto
+default_release_config: "trunk_staging"
+default_containers: "VENDOR"
+default_containers: "SYSTEM"
+PROTO
+
+          cat << 'PROTO' > build/release/release_configs/trunk_staging.textproto
+name: "trunk_staging"
+inherits: "ap1a"
+PROTO
 
       - name: Build Recovery Image
         run: |
           export ALLOW_MISSING_DEPENDENCIES=true
           export BUILD_BROKEN_MISSING_REQUIRED_MODULES=true
           export TEMPLATE_RELEASE_CONFIG=true
+          export DISABLE_RELEASE_CONFIG=true
           export LC_ALL=C
           
           source build/envsetup.sh
