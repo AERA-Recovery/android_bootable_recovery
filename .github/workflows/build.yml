@@ -2,6 +2,10 @@ name: Build AERA Recovery
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - aera-16.0
+      - feature/auto-submit-pattern
 
 jobs:
   build:
@@ -47,27 +51,29 @@ jobs:
           mkdir -p device/oneplus/infiniti
           git clone https://github.com/AERA-Recovery/android_device_oneplus_infiniti-AERA.git -b aera-16.0 device/oneplus/infiniti
 
-      - name: Apply Build Fixes
+      - name: Build Recovery Image (Direct Target Bypass)
         run: |
-          # 1. Remove roomservice script completely
+          # 1. Remove roomservice trigger
           rm -f device/oneplus/infiniti/vendorsetup.sh
           
-          # 2. Write valid protobuf array syntax for release_config_map
-          mkdir -p build/release/release_configs
-          printf 'default_release_config: "trunk_staging"\ndefault_containers: ["VENDOR", "SYSTEM"]\n' > build/release/release_config_map.textproto
-          printf 'name: "trunk_staging"\ninherits: "ap1a"\n' > build/release/release_configs/trunk_staging.textproto
-
-      - name: Build Recovery Image
-        run: |
+          # 2. Environment Overrides
           export ALLOW_MISSING_DEPENDENCIES=true
           export BUILD_BROKEN_MISSING_REQUIRED_MODULES=true
-          export TEMPLATE_RELEASE_CONFIG=true
           export LC_ALL=C
           
-          source build/envsetup.sh
-          lunch aera_infiniti-trunk_staging-userdebug || lunch omni_infiniti-trunk_staging-eng
+          # 3. Completely disable Soong release config lookups
+          export TEMPLATE_RELEASE_CONFIG=true
+          export RELEASE_CONFIG_DIR=""
           
-          mka recoveryimage
+          # 4. Source build env without running lunch
+          source build/envsetup.sh
+          
+          # 5. Export product variables directly to bypass lunch/release_config
+          export TARGET_PRODUCT=aera_infiniti
+          export TARGET_BUILD_VARIANT=userdebug
+          
+          # 6. Execute Ninja build target directly
+          mka recoveryimage -j4
 
       - name: Upload Recovery Artifact
         uses: actions/upload-artifact@v4
