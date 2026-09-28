@@ -53,11 +53,14 @@ jobs:
 
       - name: Apply Build Fixes
         run: |
+          # Neutralize roomservice completely before envsetup
           echo "#!/bin/bash" > device/oneplus/infiniti/vendorsetup.sh
+          
+          # Populate release_config map with default_containers to satisfy Soong parser
           mkdir -p build/release/release_configs
           echo 'default_release_config: "trunk_staging"' > build/release/release_config_map.textproto
+          echo 'default_containers: "VENDOR"' >> build/release/release_config_map.textproto
           echo 'name: "trunk_staging"' > build/release/release_configs/trunk_staging.textproto
-          echo 'inherits: "ap1a"' >> build/release/release_configs/trunk_staging.textproto
 
       - name: Build Recovery Image
         run: |
