@@ -29,6 +29,9 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          # Rewrite SSH URLs to HTTPS so repo sync does not require an SSH key
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           repo init -u https://github.com/AERA-Recovery/android_manifest -b aera-16.0 --depth=1
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
