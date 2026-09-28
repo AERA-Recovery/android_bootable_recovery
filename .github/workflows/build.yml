@@ -51,16 +51,16 @@ jobs:
         run: |
           export ALLOW_MISSING_DEPENDENCIES=true
           export BUILD_BROKEN_MISSING_REQUIRED_MODULES=true
+          export TEMPLATE_RELEASE_CONFIG=true
           export LC_ALL=C
           
           source build/envsetup.sh
           
-          # Try valid 3-part combos (<product>-<release>-<variant>)
-          lunch aera_infiniti-aera-userdebug || \
-          lunch aera_infiniti-trunk_staging-userdebug || \
-          lunch aera_infiniti-ap1a-userdebug || \
-          lunch omni_infiniti-aera-userdebug || \
-          lunch omni_infiniti-trunk_staging-userdebug
+          # Skip automated roomservice lookup and set build target
+          export TARGET_PRODUCT=aera_infiniti
+          export TARGET_BUILD_VARIANT=userdebug
+          
+          lunch aera_infiniti-userdebug || lunch omni_infiniti-eng || lunch aera_infiniti-eng
           
           mka recoveryimage
 
@@ -68,4 +68,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AERA-Recovery-Infiniti
-          path: out/target/product/infiniti/recovery.img
+          path: out/target/product/infiniti/*.img
