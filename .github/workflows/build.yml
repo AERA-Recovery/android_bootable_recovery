@@ -2,10 +2,6 @@ name: Build AERA Recovery
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - aera-16.0
-      - feature/auto-submit-pattern
 
 jobs:
   build:
@@ -53,22 +49,19 @@ jobs:
 
       - name: Apply Build Fixes
         run: |
-          # 1. Blank out roomservice completely before envsetup
-          echo "#!/bin/bash" > device/oneplus/infiniti/vendorsetup.sh
+          # 1. Remove roomservice script completely
+          rm -f device/oneplus/infiniti/vendorsetup.sh
           
-          # 2. Force write a complete release_config_map textproto using simple echo statements
+          # 2. Write valid protobuf array syntax for release_config_map
           mkdir -p build/release/release_configs
-          echo 'default_release_config: "trunk_staging"' > build/release/release_config_map.textproto
-          echo 'default_containers: "VENDOR"' >> build/release/release_config_map.textproto
-          echo 'default_containers: "SYSTEM"' >> build/release/release_config_map.textproto
-          echo 'name: "trunk_staging"' > build/release/release_configs/trunk_staging.textproto
+          printf 'default_release_config: "trunk_staging"\ndefault_containers: ["VENDOR", "SYSTEM"]\n' > build/release/release_config_map.textproto
+          printf 'name: "trunk_staging"\ninherits: "ap1a"\n' > build/release/release_configs/trunk_staging.textproto
 
       - name: Build Recovery Image
         run: |
           export ALLOW_MISSING_DEPENDENCIES=true
           export BUILD_BROKEN_MISSING_REQUIRED_MODULES=true
           export TEMPLATE_RELEASE_CONFIG=true
-          export DISABLE_RELEASE_CONFIG=true
           export LC_ALL=C
           
           source build/envsetup.sh
