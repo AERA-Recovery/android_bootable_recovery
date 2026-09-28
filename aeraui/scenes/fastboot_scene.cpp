@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <vector>
 
+#include <android-base/properties.h>
 #include <cutils/sockets.h>
 
 #include "aera_logo.hpp"
@@ -49,6 +50,209 @@ TelemetryView g_view;
 int g_server_fd = -1;
 int g_client_fd = -1;
 std::string g_input;
+
+bool WirelessFastboot() {
+  if (android::base::GetProperty("fastbootd.protocol", "usb") == "tcp")
+    return true;
+  // The destination scene is painted just before the backend enters live
+  // fastbootd. In that brief handoff, reflect the enabled session preference;
+  // once fastbootd is active the explicit protocol is authoritative.
+  return android::base::GetProperty("sys.usb.config.aera_fastbootd", "0") != "1" &&
+      RecoveryFastbootWifiStatus().enabled;
+}
+
+bool ActiveWirelessFastboot() {
+  return WirelessFastboot();
+}
+
+std::string ReadyDetail() {
+  if (WirelessFastboot()) {
+    return "Fastboot is using the authenticated paired-ADB tunnel. The USB cable may remain\n"
+           "connected, but partition commands use Wi-Fi until you select USB.";
+  }
+  return "Use the fastboot client on your computer to flash, erase, resize or\n"
+         "inspect dynamic partitions. Keep the USB cable connected during writes.";
+}
+
+constexpr int kTransportPillWidth = 390;
+constexpr int kTransportPillHeight = 96;
+constexpr int kTransportInset = 7;
+constexpr int kTransportGap = 6;
+constexpr int kTransportSegmentWidth =
+    (kTransportPillWidth - 2 * kTransportInset - kTransportGap) / 2;
+
+struct TransportPillState {
+  lv_obj_t *screen = nullptr;
+  lv_obj_t *highlight = nullptr;
+  lv_obj_t *detail = nullptr;
+  lv_obj_t *guide = nullptr;
+  lv_obj_t *warning = nullptr;
+  std::array<lv_obj_t *, 2> icons{};
+  std::array<lv_obj_t *, 2> labels{};
+  bool wireless = false;
+  bool pending_wireless = false;
+  bool switching = false;
+};
+
+TransportPillState g_transport_pill;
+
+void SetTransportPillVisual(bool wireless, bool animate);
+
+void ApplyTransportSwitch(lv_timer_t *timer) {
+  (void)timer;
+  if (!g_transport_pill.switching) return;
+  const bool wireless = g_transport_pill.pending_wireless;
+  const bool success = RecoverySelectFastbootTransport(wireless);
+  g_transport_pill.switching = false;
+  if (!success) {
+    SetTransportPillVisual(!wireless, true);
+    if (g_transport_pill.screen &&
+        lv_obj_is_valid(g_transport_pill.screen)) {
+      Sheet(g_transport_pill.screen,
+            "Could not change Fastboot transport",
+            wireless
+                ? "The paired ADB tunnel is unavailable. Check Wi-Fi and the paired computer."
+                : "USB Fastboot could not be restored. Reconnect the cable and try again.",
+            Handler{}, 760, true, SheetPresentation::kCompactGlass);
+    }
+    return;
+  }
+
+  g_transport_pill.wireless = wireless;
+  if (g_transport_pill.detail &&
+      lv_obj_is_valid(g_transport_pill.detail)) {
+    i18n::BindLabel(g_transport_pill.detail, ReadyDetail().c_str());
+  }
+  if (g_transport_pill.guide && lv_obj_is_valid(g_transport_pill.guide)) {
+    if (wireless)
+      lv_obj_remove_flag(g_transport_pill.guide, LV_OBJ_FLAG_HIDDEN);
+    else
+      lv_obj_add_flag(g_transport_pill.guide, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (g_transport_pill.warning &&
+      lv_obj_is_valid(g_transport_pill.warning)) {
+    i18n::BindLabel(
+        g_transport_pill.warning,
+        wireless
+            ? "Keep Wi-Fi connected while a command is writing data."
+            : "Do not disconnect USB while a command is writing data.");
+  }
+}
+
+void SetTransportPillVisual(bool wireless, bool animate) {
+  auto &state = g_transport_pill;
+  if (state.highlight == nullptr) return;
+  const int target = kTransportInset +
+      (wireless ? kTransportSegmentWidth + kTransportGap : 0);
+  if (animate) {
+    lv_anim_delete(state.highlight, nullptr);
+    lv_anim_t slide;
+    lv_anim_init(&slide);
+    lv_anim_set_var(&slide, state.highlight);
+    lv_anim_set_values(&slide, lv_obj_get_x(state.highlight), target);
+    lv_anim_set_duration(&slide, 210);
+    lv_anim_set_path_cb(&slide, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&slide, [](void *object, int32_t x) {
+      lv_obj_set_x(static_cast<lv_obj_t *>(object), x);
+    });
+    lv_anim_start(&slide);
+  } else {
+    lv_obj_set_x(state.highlight, target);
+  }
+
+  state.wireless = wireless;
+  for (size_t index = 0; index < state.labels.size(); ++index) {
+    const bool selected = (index == 1) == wireless;
+    const lv_color_t color = selected ? kOnAccent : kMutedStrong;
+    lv_obj_set_style_text_color(state.icons[index], color, 0);
+    lv_obj_set_style_text_color(state.labels[index], color, 0);
+  }
+}
+
+void BeginTransportSwitch(bool wireless) {
+  auto &state = g_transport_pill;
+  if (state.switching || state.wireless == wireless)
+    return;
+
+  // Move the pill immediately, then apply the already-prepared transport once
+  // the 210 ms slide is visible. No service restart is performed on this path.
+  state.switching = true;
+  state.pending_wireless = wireless;
+  SetTransportPillVisual(wireless, true);
+  auto *timer = lv_timer_create(ApplyTransportSwitch, 230, nullptr);
+  lv_timer_set_repeat_count(timer, 1);
+}
+
+void AddTransportPill(lv_obj_t *screen, bool wireless) {
+  auto *pill = lv_obj_create(screen);
+  Panel(pill, LV_RADIUS_CIRCLE, kMainPanel);
+  lv_obj_set_size(pill, kTransportPillWidth, kTransportPillHeight);
+  lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -64,
+               Landscape(screen) ? 242 : 292);
+  lv_obj_set_style_border_width(pill, 1, 0);
+  lv_obj_set_style_border_color(pill, kMainLine, 0);
+  lv_obj_set_style_border_opa(pill, LV_OPA_50, 0);
+  lv_obj_set_style_pad_all(pill, 0, 0);
+  lv_obj_set_style_clip_corner(pill, true, 0);
+
+  auto &state = g_transport_pill;
+  state = {};
+  state.screen = screen;
+  state.wireless = wireless;
+  state.pending_wireless = wireless;
+
+  state.highlight = lv_obj_create(pill);
+  Clear(state.highlight);
+  lv_obj_set_pos(state.highlight,
+                 kTransportInset +
+                     (wireless ? kTransportSegmentWidth + kTransportGap : 0),
+                 kTransportInset);
+  lv_obj_set_size(state.highlight, kTransportSegmentWidth,
+                  kTransportPillHeight - 2 * kTransportInset);
+  lv_obj_set_style_radius(state.highlight, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(state.highlight, kAccent, 0);
+  lv_obj_set_style_bg_opa(state.highlight, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(state.highlight, LV_OBJ_FLAG_CLICKABLE);
+
+  struct Segment {
+    const char *icon;
+    const char *label;
+    bool wifi;
+  };
+  constexpr std::array<Segment, 2> segments{{
+      {LV_SYMBOL_USB, "USB", false},
+      {LV_SYMBOL_WIFI, "Wi-Fi", true},
+  }};
+
+  for (size_t index = 0; index < segments.size(); ++index) {
+    const Segment segment = segments[index];
+    const bool selected = wireless == segment.wifi;
+    auto *button = lv_button_create(pill);
+    Clear(button);
+    lv_obj_set_pos(button,
+                   kTransportInset + static_cast<int>(index) *
+                       (kTransportSegmentWidth + kTransportGap),
+                   kTransportInset);
+    lv_obj_set_size(button, kTransportSegmentWidth,
+                    kTransportPillHeight - 2 * kTransportInset);
+    lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_shadow_width(button, 0, 0);
+    lv_obj_set_style_transform_scale(button, 252, LV_STATE_PRESSED);
+
+    state.icons[index] = Label(button, segment.icon,
+                               &lv_font_montserrat_32,
+                               selected ? kOnAccent : kMutedStrong);
+    lv_obj_set_pos(state.icons[index], 27, 25);
+    state.labels[index] = Label(button, segment.label,
+                                &lv_font_montserrat_24,
+                                selected ? kOnAccent : kMutedStrong);
+    lv_obj_set_pos(state.labels[index], 78, 27);
+    OnClick(button, [segment] {
+      BeginTransportSwitch(segment.wifi);
+    });
+  }
+}
 
 std::string Bytes(uint64_t value) {
   char result[48];
@@ -192,10 +396,10 @@ void ApplyTelemetry() {
   g_telemetry.dirty = false;
 
   std::string title = "Ready for fastboot commands";
-  std::string detail =
-      "Use the fastboot client on your computer to flash, erase, resize or\n"
-      "inspect dynamic partitions. Keep the USB cable connected during writes.";
+  std::string detail = ReadyDetail();
   bool show_progress = false;
+  const bool wireless = ActiveWirelessFastboot();
+  const char *transport = wireless ? "Wi-Fi" : "USB";
 
   const bool failed = g_telemetry.result == 1;
   const bool finished = g_telemetry.result == 0;
@@ -209,11 +413,12 @@ void ApplyTelemetry() {
   } else if (g_telemetry.phase == "receiving") {
     title = "Receiving image";
     detail = g_telemetry.total == 0
-        ? "Receiving the image over USB. The target partition follows next."
+        ? i18n::Format("Receiving the image over %s. The target partition follows next.",
+                       transport)
         : i18n::Format(
-              "%s of %s received over USB. The target partition follows next.",
+              "%s of %s received over %s. The target partition follows next.",
               Bytes(g_telemetry.current).c_str(),
-              Bytes(g_telemetry.total).c_str());
+              Bytes(g_telemetry.total).c_str(), transport);
     show_progress = g_telemetry.total != 0;
   } else if (g_telemetry.phase == "received") {
     title = "Image received";
@@ -225,8 +430,11 @@ void ApplyTelemetry() {
                          target.c_str());
     detail = finished
         ? "The partition was written successfully."
-        : i18n::Format("Writing %s. Keep the USB cable connected.",
-                       target.c_str());
+        : wireless
+            ? i18n::Format("Writing %s over Wi-Fi. Keep the connection active.",
+                           target.c_str())
+            : i18n::Format("Writing %s. Keep the USB cable connected.",
+                           target.c_str());
     show_progress = g_telemetry.total != 0;
   } else if (g_telemetry.phase == "erasing") {
     title = i18n::Format(finished ? "Erased %s" : "Erasing %s",
@@ -239,7 +447,9 @@ void ApplyTelemetry() {
     title = i18n::Format(finished ? "Updated %s" : "Updating %s",
                          target.c_str());
     detail = finished ? "Dynamic partition metadata was updated successfully."
-                      : "Applying dynamic partition metadata. Do not disconnect USB.";
+                      : wireless
+                          ? "Applying dynamic partition metadata over Wi-Fi. Keep the connection active."
+                          : "Applying dynamic partition metadata. Do not disconnect USB.";
   }
 
   i18n::BindLabel(g_view.title, title.c_str());
@@ -275,7 +485,10 @@ void PollFastbootTelemetry() {
 
 void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
                         void *context) {
+  g_transport_pill = {};
   const bool landscape = Landscape(screen);
+  const FastbootWifiStatus fastboot_wifi = RecoveryFastbootWifiStatus();
+  const bool wireless_transport = WirelessFastboot();
   MainBackground(screen);
   // Fastbootd owns USB. Keep the normal pull-down controls disabled so Wi-Fi,
   // rotation and recovery jobs cannot be started in this restricted mode.
@@ -285,6 +498,9 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_pos(mode, 80, landscape ? 210 : 252);
   auto *title = Label(screen, "Fastbootd", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, 80, landscape ? 264 : 314);
+  if (fastboot_wifi.enabled) {
+    AddTransportPill(screen, wireless_transport);
+  }
 
   auto *hero = lv_obj_create(screen);
   Panel(hero, 52, kMainSheet);
@@ -301,13 +517,12 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
                       &lv_font_montserrat_48, kText);
   lv_obj_align(ready, LV_ALIGN_TOP_MID, 0, landscape ? 430 : 760);
   auto *detail = Label(
-      hero,
-      "Use the fastboot client on your computer to flash, erase, resize or\n"
-      "inspect dynamic partitions. Keep the USB cable connected during writes.",
+      hero, ReadyDetail().c_str(),
       &lv_font_montserrat_24, kMuted);
   lv_obj_set_width(detail, landscape ? 1120 : 1160);
   lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, landscape ? 514 : 862);
+  g_transport_pill.detail = detail;
 
   auto *progress = lv_bar_create(hero);
   lv_obj_set_size(progress, landscape ? 1080 : 1120, 24);
@@ -344,6 +559,52 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
                  landscape ? 330 : 1640);
   lv_obj_set_size(actions, landscape ? 1594 : 1312,
                   landscape ? 1050 : 1384);
+
+  {
+    const std::string connect = fastboot_wifi.connect_command.empty()
+        ? "adb connect <phone-ip>:5555" : fastboot_wifi.connect_command;
+    const std::string forward = fastboot_wifi.forward_command.empty()
+        ? "adb -s <phone-ip>:5555 forward tcp:5554 tcp:5554"
+        : fastboot_wifi.forward_command;
+    const std::string verify = fastboot_wifi.fastboot_command.empty()
+        ? "fastboot -s tcp:127.0.0.1:5554 getvar product"
+        : fastboot_wifi.fastboot_command;
+    auto *guide = lv_obj_create(actions);
+    Panel(guide, 34, kMainPanel);
+    lv_obj_set_pos(guide, 0, landscape ? 518 : 610);
+    lv_obj_set_size(guide, landscape ? 1594 : 1312,
+                    landscape ? 252 : 450);
+    lv_obj_set_style_border_width(guide, 1, 0);
+    lv_obj_set_style_border_color(guide, kMainLine, 0);
+    lv_obj_set_style_border_opa(guide, LV_OPA_40, 0);
+    if (!wireless_transport)
+      lv_obj_add_flag(guide, LV_OBJ_FLAG_HIDDEN);
+    g_transport_pill.guide = guide;
+    auto *guide_title = Kicker(guide, "WI-FI FASTBOOT", kAccent);
+    lv_obj_set_pos(guide_title, 38, landscape ? 24 : 30);
+    auto *guide_detail = Label(guide,
+        "Run these commands on the paired computer",
+        landscape ? &lv_font_montserrat_24 : &lv_font_montserrat_28,
+        kMuted);
+    lv_obj_set_pos(guide_detail, 38, landscape ? 58 : 72);
+    const std::array<std::string, 3> commands{{connect, forward, verify}};
+    for (size_t index = 0; index < commands.size(); ++index) {
+      auto *step = Label(guide, std::to_string(index + 1).c_str(),
+                         landscape ? &lv_font_montserrat_28
+                                   : &lv_font_montserrat_32,
+                         kAccent);
+      lv_obj_set_pos(step, 38, (landscape ? 102 : 132) +
+                              static_cast<int>(index) * (landscape ? 48 : 82));
+      auto *command = Label(guide, commands[index].c_str(),
+                            landscape ? &lv_font_montserrat_28
+                                      : &lv_font_montserrat_32,
+                            kText);
+      lv_obj_set_pos(command, 86, (landscape ? 102 : 132) +
+                                  static_cast<int>(index) * (landscape ? 48 : 82));
+      lv_obj_set_width(command, (landscape ? 1594 : 1312) - 130);
+      lv_label_set_long_mode(command, LV_LABEL_LONG_DOT);
+    }
+  }
 
   struct Destination {
     const char *icon;
@@ -429,9 +690,13 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
     AnimateEnter(card, 50 + static_cast<uint32_t>(index) * 35, 12);
   }
 
-  auto *warning = Label(screen, "Do not disconnect USB while a command is writing data.",
+  auto *warning = Label(screen,
+                        wireless_transport
+                            ? "Keep Wi-Fi connected while a command is writing data."
+                            : "Do not disconnect USB while a command is writing data.",
                         &lv_font_montserrat_24, kAmber);
   lv_obj_align(warning, LV_ALIGN_BOTTOM_MID, 0, landscape ? -38 : -72);
+  g_transport_pill.warning = warning;
 }
 
 }  // namespace aeraui

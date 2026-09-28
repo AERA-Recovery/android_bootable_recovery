@@ -38,6 +38,8 @@ constexpr const char* kTlsEnableProp = "persist.adb.tls_server.enable";
 constexpr const char* kTlsPortProp = "service.adb.tls.port";
 constexpr const char* kTlsRequestedPortProp = "service.adb.tls.port.requested";
 constexpr const char* kTcpPortProp = "service.adb.tcp.port";
+constexpr const char* kAeraWifiOnlyProp = "service.adb.aera_wifi_only";
+constexpr const char* kFastbootModeProp = "sys.usb.config.aera_fastbootd";
 
 std::mutex g_pair_mutex;
 PairingServerCtx* g_pairing_server = nullptr;
@@ -92,6 +94,17 @@ bool WaitForPropNonEmpty(const std::string& key, std::string& value, int timeout
 			return true;
 		usleep(step_ms * 1000);
 		waited += step_ms;
+	}
+	return false;
+}
+
+bool WaitForPropValue(const std::string& key, const std::string& expected, int timeout_ms)
+{
+	const int step_ms = 100;
+	for (int waited = 0; waited <= timeout_ms; waited += step_ms) {
+		if (GetProp(key) == expected)
+			return true;
+		usleep(step_ms * 1000);
 	}
 	return false;
 }
@@ -353,18 +366,42 @@ bool AeraAdbd::StartSecure(int port)
 		return false;
 	}
 
+	const bool fastboot_mode = GetProp(kFastbootModeProp) == "1";
+	if (fastboot_mode) {
+		// sys.usb.config=fastboot stops the USB adbd. Complete that stop
+		// before changing transport properties so we never observe the old
+		// process or its published TLS port as the new wireless endpoint.
+		SetProp("ctl.stop", "adbd");
+		if (!WaitForPropValue("init.svc.adbd", "stopped", 5000)) {
+			gui_print("AERA: paired ADB did not stop cleanly\n");
+			return false;
+		}
+	}
 	SetProp(kTcpPortProp, "0");
 	SetProp(kTlsRequestedPortProp, std::to_string(port));
-	SetProp("ctl.start", "adbd");
+	if (fastboot_mode)
+		SetProp(kTlsPortProp, "");
+	SetProp(kAeraWifiOnlyProp, fastboot_mode ? "1" : "0");
 	if (!SetProp(kTlsEnableProp, "1")) {
 		gui_print("AERA: failed to enable paired ADB\n");
 		return false;
 	}
+	// Start it after the USB gadget is owned by fastbootd so it comes up in
+	// wireless-only mode. Normal recovery can retain its USB connection.
+	SetProp("ctl.start", "adbd");
+	if (fastboot_mode) {
+		if (!WaitForPropValue("init.svc.adbd", "running", 5000)) {
+			gui_print("AERA: paired ADB did not start in fastbootd\n");
+			return false;
+		}
+	}
 
 	std::string actual_port;
 	WaitForPropNonEmpty(kTlsPortProp, actual_port, 5000);
-	if (actual_port.empty())
-		actual_port = std::to_string(port);
+	if (actual_port.empty()) {
+		gui_print("AERA: paired ADB listener did not become ready\n");
+		return false;
+	}
 
 	gui_print("Paired ADB enabled\n");
 	gui_print("connect=adb connect %s:%s\n", ip.c_str(), actual_port.c_str());
@@ -472,7 +509,13 @@ bool AeraAdbd::StopAll()
 	SetProp(kTlsPortProp, "");
 	SetProp(kTlsRequestedPortProp, "");
 	SetProp(kTcpPortProp, "0");
-	SetProp("ctl.restart", "adbd");
+	if (GetProp(kFastbootModeProp) == "1") {
+		SetProp("ctl.stop", "adbd");
+		SetProp(kAeraWifiOnlyProp, "0");
+	} else {
+		SetProp(kAeraWifiOnlyProp, "0");
+		SetProp("ctl.restart", "adbd");
+	}
 	return true;
 }
 

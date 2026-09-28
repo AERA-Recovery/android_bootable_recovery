@@ -98,6 +98,55 @@ std::atomic<bool> gSideloadCancelRequested{false};
 std::atomic<uint64_t> gSideloadReceivedBytes{0};
 std::atomic<uint64_t> gSideloadTotalBytes{0};
 bool gLiveFastbootPostDecryptReady = false;
+constexpr const char *kFastbootWifiPreference = "aera_fastboot_wifi";
+constexpr const char *kFastbootProtocolProperty = "fastbootd.protocol";
+
+bool FastbootWifiPrerequisites() {
+#ifdef OF_ENABLE_WLAN
+  const auto adb = AeraAdbd::GetStatus();
+  // Secure adbd may not be running yet after a fresh recovery boot. A stored
+  // pairing is the authorization prerequisite; StartSecure() is called after
+  // fastbootd starts and activates the authenticated transport for it.
+  return adb.wlan_connected && !adb.no_auth &&
+      !AeraAdbd::ListDevices().empty();
+#else
+  return false;
+#endif
+}
+
+bool RestartFastbootTransport(bool wireless) {
+  if (android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") != "1")
+    return true;
+  // A selector-enabled fastbootd owns both endpoints but accepts commands
+  // only from the transport named by fastbootd.protocol. Switching that
+  // property is enough; stopping the daemon here would tear down the active
+  // Fastboot scene and drop the user back into recovery.
+  if (android::base::GetProperty("init.svc.fastbootd", "") == "running") {
+    property_set(kFastbootProtocolProperty, wireless ? "tcp" : "usb");
+    return true;
+  }
+  // Fully detach the old FunctionFS transport before starting the selected
+  // one. Merely restarting fastbootd leaves the USB endpoint readable and can
+  // steal commands from a Wi-Fi operation (or vice versa).
+  property_set("sys.usb.config", "none");
+  for (int attempt = 0; attempt < 30; ++attempt) {
+    if (android::base::GetProperty("init.svc.fastbootd", "") == "stopped")
+      break;
+    usleep(50000);
+  }
+  property_set(kFastbootProtocolProperty, wireless ? "tcp" : "usb");
+  // The standard fastboot property trigger starts fastbootd. TCP mode does
+  // not publish FunctionFS descriptors, so USB stays detached while Wi-Fi is
+  // selected even if the cable remains plugged in.
+  property_set("sys.usb.config", "fastboot");
+  for (int attempt = 0; attempt < 60; ++attempt) {
+    if (android::base::GetProperty("init.svc.fastbootd", "") == "running")
+      return true;
+    usleep(50000);
+  }
+  LOGERR("AERA fastboot Wi-Fi: fastbootd did not restart.\n");
+  return false;
+}
 
 bool ResolveDirectBackupChild(const std::string &root,
                               const std::string &folder,
@@ -415,11 +464,30 @@ bool RecoveryEnterFastbootd() {
   DataManager::SetValue("tw_active_slot",
                         PartitionManager.Get_Active_Slot_Display());
 #endif
+  // Publish the initial selection before fastbootd starts. When wireless
+  // Fastboot is available, initialize the selector transport so later pill
+  // changes only update the protocol property and never restart the daemon.
+  LoadAeraPreferencesIfAvailable();
+  const bool wireless_fastboot =
+      DataManager::GetIntValue(kFastbootWifiPreference) == 1 &&
+      FastbootWifiPrerequisites();
+  property_set(kFastbootProtocolProperty, wireless_fastboot ? "tcp" : "usb");
   android::base::SetProperty(TW_FASTBOOT_MODE_PROP, "1");
   property_set("ro.aera.fastbootd", "1");
   property_set("ro.boot.verifiedbootstate", "orange");
   TWFunc::RunFoxScript("/system/bin/postfastboot.sh", "");
   property_set("sys.usb.config", "fastboot");
+  if (wireless_fastboot) {
+#ifdef OF_ENABLE_WLAN
+    // The extra TCP endpoint is loopback-only. Keep secure, paired ADB alive
+    // so an authorized host can reach it exclusively through `adb forward`;
+    // USB Fastboot remains available at the same time.
+    if (!AeraAdbd::StartSecure(5555)) {
+      LOGERR("AERA fastboot Wi-Fi: secure ADB failed; restoring USB fastboot.\n");
+      RestartFastbootTransport(false);
+    }
+#endif
+  }
   LOGINFO("AERA live fastbootd: service active; UI display context preserved.\n");
   return true;
 }
@@ -431,6 +499,8 @@ bool RecoveryLeaveFastbootd(bool initialize_recovery) {
   usleep(200000);
   property_set("ro.aera.fastbootd", "0");
   android::base::SetProperty(TW_FASTBOOT_MODE_PROP, "0");
+  property_set("service.adb.aera_wifi_only", "0");
+  property_set(kFastbootProtocolProperty, "usb");
 
   PartitionManager.Setup_Super_Devices();
   if (!PartitionManager.Prepare_All_Super_Volumes(initialize_recovery)) {
@@ -1215,6 +1285,14 @@ constexpr const char *kNasProfilePath =
     "/data/media/0/AERA/network_storage.conf";
 
 void LoadAeraPreferencesIfAvailable() {
+  // Fastboot over Wi-Fi grants destructive partition access and is therefore
+  // intentionally session-only. Remember paired computers, but require an
+  // explicit opt-in after every recovery process start.
+  static bool fastboot_session_initialized = false;
+  if (!fastboot_session_initialized) {
+    DataManager::SetValue(kFastbootWifiPreference, 0);
+    fastboot_session_initialized = true;
+  }
   static bool loaded = false;
   if (loaded) return;
   std::ifstream input(kAeraPreferencesPath);
@@ -1457,6 +1535,7 @@ int RecoveryRunWifi(const WifiRequest &request) {
       }
       break;
     case WifiOperation::kDisable:
+      RecoverySetFastbootOverWifi(false);
       DataManager::SetValue("wlan_state", "disabling");
       result = Wlan::Disable();
       break;
@@ -1492,6 +1571,12 @@ int RecoveryRunWifi(const WifiRequest &request) {
       break;
     case WifiOperation::kDisableAdb:
       result = RecoverySetAdbOverWifi(false);
+      break;
+    case WifiOperation::kEnableFastbootWifi:
+      result = RecoverySetFastbootOverWifi(true);
+      break;
+    case WifiOperation::kDisableFastbootWifi:
+      result = RecoverySetFastbootOverWifi(false);
       break;
   }
   const bool enabled = Wlan::IsEnabled();
@@ -1533,7 +1618,10 @@ bool RecoveryAdbOverWifi() {
 
 bool RecoverySetAdbOverWifi(bool enabled) {
 #ifdef OF_ENABLE_WLAN
-  if (!enabled) return AeraAdbd::StopAll();
+  if (!enabled) {
+    const bool fastboot_disabled = RecoverySetFastbootOverWifi(false);
+    return AeraAdbd::StopAll() && fastboot_disabled;
+  }
   if (!RecoveryWifiConnection().connected) return false;
   return AeraAdbd::StartSecure(5555);
 #else
@@ -1572,7 +1660,9 @@ std::vector<AdbPairedDevice> RecoveryAdbPairedDevices() {
 
 bool RecoveryForgetAdbDevice(const std::string &fingerprint) {
 #ifdef OF_ENABLE_WLAN
-  return AeraAdbd::ForgetDevice(fingerprint);
+  if (!AeraAdbd::ForgetDevice(fingerprint)) return false;
+  if (AeraAdbd::ListDevices().empty()) RecoverySetFastbootOverWifi(false);
+  return true;
 #else
   (void)fingerprint;
   return false;
@@ -1593,6 +1683,100 @@ bool RecoveryStopAdbPairing() {
   return AeraAdbd::StopPairing();
 #else
   return false;
+#endif
+}
+
+FastbootWifiStatus RecoveryFastbootWifiStatus() {
+  FastbootWifiStatus result;
+  LoadAeraPreferencesIfAvailable();
+  result.enabled = DataManager::GetIntValue(kFastbootWifiPreference) == 1;
+  result.fastboot_mode =
+      android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
+  result.active_wifi = result.fastboot_mode &&
+      android::base::GetProperty(kFastbootProtocolProperty, "usb") == "tcp";
+#ifdef OF_ENABLE_WLAN
+  const auto adb = AeraAdbd::GetStatus();
+  const bool paired = !AeraAdbd::ListDevices().empty();
+  result.available = adb.wlan_connected && !adb.no_auth && paired;
+  if (!adb.wlan_connected) {
+    result.reason = "Connect Wi-Fi first";
+  } else if (!paired) {
+    result.reason = "Pair a computer first";
+  } else if (adb.no_auth) {
+    result.reason = "Disable unauthenticated wireless ADB first";
+  } else if (!adb.secure) {
+    result.reason = "Ready to enable through paired ADB";
+  } else {
+    result.reason = result.enabled ? "Paired-computer tunnel is ready"
+                                   : "Off until you enable it";
+  }
+  if (!adb.connect_command.empty()) {
+    const std::string serial = adb.ip + ":" + adb.connect_port;
+    result.connect_command = adb.connect_command;
+    result.forward_command = "adb -s " + serial +
+        " forward tcp:5554 tcp:5554";
+    // `fastboot devices` enumerates discoverable transports and does not list
+    // a manually addressed TCP endpoint, even when that endpoint is working.
+    // Use a harmless command that actually opens and verifies the tunnel.
+    result.fastboot_command =
+        "fastboot -s tcp:127.0.0.1:5554 getvar product";
+  }
+#else
+  result.reason = "Wi-Fi is unavailable on this build";
+#endif
+  return result;
+}
+
+bool RecoverySetFastbootOverWifi(bool enabled) {
+  LoadAeraPreferencesIfAvailable();
+#ifndef OF_ENABLE_WLAN
+  (void)enabled;
+  return false;
+#else
+  if (enabled) {
+    if (!RecoveryWifiConnection().connected || AeraAdbd::ListDevices().empty())
+      return false;
+    if (!AeraAdbd::StartSecure(5555)) return false;
+    const auto adb = AeraAdbd::GetStatus();
+    if (!adb.secure || adb.no_auth) return false;
+  }
+
+  if (DataManager::SetValue(kFastbootWifiPreference, enabled ? 1 : 0) != 0)
+    return false;
+  if (!RestartFastbootTransport(enabled)) {
+    DataManager::SetValue(kFastbootWifiPreference, enabled ? 0 : 1);
+    return false;
+  }
+  if (enabled && !AeraAdbd::StartSecure(5555)) {
+    RestartFastbootTransport(false);
+    DataManager::SetValue(kFastbootWifiPreference, 0);
+    return false;
+  }
+  return true;
+#endif
+}
+
+bool RecoverySelectFastbootTransport(bool wireless) {
+#ifndef OF_ENABLE_WLAN
+  (void)wireless;
+  return false;
+#else
+  LoadAeraPreferencesIfAvailable();
+  if (android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") != "1")
+    return false;
+  if (wireless && !FastbootWifiPrerequisites()) return false;
+
+  // RecoveryEnterFastbootd starts paired wireless ADB once and leaves it
+  // available while either command transport is selected. Do not restart it
+  // on every pill tap: stopping/starting recovery services from an auxiliary
+  // thread was the source of the selector crash. A cold fastbootd entry may
+  // not have prepared it yet, so initialize it only when genuinely absent.
+  if (wireless) {
+    const auto adb = AeraAdbd::GetStatus();
+    if ((!adb.secure || adb.no_auth) && !AeraAdbd::StartSecure(5555))
+      return false;
+  }
+  return RestartFastbootTransport(wireless);
 #endif
 }
 

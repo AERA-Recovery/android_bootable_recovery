@@ -202,6 +202,18 @@ AdbWifiStatus RecoveryAdbWifiStatus() {
   }
   return status;
 }
+FastbootWifiStatus RecoveryFastbootWifiStatus() {
+  FastbootWifiStatus status;
+  status.available = true;
+  status.reason = "Ready to enable through paired ADB";
+  status.connect_command = "adb connect 192.168.1.2:5555";
+  status.forward_command =
+      "adb -s 192.168.1.2:5555 forward tcp:5554 tcp:5554";
+  status.fastboot_command = "fastboot -s tcp:127.0.0.1:5554 devices";
+  return status;
+}
+bool RecoverySetFastbootOverWifi(bool) { return true; }
+bool RecoverySelectFastbootTransport(bool) { return true; }
 bool RecoveryStartAdbPairing() {
   adb_over_wifi = true;
   adb_pairing = true;

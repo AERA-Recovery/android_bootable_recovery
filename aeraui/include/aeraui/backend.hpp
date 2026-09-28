@@ -236,6 +236,8 @@ enum class WifiOperation {
   kTest,
   kEnableAdb,
   kDisableAdb,
+  kEnableFastbootWifi,
+  kDisableFastbootWifi,
 };
 struct WifiRequest {
   WifiOperation operation = WifiOperation::kScan;
@@ -275,6 +277,19 @@ std::vector<AdbPairedDevice> RecoveryAdbPairedDevices();
 bool RecoveryForgetAdbDevice(const std::string &fingerprint);
 bool RecoveryStartAdbPairing();
 bool RecoveryStopAdbPairing();
+struct FastbootWifiStatus {
+  bool enabled = false;
+  bool available = false;
+  bool fastboot_mode = false;
+  bool active_wifi = false;
+  std::string reason;
+  std::string connect_command;
+  std::string forward_command;
+  std::string fastboot_command;
+};
+FastbootWifiStatus RecoveryFastbootWifiStatus();
+bool RecoverySetFastbootOverWifi(bool enabled);
+bool RecoverySelectFastbootTransport(bool wireless);
 
 // Native presentation of OrangeFox's existing rclone/FUSE NAS manager.
 struct NasConfig {

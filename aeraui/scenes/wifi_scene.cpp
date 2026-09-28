@@ -72,11 +72,23 @@ struct WifiUi {
   lv_obj_t *adb_card = nullptr;
   lv_obj_t *paired_caption = nullptr;
   lv_obj_t *paired_list = nullptr;
+  lv_obj_t *fastboot_caption = nullptr;
+  lv_obj_t *fastboot_card = nullptr;
+  lv_obj_t *fastboot_switch = nullptr;
+  lv_obj_t *fastboot_toggle = nullptr;
+  lv_obj_t *fastboot_status = nullptr;
+  lv_obj_t *fastboot_detail = nullptr;
+  lv_obj_t *fastboot_guide = nullptr;
+  lv_obj_t *fastboot_connect = nullptr;
+  lv_obj_t *fastboot_forward = nullptr;
+  lv_obj_t *fastboot_client = nullptr;
   lv_obj_t *security_note = nullptr;
   std::string paired_signature;
   bool last_pairing = false;
   bool adb_busy = false;
   bool adb_desired = false;
+  bool fastboot_busy = false;
+  bool fastboot_desired = false;
 };
 
 std::string Signature(const WifiStatus &status) {
@@ -309,9 +321,58 @@ void RefreshWifiSettings(WifiUi *state) {
   const int paired_top = adb.pairing ? 950 : 760;
   lv_obj_set_y(state->paired_caption, paired_top);
   lv_obj_set_y(state->paired_list, paired_top + 44);
-  const int card_height = paired_top + 348;
-  lv_obj_set_height(state->adb_card, card_height);
-  lv_obj_set_y(state->security_note, 538 + card_height + 28);
+  const int adb_card_height = paired_top + 348;
+  lv_obj_set_height(state->adb_card, adb_card_height);
+
+  const FastbootWifiStatus fastboot = RecoveryFastbootWifiStatus();
+  const bool fastboot_enabled = state->fastboot_busy ?
+      state->fastboot_desired : fastboot.enabled;
+  if (fastboot_enabled)
+    lv_obj_add_state(state->fastboot_switch, LV_STATE_CHECKED);
+  else
+    lv_obj_remove_state(state->fastboot_switch, LV_STATE_CHECKED);
+
+  const int fastboot_caption_top = 538 + adb_card_height + 52;
+  const int fastboot_card_top = fastboot_caption_top + 52;
+  lv_obj_set_y(state->fastboot_caption, fastboot_caption_top);
+  lv_obj_set_y(state->fastboot_card, fastboot_card_top);
+  const char *fastboot_title = state->fastboot_busy ?
+      (state->fastboot_desired ? "Enabling secure fastboot..." :
+                                 "Disabling fastboot over Wi-Fi...") :
+      fastboot_enabled ? "Fastboot over Wi-Fi is ready" :
+                         "Fastboot over Wi-Fi is off";
+  i18n::BindLabel(state->fastboot_status, fastboot_title);
+  i18n::BindLabel(state->fastboot_detail,
+      state->fastboot_busy ? "Updating the paired-computer tunnel." :
+      fastboot.reason.c_str());
+  lv_obj_set_style_text_color(state->fastboot_status,
+      fastboot_enabled ? kGreen : kText, 0);
+  if (state->fastboot_busy || (!fastboot.available && !fastboot_enabled))
+    lv_obj_add_state(state->fastboot_toggle, LV_STATE_DISABLED);
+  else
+    lv_obj_remove_state(state->fastboot_toggle, LV_STATE_DISABLED);
+
+  if (fastboot_enabled) {
+    lv_obj_clear_flag(state->fastboot_guide, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(state->fastboot_connect,
+        fastboot.connect_command.empty() ? "adb connect <shown address>" :
+                                           fastboot.connect_command.c_str());
+    lv_label_set_text(state->fastboot_forward,
+        fastboot.forward_command.empty() ?
+            "adb -s <address> forward tcp:5554 tcp:5554" :
+            fastboot.forward_command.c_str());
+    lv_label_set_text(state->fastboot_client,
+        fastboot.fastboot_command.empty() ?
+            "fastboot -s tcp:127.0.0.1:5554 devices" :
+            fastboot.fastboot_command.c_str());
+  } else {
+    lv_obj_add_flag(state->fastboot_guide, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  const int fastboot_card_height = fastboot_enabled ? 684 : 234;
+  lv_obj_set_height(state->fastboot_card, fastboot_card_height);
+  lv_obj_set_y(state->security_note,
+               fastboot_card_top + fastboot_card_height + 28);
   if (state->last_pairing && !adb.pairing)
     RefreshPairedComputers(state, true);
   state->last_pairing = adb.pairing;
@@ -343,6 +404,16 @@ void ShowWifiSettings(WifiUi *state) {
     s->adb_card = nullptr;
     s->paired_caption = nullptr;
     s->paired_list = nullptr;
+    s->fastboot_caption = nullptr;
+    s->fastboot_card = nullptr;
+    s->fastboot_switch = nullptr;
+    s->fastboot_toggle = nullptr;
+    s->fastboot_status = nullptr;
+    s->fastboot_detail = nullptr;
+    s->fastboot_guide = nullptr;
+    s->fastboot_connect = nullptr;
+    s->fastboot_forward = nullptr;
+    s->fastboot_client = nullptr;
     s->security_note = nullptr;
     s->paired_signature.clear();
   }, LV_EVENT_DELETE, state);
@@ -498,9 +569,84 @@ void ShowWifiSettings(WifiUi *state) {
   lv_obj_set_scrollbar_mode(state->paired_list, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_set_style_pad_bottom(state->paired_list, 16, 0);
 
+  state->fastboot_caption = Label(content, "FASTBOOT TUNNEL",
+                                  &lv_font_montserrat_18, kMuted);
+  lv_obj_set_style_text_letter_space(state->fastboot_caption, 3, 0);
+
+  auto *fastboot_card = lv_obj_create(content);
+  state->fastboot_card = fastboot_card;
+  Panel(fastboot_card, 36, kMainSheet);
+  lv_obj_set_x(fastboot_card, 0);
+  lv_obj_set_width(fastboot_card, width);
+  lv_obj_set_style_border_width(fastboot_card, 1, 0);
+  lv_obj_set_style_border_color(fastboot_card, kMainLine, 0);
+  lv_obj_set_style_border_opa(fastboot_card, LV_OPA_30, 0);
+
+  auto *fastboot_row = lv_button_create(fastboot_card);
+  state->fastboot_toggle = fastboot_row;
+  Panel(fastboot_row, 28, kMainPanel);
+  Interactive(fastboot_row, kMainSelected);
+  lv_obj_set_pos(fastboot_row, 32, 32);
+  lv_obj_set_size(fastboot_row, width - 64, 170);
+  lv_obj_set_style_border_width(fastboot_row, 1, 0);
+  lv_obj_set_style_border_color(fastboot_row, kMainLine, 0);
+  lv_obj_set_style_border_opa(fastboot_row, LV_OPA_30, 0);
+  auto *fastboot_icon = Label(fastboot_row, LV_SYMBOL_SHUFFLE,
+                              &lv_font_montserrat_40, kAccent);
+  lv_obj_set_pos(fastboot_icon, 30, 62);
+  state->fastboot_status = Label(fastboot_row, "Fastboot over Wi-Fi is off",
+                                 &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(state->fastboot_status, 102, 28);
+  lv_obj_set_width(state->fastboot_status, width - 470);
+  state->fastboot_detail = Label(fastboot_row,
+      "Available only through a paired computer",
+      &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(state->fastboot_detail, 102, 92);
+  lv_obj_set_width(state->fastboot_detail, width - 470);
+  state->fastboot_switch = lv_switch_create(fastboot_row);
+  StyleSwitch(state->fastboot_switch, false);
+  lv_obj_align(state->fastboot_switch, LV_ALIGN_RIGHT_MID, -28, 0);
+  OnClick(fastboot_row, [state] {
+    if (state->fastboot_busy) return;
+    const FastbootWifiStatus status = RecoveryFastbootWifiStatus();
+    WifiRequest request;
+    request.operation = status.enabled ? WifiOperation::kDisableFastbootWifi
+                                       : WifiOperation::kEnableFastbootWifi;
+    Dispatch(state, std::move(request));
+  });
+
+  state->fastboot_guide = lv_obj_create(fastboot_card);
+  Panel(state->fastboot_guide, 28, kMainPanel);
+  lv_obj_set_pos(state->fastboot_guide, 32, 222);
+  lv_obj_set_size(state->fastboot_guide, width - 64, 430);
+  auto *guide_title = Label(state->fastboot_guide,
+      "CONNECT FROM THE PAIRED COMPUTER",
+      &lv_font_montserrat_16, kAccent);
+  lv_obj_set_style_text_letter_space(guide_title, 2, 0);
+  lv_obj_set_pos(guide_title, 28, 20);
+  auto command_row = [state, width](int y, const char *number,
+                                     lv_obj_t **target) {
+    auto *badge = Label(state->fastboot_guide, number,
+                        &lv_font_montserrat_28, kAccent);
+    lv_obj_set_pos(badge, 28, y + 6);
+    *target = Label(state->fastboot_guide, "Preparing command...",
+                    &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(*target, 82, y);
+    lv_obj_set_width(*target, width - 196);
+    lv_label_set_long_mode(*target, LV_LABEL_LONG_DOT);
+  };
+  command_row(78, "1", &state->fastboot_connect);
+  command_row(174, "2", &state->fastboot_forward);
+  command_row(270, "3", &state->fastboot_client);
+  auto *guide_note = Label(state->fastboot_guide,
+      "The fastboot port exists only inside this authenticated ADB tunnel.",
+      &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(guide_note, 28, 382);
+  lv_obj_set_width(guide_note, width - 120);
+
   auto *security = Label(content,
-      "Encrypted and restricted to authorized computers. "
-      "Wireless ADB stops when Wi-Fi is turned off.",
+      "ADB is encrypted. Fastboot is reachable only through an authenticated "
+      "ADB tunnel from a paired computer. Wireless access stops with Wi-Fi.",
       &lv_font_montserrat_20, kMuted);
   state->security_note = security;
   lv_obj_set_pos(security, 16, 1674);
@@ -549,6 +695,8 @@ std::string BusyTitle(const WifiUi *state) {
     case WifiOperation::kTest: base = "Testing connection"; break;
     case WifiOperation::kEnableAdb: base = "Starting wireless ADB"; break;
     case WifiOperation::kDisableAdb: base = "Stopping wireless ADB"; break;
+    case WifiOperation::kEnableFastbootWifi: base = "Securing fastboot tunnel"; break;
+    case WifiOperation::kDisableFastbootWifi: base = "Closing fastboot tunnel"; break;
   }
   std::string title(base);
   title.append(1 + (state->busy_phase % 3), '.');
@@ -954,6 +1102,13 @@ void SetWifiBusy(const WifiScene &scene, const WifiRequest &request) {
     state->adb_desired = request.operation == WifiOperation::kEnableAdb;
     RefreshWifiSettings(state);
   }
+  if (request.operation == WifiOperation::kEnableFastbootWifi ||
+      request.operation == WifiOperation::kDisableFastbootWifi) {
+    state->fastboot_busy = true;
+    state->fastboot_desired =
+        request.operation == WifiOperation::kEnableFastbootWifi;
+    RefreshWifiSettings(state);
+  }
   Refresh(state, true);
 }
 
@@ -963,8 +1118,12 @@ void CompleteWifiOperation(const WifiScene &scene, bool success) {
   const WifiOperation completed = state->running;
   const bool adb_operation = completed == WifiOperation::kEnableAdb ||
       completed == WifiOperation::kDisableAdb;
+  const bool fastboot_operation =
+      completed == WifiOperation::kEnableFastbootWifi ||
+      completed == WifiOperation::kDisableFastbootWifi;
   state->busy = false;
   if (adb_operation) state->adb_busy = false;
+  if (fastboot_operation) state->fastboot_busy = false;
   Refresh(state, true);
   RefreshWifiSettings(state);
   if (completed == WifiOperation::kTest) {
@@ -978,6 +1137,16 @@ void CompleteWifiOperation(const WifiScene &scene, bool success) {
                          ? "ADB over Wi-Fi enabled for this session"
                          : "ADB over Wi-Fi disabled")
                   : "Could not change ADB over Wi-Fi");
+      lv_obj_set_style_text_color(state->settings_message,
+                                  success ? kGreen : kRed, 0);
+    }
+  } else if (fastboot_operation) {
+    if (state->settings_message && lv_obj_is_valid(state->settings_message)) {
+      i18n::BindLabel(state->settings_message,
+          success ? (completed == WifiOperation::kEnableFastbootWifi
+                         ? "Fastboot tunnel enabled for paired computers"
+                         : "Fastboot over Wi-Fi disabled")
+                  : "Could not change fastboot over Wi-Fi");
       lv_obj_set_style_text_color(state->settings_message,
                                   success ? kGreen : kRed, 0);
     }
