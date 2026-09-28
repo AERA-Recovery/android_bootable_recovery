@@ -7,29 +7,53 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout Source Code
+      - name: Maximize Build Space
+        uses: easimon/minimize-disk-usage@v2
+        with:
+          root-reserve-mb: 2048
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
+            gcc-multilib git gnupg gperf libxml2-utils openjdk-11-jdk python3 zip zlib1g-dev
+
+      - name: Install Repo Tool
+        run: |
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Initialize Manifest Workspace
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          repo init -u https://github.com/AERA-Recovery/android_manifest -b aera-16.0 --depth=1
+          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+
+      - name: Inject Custom Recovery Source
         uses: actions/checkout@v4
         with:
           path: bootable/recovery
 
-      - name: Set up Environment & Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf libxml2-utils openjdk-11-jdk python3 repo zip zlib1g-dev
-
-      - name: Clone Device Tree
+      - name: Clone OnePlus Infiniti Device Tree
         run: |
           mkdir -p device/oneplus/infiniti
-          git clone https://github.com/AERA-Recovery/android_device_oneplus_infiniti-AERA.git device/oneplus/infiniti
+          git clone https://github.com/AERA-Recovery/android_device_oneplus_infiniti-AERA.git -b aera-16.0 device/oneplus/infiniti
 
       - name: Build Recovery Image
         run: |
-          source build/envsetup.sh || true
-          lunch aera_infiniti-userdebug || lunch omni_infiniti-userdebug || true
-          mka recoveryimage || true
+          source build/envsetup.sh
+          lunch aera_infiniti-userdebug
+          mka recoveryimage
 
       - name: Upload Recovery Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AERA-Recovery-Infiniti
-          path: out/target/product/infiniti/*.img
+          path: out/target/product/infiniti/recovery.img
