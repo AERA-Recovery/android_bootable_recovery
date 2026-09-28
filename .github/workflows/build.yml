@@ -2,6 +2,10 @@ name: Build AERA Recovery
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - aera-16.0
+      - feature/auto-submit-pattern
 
 jobs:
   build:
@@ -47,22 +51,13 @@ jobs:
           mkdir -p device/oneplus/infiniti
           git clone https://github.com/AERA-Recovery/android_device_oneplus_infiniti-AERA.git -b aera-16.0 device/oneplus/infiniti
 
-      - name: Apply Build Fixes (Neutralize Roomservice & Release Config)
+      - name: Apply Build Fixes
         run: |
-          # 1. Blank out roomservice completely
           echo "#!/bin/bash" > device/oneplus/infiniti/vendorsetup.sh
-          
-          # 2. Inject release config maps to prevent release_config Go panics
           mkdir -p build/release/release_configs
-          
-          cat << 'TEXTPROTO' > build/release/release_config_map.textproto
-default_release_config: "trunk_staging"
-TEXTPROTO
-
-          cat << 'TEXTPROTO' > build/release/release_configs/trunk_staging.textproto
-name: "trunk_staging"
-inherits: "ap1a"
-TEXTPROTO
+          echo 'default_release_config: "trunk_staging"' > build/release/release_config_map.textproto
+          echo 'name: "trunk_staging"' > build/release/release_configs/trunk_staging.textproto
+          echo 'inherits: "ap1a"' >> build/release/release_configs/trunk_staging.textproto
 
       - name: Build Recovery Image
         run: |
