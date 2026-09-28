@@ -676,6 +676,10 @@ public:
     secondary_decryption_ = false;
     credential_type_ = credential_type;
     crypto_user_id_ = user_id;
+    // The renderer starts before /data is guaranteed to be mounted. Retry the
+    // early UI cache now so the lock screen uses the selected appearance and
+    // language as soon as /data/recovery becomes available.
+    ApplyStoredAppearance();
     lv_obj_t *boot_screen = lv_screen_active();
     CompleteBootScene(boot_screen);
     lv_obj_t *decrypt = lv_obj_create(nullptr);

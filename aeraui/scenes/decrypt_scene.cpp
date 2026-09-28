@@ -321,7 +321,7 @@ void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
   lv_textarea_set_password_show_time(state->input, 0);
   lv_textarea_set_text(state->input, "");
   lv_textarea_set_placeholder_text(state->input,
-                                   pin ? "Enter PIN" : "Enter password");
+                                   i18n::Translate(pin ? "Enter PIN" : "Enter password"));
   lv_textarea_set_max_length(state->input, 128);
   if (pin) lv_textarea_set_accepted_chars(state->input, "0123456789");
   lv_obj_set_style_text_font(state->input, UiFont(&lv_font_montserrat_32), 0);
@@ -441,14 +441,17 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   else
     MakeKeyboard(state, panel, credential_type == 3);
 
-  state->submit = MakeButton(
-      panel, state->secondary ? "Unlock user   " LV_SYMBOL_RIGHT
-                              : "Unlock storage   " LV_SYMBOL_RIGHT,
-      kAccent, kCanvas);
+  state->submit =
+      MakeButton(panel, state->secondary ? "Unlock user" : "Unlock storage", kAccent, kCanvas);
   lv_obj_set_pos(state->submit, 86, pin ? 1510 : 1818);
   lv_obj_set_size(state->submit, 1012, 142);
   lv_obj_set_style_radius(state->submit, 71, 0);
   state->submit_label = lv_obj_get_child(state->submit, 0);
+  lv_obj_t* submit_icon =
+      Label(state->submit, i18n::IsRightToLeft() ? LV_SYMBOL_LEFT : LV_SYMBOL_RIGHT,
+            &lv_font_montserrat_32, kCanvas);
+  lv_obj_align(submit_icon, i18n::IsRightToLeft() ? LV_ALIGN_LEFT_MID : LV_ALIGN_RIGHT_MID,
+               i18n::IsRightToLeft() ? 44 : -44, 0);
   Bind(state->submit, Action::kDecryptSubmit, state);
 
   lv_obj_t *skip = MakeButton(panel, "Skip for now", kCanvas,

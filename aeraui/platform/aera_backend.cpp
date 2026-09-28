@@ -1281,8 +1281,337 @@ void RecoveryVibrate(Haptic haptic) {
 namespace {
 constexpr const char *kAeraPreferencesPath =
     "/data/media/0/AERA/preferences.conf";
+constexpr const char* kAeraEarlyPreferencesDirectory = "/data/recovery/AERA";
+constexpr const char* kAeraEarlyPreferencesPath = "/data/recovery/AERA/early-ui.conf";
 constexpr const char *kNasProfilePath =
     "/data/media/0/AERA/network_storage.conf";
+
+struct EarlyUiPreferences {
+  int clock24;
+  std::string timezone;
+  int brightness;
+  std::string accent;
+  std::string theme;
+  int interface_size;
+  std::string language;
+  std::string keyboard_layout;
+  int home_grid_columns;
+  int dock_layout;
+  int dock_transparency;
+  int dock_blur;
+  int dock_hide_apps;
+  int recents;
+  int haptic_touch;
+  int haptic_keyboard;
+  int haptic_action;
+};
+
+bool gEarlyPreferencesAttempted = false;
+bool gEarlyDefaultsCaptured = false;
+EarlyUiPreferences gEarlyDefaults;
+
+bool ParseInteger(const std::string& value, int minimum, int maximum, int* parsed) {
+  if (parsed == nullptr || value.empty()) return false;
+  char* end = nullptr;
+  errno = 0;
+  const long result = strtol(value.c_str(), &end, 10);
+  if (errno != 0 || end == value.c_str() || *end != '\0' || result < minimum || result > maximum)
+    return false;
+  *parsed = static_cast<int>(result);
+  return true;
+}
+
+bool ValidPlainText(const std::string& value, size_t maximum_length, bool allow_empty = false) {
+  if ((!allow_empty && value.empty()) || value.size() > maximum_length) return false;
+  return std::none_of(value.begin(), value.end(),
+                      [](unsigned char character) { return character < 32 || character == 127; });
+}
+
+bool ValidLanguage(const std::string& value) {
+  if (value.empty() || value.size() > 16) return false;
+  return std::all_of(value.begin(), value.end(), [](unsigned char character) {
+    return std::isalnum(character) || character == '_' || character == '-';
+  });
+}
+
+bool ValidAccent(const std::string& value) {
+  if (value.size() != 6 || value == "000000") return false;
+  return std::all_of(value.begin(), value.end(),
+                     [](unsigned char character) { return std::isxdigit(character); });
+}
+
+EarlyUiPreferences DefaultEarlyUiPreferences() {
+  EarlyUiPreferences preferences{};
+  preferences.clock24 = 0;
+  preferences.timezone = DataManager::GetStrValue(TW_TIME_ZONE_VAR);
+  if (!ValidPlainText(preferences.timezone, 96)) preferences.timezone = "UTC0";
+  preferences.brightness = 100;
+#ifdef TW_DEFAULT_BRIGHTNESS
+  const int maximum = DataManager::GetIntValue("tw_brightness_max");
+  if (maximum > 0)
+    preferences.brightness = std::clamp(TW_DEFAULT_BRIGHTNESS * 100 / maximum, 10, 100);
+#endif
+  preferences.accent = "16c8ff";
+  preferences.theme = "graphite";
+  preferences.interface_size = 1;
+  preferences.language = AERA_DEFAULT_LANGUAGE;
+  preferences.keyboard_layout = "qwerty";
+  preferences.home_grid_columns = 3;
+  preferences.dock_layout = 0;
+  preferences.dock_transparency = 60;
+  preferences.dock_blur = 24;
+  preferences.dock_hide_apps = 0;
+  preferences.recents = 1;
+#ifdef TW_NO_HAPTICS
+  preferences.haptic_touch = 0;
+  preferences.haptic_keyboard = 0;
+  preferences.haptic_action = 0;
+#else
+  preferences.haptic_touch = 40;
+  preferences.haptic_keyboard = 40;
+  preferences.haptic_action = 160;
+#endif
+  return preferences;
+}
+
+EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
+  EarlyUiPreferences preferences{};
+  preferences.clock24 = DataManager::GetIntValue("tw_military_time") != 0 ? 1 : 0;
+  preferences.timezone = DataManager::GetStrValue(TW_TIME_ZONE_VAR);
+  if (!ValidPlainText(preferences.timezone, 96)) preferences.timezone = "UTC0";
+  preferences.brightness = DataManager::GetIntValue("tw_brightness_pct");
+  if (preferences.brightness < 10 || preferences.brightness > 100) preferences.brightness = 100;
+  preferences.accent = DataManager::GetStrValue("aera_theme_accent");
+  if (!ValidAccent(preferences.accent)) preferences.accent = "16c8ff";
+  preferences.theme = DataManager::GetStrValue("aera_theme_mode");
+  if (preferences.theme != "light" && preferences.theme != "graphite")
+    preferences.theme = "graphite";
+  const std::string interface_size = DataManager::GetStrValue("aera_interface_size");
+  preferences.interface_size =
+      interface_size.empty() ? 1 : std::clamp(atoi(interface_size.c_str()), 0, 2);
+  preferences.language = DataManager::GetStrValue("tw_language");
+  if (!ValidLanguage(preferences.language)) preferences.language = AERA_DEFAULT_LANGUAGE;
+  preferences.keyboard_layout =
+      DataManager::GetStrValue("aera_keyboard_layout") == "qwertz" ? "qwertz" : "qwerty";
+  preferences.home_grid_columns = DataManager::GetIntValue("aera_home_grid_columns") == 2 ? 2 : 3;
+  preferences.dock_layout = std::clamp(DataManager::GetIntValue("aera_dock_layout"), 0, 3);
+  const std::string dock_transparency = DataManager::GetStrValue("aera_dock_transparency");
+  preferences.dock_transparency =
+      dock_transparency.empty() ? 60 : std::clamp(atoi(dock_transparency.c_str()), 0, 100);
+  const std::string dock_blur = DataManager::GetStrValue("aera_dock_blur");
+  preferences.dock_blur = dock_blur.empty() ? 24 : std::clamp(atoi(dock_blur.c_str()), 0, 100);
+  preferences.dock_hide_apps = DataManager::GetIntValue("aera_dock_hide_apps") != 0 ? 1 : 0;
+  preferences.recents = DataManager::GetIntValue("aera_recents_enabled") != 0 ? 1 : 0;
+  preferences.haptic_touch = std::clamp(DataManager::GetIntValue("tw_button_vibrate"), 0, 300);
+  preferences.haptic_keyboard = std::clamp(DataManager::GetIntValue("tw_keyboard_vibrate"), 0, 300);
+  preferences.haptic_action = std::clamp(DataManager::GetIntValue("tw_action_vibrate"), 0, 500);
+  return preferences;
+}
+
+void CaptureEarlyDefaultsIfNeeded() {
+  if (gEarlyDefaultsCaptured) return;
+  gEarlyDefaults = DefaultEarlyUiPreferences();
+  gEarlyDefaultsCaptured = true;
+}
+
+bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
+                     const std::string& value, bool* recognized = nullptr) {
+  if (recognized != nullptr) *recognized = true;
+  int parsed = 0;
+  if (key == "clock24") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->clock24 = parsed;
+  } else if (key == "timezone") {
+    if (!ValidPlainText(value, 96)) return false;
+    preferences->timezone = value;
+  } else if (key == "brightness") {
+    if (!ParseInteger(value, 10, 100, &parsed)) return false;
+    preferences->brightness = parsed;
+  } else if (key == "accent") {
+    if (!ValidAccent(value)) return false;
+    preferences->accent = value;
+  } else if (key == "theme") {
+    if (value != "light" && value != "graphite") return false;
+    preferences->theme = value;
+  } else if (key == "interface_size") {
+    if (!ParseInteger(value, 0, 2, &parsed)) return false;
+    preferences->interface_size = parsed;
+  } else if (key == "language") {
+    if (!ValidLanguage(value)) return false;
+    preferences->language = value;
+  } else if (key == "keyboard_layout") {
+    if (value != "qwerty" && value != "qwertz") return false;
+    preferences->keyboard_layout = value;
+  } else if (key == "home_grid_columns") {
+    if (!ParseInteger(value, 2, 3, &parsed) || (parsed != 2 && parsed != 3)) return false;
+    preferences->home_grid_columns = parsed;
+  } else if (key == "dock_layout") {
+    if (!ParseInteger(value, 0, 3, &parsed)) return false;
+    preferences->dock_layout = parsed;
+  } else if (key == "dock_transparency") {
+    if (!ParseInteger(value, 0, 100, &parsed)) return false;
+    preferences->dock_transparency = parsed;
+  } else if (key == "dock_blur") {
+    if (!ParseInteger(value, 0, 100, &parsed)) return false;
+    preferences->dock_blur = parsed;
+  } else if (key == "dock_hide_apps") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->dock_hide_apps = parsed;
+  } else if (key == "recents") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->recents = parsed;
+  } else if (key == "haptic_touch") {
+    if (!ParseInteger(value, 0, 300, &parsed)) return false;
+    preferences->haptic_touch = parsed;
+  } else if (key == "haptic_keyboard") {
+    if (!ParseInteger(value, 0, 300, &parsed)) return false;
+    preferences->haptic_keyboard = parsed;
+  } else if (key == "haptic_action") {
+    if (!ParseInteger(value, 0, 500, &parsed)) return false;
+    preferences->haptic_action = parsed;
+  } else {
+    if (recognized != nullptr) *recognized = false;
+    return false;
+  }
+  return true;
+}
+
+void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
+  DataManager::SetValue("tw_military_time", preferences.clock24);
+  DataManager::SetValue(TW_TIME_ZONE_VAR, preferences.timezone);
+  DataManager::SetValue("tw_brightness_pct", preferences.brightness);
+  DataManager::SetValue("aera_theme_accent", preferences.accent);
+  DataManager::SetValue("aera_theme_mode", preferences.theme);
+  DataManager::SetValue("aera_interface_size", preferences.interface_size);
+  DataManager::SetValue("tw_language", preferences.language);
+  DataManager::SetValue("aera_keyboard_layout", preferences.keyboard_layout);
+  DataManager::SetValue("aera_home_grid_columns", preferences.home_grid_columns);
+  DataManager::SetValue("aera_dock_layout", preferences.dock_layout);
+  DataManager::SetValue("aera_dock_transparency", preferences.dock_transparency);
+  DataManager::SetValue("aera_dock_blur", preferences.dock_blur);
+  DataManager::SetValue("aera_dock_hide_apps", preferences.dock_hide_apps);
+  DataManager::SetValue("aera_recents_enabled", preferences.recents);
+  DataManager::SetValue("tw_button_vibrate", preferences.haptic_touch);
+  DataManager::SetValue("tw_keyboard_vibrate", preferences.haptic_keyboard);
+  DataManager::SetValue("tw_action_vibrate", preferences.haptic_action);
+}
+
+void ApplyEarlyUiSideEffects() {
+  DataManager::update_tz_environment_variables();
+  const int percent = std::clamp(DataManager::GetIntValue("tw_brightness_pct"), 10, 100);
+  const int maximum = DataManager::GetIntValue("tw_brightness_max");
+  if (maximum > 0) {
+    DataManager::SetValue("tw_brightness", maximum * percent / 100);
+    TWFunc::Set_Brightness(DataManager::GetStrValue("tw_brightness"));
+  }
+}
+
+bool WriteFileAtomically(const std::string& path, const std::string& contents) {
+  const std::string temporary = path + ".tmp";
+  const int fd =
+      open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+  if (fd < 0) return false;
+  if (fchmod(fd, 0600) != 0) {
+    close(fd);
+    unlink(temporary.c_str());
+    return false;
+  }
+
+  size_t offset = 0;
+  bool ok = true;
+  while (offset < contents.size()) {
+    const ssize_t written = write(fd, contents.data() + offset, contents.size() - offset);
+    if (written < 0 && errno == EINTR) continue;
+    if (written <= 0) {
+      ok = false;
+      break;
+    }
+    offset += static_cast<size_t>(written);
+  }
+  if (ok && fsync(fd) != 0) ok = false;
+  if (close(fd) != 0) ok = false;
+  if (!ok || rename(temporary.c_str(), path.c_str()) != 0) {
+    unlink(temporary.c_str());
+    return false;
+  }
+  chmod(path.c_str(), 0600);
+  return true;
+}
+
+std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
+  std::ostringstream output;
+  output << "schema=1\n"
+         << "clock24=" << preferences.clock24 << '\n'
+         << "timezone=" << preferences.timezone << '\n'
+         << "brightness=" << preferences.brightness << '\n'
+         << "accent=" << preferences.accent << '\n'
+         << "theme=" << preferences.theme << '\n'
+         << "interface_size=" << preferences.interface_size << '\n'
+         << "language=" << preferences.language << '\n'
+         << "keyboard_layout=" << preferences.keyboard_layout << '\n'
+         << "home_grid_columns=" << preferences.home_grid_columns << '\n'
+         << "dock_layout=" << preferences.dock_layout << '\n'
+         << "dock_transparency=" << preferences.dock_transparency << '\n'
+         << "dock_blur=" << preferences.dock_blur << '\n'
+         << "dock_hide_apps=" << preferences.dock_hide_apps << '\n'
+         << "recents=" << preferences.recents << '\n'
+         << "haptic_touch=" << preferences.haptic_touch << '\n'
+         << "haptic_keyboard=" << preferences.haptic_keyboard << '\n'
+         << "haptic_action=" << preferences.haptic_action << '\n';
+  return output.str();
+}
+
+bool SaveEarlyUiPreferences() {
+  if (!PartitionManager.Mount_By_Path("/data", false) ||
+      !TWFunc::Recursive_Mkdir(kAeraEarlyPreferencesDirectory, false))
+    return false;
+  return WriteFileAtomically(kAeraEarlyPreferencesPath,
+                             SerializeEarlyUiPreferences(CaptureCurrentEarlyUiPreferences()));
+}
+
+void LoadEarlyUiPreferencesIfAvailable() {
+  if (gEarlyPreferencesAttempted) return;
+  CaptureEarlyDefaultsIfNeeded();
+  std::ifstream input(kAeraEarlyPreferencesPath);
+  if (!input) {
+    if (!PartitionManager.Mount_By_Path("/data", false)) return;
+    input.clear();
+    input.open(kAeraEarlyPreferencesPath);
+  }
+  gEarlyPreferencesAttempted = true;
+  if (!input) return;
+
+  EarlyUiPreferences preferences = gEarlyDefaults;
+  bool valid_schema = false;
+  bool valid_contents = true;
+  std::string line;
+  while (std::getline(input, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.empty()) continue;
+    const auto separator = line.find('=');
+    if (separator == std::string::npos) {
+      valid_contents = false;
+      continue;
+    }
+    const std::string key = line.substr(0, separator);
+    const std::string value = line.substr(separator + 1);
+    if (key == "schema") {
+      valid_schema = value == "1";
+      continue;
+    }
+    bool recognized = false;
+    if (!SetEarlyUiValue(&preferences, key, value, &recognized) && recognized)
+      valid_contents = false;
+  }
+  if (!valid_schema || !valid_contents) {
+    LOGINFO("AERA: ignored an invalid early UI preference cache.\n");
+    return;
+  }
+
+  ApplyEarlyUiPreferences(preferences);
+  ApplyEarlyUiSideEffects();
+  LOGINFO("AERA: restored early UI preferences from /data/recovery.\n");
+}
 
 void LoadAeraPreferencesIfAvailable() {
   // Fastboot over Wi-Fi grants destructive partition access and is therefore
@@ -1293,6 +1622,8 @@ void LoadAeraPreferencesIfAvailable() {
     DataManager::SetValue(kFastbootWifiPreference, 0);
     fastboot_session_initialized = true;
   }
+  CaptureEarlyDefaultsIfNeeded();
+  LoadEarlyUiPreferencesIfAvailable();
   static bool loaded = false;
   if (loaded) return;
   std::ifstream input(kAeraPreferencesPath);
@@ -1300,6 +1631,7 @@ void LoadAeraPreferencesIfAvailable() {
   // flag clear so the first post-decryption scene retries automatically.
   if (!input) return;
 
+  EarlyUiPreferences full_ui = gEarlyDefaults;
   std::string line;
   while (std::getline(input, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -1307,54 +1639,36 @@ void LoadAeraPreferencesIfAvailable() {
     if (separator == std::string::npos) continue;
     const std::string key = line.substr(0, separator);
     const std::string value = line.substr(separator + 1);
-    if (key == "clock24") DataManager::SetValue("tw_military_time", value);
-    else if (key == "hidden") DataManager::SetValue("tw_hidden_files", value);
+    bool early_key = false;
+    SetEarlyUiValue(&full_ui, key, value, &early_key);
+    if (early_key) continue;
+    if (key == "hidden")
+      DataManager::SetValue("tw_hidden_files", value);
     else if (key == "compression") DataManager::SetValue(TW_USE_COMPRESSION_VAR, value);
     else if (key == "sha256") DataManager::SetValue(TW_USE_SHA2, value);
     else if (key == "verify_zip") DataManager::SetValue(TW_SIGNED_ZIP_VERIFY_VAR, value);
     else if (key == "plugin_auto_update") DataManager::SetValue("aera_plugin_auto_update", value);
-    else if (key == "update_nightly") DataManager::SetValue("aera_update_nightly", value);
-    else if (key == "recents") DataManager::SetValue("aera_recents_enabled", value);
-    else if (key == "timezone") DataManager::SetValue(TW_TIME_ZONE_VAR, value);
-    else if (key == "brightness") DataManager::SetValue("tw_brightness_pct", value);
-    else if (key == "accent") DataManager::SetValue("aera_theme_accent", value);
-    else if (key == "theme") DataManager::SetValue("aera_theme_mode", value);
-    else if (key == "interface_size") DataManager::SetValue("aera_interface_size", value);
-    else if (key == "keyboard_layout") DataManager::SetValue("aera_keyboard_layout", value);
-    else if (key == "home_grid_columns") DataManager::SetValue("aera_home_grid_columns", value);
-    else if (key == "dock_layout") DataManager::SetValue("aera_dock_layout", value);
-    else if (key == "dock_transparency") DataManager::SetValue("aera_dock_transparency", value);
-    else if (key == "dock_blur") DataManager::SetValue("aera_dock_blur", value);
-    else if (key == "dock_hide_apps") DataManager::SetValue("aera_dock_hide_apps", value);
-    else if (key == "language") DataManager::SetValue("tw_language", value);
+    else if (key == "update_nightly")
+      DataManager::SetValue("aera_update_nightly", value);
     else if (key == "browser_homepage") DataManager::SetValue("aera_browser_homepage", value);
     else if (key == "browser_zoom") DataManager::SetValue("aera_browser_zoom", value);
-    else if (key == "browser_cookies") DataManager::SetValue("aera_browser_cookies", value);
-    else if (key == "haptic_touch") DataManager::SetValue("tw_button_vibrate", value);
-    else if (key == "haptic_keyboard") DataManager::SetValue("tw_keyboard_vibrate", value);
-    else if (key == "haptic_action") DataManager::SetValue("tw_action_vibrate", value);
+    else if (key == "browser_cookies")
+      DataManager::SetValue("aera_browser_cookies", value);
     else if (key == "wifi_auto_enable") DataManager::SetValue("of_wlan_auto_enable", value);
     else if (key == "wifi_auto_connect") DataManager::SetValue("of_wlan_auto_connect", value);
     else if (key == "wifi_last_ssid") DataManager::SetValue("of_wlan_last_ssid", value);
   }
+  ApplyEarlyUiPreferences(full_ui);
   loaded = true;
-  DataManager::update_tz_environment_variables();
-  const int percent = std::clamp(
-      DataManager::GetIntValue("tw_brightness_pct"), 10, 100);
-  const int maximum = DataManager::GetIntValue("tw_brightness_max");
-  if (maximum > 0) {
-    DataManager::SetValue("tw_brightness", maximum * percent / 100);
-    TWFunc::Set_Brightness(DataManager::GetStrValue("tw_brightness"));
-  }
+  ApplyEarlyUiSideEffects();
+  if (!SaveEarlyUiPreferences()) LOGERR("AERA: could not refresh the early UI preference cache.\n");
   LOGINFO("AERA: restored preferences from shared storage.\n");
 }
 
 bool SaveAeraPreferences() {
   constexpr const char *directory = "/data/media/0/AERA";
   if (!TWFunc::Recursive_Mkdir(directory, false)) return false;
-  const std::string temporary = std::string(kAeraPreferencesPath) + ".tmp";
-  std::ofstream output(temporary, std::ios::out | std::ios::trunc);
-  if (!output) return false;
+  std::ostringstream output;
   output << "clock24=" << DataManager::GetIntValue("tw_military_time") << '\n'
          << "hidden=" << DataManager::GetIntValue("tw_hidden_files") << '\n'
          << "compression=" << DataManager::GetIntValue(TW_USE_COMPRESSION_VAR) << '\n'
@@ -1387,11 +1701,9 @@ bool SaveAeraPreferences() {
          << "wifi_auto_enable=" << DataManager::GetIntValue("of_wlan_auto_enable") << '\n'
          << "wifi_auto_connect=" << DataManager::GetIntValue("of_wlan_auto_connect") << '\n'
          << "wifi_last_ssid=" << DataManager::GetStrValue("of_wlan_last_ssid") << '\n';
-  output.flush();
-  if (!output) return false;
-  output.close();
-  if (rename(temporary.c_str(), kAeraPreferencesPath) != 0) return false;
-  chmod(kAeraPreferencesPath, 0600);
+  if (!WriteFileAtomically(kAeraPreferencesPath, output.str())) return false;
+  if (!SaveEarlyUiPreferences())
+    LOGERR("AERA: saved full preferences but could not update the early UI cache.\n");
   LOGINFO("AERA: saved preferences to shared storage.\n");
   return true;
 }
