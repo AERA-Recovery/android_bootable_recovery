@@ -31,6 +31,8 @@ lv_obj_t *WorkflowModeCard(lv_obj_t *parent, int x, int y, int width,
                            const char *description, bool active,
                            Handler action);
 void RestoreFolders(Tools *state);
+std::string SnapshotCowDetail(const SnapshotCowStatus &status);
+void ConfirmSnapshotCowCleanup(Tools *state);
 
 void Open(Tools *state, Action action) { state->callback(action, state->context); }
 void Run(Tools *state, const JobRequest &request) {
@@ -244,7 +246,53 @@ void PartitionRows(Tools *state) {
       });
     }
   }
-  if (state->volumes.empty()) {
+  if (state->tool == Action::kWipe) {
+    const auto cow_status = RecoverySnapshotCowStatus();
+    const bool cow_ready = cow_status.supported &&
+        cow_status.metadata_readable && cow_status.safe_to_remove &&
+        !cow_status.partitions.empty();
+    const int row_y = static_cast<int>(state->volumes.size()) * 148;
+    auto *row = Button(state->list, "", [state] {
+      ConfirmSnapshotCowCleanup(state);
+    });
+    lv_obj_set_pos(row, 0, row_y);
+    lv_obj_set_size(row, row_width, 142);
+    lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_radius(row, 18, 0);
+
+    auto *indicator = lv_obj_create(row);
+    Clear(indicator);
+    lv_obj_set_pos(indicator, 24, 43);
+    lv_obj_set_size(indicator, 54, 54);
+    lv_obj_set_style_radius(indicator, 10, 0);
+    lv_obj_set_style_border_width(indicator, 2, 0);
+    lv_obj_set_style_border_color(indicator,
+        cow_ready ? kAccent : kMainLine, 0);
+    lv_obj_set_style_bg_color(indicator, kMainPanel, 0);
+    lv_obj_set_style_bg_opa(indicator, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(indicator, LV_OBJ_FLAG_CLICKABLE);
+    auto *symbol = Label(indicator, LV_SYMBOL_TRASH,
+        &lv_font_montserrat_24, cow_ready ? kAccent : kMuted);
+    lv_obj_center(symbol);
+
+    auto *name = Label(row, "Snapshot COW cleanup",
+        &lv_font_montserrat_36, cow_ready ? kText : kMuted);
+    lv_obj_set_pos(name, 112, 14);
+    lv_obj_set_width(name, row_width - 150);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    const auto detail = SnapshotCowDetail(cow_status);
+    auto *status = Label(row, detail.c_str(), &lv_font_montserrat_32,
+        cow_ready ? kMuted : kMutedStrong);
+    lv_obj_set_pos(status, 112, 76);
+    lv_obj_set_width(status, row_width - 150);
+    lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
+    if (!cow_ready) {
+      lv_obj_add_state(row, LV_STATE_DISABLED);
+      lv_obj_set_style_opa(row, LV_OPA_50, LV_STATE_DISABLED);
+    }
+  }
+  if (state->volumes.empty() && state->tool != Action::kWipe) {
     auto *label = Label(state->list,
         "No available partitions. Check storage and encryption state.",
         &lv_font_montserrat_32, kMuted);
@@ -630,7 +678,6 @@ void BuildPartitions(Tools *state) {
     }
   } else {
     WipeTabs(state);
-    const auto cow_status = RecoverySnapshotCowStatus();
     auto *notice = Label(state->screen,
         "Only selected partitions will be wiped.", &lv_font_montserrat_32, kAmber);
     lv_obj_set_pos(notice, 80, landscape ? 570 : 690);
@@ -640,28 +687,10 @@ void BuildPartitions(Tools *state) {
         &lv_font_montserrat_24, kMutedStrong);
     lv_obj_set_pos(hint, 80, landscape ? 650 : 758);
     lv_obj_set_width(hint, landscape ? 940 : 1270);
-    auto *cow_cleanup = Button(state->screen, "Snapshot COW cleanup",
-        [state] { ConfirmSnapshotCowCleanup(state); });
-    lv_obj_set_pos(cow_cleanup, 80, landscape ? 730 : 830);
-    lv_obj_set_size(cow_cleanup, landscape ? 940 : 1280, 112);
-    const bool cow_ready = cow_status.supported &&
-        cow_status.metadata_readable && cow_status.safe_to_remove &&
-        !cow_status.partitions.empty();
-    if (!cow_ready) {
-      lv_obj_add_state(cow_cleanup, LV_STATE_DISABLED);
-      if (lv_obj_get_child_count(cow_cleanup) > 0)
-        lv_obj_set_style_text_color(lv_obj_get_child(cow_cleanup, 0), kMuted, 0);
-    }
-    auto *cow_detail = Label(state->screen,
-        SnapshotCowDetail(cow_status).c_str(), &lv_font_montserrat_20,
-        cow_status.safe_to_remove && !cow_status.partitions.empty()
-            ? kMutedStrong : kMuted);
-    lv_obj_set_pos(cow_detail, 80, landscape ? 858 : 958);
-    lv_obj_set_width(cow_detail, landscape ? 940 : 1270);
-    lv_label_set_long_mode(cow_detail, LV_LABEL_LONG_DOT);
-    lv_obj_set_pos(state->summary, 80, landscape ? 940 : 1032);
+    lv_obj_set_pos(state->summary, 80, landscape ? 760 : 866);
     if (!landscape) {
-      lv_obj_set_pos(state->list, 64, 1110);
+      lv_obj_set_pos(state->list, 64, 948);
+      lv_obj_set_height(state->list, 1650);
     }
   }
   auto *review = Button(state->screen, backup ? "Review backup" :
@@ -679,7 +708,7 @@ void BuildPartitions(Tools *state) {
     lv_obj_set_height(state->list,
                       std::max(600, review_y - list_top - list_to_review_gap));
   } else if (!landscape) {
-    constexpr int list_top = 1110;
+    constexpr int list_top = 948;
     constexpr int list_to_review_gap = 28;
     lv_obj_set_height(state->list,
                       std::max(600, review_y - list_top - list_to_review_gap));
