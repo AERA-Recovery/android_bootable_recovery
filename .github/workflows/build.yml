@@ -47,6 +47,20 @@ jobs:
           mkdir -p device/oneplus/infiniti
           git clone https://github.com/AERA-Recovery/android_device_oneplus_infiniti-AERA.git -b aera-16.0 device/oneplus/infiniti
 
+      - name: Neutralize Roomservice & Patch Release Config Map
+        run: |
+          # 1. Neutralize roomservice script in vendorsetup
+          echo "#!/bin/bash" > device/oneplus/infiniti/vendorsetup.sh
+
+          # 2. Prevent Soong release_config panic by creating dummy trunk_staging release map if missing
+          mkdir -p build/release
+          if [ ! -f build/release/release_config_map.textproto ]; then
+            cat << 'RELEOF' > build/release/release_config_map.textproto
+# Fallback minimal release config for recovery builds
+default_release_config: "trunk_staging"
+RELEOF
+          fi
+
       - name: Build Recovery Image
         run: |
           export ALLOW_MISSING_DEPENDENCIES=true
@@ -56,11 +70,8 @@ jobs:
           
           source build/envsetup.sh
           
-          # Skip automated roomservice lookup and set build target
-          export TARGET_PRODUCT=aera_infiniti
-          export TARGET_BUILD_VARIANT=userdebug
-          
-          lunch aera_infiniti-userdebug || lunch omni_infiniti-eng || lunch aera_infiniti-eng
+          # Target 3-part combo with trunk_staging
+          lunch aera_infiniti-trunk_staging-userdebug || lunch omni_infiniti-trunk_staging-eng
           
           mka recoveryimage
 
@@ -68,4 +79,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AERA-Recovery-Infiniti
-          path: out/target/product/infiniti/*.img
+          path: out/target/product/infiniti/recovery.img
