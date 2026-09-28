@@ -174,8 +174,13 @@ void PatternTouch(lv_event_t *event) {
     AddPatternDot(state, PatternDotAt(state, point));
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
     state->tracking = false;
-    if (state->sequence_length > 0)
-      i18n::BindLabel(state->status, "Pattern ready - swipe again to redraw");
+    if (state->sequence_length >= 4) {
+      if (state->callback != nullptr) {
+        state->callback(Action::kDecryptSubmit, state->context);
+      }
+    } else if (state->sequence_length > 0) {
+      i18n::BindLabel(state->status, "Pattern too short - try again");
+    }
   }
 }
 
