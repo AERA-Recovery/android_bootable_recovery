@@ -646,6 +646,20 @@ int main(int argc,char **argv) {
         assert(button && lv_obj_get_child_count(button) != 0);
         AssertCentered(lv_obj_get_child(button, 0), button);
       }
+      if (!landscape && size == InterfaceSize::kNormal) {
+        lv_obj_send_event(Find(files, LV_SYMBOL_LIST), LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(Find(files, "Date"));
+        assert(Find(files, "Ascending"));
+        assert(Find(files, "Descending"));
+        lv_obj_send_event(Find(files, "Date"), LV_EVENT_CLICKED, nullptr);
+        lv_obj_send_event(Find(files, "Descending"), LV_EVENT_CLICKED, nullptr);
+        Tick();
+        auto* sort_overlay = lv_obj_get_child(
+            files, static_cast<int32_t>(lv_obj_get_child_count(files)) - 1);
+        lv_obj_send_event(sort_overlay, LV_EVENT_CLICKED, nullptr);
+        Tick();
+      }
       char screenshot[128];
       snprintf(screenshot, sizeof(screenshot), "/tmp/aera-files-%s-%s.png",
                landscape ? "landscape" : "portrait", size_name);

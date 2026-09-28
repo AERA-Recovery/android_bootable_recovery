@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <unistd.h>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <cerrno>
@@ -198,6 +199,11 @@ struct MenuAction {
   bool destructive = false;
 };
 
+struct ChoiceControl {
+  lv_obj_t* button = nullptr;
+  lv_obj_t* marker = nullptr;
+};
+
 struct PressActions {
   Handler click;
   Handler hold;
@@ -239,6 +245,16 @@ void OnClickOrHold(lv_obj_t* object, Handler click, Handler hold) {
 
 void CloseOverlay(lv_obj_t* overlay) {
   if (overlay != nullptr) lv_obj_delete_async(overlay);
+}
+
+void SetChoiceSelected(const ChoiceControl& control, bool selected) {
+  if (selected) {
+    lv_obj_add_state(control.button, LV_STATE_CHECKED);
+    lv_obj_remove_flag(control.marker, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_remove_state(control.button, LV_STATE_CHECKED);
+    lv_obj_add_flag(control.marker, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 void ActionSheet(Files* state, const std::string& title, const std::string& detail,
@@ -1496,24 +1512,141 @@ void UpdateActionBar(Files* state) {
 }
 
 void SetSort(Files* state, SortMode mode) {
-  if (gSortMode == mode)
-    gSortAscending = !gSortAscending;
-  else {
-    gSortMode = mode;
-    gSortAscending = true;
-  }
+  gSortMode = mode;
   Populate(state);
 }
 
+const char* SortModeLabel(SortMode mode) {
+  switch (mode) {
+    case SortMode::kName: return "Name";
+    case SortMode::kSize: return "Size";
+    case SortMode::kDate: return "Date";
+    case SortMode::kType: return "Type";
+  }
+  return "Name";
+}
+
 void OpenSortMenu(Files* state) {
-  ActionSheet(state, "Sort files",
-              gSortAscending ? i18n::Translate("Ascending") : i18n::Translate("Descending"),
-              {
-                  { "Name", LV_SYMBOL_LIST, [state] { SetSort(state, SortMode::kName); } },
-                  { "Size", LV_SYMBOL_LIST, [state] { SetSort(state, SortMode::kSize); } },
-                  { "Date", LV_SYMBOL_LIST, [state] { SetSort(state, SortMode::kDate); } },
-                  { "Type", LV_SYMBOL_LIST, [state] { SetSort(state, SortMode::kType); } },
-              });
+  auto* overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+  lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(
+      overlay,
+      [](lv_event_t* event) {
+        if (lv_event_get_target_obj(event) ==
+            lv_event_get_current_target_obj(event)) {
+          CloseOverlay(lv_event_get_current_target_obj(event));
+        }
+      },
+      LV_EVENT_CLICKED, nullptr);
+
+  const bool landscape = Landscape(state->screen);
+  const int width = landscape
+      ? std::min(1900, static_cast<int>(lv_obj_get_width(state->screen)) - 128)
+      : 1312;
+  const int height = 660;
+  auto* sheet = lv_obj_create(overlay);
+  Panel(sheet, 44, kMainSheet);
+  lv_obj_set_size(sheet, width, height);
+  lv_obj_align(sheet, landscape ? LV_ALIGN_CENTER : LV_ALIGN_BOTTOM_MID,
+               0, landscape ? 0 : -40);
+  lv_obj_set_style_border_width(sheet, 1, 0);
+  lv_obj_set_style_border_color(sheet, kMainLine, 0);
+  lv_obj_set_style_border_opa(sheet, LV_OPA_30, 0);
+
+  auto* heading = Label(sheet, "Sort files", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(heading, 48, 42);
+  SingleLineLabel(heading, width - 190, &lv_font_montserrat_48);
+  auto sort_summary = [] {
+    return i18n::Format(
+        "%s  /  %s", i18n::Translate(SortModeLabel(gSortMode)),
+        i18n::Translate(gSortAscending ? "Ascending" : "Descending"));
+  };
+  const std::string initial_summary = sort_summary();
+  auto* subtitle = Label(sheet, initial_summary.c_str(),
+                         &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(subtitle, 48, 112);
+  SingleLineLabel(subtitle, width - 96, &lv_font_montserrat_24);
+  auto* close = Button(sheet, LV_SYMBOL_CLOSE, [overlay] { CloseOverlay(overlay); });
+  lv_obj_set_pos(close, width - 138, 28);
+  lv_obj_set_size(close, 98, 98);
+
+  const int margin = 48;
+  const int gap = 20;
+  const int inner_width = width - margin * 2;
+  const int half_width = (inner_width - gap) / 2;
+  auto make_choice = [sheet](int x, int y, int width, int height,
+                             const char* text, const char* symbol,
+                             Handler handler) {
+    ChoiceControl control;
+    control.button = Button(sheet, "", std::move(handler));
+    lv_obj_set_pos(control.button, x, y);
+    lv_obj_set_size(control.button, width, height);
+    lv_obj_set_style_radius(control.button, 26, 0);
+    lv_obj_set_style_bg_color(control.button, kAccentSoft, LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(control.button, LV_OPA_COVER, LV_STATE_CHECKED);
+    lv_obj_set_style_border_width(control.button, 3, LV_STATE_CHECKED);
+    lv_obj_set_style_border_color(control.button, kAccent, LV_STATE_CHECKED);
+    lv_obj_set_style_border_opa(control.button, LV_OPA_80, LV_STATE_CHECKED);
+    auto* icon = Label(control.button, symbol, &lv_font_montserrat_36, kAccent);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 28, 0);
+    auto* label = Label(control.button, text, &lv_font_montserrat_32, kText);
+    FitLabelToLines(label, width - 150, 1,
+                    {&lv_font_montserrat_32, &lv_font_montserrat_28,
+                     &lv_font_montserrat_24});
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 92, 0);
+    control.marker = Label(control.button, LV_SYMBOL_OK,
+                           &lv_font_montserrat_28, kAccent);
+    lv_obj_align(control.marker, LV_ALIGN_RIGHT_MID, -26, 0);
+    return control;
+  };
+
+  const std::array<SortMode, 4> modes{
+      SortMode::kName, SortMode::kSize, SortMode::kDate, SortMode::kType};
+  const std::array<const char*, 4> mode_icons{
+      LV_SYMBOL_EDIT, LV_SYMBOL_DRIVE, LV_SYMBOL_REFRESH, LV_SYMBOL_LIST};
+  auto sort_controls = std::make_shared<std::array<ChoiceControl, 4>>();
+  for (size_t index = 0; index < modes.size(); ++index) {
+    const int column = static_cast<int>(index % 2);
+    const int row = static_cast<int>(index / 2);
+    (*sort_controls)[index] = make_choice(
+        margin + column * (half_width + gap), 176 + row * 142,
+        half_width, 132, SortModeLabel(modes[index]), mode_icons[index],
+        [state, subtitle, sort_summary, sort_controls, modes, index] {
+          SetSort(state, modes[index]);
+          for (size_t i = 0; i < sort_controls->size(); ++i)
+            SetChoiceSelected((*sort_controls)[i], i == index);
+          const std::string summary = sort_summary();
+          lv_label_set_text(subtitle, summary.c_str());
+        });
+    SetChoiceSelected((*sort_controls)[index], gSortMode == modes[index]);
+  }
+
+  auto order_controls = std::make_shared<std::array<ChoiceControl, 2>>();
+  const std::array<bool, 2> directions{true, false};
+  const std::array<const char*, 2> direction_labels{"Ascending", "Descending"};
+  const std::array<const char*, 2> direction_icons{LV_SYMBOL_UP, LV_SYMBOL_DOWN};
+  for (size_t index = 0; index < directions.size(); ++index) {
+    (*order_controls)[index] = make_choice(
+        margin + static_cast<int>(index) * (half_width + gap), 468,
+        half_width, 132, direction_labels[index], direction_icons[index],
+        [state, subtitle, sort_summary, order_controls, directions, index] {
+          gSortAscending = directions[index];
+          Populate(state);
+          for (size_t i = 0; i < order_controls->size(); ++i)
+            SetChoiceSelected((*order_controls)[i], i == index);
+          const std::string summary = sort_summary();
+          lv_label_set_text(subtitle, summary.c_str());
+        });
+    SetChoiceSelected((*order_controls)[index],
+                      gSortAscending == directions[index]);
+  }
+
+  AnimateEnter(sheet, 0, 34);
 }
 
 void OpenCreateMenu(Files* state) {
