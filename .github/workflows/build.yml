@@ -1,82 +1,107 @@
-name: Build AERA Recovery
+name: Build AERA Recovery Image
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - aera-16.0
-      - feature/auto-submit-pattern
+    branches: [ "feature/auto-submit-pattern", "aera-16.0", "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Free Disk Space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell
-          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          sudo docker image prune --all --force || true
 
-      - name: Install Build Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
-            gcc-multilib git gnupg gperf libxml2-utils openjdk-11-jdk python3 zip zlib1g-dev
-
-      - name: Install Repo Tool
-        run: |
-          mkdir -p ~/bin
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod a+x ~/bin/repo
-          echo "$HOME/bin" >> $GITHUB_PATH
-
-      - name: Initialize Manifest Workspace
-        env:
-          GIT_TERMINAL_PROMPT: 0
+      - name: Set up Git identity
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-          
+
+      - name: Initialize & Sync Android Tree
+        run: |
           repo init -u https://github.com/AERA-Recovery/android_manifest -b aera-16.0 --depth=1 --no-repo-verify
           repo sync -c -j4 --force-sync --no-clone-bundle --no-tags --no-manifest-update
 
-      - name: Inject Custom Recovery Source
+      - name: Checkout Recovery Core
         uses: actions/checkout@v4
         with:
           path: bootable/recovery
 
-      - name: Clone OnePlus Infiniti Device Tree
+      - name: Fetch Device Tree
         run: |
           mkdir -p device/oneplus/infiniti
           git clone https://github.com/AERA-Recovery/android_device_oneplus_infiniti-AERA.git -b aera-16.0 device/oneplus/infiniti
 
-      - name: Build Recovery Image (Direct Target Bypass)
+      - name: Patch Build System & Compile Recovery
         run: |
-          # 1. Remove roomservice trigger
+          # 1. Neutralize roomservice trigger
           rm -f device/oneplus/infiniti/vendorsetup.sh
-          
-          # 2. Environment Overrides
+
+          # 2. Fix circular Makefile imports and target twrp_infiniti cleanly
+          sed -i '/aera_infiniti.mk/d' device/oneplus/infiniti/device.mk 2>/dev/null || true
+          cat << 'PRODUCT_EOF' > device/oneplus/infiniti/AndroidProducts.mk
+          PRODUCT_MAKEFILES := \
+              $(LOCAL_DIR)/twrp_infiniti.mk
+
+          COMMON_LUNCH_CHOICES := \
+              twrp_infiniti-trunk_staging-userdebug
+          PRODUCT_EOF
+
+          # 3. Bypass Go release-config execution inside release_config.mk
+          sed -i 's/$(shell $(OUT_DIR)\/release-config/# $(shell $(OUT_DIR)\/release-config/g' build/make/core/release_config.mk
+          sed -i 's/$(if $(filter-out 0,$(.SHELLSTATUS)),$(error release-config failed to run))/# $(if $(filter-out 0,$(.SHELLSTATUS)),$(error release-config failed to run))/g' build/make/core/release_config.mk
+
+          # 4. Create expected output directories and release stubs
+          mkdir -p out/soong/release-config build/release
+          cat << 'MAP_EOF' > build/release/release_config_map.textproto
+          default_release_config: "trunk_staging"
+          MAP_EOF
+
+          cat << 'VARMK_EOF' > out/soong/release-config/release_config-twrp_infiniti-trunk_staging.varmk
+          RELEASE_PLATFORM_VERSION := 16
+          RELEASE_PLATFORM_SDK_VERSION := 36
+          RELEASE_PLATFORM_SDK_EXTENSION_VERSION := 16
+          RELEASE_PLATFORM_BASE_SDK_EXTENSION_VERSION := 16
+          RELEASE_PLATFORM_SECURITY_PATCH := 2026-09-05
+          RELEASE_PLATFORM_VERSION_CODENAME := REL
+          RELEASE_PLATFORM_VERSION_ALL_CODENAMES := REL
+          RELEASE_PLATFORM_VERSION_KNOWN_CODENAMES := REL
+          RELEASE_PLATFORM_VERSION_LAST_STABLE := 15
+          RELEASE_PLATFORM_BUILD_INTENDED_JAVA_SDK := 36
+          RELEASE_BOARD_API_LEVEL := 36
+          VSR_VENDOR_API_LEVEL := 36
+          TARGET_RELEASE := trunk_staging
+          PRODUCT_RELEASE_CONFIG_MAPS := trunk_staging
+          _all_release_configs := trunk_staging
+          ALL_RELEASE_CONFIGS_FOR_PRODUCT := trunk_staging
+          ALL_RELEASE_CONFIGS := trunk_staging
+          RELEASE_BUILD_FLAGS :=
+          RELEASE_PACKAGE_PROFILING_MODULE := true
+          RELEASE_PACKAGE_EMOJI_FONT_VERSION := 1
+          RELEASE_PACKAGE_NOTO_SANS_KHMER_VERSION := 1
+          RELEASE_PACKAGE_HEBREW_FONT_VERSION := 1
+          VARMK_EOF
+
+          cp out/soong/release-config/release_config-twrp_infiniti-trunk_staging.varmk \
+             out/soong/release-config/release_config-twrp_infiniti-trunk_staging.vars
+
+          # 5. Patch Profiling APEX select statement to prevent blueprint failure
+          sed -i 's/release_flag("RELEASE_PACKAGE_PROFILING_MODULE")/false/g' packages/modules/Profiling/apex/Android.bp 2>/dev/null || true
+
+          # 6. Set Build Environment Variables
           export ALLOW_MISSING_DEPENDENCIES=true
           export BUILD_BROKEN_MISSING_REQUIRED_MODULES=true
           export LC_ALL=C
-          
-          # 3. Completely disable Soong release config lookups
-          export TEMPLATE_RELEASE_CONFIG=true
-          export RELEASE_CONFIG_DIR=""
-          
-          # 4. Source build env without running lunch
-          source build/envsetup.sh
-          
-          # 5. Export product variables directly to bypass lunch/release_config
-          export TARGET_PRODUCT=aera_infiniti
-          export TARGET_BUILD_VARIANT=userdebug
-          
-          # 6. Execute Ninja build target directly
-          mka recoveryimage -j4
+          unset BOARD_API_LEVEL
 
-      - name: Upload Recovery Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AERA-Recovery-Infiniti
-          path: out/target/product/infiniti/*.img
+          export TARGET_PRODUCT=twrp_infiniti
+          export TARGET_BUILD_VARIANT=userdebug
+          export TARGET_RELEASE=trunk_staging
+
+          # 7. Source build environment and compile using 2 workers to prevent OOM
+          source build/envsetup.sh
+          mka recoveryimage -j2
