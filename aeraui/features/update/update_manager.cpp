@@ -34,11 +34,9 @@ namespace {
 
 constexpr char kLogTag[] = "AERAUpdate";
 constexpr char kStableCatalogUrl[] =
-    "https://roms.danielspringer.at/download.php?"
-    "file=Files%2Fota%2Faera%2Fcatalog.json&download=true";
+    "https://aera-recovery.com/catalog.json";
 constexpr char kNightlyCatalogUrl[] =
-    "https://roms.danielspringer.at/download.php?"
-    "file=Files%2Fota%2Faera%2Fcatalog-nightly.json&download=true";
+    "https://aera-recovery.com/catalog-nightly.json";
 constexpr char kCatalogPath[] = "/tmp/aera-update-catalog.json";
 constexpr char kUpdateRoot[] = "/sdcard/AERA/Updates";
 constexpr uint64_t kMaxCatalog = 1024 * 1024;
