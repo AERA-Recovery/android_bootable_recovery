@@ -51,11 +51,17 @@ jobs:
         run: |
           export ALLOW_MISSING_DEPENDENCIES=true
           export BUILD_BROKEN_MISSING_REQUIRED_MODULES=true
-          export TARGET_RELEASE=aera
           export LC_ALL=C
           
           source build/envsetup.sh
-          lunch aera_infiniti-userdebug
+          
+          # Try valid 3-part combos (<product>-<release>-<variant>)
+          lunch aera_infiniti-aera-userdebug || \
+          lunch aera_infiniti-trunk_staging-userdebug || \
+          lunch aera_infiniti-ap1a-userdebug || \
+          lunch omni_infiniti-aera-userdebug || \
+          lunch omni_infiniti-trunk_staging-userdebug
+          
           mka recoveryimage
 
       - name: Upload Recovery Artifact
