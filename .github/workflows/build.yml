@@ -51,15 +51,15 @@ jobs:
         run: |
           export ALLOW_MISSING_DEPENDENCIES=true
           export BUILD_BROKEN_MISSING_REQUIRED_MODULES=true
+          export TARGET_RELEASE=aera
+          export LC_ALL=C
+          
           source build/envsetup.sh
-          
-          # Force lunch with release flag or fallback combo
-          lunch aera_infiniti-ap1a-userdebug || lunch aera_infiniti-userdebug || lunch omni_infiniti-eng || true
-          
+          lunch aera_infiniti-userdebug
           mka recoveryimage
 
       - name: Upload Recovery Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AERA-Recovery-Infiniti
-          path: out/target/product/infiniti/*.img
+          path: out/target/product/infiniti/recovery.img
