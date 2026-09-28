@@ -337,7 +337,8 @@ bool ParseRelease(const Json::Value &value, Release *release) {
   release->filename = value["filename"].asString();
   release->size = JsonUnsigned(value["size"]);
   release->sha256 = value["sha256"].asString();
-  release->url = value["url"].asString();
+  release->url = value.get("ota_url", "").asString();
+  if (release->url.empty()) release->url = value["url"].asString();
   release->changelog.clear();
   const Json::Value &notes = value["changelog"];
   if (notes.isArray()) {
