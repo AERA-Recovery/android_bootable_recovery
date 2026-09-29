@@ -26,6 +26,7 @@
 
 #include "aeraui/engine.hpp"
 #include "aeraui/backend.hpp"
+#include "aeraui/platform/aera_screen_timer.hpp"
 #include "aeraui/status_bar.hpp"
 #include "../components/power_transition.hpp"
 
@@ -297,7 +298,7 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
                 engine.SetSuspended(false);
                 performance.Boost();
                 engine.RunFrame();
-                gr_fb_blank(false);
+                aeraScreenTimer.Wake();
                 hardware.screen_off = false;
                 __android_log_print(ANDROID_LOG_INFO, kLogTag,
                                     "display woke into AERA lock screen");
@@ -310,7 +311,7 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
             if (!hardware.screen_off && !hardware.woke_on_power &&
                 !hardware.power_long_press && !hardware.screenshot_chord) {
                 engine.SetSuspended(true);
-                gr_fb_blank(true);
+                aeraScreenTimer.Blank();
                 hardware.screen_off = true;
                 __android_log_print(ANDROID_LOG_INFO, kLogTag,
                                     "display suspended by power key");
