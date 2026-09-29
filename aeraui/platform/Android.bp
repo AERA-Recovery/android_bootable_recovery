@@ -50,6 +50,7 @@ cc_library_static {
         "libstdc++",
         "libaosprecovery",
         "libcrypto",
+        "libjpeg",
         "libselinux",
         "libziparchive",
     ],

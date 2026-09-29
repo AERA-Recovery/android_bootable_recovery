@@ -137,6 +137,26 @@ static void PrepareBrowserStorage() {
   Check(fchmod(profile, 0700), "browser profile permissions");
   close(profile);
 }
+static void PrepareTelegramStorage() {
+  int aera = open("/sdcard/AERA",
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (aera < 0) return;
+  if (mkdirat(aera, "Telegram", 0770) && errno != EEXIST) {
+    close(aera);
+    return;
+  }
+  int telegram = openat(aera, "Telegram",
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  close(aera);
+  if (telegram < 0) return;
+  // The isolated client can write only completed downloads to this narrow
+  // directory. It never receives write access to the rest of shared storage.
+  if (fchown(telegram, kTelegramUid, kMediaRwGid) != 0 && errno != EPERM)
+    Die("Telegram download ownership");
+  if (fchmod(telegram, 0770) != 0 && errno != EPERM)
+    Die("Telegram download permissions");
+  close(telegram);
+}
 static void WriteResolverConfig(int root) {
   const int etc = openat(root, "etc", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (etc < 0) Die("browser resolver directory");
@@ -276,6 +296,7 @@ int main(int argc, char **argv) {
   if (doom) PrepareDoomStorage();
   if (recorder) PrepareRecorderStorage();
   if (browser) PrepareBrowserStorage();
+  if (telegram) PrepareTelegramStorage();
   if (root.size() != prefix + 6 || root.compare(0, prefix, expected) ||
       !std::all_of(root.begin() + prefix, root.end(),
                    [](unsigned char c) { return std::isalnum(c); })) return 78;
@@ -286,11 +307,21 @@ int main(int argc, char **argv) {
   if (info.st_uid || (runtime_mode != 0700 && runtime_mode != 0755) ||
       fstatfs(directory, &filesystem) ||
       (filesystem.f_type != 0x01021994 && filesystem.f_type != 0x858458f6)) Die("private RAM runtime");
-  for (const char *name : {"etc", "proc", "tmp", "dev", "run", "storage", "sdcard", "state", "recordings", "downloads", "profile", "doom"}) {
+  for (const char *name : {"etc", "proc", "tmp", "dev", "run", "storage",
+                           "sdcard", "state", "recordings", "downloads",
+                           "profile", "doom", "mnt", "usb_otg",
+                           "external_sd"}) {
     if (mkdirat(directory, name, 0755) && errno != EEXIST) Die("runtime directory");
     struct stat child{};
     if (fstatat(directory, name, &child, AT_SYMLINK_NOFOLLOW) || !S_ISDIR(child.st_mode) || child.st_uid)
       Die("unsafe runtime directory");
+  }
+  if (telegram) {
+    const int mnt = openat(directory, "mnt",
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (mnt < 0 || (mkdirat(mnt, "nas", 0755) && errno != EEXIST))
+      Die("Telegram NAS mount point");
+    close(mnt);
   }
   if (retroarch) {
     const int sdcard = openat(directory, "sdcard",
@@ -310,7 +341,7 @@ int main(int argc, char **argv) {
   close(directory);
   Supervise(root, (telegram || doom) ? "536870912" :
       (media || recorder || streams_media) ? "1073741824" : "1610612736");
-  const rlim_t file_limit = browser ? 16ULL << 30 :
+  const rlim_t file_limit = (browser || telegram) ? 16ULL << 30 :
       recorder ? 2ULL << 30 : 64ULL << 20;
   rlimit files{512U, 512U}, processes{192U, 192U}, core{0, 0},
       size{file_limit, file_limit};
@@ -384,6 +415,18 @@ int main(int argc, char **argv) {
     if (!access("/sdcard", R_OK))
       Check(minijail_bind(jail, "/sdcard", "/sdcard", 0),
             "read-only Telegram attachments");
+    if (!access("/mnt/nas", R_OK))
+      Check(minijail_bind(jail, "/mnt/nas", "/mnt/nas", 0),
+            "read-only Telegram NAS attachments");
+    if (!access("/usb_otg", R_OK))
+      Check(minijail_bind(jail, "/usb_otg", "/usb_otg", 0),
+            "read-only Telegram OTG attachments");
+    if (!access("/external_sd", R_OK))
+      Check(minijail_bind(jail, "/external_sd", "/external_sd", 0),
+            "read-only Telegram external storage attachments");
+    if (!access("/sdcard/AERA/Telegram", R_OK | W_OK))
+      Check(minijail_bind(jail, "/sdcard/AERA/Telegram", "/downloads", 1),
+            "writable Telegram downloads");
   } else if (media && !access("/sdcard", R_OK)) {
     Check(minijail_bind(jail, "/sdcard", "/sdcard", 0),
           "read-only media library");

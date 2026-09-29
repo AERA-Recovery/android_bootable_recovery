@@ -117,15 +117,16 @@ additionally have direct access to recovery's files, devices and mounted data.
 
 ## Picture viewer
 
-Files opens PNG and baseline JPEG previews in a modal with Fit, zoom buttons,
+Files opens PNG and JPEG previews in a modal with Fit, zoom buttons,
 drag-to-pan and Back. Edge Back also closes it without losing the folder.
 Decoding runs outside the UI thread and only one decoder may run at a time.
-PNG uses the already-packaged libpng. JPEG uses LVGL's bundled TJpgDec (BGR
-output); its partial scaling implementation stays disabled and the output
+PNG uses the already-packaged libpng. Baseline JPEG uses LVGL's bundled TJpgDec
+(BGR output); its partial scaling implementation stays disabled and the output
 callback samples large JPEGs into a preview with at most 2048 pixels per side.
+Progressive JPEG falls back to libjpeg-turbo with bounded native downscaling.
 Source JPEGs are limited to 64 megapixels / 16384 pixels per side. PNGs are
 limited to 16 megapixels / 8192 pixels per side. Files are limited to 32 MiB.
-Progressive JPEG, HEIC, WebP, GIF and EXIF auto-rotation are not supported.
+HEIC, WebP, GIF and EXIF auto-rotation are not supported.
 `tests/picture_decode_test.cpp` covers color channels, dimensions, large JPEG
 sampling, cancellation and invalid/unsupported input using generated fixtures.
 

@@ -61,7 +61,8 @@ int main() {
     for (unsigned i = 0; i < data.width * data.height; ++i)
       assert(data.pixels[i * 4] < data.pixels[i * 4 + 1] && data.pixels[i * 4 + 1] < data.pixels[i * 4 + 2] && data.pixels[i * 4 + 3] == 255); }
   WriteJpeg(root + "/progressive.jpg", 37, 29, true);
-  { PictureData data; DecodePicture(root + "/progressive.jpg", data); assert(data.ready && !data.pixels && !data.error.empty()); }
+  { PictureData data; DecodePicture(root + "/progressive.jpg", data);
+    assert(data.ready && data.error.empty() && data.pixels && data.width == 37 && data.height == 29); }
   { PictureData data; data.cancelled = true; DecodePicture(root + "/valid.png", data); assert(data.ready && !data.pixels); }
   { PictureData data; DecodePicture(root + "/missing.png", data); assert(data.ready && !data.pixels && !data.error.empty()); }
   { FILE *file = fopen((root + "/broken.png").c_str(), "wb"); assert(file);

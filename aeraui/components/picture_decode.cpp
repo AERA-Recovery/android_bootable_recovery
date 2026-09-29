@@ -5,9 +5,11 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <setjmp.h>
 #include <memory>
 #include <sys/stat.h>
 #include <vector>
+#include <jpeglib.h>
 #include <png.h>
 #include "src/libs/tjpgd/tjpgd.h"
 
@@ -121,6 +123,96 @@ int WriteJpeg(JDEC *decoder, void *bitmap, JRECT *rect) {
   }
   return 1;
 }
+
+struct LibJpegError {
+  jpeg_error_mgr base{};
+  jmp_buf jump{};
+  JSAMPLE *row = nullptr;
+};
+
+void LibJpegErrorExit(j_common_ptr decoder) {
+  auto *error = reinterpret_cast<LibJpegError *>(decoder->err);
+  longjmp(error->jump, 1);
+}
+
+void ProgressiveJpeg(FILE *file, PictureData &out, uint32_t max_width,
+                     uint32_t max_height) {
+  rewind(file);
+  jpeg_decompress_struct decoder{};
+  LibJpegError error{};
+  decoder.err = jpeg_std_error(&error.base);
+  error.base.error_exit = LibJpegErrorExit;
+  if (setjmp(error.jump)) {
+    free(error.row);
+    jpeg_destroy_decompress(&decoder);
+    free(out.pixels);
+    out.pixels = nullptr;
+    out.width = out.height = 0;
+    out.error = "JPEG decoding failed; the file may be damaged or unsupported.";
+    return;
+  }
+
+  jpeg_create_decompress(&decoder);
+  decoder.mem->max_memory_to_use = 96 * 1024 * 1024;
+  jpeg_stdio_src(&decoder, file);
+  jpeg_read_header(&decoder, TRUE);
+  if (!decoder.image_width || !decoder.image_height ||
+      decoder.image_width > 16384 || decoder.image_height > 16384 ||
+      uint64_t(decoder.image_width) * decoder.image_height > 64 * 1024 * 1024) {
+    jpeg_destroy_decompress(&decoder);
+    out.error = "JPEG dimensions exceed the preview limit.";
+    return;
+  }
+
+  const uint32_t width_limit = max_width ? max_width : 2048;
+  const uint32_t height_limit = max_height ? max_height : 2048;
+  decoder.scale_num = 1;
+  decoder.scale_denom = 1;
+  while (decoder.scale_denom < 8 &&
+         ((decoder.image_width + decoder.scale_denom - 1) /
+                  decoder.scale_denom > width_limit ||
+          (decoder.image_height + decoder.scale_denom - 1) /
+                  decoder.scale_denom > height_limit))
+    decoder.scale_denom *= 2;
+  decoder.out_color_space = JCS_RGB;
+  jpeg_start_decompress(&decoder);
+  if (!Allocate(out, decoder.output_width, decoder.output_height)) {
+    jpeg_destroy_decompress(&decoder);
+    return;
+  }
+
+  error.row = static_cast<JSAMPLE *>(malloc(size_t(decoder.output_width) * 3));
+  if (!error.row) {
+    jpeg_destroy_decompress(&decoder);
+    free(out.pixels);
+    out.pixels = nullptr;
+    out.width = out.height = 0;
+    out.error = "Not enough memory to preview this image.";
+    return;
+  }
+  while (decoder.output_scanline < decoder.output_height && !out.cancelled) {
+    JSAMPROW rows[] = {error.row};
+    if (jpeg_read_scanlines(&decoder, rows, 1) != 1)
+      break;
+    auto *target = out.pixels +
+        size_t(decoder.output_scanline - 1) * decoder.output_width * 4;
+    for (uint32_t x = 0; x < decoder.output_width; ++x) {
+      target[x * 4] = error.row[x * 3 + 2];
+      target[x * 4 + 1] = error.row[x * 3 + 1];
+      target[x * 4 + 2] = error.row[x * 3];
+      target[x * 4 + 3] = 255;
+    }
+  }
+  free(error.row);
+  error.row = nullptr;
+  if (out.cancelled) {
+    jpeg_abort_decompress(&decoder);
+  } else {
+    jpeg_finish_decompress(&decoder);
+  }
+  jpeg_destroy_decompress(&decoder);
+}
+
 void Jpeg(FILE *file, PictureData &out, uint32_t max_width,
           uint32_t max_height) {
   static_assert(JD_FORMAT == 0, "Picture viewer requires RGB888 JPEG output");
@@ -129,7 +221,10 @@ void Jpeg(FILE *file, PictureData &out, uint32_t max_width,
   JDEC decoder{};
   JpegInput input{file, &out};
   if (jd_prepare(&decoder, ReadJpeg, work.data(), work.size(), &input) != JDR_OK) {
-    out.error = "Cannot decode this JPEG. Use a baseline JPEG; progressive JPEG is not supported.";
+    // TJpgDec deliberately stays as the tiny baseline fast path. Telegram and
+    // many cameras emit progressive JPEGs, so use bounded libjpeg decoding for
+    // formats that TJpgDec cannot prepare.
+    ProgressiveJpeg(file, out, max_width, max_height);
     return;
   }
   if (!decoder.width || !decoder.height || decoder.width > 16384 || decoder.height > 16384 ||

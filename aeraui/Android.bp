@@ -127,6 +127,7 @@ cc_library_static {
         "libcutils",
         "liblog",
         "libminuitwrp",
+        "libjpeg",
         "libpng",
         "libselinux",
         "libutils",
