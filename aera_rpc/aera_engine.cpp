@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <aeraui/backend.hpp>
+#include <aeraui/runner.hpp>
 
 #include "../aera_remote/aera_remote.hpp"
 #include "../data.hpp"
@@ -252,7 +253,7 @@ int Reboot(const Request &request, EventSink &events) {
   RebootCommand command;
   if (target == "system" || target == "android") command = rb_system;
   else if (target == "recovery") command = rb_recovery;
-  else if (target == "bootloader" || target == "fastboot") command = rb_bootloader;
+  else if (target == "bootloader") command = rb_bootloader;
   else if (target == "fastbootd") command = rb_fastboot;
   else if (target == "poweroff" || target == "shutdown") command = rb_poweroff;
   else if (target == "download") command = rb_download;
@@ -262,6 +263,30 @@ int Reboot(const Request &request, EventSink &events) {
   sync();
   TWFunc::tw_reboot(command);
   return 0;
+}
+
+int Transition(const Request &request, EventSink &events) {
+  const std::string target = Text(request.arguments, "target");
+  if (target != "fastboot" && target != "recovery")
+    return Fail(events, "invalid_transition_target",
+                "Transition target must be fastboot or recovery", 2);
+
+  const bool toward_fastboot = target == "fastboot";
+  switch (aeraui::RequestModeTransition(toward_fastboot)) {
+    case aeraui::ModeTransitionRequestResult::kAccepted:
+      events.Log("Transitioning to " + target + "\n");
+      return 0;
+    case aeraui::ModeTransitionRequestResult::kAlreadyActive:
+      events.Log("Already in " + target + "\n");
+      return 0;
+    case aeraui::ModeTransitionRequestResult::kBusy:
+      return Fail(events, "transition_busy",
+                  "Another mode transition is already running");
+    case aeraui::ModeTransitionRequestResult::kUnavailable:
+      return Fail(events, "transition_unavailable",
+                  "The native AERA interface is not available");
+  }
+  return Fail(events, "transition_failed", "Could not queue the transition");
 }
 
 int Log(EventSink &events) {
@@ -345,6 +370,7 @@ int Execute(const Request &request, EventSink &events) {
         ? 0 : Fail(events, "mtp_failed", "Could not change MTP state");
   }
   if (op == "reboot") return Reboot(request, events);
+  if (op == "transition") return Transition(request, events);
   if (op == "log") return Log(events);
   if (op == "mirror") return Mirror(request, events);
   return Fail(events, "unsupported_operation",

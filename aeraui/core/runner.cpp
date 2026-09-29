@@ -27,6 +27,7 @@
 #include "aeraui/engine.hpp"
 #include "aeraui/backend.hpp"
 #include "aeraui/status_bar.hpp"
+#include "../components/power_transition.hpp"
 
 namespace aeraui {
 namespace {
@@ -178,6 +179,10 @@ std::atomic<int> gCredentialType{0};
 std::atomic<int> gCryptoUserId{0};
 std::atomic<int> gPatternGridSize{3};
 std::atomic<bool> gFileBasedEncryption{false};
+// 0 means no native UI, 1 recovery, 2 userspace fastboot.
+std::atomic<int> gUiMode{0};
+std::atomic<int> gModeTransitionRequest{0};
+std::atomic<bool> gModeTransitionBusy{false};
 std::mutex gEarlyMutex;
 std::mutex gDecryptMutex;
 std::condition_variable gDecryptCondition;
@@ -371,6 +376,21 @@ RunResult ToRunResult(Action action) {
 
 }  // namespace
 
+ModeTransitionRequestResult RequestModeTransition(bool toward_fastboot) {
+    const int target = toward_fastboot ? 2 : 1;
+    const int current = gUiMode.load(std::memory_order_acquire);
+    if (current == 0) return ModeTransitionRequestResult::kUnavailable;
+    if (current == target) return ModeTransitionRequestResult::kAlreadyActive;
+
+    bool expected = false;
+    if (!gModeTransitionBusy.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel))
+        return ModeTransitionRequestResult::kBusy;
+
+    gModeTransitionRequest.store(target, std::memory_order_release);
+    return ModeTransitionRequestResult::kAccepted;
+}
+
 RunResult RunLoop(bool fastboot_mode = false,
                   const DisplayMetrics& metrics = {},
                   bool resume_recovery = false) {
@@ -385,6 +405,17 @@ RunResult RunLoop(bool fastboot_mode = false,
                            metrics.logical_height, resume_recovery))
         return RunResult::kEngineFailure;
 
+    struct ModeStateGuard {
+        ~ModeStateGuard() {
+            gUiMode.store(0, std::memory_order_release);
+            gModeTransitionRequest.store(0, std::memory_order_release);
+            gModeTransitionBusy.store(false, std::memory_order_release);
+        }
+    } mode_state_guard;
+    gUiMode.store(fastboot_mode ? 2 : 1, std::memory_order_release);
+    gModeTransitionRequest.store(0, std::memory_order_release);
+    gModeTransitionBusy.store(false, std::memory_order_release);
+
     __android_log_print(ANDROID_LOG_INFO, kLogTag,
                         "AERA Recovery Project native engine active; hardware Back and edge swipe use navigation history");
 
@@ -392,6 +423,7 @@ RunResult RunLoop(bool fastboot_mode = false,
     bool live_fastboot_transition = false;
     bool cold_recovery_startup = false;
     bool decrypt_request_sent = false;
+    Action cli_transition_action = Action::kNone;
     for (;;) {
         /* Boot and decryption have no continuous touch stream to renew the
          * interaction window. Keep the clocks up until the recovery backend
@@ -426,6 +458,32 @@ RunResult RunLoop(bool fastboot_mode = false,
             __android_log_print(ANDROID_LOG_INFO, kLogTag,
                                 "recovery backend ready; native workflows unlocked");
         }
+
+        const int requested_mode =
+            gModeTransitionRequest.exchange(0, std::memory_order_acq_rel);
+        if (requested_mode != 0) {
+            const bool toward_fastboot = requested_mode == 2;
+            const bool already_active = toward_fastboot == fastboot_mode;
+            if (already_active) {
+                gModeTransitionBusy.store(false, std::memory_order_release);
+            } else {
+                const uint32_t duration =
+                    toward_fastboot && RecoveryFastbootWifiStatus().enabled
+                        ? 1080 : 720;
+                widgets::ModeTransition(
+                    lv_screen_active(), toward_fastboot,
+                    [&cli_transition_action, toward_fastboot] {
+                        cli_transition_action =
+                            toward_fastboot ? Action::kRebootFastbootd
+                                            : Action::kRebootRecovery;
+                    },
+                    duration);
+                performance.BoostFor(duration + 3000);
+                __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                    "CLI requested live transition to %s",
+                                    toward_fastboot ? "fastboot" : "recovery");
+            }
+        }
         const int wait_ms = static_cast<int>(engine.RunFrame());
         // The display backend may still own/import the current GPU buffer
         // while an input event is being dispatched. Capture only here, after
@@ -456,7 +514,11 @@ RunResult RunLoop(bool fastboot_mode = false,
                                     "cold fastbootd recovery startup completed after decrypt gate");
             }
         }
-        const Action action = engine.TakeAction();
+        Action action = engine.TakeAction();
+        if (cli_transition_action != Action::kNone) {
+            action = cli_transition_action;
+            cli_transition_action = Action::kNone;
+        }
         if (action != Action::kNone) {
             __android_log_print(ANDROID_LOG_INFO, kLogTag, "scene requested action %d",
                                 static_cast<int>(action));
@@ -467,6 +529,7 @@ RunResult RunLoop(bool fastboot_mode = false,
                 engine.RunFrame();
                 if (RecoveryEnterFastbootd()) {
                     fastboot_mode = true;
+                    gUiMode.store(2, std::memory_order_release);
                     live_fastboot_transition = true;
                     performance.BoostFor(3000);
                     __android_log_print(ANDROID_LOG_INFO, kLogTag,
@@ -474,12 +537,14 @@ RunResult RunLoop(bool fastboot_mode = false,
                 } else {
                     engine.SetFastbootMode(false);
                 }
+                gModeTransitionBusy.store(false, std::memory_order_release);
                 continue;
             }
             if (fastboot_mode && action == Action::kRebootRecovery) {
                 const bool cold_start = !live_fastboot_transition;
                 if (RecoveryLeaveFastbootd(cold_start)) {
                     fastboot_mode = false;
+                    gUiMode.store(1, std::memory_order_release);
                     live_fastboot_transition = false;
                     if (cold_start && RecoveryDataLocked() &&
                         RecoveryCredentialType() != 0) {
@@ -499,6 +564,7 @@ RunResult RunLoop(bool fastboot_mode = false,
                                             ? "cold fastbootd switched to recovery in place"
                                             : "live recovery mode restored");
                 }
+                gModeTransitionBusy.store(false, std::memory_order_release);
                 continue;
             }
             // init will reboot or shut down immediately after this result is

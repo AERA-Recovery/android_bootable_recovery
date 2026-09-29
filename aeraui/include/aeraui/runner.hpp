@@ -24,6 +24,13 @@ enum class DecryptionResult {
     kSkipped = 1,
 };
 
+enum class ModeTransitionRequestResult {
+    kAccepted = 0,
+    kAlreadyActive,
+    kBusy,
+    kUnavailable,
+};
+
 // AERA_SCREEN_H uses the stock theme's 1080-wide reference space, while
 // the status-bar dimensions use AERA UI's 1440-wide logical coordinate space.
 // Convert only the screen height at the renderer boundary.
@@ -66,5 +73,10 @@ RunResult RunAeraUiResume(const DisplayMetrics& metrics = {});
 // Runs a dedicated userspace-fastboot surface. This deliberately bypasses
 // boot animation, decryption, recovery navigation and plugin initialization.
 RunResult RunAeraUiFastboot(const DisplayMetrics& metrics = {});
+
+// Queues a live recovery <-> userspace-fastboot transition on the native UI
+// thread. RPC workers must use this entry point instead of touching LVGL or
+// the transition backend directly.
+ModeTransitionRequestResult RequestModeTransition(bool toward_fastboot);
 
 }  // namespace aeraui
