@@ -27,6 +27,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <fstream>
+#ifdef USE_INPUT_FF_HAPTICS
+#include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <mutex>
+#include <thread>
+#endif
 #ifdef USE_QTI_AIDL_HAPTICS_FIX_OFF
 #include <thread>
 #endif
@@ -153,13 +160,212 @@ int write_to_file(const std::string& fn, const std::string& line) {
 
 #ifndef TW_NO_HAPTICS
 #ifndef TW_HAPTICS_TSPDRV
+#ifdef USE_INPUT_FF_HAPTICS
+namespace {
+
+constexpr size_t kBitsPerWord = sizeof(unsigned long) * 8;
+
+bool InputBitSet(const unsigned long* bits, size_t bit) {
+    return (bits[bit / kBitsPerWord] & (1UL << (bit % kBitsPerWord))) != 0;
+}
+
+class InputForceFeedbackHaptics {
+  public:
+    static InputForceFeedbackHaptics& Instance() {
+        // Recovery owns this object for its complete process lifetime. Keeping
+        // it alive avoids teardown races with the detached worker during a
+        // userspace handoff.
+        static auto* instance = new InputForceFeedbackHaptics();
+        return *instance;
+    }
+
+    void Pulse(int duration_ms) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            duration_ms_ = duration_ms;
+            ++request_sequence_;
+        }
+        condition_.notify_one();
+    }
+
+  private:
+    InputForceFeedbackHaptics() {
+        std::thread([this] { WorkerLoop(); }).detach();
+    }
+
+    bool OpenDevice() {
+        if (fd_ >= 0) return true;
+
+        DIR* directory = opendir("/dev/input");
+        if (directory == nullptr) return false;
+
+        int fallback_fd = -1;
+        bool fallback_rumble = false;
+        bool fallback_constant = false;
+        dirent* entry = nullptr;
+        while ((entry = readdir(directory)) != nullptr) {
+            if (strncmp(entry->d_name, "event", 5) != 0) continue;
+
+            const std::string path = std::string("/dev/input/") + entry->d_name;
+            const int candidate = open(path.c_str(), O_RDWR | O_CLOEXEC);
+            if (candidate < 0) continue;
+
+            unsigned long event_bits[(EV_MAX / kBitsPerWord) + 1] = {};
+            unsigned long effect_bits[(FF_MAX / kBitsPerWord) + 1] = {};
+            if (ioctl(candidate, EVIOCGBIT(0, sizeof(event_bits)), event_bits) < 0 ||
+                !InputBitSet(event_bits, EV_FF) ||
+                ioctl(candidate, EVIOCGBIT(EV_FF, sizeof(effect_bits)), effect_bits) < 0) {
+                close(candidate);
+                continue;
+            }
+
+            const bool rumble = InputBitSet(effect_bits, FF_RUMBLE);
+            const bool constant = InputBitSet(effect_bits, FF_CONSTANT);
+            if (!rumble && !constant) {
+                close(candidate);
+                continue;
+            }
+
+            char device_name[128] = {};
+            ioctl(candidate, EVIOCGNAME(sizeof(device_name)), device_name);
+            if (strcmp(device_name, "qcom-hv-haptics") == 0) {
+                if (fallback_fd >= 0) close(fallback_fd);
+                fd_ = candidate;
+                // Some Qualcomm HV haptics revisions expose FF_RUMBLE but
+                // reject its translated periodic waveform at upload time.
+                // Their native FF_CONSTANT path is the reliable direct-play
+                // interface, so prefer it whenever the driver advertises it.
+                supports_rumble_ = rumble && !constant;
+                supports_constant_ = constant;
+                break;
+            }
+
+            if (fallback_fd < 0) {
+                fallback_fd = candidate;
+                fallback_rumble = rumble;
+                fallback_constant = constant;
+            } else {
+                close(candidate);
+            }
+        }
+        closedir(directory);
+
+        if (fd_ < 0 && fallback_fd >= 0) {
+            fd_ = fallback_fd;
+            supports_rumble_ = fallback_rumble;
+            supports_constant_ = fallback_constant;
+        }
+
+        if (fd_ >= 0) {
+            LOGI("AERA input force-feedback haptics ready\n");
+            missing_device_logged_ = false;
+            return true;
+        }
+        if (!missing_device_logged_) {
+            LOGI("AERA input force-feedback haptics device was not found\n");
+            missing_device_logged_ = true;
+        }
+        return false;
+    }
+
+    bool StartEffect(int duration_ms) {
+        if (!OpenDevice()) return false;
+
+        ff_effect effect = {};
+        effect.id = -1;
+        effect.replay.length = static_cast<uint16_t>(duration_ms);
+        if (supports_rumble_) {
+            effect.type = FF_RUMBLE;
+            effect.u.rumble.strong_magnitude = 0x6000;
+            effect.u.rumble.weak_magnitude = 0x3000;
+        } else if (supports_constant_) {
+            effect.type = FF_CONSTANT;
+            effect.u.constant.level = 0x5fff;
+        } else {
+            return false;
+        }
+
+        if (ioctl(fd_, EVIOCSFF, &effect) < 0) {
+            ResetDevice();
+            return false;
+        }
+        effect_id_ = effect.id;
+
+        input_event play = {};
+        play.type = EV_FF;
+        play.code = effect_id_;
+        play.value = 1;
+        if (write(fd_, &play, sizeof(play)) != sizeof(play)) {
+            StopEffect();
+            ResetDevice();
+            return false;
+        }
+        return true;
+    }
+
+    void StopEffect() {
+        if (fd_ < 0 || effect_id_ < 0) return;
+        input_event stop = {};
+        stop.type = EV_FF;
+        stop.code = effect_id_;
+        stop.value = 0;
+        write(fd_, &stop, sizeof(stop));
+        ioctl(fd_, EVIOCRMFF, effect_id_);
+        effect_id_ = -1;
+    }
+
+    void ResetDevice() {
+        if (fd_ >= 0) close(fd_);
+        fd_ = -1;
+        effect_id_ = -1;
+        supports_rumble_ = false;
+        supports_constant_ = false;
+    }
+
+    void WorkerLoop() {
+        uint64_t handled_sequence = 0;
+        for (;;) {
+            std::unique_lock<std::mutex> lock(mutex_);
+            condition_.wait(lock, [&] { return request_sequence_ != handled_sequence; });
+            handled_sequence = request_sequence_;
+            const int duration_ms = duration_ms_;
+            lock.unlock();
+
+            StopEffect();
+            if (!StartEffect(duration_ms)) continue;
+
+            lock.lock();
+            condition_.wait_for(lock, std::chrono::milliseconds(duration_ms),
+                                [&] { return request_sequence_ != handled_sequence; });
+            lock.unlock();
+            StopEffect();
+        }
+    }
+
+    std::mutex mutex_;
+    std::condition_variable condition_;
+    uint64_t request_sequence_ = 0;
+    int duration_ms_ = VIBRATOR_TIME_MS;
+    int fd_ = -1;
+    int effect_id_ = -1;
+    bool supports_rumble_ = false;
+    bool supports_constant_ = false;
+    bool missing_device_logged_ = false;
+};
+
+}  // namespace
+#endif
+
 int vibrate(int timeout_ms)
 {
     if (timeout_ms > 10000) timeout_ms = 1000;
+    if (timeout_ms < 1) return 0;
     char tout[6];
     sprintf(tout, "%i", timeout_ms);
 
-#ifdef USE_QTI_HAPTICS
+#ifdef USE_INPUT_FF_HAPTICS
+    InputForceFeedbackHaptics::Instance().Pulse(timeout_ms);
+#elif defined(USE_QTI_HAPTICS)
     android::sp<android::hardware::vibrator::V1_2::IVibrator> vib = android::hardware::vibrator::V1_2::IVibrator::getService();
     if (vib != nullptr) {
         vib->on((uint32_t)timeout_ms);

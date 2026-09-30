@@ -31,6 +31,10 @@ import (
 func globalFlags(ctx android.BaseContext) []string {
 	var cflags []string
 
+	if getMakeVars(ctx, "TW_SUPPORT_INPUT_FF_HAPTICS") == "true" {
+		cflags = append(cflags, "-DUSE_INPUT_FF_HAPTICS")
+	}
+
 	matches, err := filepath.Glob("external/libdrm/Android.*")
 	_ = matches
 	if err == nil {
