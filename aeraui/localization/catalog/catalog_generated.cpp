@@ -2249,8 +2249,8 @@ extern const char *const kCatalogTranslations[] = {
     "%s / %s ücretsiz",
     "%s / %s безкоштовно",
     "%s / %s miễn phí",
-    "%s / %s 免费",
-    "%s / %s 免費",
+    "%s / %s 空闲空间",
+    "%s / %s 空閒空間",
 #endif
     "%s / %zu user apps / %zu system apps hidden",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -4314,7 +4314,7 @@ extern const char *const kCatalogTranslations[] = {
     "ADB Yan Yükleme",
     "ADB Бічне завантаження",
     "ADB Tải bên ngoài",
-    "ADB 旁载",
+    "ADB 侧载",
     "ADB 側載",
 #endif
     "ADB shell disconnects while sideload is active and returns automatically when it finishes.",
@@ -4349,7 +4349,7 @@ extern const char *const kCatalogTranslations[] = {
     "ADB kabuk, yan yükleme aktifken bağlantıyı keser ve işlem tamamlandığında otomatik olarak geri döner.",
     "ADB оболонка відключається під час активного бічного завантаження і автоматично повертається, коли воно завершиться.",
     "ADB kết nối shell bị ngắt trong khi tải bên ngoài đang hoạt động và tự động trở lại khi hoàn tất.",
-    "ADB 当旁载处于活动状态时，shell 会断开连接，并在完成后自动返回。",
+    "ADB 当侧载处于活动状态时，shell 会断开连接，并在完成后自动返回。",
     "ADB 當側載啟動時，shell 會斷線，並在完成後自動返回。",
 #endif
     "ADB sideload was cancelled. Normal ADB has been restored.",
@@ -4384,7 +4384,7 @@ extern const char *const kCatalogTranslations[] = {
     "ADB yan yükleme iptal edildi. Normal ADB geri yüklendi.",
     "ADB бічне завантаження було скасовано. Звичайний ADB відновлено.",
     "ADB việc tải bên ngoài đã bị hủy. ADB bình thường đã được khôi phục.",
-    "ADB 旁载已取消。已恢复正常 ADB。",
+    "ADB 侧载已取消。已恢复正常 ADB。",
     "ADB 側載已被取消。已恢復正常的 ADB。",
 #endif
     "AERA",
@@ -5119,7 +5119,7 @@ extern const char *const kCatalogTranslations[] = {
     "AERA UI",
     "Інтерфейс Recovery",
     "Giao diện Recovery2",
-    "恢复界面2",
+    "AERA UI",
     "AERA UI",
 #endif
     "AERA controls",
@@ -6379,7 +6379,7 @@ extern const char *const kCatalogTranslations[] = {
     "AERA, normal ADB bağlantısını geçici olarak özel yan yükleme servisi ile değiştirecek.",
     "AERA тимчасово замінить звичайне з'єднання ADB на виділену службу бічного завантаження.",
     "AERA sẽ tạm thời thay thế kết nối ADB bình thường bằng dịch vụ tải bên ngoài chuyên dụng.",
-    "AERA 将暂时用专用旁载服务替换正常的 ADB 连接。",
+    "AERA 将暂时用专用侧载服务替换正常的 ADB 连接。",
     "AERA 將暫時使用專用側載服務取代正常的 ADB 連線。",
 #endif
     "AERA/Recordings is unavailable. Unlock internal storage first.",
@@ -12014,8 +12014,8 @@ extern const char *const kCatalogTranslations[] = {
     "Akseninizi seçin",
     "Виберіть свій акцент",
     "Chọn giọng điệu của bạn",
-    "选择您的口音",
-    "選擇您的口音",
+    "选择强调色",
+    "選擇強調色",
 #endif
     "Cleaning %s and preparing it for use.",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -13484,7 +13484,7 @@ extern const char *const kCatalogTranslations[] = {
     "Kopyalanıyor",
     "Копіювання",
     "Sao chép",
-    "复印",
+    "复制中",
     "複印",
 #endif
     "Copying files",
@@ -19259,7 +19259,7 @@ extern const char *const kCatalogTranslations[] = {
     "recovery tarafından istenen e-postayı girin Telegram",
     "Введіть електронну пошту recovery, яку запросив Telegram",
     "Nhập email recovery được yêu cầu bởi Telegram",
-    "输入 recovery 邮箱，由 Telegram 请求",
+    "输入 Telegram 请求的 recovery 邮箱",
     "輸入 recovery 請求的 Telegram 電子郵件",
 #endif
     "Enter the vault password you created on this device.",
@@ -20064,8 +20064,8 @@ extern const char *const kCatalogTranslations[] = {
     "Flaş",
     "FLASH",
     "FLASH",
-    "闪光",
-    "閃光",
+    "刷入",
+    "刷入",
 #endif
     "Fastbootd",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -20799,8 +20799,8 @@ extern const char *const kCatalogTranslations[] = {
     "Flash Görüntü",
     "Зображення Flash",
     "Hình ảnh Flash",
-    "Flash 图片",
-    "Flash 圖像",
+    "刷写镜像",
+    "刷写镜像",
 #endif
     "Flash failed",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -21709,7 +21709,7 @@ extern const char *const kCatalogTranslations[] = {
     "Oyun trendleri",
     "Ігрові тренди",
     "Trò chơi thịnh hành",
-    "“时下流行”的游戏视频",
+    "热门游戏",
     "遊戲熱門",
 #endif
     "Generated app cache; rebuilt by Android",
@@ -23809,7 +23809,7 @@ extern const char *const kCatalogTranslations[] = {
     "Depolamaya eklenti yükleniyor...",
     "Встановлення плагіна на сховище...",
     "Đang cài đặt plugin trên bộ nhớ...",
-    "正在存储中安装插件...",
+    "正在将插件安装到存储中...",
     "正在存儲中安裝插件...",
 #endif
     "Installing with ksud",
@@ -26889,7 +26889,7 @@ extern const char *const kCatalogTranslations[] = {
     "Yönetici Android için hazır",
     "Менеджер готовий для Android",
     "Trình quản lý sẵn sàng cho Android",
-    "经理准备好了Android",
+    "管理器已准备好，可供 Android 使用",
     "管理員為 Android 準備就緒",
 #endif
     "Manager unavailable",
@@ -26924,7 +26924,7 @@ extern const char *const kCatalogTranslations[] = {
     "Yönetici kullanılamıyor",
     "Менеджер недоступний",
     "Trình quản lý không khả dụng",
-    "经理无法接听",
+    "管理器不可用",
     "管理員不可用",
 #endif
     "March",
@@ -27869,8 +27869,8 @@ extern const char *const kCatalogTranslations[] = {
     "Hareketli",
     "Переїзд",
     "Di chuyển",
-    "搬家",
-    "搬家",
+    "移动",
+    "移动",
 #endif
     "Moving files",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -30179,8 +30179,8 @@ extern const char *const kCatalogTranslations[] = {
     "Desteklenmeyen bir PNG veya JPEG görüntüsü.",
     "Не підтримуване зображення PNG або JPEG.",
     "Không phải là hình ảnh PNG hoặc JPEG được hỗ trợ.",
-    "不是支持的 PNG 或 JPEG 镜像。",
-    "不是受支持的 PNG 或 JPEG 映像。",
+    "不是支持的 PNG 或 JPEG 图像。",
+    "不是支持的 PNG 或 JPEG 图像。",
 #endif
     "Not connected to Wi-Fi",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -32734,8 +32734,8 @@ extern const char *const kCatalogTranslations[] = {
     "Yol\n%s\n\nTip\n%s\n\nBoyut\n%s\n\nDeğiştirildi\n%s\n\nMal sahibi\n%u:%u\n\nİzinler\n%s",
     "шлях\n%s\n\nТип\n%s\n\nРозмір\n%s\n\nЗмінено\n%s\n\nВласник\n%u:%u\n\nДозволи\n%s",
     "Con đường\n%s\n\nKiểu\n%s\n\nKích cỡ\n%s\n\nĐã sửa đổi\n%s\n\nNgười sở hữu\n%u:%u\n\nQuyền\n%s",
-    "小路\n%s\n\n类型\n%s\n\n尺寸\n%s\n\n修改的\n%s\n\n所有者\n%u:%u\n\n权限\n%s",
-    "小路\n%s\n\n類型\n%s\n\n尺寸\n%s\n\n修改的\n%s\n\n擁有者\n%u:%u\n\n權限\n%s",
+    "文件路径\n%s\n\n类型\n%s\n\n尺寸\n%s\n\n修改的\n%s\n\n所有者\n%u:%u\n\n权限\n%s",
+    "文件路径\n%s\n\n類型\n%s\n\n尺寸\n%s\n\n修改的\n%s\n\n擁有者\n%u:%u\n\n權限\n%s",
 #endif
     "Pattern",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -37739,7 +37739,7 @@ extern const char *const kCatalogTranslations[] = {
     " %zu seçili uygulamaları %s'den geri yüklemek istiyor musunuz?",
     "Відновити вибрані програми %zu з %s?",
     "Khôi phục các ứng dụng được chọn %zu từ %s?",
-    "恢复 %zu 来自已选择的应用 %s?",
+    "从 %s 恢复所选的 %zu 个应用?",
     "恢復 %zu 選取的應用程式來自 %s?",
 #endif
     "Restore Android settings?",
@@ -41799,8 +41799,8 @@ extern const char *const kCatalogTranslations[] = {
     "Özel dosya",
     "Спеціальний файл",
     "Tập tin đặc biệt",
-    "特殊档案",
-    "特殊檔案",
+    "特殊文件",
+    "特殊文件",
 #endif
     "Stable",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -41869,7 +41869,7 @@ extern const char *const kCatalogTranslations[] = {
     "Aşamalandırma başarısız oldu",
     "Стадіювання не вдалося",
     "Giai đoạn thất bại",
-    "分阶段失败",
+    "暂存失败",
     "佈署失敗",
 #endif
     "Start",
@@ -42114,7 +42114,7 @@ extern const char *const kCatalogTranslations[] = {
     "Yan yükleme oturumu başlat",
     "Почати сеанс бокового завантаження",
     "Bắt đầu một phiên sideload",
-    "开始加载旁载会话",
+    "开始加载侧载会话",
     "開始側載會話",
 #endif
     "Start recording",
@@ -42219,7 +42219,7 @@ extern const char *const kCatalogTranslations[] = {
     "AERA'de yan yüklemeyi başlat",
     "Почати бокове завантаження в AERA",
     "Bắt đầu sideload trong AERA",
-    "在 AERA 中开始旁载",
+    "在 AERA 中开始侧载",
     "在 AERA 中開始側載",
 #endif
     "Starting AERA Telegram",
@@ -44354,7 +44354,7 @@ extern const char *const kCatalogTranslations[] = {
     "Ana ekran eklenti ızgarası değiştirilemedi.",
     "Не вдалося змінити сітку домашнього плагіна.",
     "Lưới plugin Trang chủ không thể thay đổi.",
-    "家庭插件网格无法更改。",
+    "主页插件网格无法更改。",
     "首頁插件網格無法更改。",
 #endif
     "The MP4 encoder timed out while finalizing.",
@@ -44704,7 +44704,7 @@ extern const char *const kCatalogTranslations[] = {
     "Varsayılan aksan geri yüklenemedi.",
     "Не вдалося відновити типову ознаку виділення.",
     "Giọng điệu mặc định không thể được khôi phục.",
-    "默认音调无法恢复。",
+    "默认强调色无法恢复。",
     "無法恢復預設語調。",
 #endif
     "The device entry in the catalog is invalid",
@@ -44774,7 +44774,7 @@ extern const char *const kCatalogTranslations[] = {
     "İndirilen APK beklenen yönetici paketini içermiyor.",
     "Завантажений APK не містить очікуваного пакета менеджера.",
     "APK đã tải xuống không chứa gói quản lý như mong đợi.",
-    "下载的 APK 不包含预期的管理程序包。",
+    "下载的 APK 不包含预期的管理器包。",
     "下載的 APK 不包含預期的管理套件。",
 #endif
     "The downloaded package does not match its SHA-256",
@@ -45019,8 +45019,8 @@ extern const char *const kCatalogTranslations[] = {
     "Görüntü, geçerli değiştirilmiş tam boyutlu init_boot görüntüsü değildi.",
     "Зображення не було дійсним зміненим повнорозмірним init_boot-зображенням.",
     "Hình ảnh không phải là hình ảnh init_boot đầy đủ kích thước hợp lệ đã thay đổi.",
-    "该镜像不是有效的已更改全尺寸 init_boot 镜像。",
-    "映像檔不是有效的已更改全尺寸 init_boot 映像。",
+    "该镜像不是有效的已修补 init_boot 镜像。",
+    "映像檔不是有效的已修补 init_boot 映像。",
 #endif
     "The installed plugin manifest is invalid.",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -45264,7 +45264,7 @@ extern const char *const kCatalogTranslations[] = {
     "En son sürüm standart bir yönetici APK içermiyor.",
     "Останній реліз не містить стандартного менеджера APK.",
     "Phiên bản phát hành mới nhất không chứa trình quản lý tiêu chuẩn APK.",
-    "最新版本不包含标准管理程序 APK。",
+    "最新版本不包含标准管理器 APK。",
     "最新版本不包含標準管理 APK。",
 #endif
     "The launcher opens http://127.0.0.1:8080/ automatically.",
@@ -45334,7 +45334,7 @@ extern const char *const kCatalogTranslations[] = {
     "Yönetici APK, GitHub'nin SHA-256 özetine uymuyor.",
     "Менеджер APK не відповідає контрольній сумі SHA-256 GitHub.",
     "Trình quản lý APK không khớp với băm SHA-256 của GitHub.",
-    "管理程序 APK 与 GitHub 的 SHA-256 摘要不匹配。",
+    "管理器 APK 与 GitHub 的 SHA-256 摘要不匹配。",
     "管理 APK 與 GitHub 的 SHA-256 摘要不相符。",
 #endif
     "The matching release asset is ambiguous or has no trusted SHA-256.",
@@ -46489,7 +46489,7 @@ extern const char *const kCatalogTranslations[] = {
     "Seçilen aksan kaydedilemedi.",
     "Вибраний акцент не вдалося зберегти.",
     "Giọng điệu đã chọn không thể được lưu.",
-    "所选的语音无法保存。",
+    "所选强调色无法保存。",
     "選取的語音無法儲存。",
 #endif
     "The selected app is missing or does not support Host API 2.",
@@ -46874,7 +46874,7 @@ extern const char *const kCatalogTranslations[] = {
     "Sideload oturumu paketi tamamlamadan sona erdi.",
     "Сеанс sideload завершився, не завершивши пакет.",
     "Phiên sideload đã kết thúc mà không hoàn tất gói.",
-    "旁装会话在完成软件包前结束。",
+    "侧载会话在完成软件包前结束。",
     "側載會話在完成套件前已結束。",
 #endif
     "The signed catalog contains an invalid entry.",
@@ -49919,7 +49919,7 @@ extern const char *const kCatalogTranslations[] = {
     "USB sideload hazır",
     "USB sideload готовий",
     "USB sideload đã sẵn sàng",
-    "USB 旁装已就绪",
+    "USB 侧载已就绪",
     "USB 側載已準備好",
 #endif
     "USB transfer unavailable",
@@ -53524,7 +53524,7 @@ extern const char *const kCatalogTranslations[] = {
     "Hacim  %d%%",
     "Том  %d%%",
     "Dung lượng  %d%%",
-    "卷  %d%%",
+    "音量 %d%%",
     "磁碟  %d%%",
 #endif
     "WHAT'S HAPPENING",
@@ -53839,7 +53839,7 @@ extern const char *const kCatalogTranslations[] = {
     "Sideload servisinin güvenli bir şekilde durması bekleniyor...",
     "Очікування, поки сервіс sideload безпечно зупиниться...",
     "Đang chờ dịch vụ sideload dừng an toàn...",
-    "等待旁装服务安全停止...",
+    "等待侧载服务安全停止...",
     "等待側載服務安全停止...",
 #endif
     "Waiting for your approval",
@@ -54609,8 +54609,8 @@ extern const char *const kCatalogTranslations[] = {
     "Kablosuz radyo devre dışı",
     "Бездротовий радіомодуль вимкнено",
     "Radio không dây bị tắt",
-    "无线电被禁用",
-    "無線電已禁用",
+    "WLAN已禁用",
+    "WLAN已禁用",
 #endif
     "Wireless support is not available on this device.",
 #ifdef AERA_EXTRA_LANGUAGES
@@ -54819,8 +54819,8 @@ extern const char *const kCatalogTranslations[] = {
     " %syazılıyor. USB kablosunu bağlı tutun.",
     "Запис %s. Тримайте кабель USB підключеним.",
     "Đang ghi %s. Giữ kết nối cáp USB.",
-    "正在写入 %s。保持 USB 电缆连接。",
-    "正在寫入 %s。請保持 USB 線纜連接。",
+    "正在写入 %s。保持 USB 连接。",
+    "正在寫入 %s。請保持 USB 連接。",
 #endif
     "Writing AERA recovery",
 #ifdef AERA_EXTRA_LANGUAGES
