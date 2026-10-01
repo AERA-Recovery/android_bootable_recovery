@@ -1162,10 +1162,11 @@ int RecoveryHomeGridColumns() {
   LoadAeraPreferencesIfAvailable();
   const std::string stored = DataManager::GetStrValue("aera_home_grid_columns");
   if (stored.empty()) return 3;
-  return atoi(stored.c_str()) == 2 ? 2 : 3;
+  const int columns = atoi(stored.c_str());
+  return columns >= 2 && columns <= 5 ? columns : 3;
 }
 bool RecoverySetHomeGridColumns(int columns) {
-  if (columns != 2 && columns != 3) return false;
+  if (columns < 2 || columns > 5) return false;
   return DataManager::SetValue("aera_home_grid_columns", columns, 1) == 0;
 }
 DockLayout RecoveryDockLayout() {
@@ -1429,7 +1430,11 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   if (!ValidLanguage(preferences.language)) preferences.language = AERA_DEFAULT_LANGUAGE;
   preferences.keyboard_layout =
       DataManager::GetStrValue("aera_keyboard_layout") == "qwertz" ? "qwertz" : "qwerty";
-  preferences.home_grid_columns = DataManager::GetIntValue("aera_home_grid_columns") == 2 ? 2 : 3;
+  const int home_grid_columns =
+      DataManager::GetIntValue("aera_home_grid_columns");
+  preferences.home_grid_columns =
+      home_grid_columns >= 2 && home_grid_columns <= 5
+          ? home_grid_columns : 3;
   preferences.dock_layout = std::clamp(DataManager::GetIntValue("aera_dock_layout"), 0, 3);
   const std::string dock_transparency = DataManager::GetStrValue("aera_dock_transparency");
   preferences.dock_transparency =
@@ -1482,7 +1487,7 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
     if (value != "qwerty" && value != "qwertz") return false;
     preferences->keyboard_layout = value;
   } else if (key == "home_grid_columns") {
-    if (!ParseInteger(value, 2, 3, &parsed) || (parsed != 2 && parsed != 3)) return false;
+    if (!ParseInteger(value, 2, 5, &parsed)) return false;
     preferences->home_grid_columns = parsed;
   } else if (key == "dock_layout") {
     if (!ParseInteger(value, 0, 3, &parsed)) return false;

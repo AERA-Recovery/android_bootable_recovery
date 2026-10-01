@@ -1320,9 +1320,11 @@ void BuildTheme(Tools *state) {
                              &lv_font_montserrat_32, kAccent);
   lv_obj_set_pos(grid_section, 32, 1310);
   struct GridPreset { const char *name; const char *detail; int columns; };
-  const std::array<GridPreset, 2> grids{{
+  const std::array<GridPreset, 4> grids{{
       {"2 x 3", "Wide cards - 6 apps per page", 2},
       {"3 x 3", "Compact cards - 9 apps per page", 3},
+      {"4 x 4", "Icons and names - 16 apps per page", 4},
+      {"5 x 5", "Small icons - 25 apps per page", 5},
   }};
   const int selected_columns = RecoveryHomeGridColumns();
   for (size_t i = 0; i < grids.size(); ++i) {
@@ -1331,14 +1333,16 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 1380);
-    lv_obj_set_size(card, 624, 170);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320, 1380);
+    lv_obj_set_size(card, 304, 170);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
     auto *name = Label(card, grid.name, &lv_font_montserrat_32, kText);
     lv_obj_set_pos(name, 32, 28);
-    auto *detail = Label(card, grid.detail, &lv_font_montserrat_24, kMuted);
+    auto *detail = Label(card, grid.detail, &lv_font_montserrat_18, kMuted);
     lv_obj_set_pos(detail, 32, 94);
+    FitLabelToLines(detail, 240, 2,
+                    {&lv_font_montserrat_18, &lv_font_montserrat_16});
     if (selected) {
       auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
       lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -32, 38);

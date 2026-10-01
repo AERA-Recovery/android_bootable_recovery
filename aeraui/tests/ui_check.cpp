@@ -64,7 +64,9 @@ bool RecoverySetKeyboardLayout(KeyboardLayout layout) {
          layout == KeyboardLayout::kQwertz;
 }
 int RecoveryHomeGridColumns() { return 3; }
-bool RecoverySetHomeGridColumns(int columns) { return columns == 2 || columns == 3; }
+bool RecoverySetHomeGridColumns(int columns) {
+  return columns >= 2 && columns <= 5;
+}
 DockLayout RecoveryDockLayout() { return DockLayout::kGlass; }
 bool RecoverySetDockLayout(DockLayout) { return true; }
 int RecoveryDockTransparency() { return 60; }

@@ -221,6 +221,67 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   return card;
 }
 
+lv_obj_t *PluginIconTile(lv_obj_t *parent, int x, int y, int width,
+                         int height, const char *icon,
+                         const plugins::Plugin &plugin, lv_color_t accent,
+                         Handler action, bool dense,
+                         bool retroarch_icon = false) {
+  auto *card = lv_button_create(parent);
+  Clear(card);
+  lv_obj_set_pos(card, x, y);
+  lv_obj_set_size(card, width, height);
+  lv_obj_set_style_radius(card, 36, 0);
+  lv_obj_set_style_bg_color(card, kMainSelected, LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(card, LV_OPA_30, LV_STATE_PRESSED);
+  lv_obj_set_style_transform_scale(card, 248, LV_STATE_PRESSED);
+  OnClick(card, std::move(action));
+
+  auto *plate = lv_obj_create(card);
+  Panel(plate, 38, IconBackground());
+  lv_obj_set_size(plate, width, width);
+  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_set_style_border_width(plate, 1, 0);
+  lv_obj_set_style_border_color(plate, kMainLine, 0);
+  lv_obj_set_style_border_opa(plate, LV_OPA_40, 0);
+  auto *art = AppIconPlate(plate, icon, accent, 122, retroarch_icon, false,
+                           plugin.entry == "browser");
+  lv_obj_center(art);
+  MakeDecorationPassThrough(plate);
+
+  auto *title = Label(card, plugin.name.c_str(),
+                      &lv_font_montserrat_24,
+                      kText);
+  FitLabelToLines(title, width, dense ? 1 : 2,
+                  dense
+                      ? std::initializer_list<const lv_font_t *>{
+                            &lv_font_montserrat_24, &lv_font_montserrat_20,
+                            &lv_font_montserrat_18, &lv_font_montserrat_16}
+                      : std::initializer_list<const lv_font_t *>{
+                            &lv_font_montserrat_24, &lv_font_montserrat_20,
+                            &lv_font_montserrat_18, &lv_font_montserrat_16});
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, dense ? 198 : 190);
+  MakeDecorationPassThrough(title);
+  return card;
+}
+
+void MarkIconUpdateAvailable(lv_obj_t *card) {
+  if (card == nullptr) return;
+  const int width = lv_obj_get_width(card);
+  const int badge_size = width < 160 ? 24 : 30;
+  auto *badge = lv_obj_create(card);
+  Clear(badge);
+  lv_obj_set_pos(badge, width - badge_size, 4);
+  lv_obj_set_size(badge, badge_size, badge_size);
+  lv_obj_set_style_radius(badge, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(badge, kAccent, 0);
+  lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(badge, 4, 0);
+  lv_obj_set_style_border_color(badge, kMainCanvas, 0);
+  lv_obj_set_style_border_opa(badge, LV_OPA_COVER, 0);
+  MakeDecorationPassThrough(badge);
+}
+
 struct PluginPagerState {
   lv_obj_t *view = nullptr;
   lv_obj_t *dots = nullptr;
@@ -413,16 +474,22 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   lv_obj_set_style_text_letter_space(extensions, 3, 0);
   lv_obj_set_pos(extensions, 80, 1320);
   constexpr int kGridWidth = 1312;
-  constexpr int kGridHeight = 1050;
-  constexpr int kTileHeight = 318;
-  constexpr int kGapY = 30;
   const int grid_columns = RecoveryHomeGridColumns();
-  const int slots_per_page = grid_columns * 3;
-  const int tile_width = grid_columns == 2 ? 636 : 416;
+  const bool icon_grid = grid_columns >= 4;
+  const int grid_rows = icon_grid ? grid_columns : 3;
+  const int grid_height = grid_columns == 5 ? 1320 : 1050;
+  const int slots_per_page = grid_columns * grid_rows;
+  const int tile_width = grid_columns == 2 ? 636
+                         : grid_columns == 3 ? 416
+                                             : 170;
+  const int tile_height = grid_columns == 4 ? 250
+                          : grid_columns == 5 ? 240
+                                              : 318;
   const int gap_x = grid_columns == 2 ? 40 : 32;
+  const int gap_y = icon_grid ? 16 : 30;
   auto *pager = lv_obj_create(screen);
   lv_obj_set_pos(pager, 64, 1378);
-  lv_obj_set_size(pager, kGridWidth, kGridHeight);
+  lv_obj_set_size(pager, kGridWidth, grid_height);
   lv_obj_set_style_bg_opa(pager, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(pager, 0, 0);
   lv_obj_set_style_pad_all(pager, 0, 0);
@@ -489,21 +556,34 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       page = lv_obj_create(pager);
       Clear(page);
       lv_obj_set_pos(page, page_index * kGridWidth, 0);
-      lv_obj_set_size(page, kGridWidth, kGridHeight);
+      lv_obj_set_size(page, kGridWidth, grid_height);
       lv_obj_add_flag(page, LV_OBJ_FLAG_SNAPPABLE);
     }
     const int column = slot % grid_columns;
     const int row = slot / grid_columns;
-    auto *card = PluginTile(page, column * (tile_width + gap_x),
-                            row * (kTileHeight + kGapY),
-                            tile_width, kTileHeight, icon, plugin, accent,
-                            [=] {
-                              if (action == Action::kPluginApp)
-                                SetSelectedPluginId(plugin.id);
-                              callback(action, context);
-                            }, plugin.entry == "retroarch");
-    if (has_update(plugin.id))
-      MarkUpdateAvailable(card, tile_width < 600);
+    const int tile_x = icon_grid
+        ? column * (kGridWidth - tile_width) / (grid_columns - 1)
+        : column * (tile_width + gap_x);
+    const int tile_y = icon_grid
+        ? row * (grid_height - tile_height) / (grid_rows - 1)
+        : row * (tile_height + gap_y);
+    auto launch = [=] {
+      if (action == Action::kPluginApp) SetSelectedPluginId(plugin.id);
+      callback(action, context);
+    };
+    auto *card = icon_grid
+        ? PluginIconTile(page, tile_x, tile_y, tile_width, tile_height,
+                         icon, plugin, accent, launch, grid_columns == 5,
+                         plugin.entry == "retroarch")
+        : PluginTile(page, tile_x, tile_y, tile_width, tile_height,
+                     icon, plugin, accent, launch,
+                     plugin.entry == "retroarch");
+    if (has_update(plugin.id)) {
+      if (icon_grid)
+        MarkIconUpdateAvailable(card);
+      else
+        MarkUpdateAvailable(card, tile_width < 600);
+    }
     AnimateEnter(card, 90 + slot * 18, 10);
     ++visible_index;
   }
@@ -530,7 +610,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   } else if (page_count > 1) {
     auto *dots = lv_obj_create(screen);
     Clear(dots);
-    lv_obj_set_pos(dots, 570, 2450);
+    lv_obj_set_pos(dots, 570, 1378 + grid_height + 22);
     lv_obj_set_size(dots, 300, 42);
     lv_obj_set_flex_flow(dots, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(dots, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
