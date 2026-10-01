@@ -1123,6 +1123,14 @@ bool RecoveryLightMode() {
 bool RecoverySetLightMode(bool enabled) {
   return DataManager::SetValue("aera_theme_mode", enabled ? "light" : "graphite", 1) == 0;
 }
+bool RecoveryTintedIconBackgrounds() {
+  LoadAeraPreferencesIfAvailable();
+  return DataManager::GetIntValue("aera_tinted_icon_backgrounds") != 0;
+}
+bool RecoverySetTintedIconBackgrounds(bool enabled) {
+  return DataManager::SetValue("aera_tinted_icon_backgrounds",
+                               enabled ? 1 : 0, 1) == 0;
+}
 InterfaceSize RecoveryInterfaceSize() {
   LoadAeraPreferencesIfAvailable();
   const int value = std::clamp(
@@ -1316,6 +1324,7 @@ struct EarlyUiPreferences {
   int brightness;
   std::string accent;
   std::string theme;
+  int tinted_icon_backgrounds;
   int interface_size;
   std::string language;
   std::string keyboard_layout;
@@ -1377,6 +1386,7 @@ EarlyUiPreferences DefaultEarlyUiPreferences() {
 #endif
   preferences.accent = "16c8ff";
   preferences.theme = "graphite";
+  preferences.tinted_icon_backgrounds = 0;
   preferences.interface_size = 1;
   preferences.language = AERA_DEFAULT_LANGUAGE;
   preferences.keyboard_layout = "qwerty";
@@ -1410,6 +1420,8 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.theme = DataManager::GetStrValue("aera_theme_mode");
   if (preferences.theme != "light" && preferences.theme != "graphite")
     preferences.theme = "graphite";
+  preferences.tinted_icon_backgrounds =
+      DataManager::GetIntValue("aera_tinted_icon_backgrounds") != 0 ? 1 : 0;
   const std::string interface_size = DataManager::GetStrValue("aera_interface_size");
   preferences.interface_size =
       interface_size.empty() ? 1 : std::clamp(atoi(interface_size.c_str()), 0, 2);
@@ -1457,6 +1469,9 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "theme") {
     if (value != "light" && value != "graphite") return false;
     preferences->theme = value;
+  } else if (key == "tinted_icon_backgrounds") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->tinted_icon_backgrounds = parsed;
   } else if (key == "interface_size") {
     if (!ParseInteger(value, 0, 2, &parsed)) return false;
     preferences->interface_size = parsed;
@@ -1506,6 +1521,8 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue("tw_brightness_pct", preferences.brightness);
   DataManager::SetValue("aera_theme_accent", preferences.accent);
   DataManager::SetValue("aera_theme_mode", preferences.theme);
+  DataManager::SetValue("aera_tinted_icon_backgrounds",
+                        preferences.tinted_icon_backgrounds);
   DataManager::SetValue("aera_interface_size", preferences.interface_size);
   DataManager::SetValue("tw_language", preferences.language);
   DataManager::SetValue("aera_keyboard_layout", preferences.keyboard_layout);
@@ -1570,6 +1587,8 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "brightness=" << preferences.brightness << '\n'
          << "accent=" << preferences.accent << '\n'
          << "theme=" << preferences.theme << '\n'
+         << "tinted_icon_backgrounds="
+         << preferences.tinted_icon_backgrounds << '\n'
          << "interface_size=" << preferences.interface_size << '\n'
          << "language=" << preferences.language << '\n'
          << "keyboard_layout=" << preferences.keyboard_layout << '\n'
@@ -1714,6 +1733,8 @@ bool SaveAeraPreferences() {
          << "brightness=" << DataManager::GetIntValue("tw_brightness_pct") << '\n'
          << "accent=" << DataManager::GetStrValue("aera_theme_accent") << '\n'
          << "theme=" << DataManager::GetStrValue("aera_theme_mode") << '\n'
+         << "tinted_icon_backgrounds="
+         << (RecoveryTintedIconBackgrounds() ? 1 : 0) << '\n'
          << "interface_size=" << static_cast<int>(RecoveryInterfaceSize()) << '\n'
          << "keyboard_layout="
          << (RecoveryKeyboardLayout() == KeyboardLayout::kQwertz

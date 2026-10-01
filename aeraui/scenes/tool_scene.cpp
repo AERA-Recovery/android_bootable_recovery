@@ -1225,9 +1225,57 @@ void BuildTheme(Tools *state) {
     });
   }
 
+  auto *icon_background_section =
+      Label(state->list, "Icon backgrounds", &lv_font_montserrat_32, kAccent);
+  lv_obj_set_pos(icon_background_section, 32, 690);
+  struct IconBackgroundPreset {
+    const char *name;
+    const char *detail;
+    bool tinted;
+  };
+  const std::array<IconBackgroundPreset, 2> icon_backgrounds{{
+      {"Neutral", "Clean surface behind each icon", false},
+      {"Accent tint", "Background follows the selected accent", true},
+  }};
+  for (size_t i = 0; i < icon_backgrounds.size(); ++i) {
+    const auto preset = icon_backgrounds[i];
+    const bool selected = RecoveryTintedIconBackgrounds() == preset.tinted;
+    auto *card = lv_button_create(state->list);
+    Panel(card, 32, kMainPanel);
+    Interactive(card, kMainSelected);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 760);
+    lv_obj_set_size(card, 624, 170);
+    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
+    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
+    auto *plate = lv_obj_create(card);
+    Panel(plate, 22, preset.tinted ? kAccentSoft : kMainSheet);
+    lv_obj_set_pos(plate, 28, 31);
+    lv_obj_set_size(plate, 108, 108);
+    auto *icon = Label(plate, LV_SYMBOL_SETTINGS, &lv_font_montserrat_48,
+                       kAccent);
+    lv_obj_center(icon);
+    auto *name = Label(card, preset.name, &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(name, 164, 28);
+    auto *detail = Label(card, preset.detail, &lv_font_montserrat_20, kMuted);
+    lv_obj_set_pos(detail, 164, 94);
+    lv_obj_set_width(detail, 420);
+    if (selected) {
+      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_24, kAccent);
+      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -24, 28);
+    }
+    OnClick(card, [state, preset] {
+      if (!RecoverySetTintedIconBackgrounds(preset.tinted)) {
+        Sheet(state->screen, "Theme unavailable",
+              "The icon background style could not be stored.");
+        return;
+      }
+      Open(state, Action::kTheme);
+    });
+  }
+
   auto *size_section = Label(state->list, "Interface size",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(size_section, 32, 690);
+  lv_obj_set_pos(size_section, 32, 1000);
   struct SizePreset {
     const char *name;
     const char *detail;
@@ -1245,7 +1293,7 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 426, 760);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 426, 1070);
     lv_obj_set_size(card, 410, 170);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
@@ -1270,7 +1318,7 @@ void BuildTheme(Tools *state) {
 
   auto *grid_section = Label(state->list, "Home plugin grid",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(grid_section, 32, 1000);
+  lv_obj_set_pos(grid_section, 32, 1310);
   struct GridPreset { const char *name; const char *detail; int columns; };
   const std::array<GridPreset, 2> grids{{
       {"2 x 3", "Wide cards - 6 apps per page", 2},
@@ -1283,7 +1331,7 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 1070);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 1380);
     lv_obj_set_size(card, 624, 170);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
@@ -1307,7 +1355,7 @@ void BuildTheme(Tools *state) {
 
   auto *keyboard_section = Label(state->list, "Keyboard layout",
                                  &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(keyboard_section, 32, 1310);
+  lv_obj_set_pos(keyboard_section, 32, 1620);
   struct KeyboardPreset {
     const char *name;
     const char *detail;
@@ -1324,7 +1372,7 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 1380);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 1690);
     lv_obj_set_size(card, 624, 170);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
@@ -1348,7 +1396,7 @@ void BuildTheme(Tools *state) {
 
   auto *section = Label(state->list, "Accent palettes",
                         &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(section, 32, 1610);
+  lv_obj_set_pos(section, 32, 1920);
   const uint32_t selected_rgb = RecoveryAccentColor();
   for (size_t i = 0; i < kAccentPresets.size(); ++i) {
     const auto preset = kAccentPresets[i];
@@ -1356,7 +1404,7 @@ void BuildTheme(Tools *state) {
     const int32_t row = static_cast<int32_t>(i / 4);
     auto *card = lv_button_create(state->list);
     Clear(card);
-    lv_obj_set_pos(card, 16 + column * 320, 1680 + row * 220);
+    lv_obj_set_pos(card, 16 + column * 320, 1990 + row * 220);
     lv_obj_set_size(card, 304, 190);
     lv_obj_set_style_radius(card, 32, 0);
     lv_obj_set_style_bg_color(card, kMainPanel, 0);
@@ -1395,7 +1443,7 @@ void BuildTheme(Tools *state) {
   const bool custom_selected = !IsPresetAccent(selected_rgb);
   auto *custom = lv_button_create(state->list);
   Clear(custom);
-  lv_obj_set_pos(custom, 16 + 3 * 320, 1680 + 220);
+  lv_obj_set_pos(custom, 16 + 3 * 320, 1990 + 220);
   lv_obj_set_size(custom, 304, 190);
   lv_obj_set_style_radius(custom, 32, 0);
   lv_obj_set_style_bg_color(custom, kMainPanel, 0);
@@ -1428,7 +1476,7 @@ void BuildTheme(Tools *state) {
       "AERA Cyan is the default. Choose User select for any colour. Changes\n"
       "apply immediately and are saved with your recovery preferences.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(note, 32, 2160);
+  lv_obj_set_pos(note, 32, 2470);
   lv_obj_set_width(note, 1220);
 
   auto *reset = Button(state->list, "Reset to AERA Cyan", [state] {
@@ -1440,12 +1488,12 @@ void BuildTheme(Tools *state) {
     ApplyAccent(kDefaultAccentRgb);
     Open(state, Action::kTheme);
   });
-  lv_obj_set_pos(reset, 16, 2290);
+  lv_obj_set_pos(reset, 16, 2600);
   lv_obj_set_size(reset, 1280, 124);
 
   auto *dock_section = Label(state->list, "Navigation dock",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(dock_section, 32, 2500);
+  lv_obj_set_pos(dock_section, 32, 2810);
   const std::array<std::pair<const char *, DockLayout>, 4> dock_modes{{
       {"Glass", DockLayout::kGlass}, {"Compact", DockLayout::kCompact},
       {"Minimal", DockLayout::kMinimal}, {"Icons only", DockLayout::kIcons}}};
@@ -1456,7 +1504,7 @@ void BuildTheme(Tools *state) {
       RecoverySetDockLayout(mode.second);
       Open(state, Action::kTheme);
     }, selected);
-    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 320, 2570);
+    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 320, 2880);
     lv_obj_set_size(card, 304, 128);
     lv_obj_set_style_radius(card, 34, 0);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
@@ -1502,10 +1550,10 @@ void BuildTheme(Tools *state) {
       }
     }, LV_EVENT_ALL, binding);
   };
-  dock_slider(2730, "Transparency",
+  dock_slider(3040, "Transparency",
               "0% is solid; 100% leaves only the controls visible",
               RecoveryDockTransparency(), false);
-  dock_slider(2970, "Backdrop blur",
+  dock_slider(3280, "Backdrop blur",
               "GPU-friendly live blur behind the dock surface",
               RecoveryDockBlur(), true);
 
@@ -1837,7 +1885,7 @@ void BuildMenu(Tools *state) {
     OnClick(card, [state, item] { Open(state, item.action); });
 
     auto *plate = lv_obj_create(card);
-    Panel(plate, 22, reboot ? kRedSoft : kAccentSoft);
+    Panel(plate, 22, IconBackground());
     lv_obj_set_pos(plate, 28, pinned ? (landscape ? 47 : about ? 55 : 68) : 28);
     lv_obj_set_size(plate, pinned ? 96 : 108, pinned ? 96 : 108);
     auto *icon = Label(plate, item.icon, &lv_font_montserrat_48,

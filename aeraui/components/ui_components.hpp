@@ -19,6 +19,10 @@ inline char kModalMarker;
 inline char kPersistentModalMarker;
 inline int kPreviousNavigationIndex = -1;
 
+inline lv_color_t IconBackground() {
+  return RecoveryTintedIconBackgrounds() ? kAccentSoft : kMainPanel;
+}
+
 inline bool Landscape(lv_obj_t *object) {
   lv_obj_t *screen = object == nullptr ? nullptr : lv_obj_get_screen(object);
   return screen != nullptr && lv_obj_get_width(screen) > lv_obj_get_height(screen);

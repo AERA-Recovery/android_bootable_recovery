@@ -426,11 +426,13 @@ NasScene BuildNasScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_style_border_opa(panel, LV_OPA_30, 0);
 
   auto *status_plate = lv_obj_create(panel);
-  Panel(status_plate, 34, kAccentSoft);
+  Panel(status_plate, 34, IconBackground());
   lv_obj_set_pos(status_plate, 40, 38);
   lv_obj_set_size(status_plate, 124, 124);
   lv_obj_set_style_border_width(status_plate, 1, 0);
-  lv_obj_set_style_border_color(status_plate, kAccent, 0);
+  lv_obj_set_style_border_color(
+      status_plate,
+      RecoveryTintedIconBackgrounds() ? kAccent : kMainLine, 0);
   lv_obj_set_style_border_opa(status_plate, LV_OPA_40, 0);
   state->status_icon = Label(status_plate, LV_SYMBOL_DRIVE,
                              &lv_font_montserrat_48, kAccent);

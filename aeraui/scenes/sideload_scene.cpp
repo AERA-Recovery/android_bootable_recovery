@@ -14,7 +14,7 @@ using namespace widgets;
 void Step(lv_obj_t *parent, int y, const char *number, const char *title,
           const char *detail) {
   auto *badge = lv_obj_create(parent);
-  Panel(badge, LV_RADIUS_CIRCLE, kAccentSoft);
+  Panel(badge, LV_RADIUS_CIRCLE, IconBackground());
   lv_obj_set_pos(badge, 36, y);
   lv_obj_set_size(badge, 72, 72);
   auto *digit = Label(badge, number, &lv_font_montserrat_32, kAccent);
@@ -47,7 +47,7 @@ void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_style_border_opa(summary, LV_OPA_30, 0);
 
   auto *plate = lv_obj_create(summary);
-  Panel(plate, 28, kAccentSoft);
+  Panel(plate, 28, IconBackground());
   lv_obj_set_pos(plate, 46, 44);
   lv_obj_set_size(plate, 122, 122);
   auto *usb = Label(plate, LV_SYMBOL_USB, &lv_font_montserrat_48, kAccent);

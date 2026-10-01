@@ -149,6 +149,8 @@ uint32_t RecoveryAccentColor();
 bool RecoverySetAccentColor(uint32_t rgb);
 bool RecoveryLightMode();
 bool RecoverySetLightMode(bool enabled);
+bool RecoveryTintedIconBackgrounds();
+bool RecoverySetTintedIconBackgrounds(bool enabled);
 enum class InterfaceSize { kSmall = 0, kNormal = 1, kLarge = 2 };
 InterfaceSize RecoveryInterfaceSize();
 bool RecoverySetInterfaceSize(InterfaceSize size);

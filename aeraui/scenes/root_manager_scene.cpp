@@ -409,7 +409,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_style_border_color(hero, kAccent, 0);
   lv_obj_set_style_border_opa(hero, LV_OPA_40, 0);
   auto *plate = lv_obj_create(hero);
-  Panel(plate, 26, kAccentSoft);
+  Panel(plate, 26, IconBackground());
   lv_obj_set_pos(plate, 32, 34);
   lv_obj_set_size(plate, 104, 104);
   auto *shield = Label(plate, LV_SYMBOL_SETTINGS, &lv_font_montserrat_48, kAccent);
@@ -496,7 +496,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_pos(manager_card, 0, 1040);
   lv_obj_set_size(manager_card, 1312, 258);
   auto *manager_plate = lv_obj_create(manager_card);
-  Panel(manager_plate, 22, kAccentSoft);
+  Panel(manager_plate, 22, IconBackground());
   lv_obj_set_pos(manager_plate, 28, 30);
   lv_obj_set_size(manager_plate, 82, 82);
   auto *manager_icon = Label(manager_plate, LV_SYMBOL_DOWNLOAD,

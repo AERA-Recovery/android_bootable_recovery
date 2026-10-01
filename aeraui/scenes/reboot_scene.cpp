@@ -28,7 +28,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
   lv_obj_set_style_border_opa(slot_card, LV_OPA_30, 0);
 
   auto *slot_icon = lv_obj_create(slot_card);
-  Panel(slot_icon, 25, kAccentSoft);
+  Panel(slot_icon, 25, IconBackground());
   lv_obj_set_pos(slot_icon, 32, 34);
   lv_obj_set_size(slot_icon, 94, 94);
   auto *slot_symbol = Label(slot_icon, LV_SYMBOL_SHUFFLE,
@@ -146,7 +146,10 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
 
     const bool power_off = d.action == Action::kPowerOff;
     auto *plate = lv_obj_create(card);
-    Panel(plate, 24, power_off ? kRedSoft : kAccentSoft);
+    Panel(plate, 24,
+          RecoveryTintedIconBackgrounds()
+              ? (power_off ? kRedSoft : kAccentSoft)
+              : kMainPanel);
     lv_obj_set_pos(plate, 30, 30);
     lv_obj_set_size(plate, 92, 92);
     auto *icon = Label(plate, d.icon, &lv_font_montserrat_32,

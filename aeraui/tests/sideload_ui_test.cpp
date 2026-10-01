@@ -38,6 +38,7 @@ void AttachStatusBar(lv_obj_t *, void (*)(Action, void *), void *,
                      StatusBarAction, bool) {}
 int32_t StatusBarHeight() { return 165; }
 DockLayout RecoveryDockLayout() { return DockLayout::kGlass; }
+bool RecoveryTintedIconBackgrounds() { return false; }
 int RecoveryDockTransparency() { return 60; }
 int RecoveryDockBlur() { return 24; }
 bool RecoveryDockHideInApps() { return false; }
