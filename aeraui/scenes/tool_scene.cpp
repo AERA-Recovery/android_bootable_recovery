@@ -1617,7 +1617,9 @@ void BuildPreferences(Tools *state) {
     const std::string text = std::to_string(percent) + "%";
     lv_label_set_text(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),
                       text.c_str());
-    if (code == LV_EVENT_RELEASED) RecoverySetBrightness(percent);
+    if (code == LV_EVENT_RELEASED ||
+        std::abs(percent - RecoveryBrightness()) >= 2)
+      RecoverySetBrightness(percent);
   }, LV_EVENT_ALL, value);
 
   PreferenceToggle(state, 340, "24-hour clock", "Off uses 12-hour time with AM / PM", Preference::kClock24);
