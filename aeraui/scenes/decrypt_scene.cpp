@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <string>
 
@@ -38,6 +39,7 @@ struct DecryptState {
   lv_obj_t *pattern_area = nullptr;
   lv_obj_t *pattern_line = nullptr;
   std::array<lv_obj_t *, kMaxPatternDots> nodes{};
+  std::array<lv_obj_t *, 4> grid_buttons{};
   std::array<bool, kMaxPatternDots> selected{};
   std::array<int, kMaxPatternDots> sequence{};
   std::array<lv_point_precise_t, kMaxPatternDots> points{};
@@ -210,6 +212,95 @@ lv_obj_t *MakeButton(lv_obj_t *parent, const char *text, lv_color_t fill,
   return button;
 }
 
+void RefreshGridButtons(DecryptState *state) {
+  for (int index = 0; index < 4; ++index) {
+    auto *button = state->grid_buttons[index];
+    if (button == nullptr) continue;
+    const bool active = state->grid_size == index + 3;
+    lv_obj_set_style_bg_color(button, active ? kAccentSoft : kMainPanel, 0);
+    lv_obj_set_style_border_width(button, active ? 2 : 0, 0);
+    lv_obj_set_style_border_color(button, active ? kAccent : kLineBright, 0);
+    auto *label = lv_obj_get_child(button, 0);
+    if (label != nullptr)
+      lv_obj_set_style_text_color(label, active ? kAccent : kMutedStrong, 0);
+  }
+}
+
+void LayoutPatternNodes(DecryptState *state) {
+  const int count = state->grid_size;
+  const int visible = count * count;
+  const int margin = count <= 3 ? 128 : 72;
+  const int span = 1012 - margin * 2 - 68;
+  for (int index = 0; index < kMaxPatternDots; ++index) {
+    auto *node = state->nodes[index];
+    if (node == nullptr) continue;
+    if (index >= visible) {
+      lv_obj_add_flag(node, LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_remove_flag(node, LV_OBJ_FLAG_HIDDEN);
+    const int row = index / count;
+    const int column = index % count;
+    lv_obj_set_pos(node, margin + column * span / (count - 1),
+                   margin + row * span / (count - 1));
+  }
+}
+
+void SetPatternGridSize(DecryptState *state, int size) {
+  if (state == nullptr || state->busy || size < 3 || size > 6 ||
+      state->grid_size == size)
+    return;
+  state->tracking = false;
+  state->selected.fill(false);
+  state->sequence_length = 0;
+  state->grid_size = size;
+  LayoutPatternNodes(state);
+  RefreshGridButtons(state);
+  RefreshPattern(state);
+}
+
+void GridSizeClicked(lv_event_t *event) {
+  auto *state = static_cast<DecryptState *>(lv_event_get_user_data(event));
+  const int size = static_cast<int>(reinterpret_cast<uintptr_t>(
+      lv_obj_get_user_data(lv_event_get_target_obj(event))));
+  SetPatternGridSize(state, size);
+}
+
+void MakePatternGridSelector(DecryptState *state, lv_obj_t *panel) {
+  auto *selector = lv_obj_create(panel);
+  NoScroll(selector);
+  lv_obj_set_pos(selector, 86, 394);
+  lv_obj_set_size(selector, 1012, 88);
+  lv_obj_set_style_radius(selector, 28, 0);
+  lv_obj_set_style_bg_color(selector, kInset, 0);
+  lv_obj_set_style_bg_opa(selector, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(selector, 1, 0);
+  lv_obj_set_style_border_color(selector, kLine, 0);
+  lv_obj_set_style_pad_all(selector, 4, 0);
+
+  constexpr int gap = 8;
+  constexpr int width = (1012 - 8 - gap * 3) / 4;
+  for (int index = 0; index < 4; ++index) {
+    const int size = index + 3;
+    auto *button = lv_button_create(selector);
+    state->grid_buttons[index] = button;
+    NoScroll(button);
+    lv_obj_set_pos(button, index * (width + gap), 0);
+    lv_obj_set_size(button, width, 80);
+    lv_obj_set_style_radius(button, 24, 0);
+    lv_obj_set_style_shadow_width(button, 0, 0);
+    lv_obj_set_style_bg_color(button, kAccentSoft, LV_STATE_PRESSED);
+    char text[8];
+    snprintf(text, sizeof(text), "%dx%d", size, size);
+    auto *label = Label(button, text, &lv_font_montserrat_24, kMutedStrong);
+    lv_obj_center(label);
+    lv_obj_set_user_data(button,
+                         reinterpret_cast<void *>(static_cast<uintptr_t>(size)));
+    lv_obj_add_event_cb(button, GridSizeClicked, LV_EVENT_CLICKED, state);
+  }
+  RefreshGridButtons(state);
+}
+
 void MakePattern(DecryptState *state, lv_obj_t *panel) {
   state->pattern_area = lv_obj_create(panel);
   NoScroll(state->pattern_area);
@@ -234,26 +325,20 @@ void MakePattern(DecryptState *state, lv_obj_t *panel) {
   lv_obj_set_style_line_width(state->pattern_line, 18, 0);
   lv_obj_set_style_line_rounded(state->pattern_line, true, 0);
 
-  const int count = state->grid_size;
-  const int margin = count <= 3 ? 128 : 72;
-  const int span = 1012 - margin * 2 - 68;
-  for (int row = 0; row < count; ++row) {
-    for (int column = 0; column < count; ++column) {
-      const int index = row * count + column;
-      lv_obj_t *node = lv_obj_create(state->pattern_area);
-      state->nodes[index] = node;
-      NoScroll(node);
-      lv_obj_remove_flag(node, LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_set_size(node, 68, 68);
-      lv_obj_set_pos(node, margin + (count == 1 ? 0 : column * span / (count - 1)),
-                     margin + (count == 1 ? 0 : row * span / (count - 1)));
-      lv_obj_set_style_radius(node, LV_RADIUS_CIRCLE, 0);
-      lv_obj_set_style_bg_color(node, kMainPanel, 0);
-      lv_obj_set_style_bg_opa(node, LV_OPA_COVER, 0);
-      lv_obj_set_style_border_width(node, 5, 0);
-      lv_obj_set_style_border_color(node, kLineBright, 0);
-    }
+  for (int index = 0; index < kMaxPatternDots; ++index) {
+    lv_obj_t *node = lv_obj_create(state->pattern_area);
+    state->nodes[index] = node;
+    NoScroll(node);
+    lv_obj_remove_flag(node, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(node, 68, 68);
+    lv_obj_set_style_radius(node, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(node, kMainPanel, 0);
+    lv_obj_set_style_bg_opa(node, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(node, 5, 0);
+    lv_obj_set_style_border_color(node, kLineBright, 0);
   }
+  LayoutPatternNodes(state);
+  MakePatternGridSelector(state, panel);
   RefreshPattern(state);
 }
 
@@ -484,7 +569,7 @@ std::string GetDecryptCredential(const DecryptScene &scene) {
                                    : lv_textarea_get_text(state->input);
   std::string passphrase;
   for (int i = 0; i < state->sequence_length; ++i)
-    passphrase += std::to_string(state->sequence[i] + 1);
+    passphrase.push_back(static_cast<char>(state->sequence[i] + '1'));
   return passphrase;
 }
 
@@ -498,6 +583,8 @@ void SetDecryptBusy(const DecryptScene &scene) {
   i18n::BindLabel(state->submit_label, "Unlocking...");
   lv_obj_add_state(state->submit, LV_STATE_DISABLED);
   if (state->keyboard != nullptr) lv_obj_add_state(state->keyboard, LV_STATE_DISABLED);
+  for (auto *button : state->grid_buttons)
+    if (button != nullptr) lv_obj_add_state(button, LV_STATE_DISABLED);
 }
 
 void CompleteDecryptAttempt(const DecryptScene &scene, bool success) {
@@ -520,6 +607,8 @@ void CompleteDecryptAttempt(const DecryptScene &scene, bool success) {
   i18n::BindLabel(state->submit_label, "Try again");
   lv_obj_remove_state(state->submit, LV_STATE_DISABLED);
   if (state->keyboard != nullptr) lv_obj_remove_state(state->keyboard, LV_STATE_DISABLED);
+  for (auto *button : state->grid_buttons)
+    if (button != nullptr) lv_obj_remove_state(button, LV_STATE_DISABLED);
   if (state->input != nullptr) {
     lv_textarea_set_text(state->input, "");
     lv_obj_send_event(state->input, LV_EVENT_FOCUSED, nullptr);
