@@ -151,6 +151,17 @@ bool KernelModuleLoader::Stage_Post_Decrypt_Modules() {
 
 					closedir(d);
 				}
+
+				/*
+				 * GKI system_dlkm images commonly keep modules below a
+				 * versioned kernel tree (for example
+				 * lib/modules/<release>/kernel/net/rfkill/rfkill.ko).
+				 * Resolve that installed, active-slot copy instead of
+				 * requiring a device tree to bundle a firmware-specific
+				 * duplicate in the recovery ramdisk.
+				 */
+				if (src.empty())
+					Find_Module_Recursive(dir, mod, src);
 			}
 
 			if (!src.empty()) {
@@ -170,7 +181,7 @@ bool KernelModuleLoader::Stage_Post_Decrypt_Modules() {
 		}
 
 		if (!found) {
-			LOGINFO("Post-decrypt module not found in system_dlkm/vendor_dlkm or first-level subdirs: %s\n", mod.c_str());
+			LOGINFO("Post-decrypt module not found in system_dlkm/vendor_dlkm: %s\n", mod.c_str());
 		}
 	}
 
