@@ -33,6 +33,7 @@
 #include "scene.hpp"
 #include "ui_components.hpp"
 #include "update/update_manager.hpp"
+#include "../components/power_transition.hpp"
 #include "draw/opengles/lv_draw_opengles.h"
 #include "../../aera_rpc/aera_channel.hpp"
 #include "../../aera_remote/aera_remote.hpp"
@@ -974,8 +975,14 @@ public:
                      190 + row * 246);
       lv_obj_set_size(button, button_width, button_height);
       widgets::OnClick(button, [this, destination] {
-        pending_action_ = destination.action;
+        const bool power_off = destination.action == Action::kPowerOff;
+        const std::string transition_title = power_off
+            ? "Powering off"
+            : std::string("Rebooting to ") + destination.title;
         DismissPowerMenu();
+        widgets::PowerTransition(
+            lv_layer_top(), transition_title,
+            [this, destination] { pending_action_ = destination.action; });
       });
       auto *icon = design::Label(button, destination.icon,
                                  &lv_font_montserrat_48,

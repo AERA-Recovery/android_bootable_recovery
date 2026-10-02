@@ -625,7 +625,18 @@ void StartAeraUiEarly(const DisplayMetrics& metrics) {
             std::lock_guard<std::mutex> lock(gDecryptMutex);
             if (gDecryptRequested.load(std::memory_order_acquire) &&
                 !gDecryptResolved) {
-                gDecryptResult = DecryptionResult::kUnavailable;
+                switch (gEarlyResult) {
+                    case RunResult::kRebootSystem:
+                    case RunResult::kRebootRecovery:
+                    case RunResult::kRebootBootloader:
+                    case RunResult::kRebootFastbootd:
+                    case RunResult::kPowerOff:
+                        gDecryptResult = DecryptionResult::kTerminalAction;
+                        break;
+                    default:
+                        gDecryptResult = DecryptionResult::kUnavailable;
+                        break;
+                }
                 gDecryptResolved = true;
             }
         }

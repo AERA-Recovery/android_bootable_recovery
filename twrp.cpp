@@ -111,6 +111,11 @@ static void Decrypt_Page(bool SkipDecryption, bool datamedia) {
 				// OrangeFox - make note of this decryption
 				DataManager::SetValue("OTA_decrypted", "1");
 				usleep(16);
+			} else if (native_result == aeraui::DecryptionResult::kTerminalAction) {
+				// Preserve reboot and power-off actions raised by the early UI.
+				// Starting another decrypt renderer here would consume the
+				// action and re-open an abandoned Qualcomm scanout context.
+				LOGINFO("Native decrypt UI requested a terminal action\n");
 			} else {
 				LOGINFO("User continued without decrypting data\n");
 			}

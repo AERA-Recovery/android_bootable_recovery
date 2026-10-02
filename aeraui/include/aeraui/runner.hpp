@@ -22,6 +22,10 @@ enum class DecryptionResult {
     kUnavailable = -1,
     kSuccess = 0,
     kSkipped = 1,
+    // The early UI exited for a reboot or power-off request. Recovery must
+    // not launch a fallback decrypt renderer; RunAeraUi() preserves and
+    // returns the terminal action at the normal handoff.
+    kTerminalAction = 2,
 };
 
 enum class ModeTransitionRequestResult {
