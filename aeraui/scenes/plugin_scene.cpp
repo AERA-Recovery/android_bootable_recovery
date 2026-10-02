@@ -90,7 +90,7 @@ void Render(State *state) {
   const int card_width = std::max(600, static_cast<int>(
       lv_obj_get_width(state->scene.list)));
   int y = 0;
-  auto *official_heading = Kicker(state->scene.list, "OFFICIAL APPS", kGreen);
+  auto *official_heading = Kicker(state->scene.list, "OFFICIAL PLUGINS", kGreen);
   lv_obj_set_pos(official_heading, 8, y + 8);
   y += 64;
   for (const auto &plugin : catalog) {
@@ -134,7 +134,8 @@ void Render(State *state) {
           local->entry == "doom" ||
           local->entry == "telegram" || local->entry == "gallery" ||
           local->entry == "media" || local->entry == "recorder" ||
-          local->entry == "appvault" || plugins::IsGeneric(*local)) {
+          local->entry == "appvault" || plugins::IsGeneric(*local) ||
+          plugins::IsThemeExtension(*local)) {
         const auto action = local->entry == "browser" ? Action::kWeb :
             local->entry == "retroarch" ? Action::kRetroArch :
             local->entry == "doom" ? Action::kDoom :
@@ -142,10 +143,13 @@ void Render(State *state) {
             local->entry == "gallery" ? Action::kGallery :
             local->entry == "media" ? Action::kMedia :
             local->entry == "recorder" ? Action::kRecorder :
-            local->entry == "appvault" ? Action::kAppVault : Action::kPluginApp;
+            local->entry == "appvault" ? Action::kAppVault :
+            plugins::IsThemeExtension(*local) ? Action::kTheme :
+            Action::kPluginApp;
         const int gap = 24;
         const int third = (card_width - 68 - gap * 2) / 3;
-        AddButton(card, "Open", 34, third,
+        AddButton(card, plugins::IsThemeExtension(*local)
+                            ? "Theme Engine" : "Open", 34, third,
                   [state, action, id = local->id] {
                     if (action == Action::kPluginApp) SetSelectedPluginId(id);
                     state->callback(action, state->context);
@@ -195,7 +199,7 @@ void Render(State *state) {
   });
   if (!unofficial.empty()) {
     y += 36;
-    auto *heading = Kicker(state->scene.list, "UNOFFICIAL APPS", kAmber);
+    auto *heading = Kicker(state->scene.list, "UNOFFICIAL PLUGINS", kAmber);
     lv_obj_set_pos(heading, 8, y + 8);
     y += 64;
     for (const auto &plugin : unofficial) {
@@ -241,9 +245,12 @@ void Render(State *state) {
       else if (plugin.entry == "recorder") action = Action::kRecorder;
       else if (plugin.entry == "appvault") action = Action::kAppVault;
       else if (plugins::IsGeneric(plugin)) action = Action::kPluginApp;
+      else if (plugins::IsThemeExtension(plugin)) action = Action::kTheme;
       const int gap = 24;
       const int half = (card_width - 68 - gap) / 2;
-      AddButton(card, "Open", 34, half, [state, action, id = plugin.id] {
+      AddButton(card, plugins::IsThemeExtension(plugin)
+                          ? "Theme Engine" : "Open", 34, half,
+                [state, action, id = plugin.id] {
         if (action == Action::kPluginApp) SetSelectedPluginId(id);
         if (action != Action::kNone) state->callback(action, state->context);
       });

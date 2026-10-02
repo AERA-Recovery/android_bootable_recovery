@@ -54,6 +54,8 @@ bool RecoveryLightMode() { return light_mode; }
 bool RecoverySetLightMode(bool enabled) { light_mode = enabled; return true; }
 bool RecoveryTintedIconBackgrounds() { return false; }
 bool RecoverySetTintedIconBackgrounds(bool) { return true; }
+std::string RecoveryUiFont() { return {}; }
+bool RecoverySetUiFont(const std::string &) { return true; }
 InterfaceSize RecoveryInterfaceSize() { return interface_size; }
 bool RecoverySetInterfaceSize(InterfaceSize size) {
   return static_cast<int>(size) >= 0 && static_cast<int>(size) <= 2;

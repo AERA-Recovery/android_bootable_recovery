@@ -151,6 +151,8 @@ bool RecoveryLightMode();
 bool RecoverySetLightMode(bool enabled);
 bool RecoveryTintedIconBackgrounds();
 bool RecoverySetTintedIconBackgrounds(bool enabled);
+std::string RecoveryUiFont();
+bool RecoverySetUiFont(const std::string &plugin_id);
 enum class InterfaceSize { kSmall = 0, kNormal = 1, kLarge = 2 };
 InterfaceSize RecoveryInterfaceSize();
 bool RecoverySetInterfaceSize(InterfaceSize size);

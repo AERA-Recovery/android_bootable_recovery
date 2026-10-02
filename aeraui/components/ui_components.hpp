@@ -207,6 +207,24 @@ inline int NavigationHeight(lv_obj_t *screen) {
                    : (minimal ? 170 : compact || icons_only ? 188 : 226);
 }
 
+inline void UpdateNavigationDockAppearance(lv_obj_t *bar, int transparency,
+                                           int blur) {
+  if (bar == nullptr || lv_obj_get_child_count(bar) == 0) return;
+  auto *shelf = lv_obj_get_child(bar, 0);
+  const bool minimal = RecoveryDockLayout() == DockLayout::kMinimal;
+  transparency = std::clamp(transparency, 0, 100);
+  blur = std::clamp(blur, 0, 100);
+  const lv_opa_t surface_opa = static_cast<lv_opa_t>(
+      (100 - transparency) * LV_OPA_COVER / 100);
+  lv_obj_set_style_bg_opa(shelf, minimal ? LV_OPA_TRANSP : surface_opa, 0);
+  lv_obj_set_style_blur_backdrop(shelf, blur > 0 && !minimal, 0);
+  /* The former 40% already gives the strongest useful dock blur. Keep the
+   * control's friendly 0-100% scale while mapping its full range to that
+   * restrained radius. */
+  lv_obj_set_style_blur_radius(shelf, blur * 24 / 250, 0);
+  lv_obj_invalidate(shelf);
+}
+
 inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
                             ActionCallback callback, void *context,
                             bool app_surface = false) {
@@ -260,10 +278,6 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
   lv_obj_set_style_bg_grad_color(shelf,
       IsLightMode() ? Color(0xd9dde2) : Color(0x292d33), 0);
   lv_obj_set_style_bg_grad_dir(shelf, LV_GRAD_DIR_VER, 0);
-  const int transparency = std::clamp(RecoveryDockTransparency(), 0, 100);
-  const lv_opa_t surface_opa = static_cast<lv_opa_t>(
-      (100 - transparency) * LV_OPA_COVER / 100);
-  lv_obj_set_style_bg_opa(shelf, minimal ? LV_OPA_TRANSP : surface_opa, 0);
   lv_obj_set_style_border_width(shelf, minimal ? 0 : 1, 0);
   lv_obj_set_style_border_color(shelf,
       IsLightMode() ? Color(0x8d949c) : Color(0xb8bec6), 0);
@@ -272,10 +286,10 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
   lv_obj_set_style_shadow_width(shelf, 12, 0);
   lv_obj_set_style_shadow_offset_y(shelf, 6, 0);
   lv_obj_set_style_shadow_opa(shelf, LV_OPA_10, 0);
-  const int blur = std::clamp(RecoveryDockBlur(), 0, 100);
-  lv_obj_set_style_blur_backdrop(shelf, blur > 0 && !minimal, 0);
-  lv_obj_set_style_blur_radius(shelf, blur * 18 / 100, 0);
   lv_obj_set_style_blur_quality(shelf, LV_BLUR_QUALITY_SPEED, 0);
+  UpdateNavigationDockAppearance(lv_obj_get_parent(shelf),
+                                 RecoveryDockTransparency(),
+                                 RecoveryDockBlur());
 
   const int slot_width = shelf_width / static_cast<int>(tabs.size());
 

@@ -9,6 +9,8 @@
 #include <cctype>
 #include <map>
 #include <string>
+#include <sys/stat.h>
+#include <utility>
 #include <vector>
 
 #ifndef AERA_FONT_ROOT
@@ -53,14 +55,23 @@ constexpr std::array<const char *, static_cast<size_t>(Script::kCount)>
 
 struct FontSize {
   lv_font_t wrapper{};
+  lv_font_t symbols{};
   std::array<lv_font_t *, static_cast<size_t>(Script::kCount)> fallback{};
+  bool external_primary = false;
   bool loaded = false;
 };
 
 std::array<FontSize, kSizes.size()> fonts;
-std::map<uint32_t, lv_font_t *> display_fonts;
+struct DisplaySize {
+  lv_font_t wrapper{};
+  bool loaded = false;
+};
+std::map<uint32_t, DisplaySize> display_fonts;
+std::map<std::pair<std::string, uint32_t>, lv_font_t *> external_fonts;
 bool initialized = false;
 std::string language = "en";
+std::string selected_font_id;
+std::string selected_font_path;
 
 std::string BaseLanguage(std::string code) {
   std::replace(code.begin(), code.end(), '-', '_');
@@ -84,7 +95,7 @@ Script PrimaryScript(const std::string &code) {
   return Script::kGeneral;
 }
 
-void LinkFallbacks(FontSize &set) {
+void LinkFallbacks(FontSize &set, size_t index) {
   std::vector<Script> order{
       Script::kGeneral, Script::kArabic, Script::kHebrew,
       Script::kDevanagari, Script::kBengali, Script::kThai,
@@ -95,6 +106,13 @@ void LinkFallbacks(FontSize &set) {
     order.insert(order.begin() + 1, primary);
   }
   lv_font_t *previous = nullptr;
+  if (set.external_primary) {
+    // Plugin fonts intentionally contain text only. Keep AERA/LVGL symbols
+    // available before falling through to the language-specific typefaces.
+    set.symbols = *kBaseFonts[index];
+    set.wrapper.fallback = &set.symbols;
+    previous = &set.symbols;
+  }
   for (const Script script : order) {
     lv_font_t *font = set.fallback[static_cast<size_t>(script)];
     if (font == nullptr) continue;
@@ -105,6 +123,38 @@ void LinkFallbacks(FontSize &set) {
     previous = font;
   }
   if (previous != nullptr) previous->fallback = nullptr;
+}
+
+lv_font_t *LoadExternalFont(const std::string &path, uint32_t size) {
+  if (path.empty() || size < 8 || size > 256) return nullptr;
+  const auto key = std::make_pair(path, size);
+  const auto existing = external_fonts.find(key);
+  if (existing != external_fonts.end()) return existing->second;
+  struct stat info{};
+  if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) ||
+      info.st_size <= 0 || info.st_size > 32 * 1024 * 1024)
+    return nullptr;
+  lv_font_t *font = lv_freetype_font_create(
+      path.c_str(), LV_FREETYPE_FONT_RENDER_MODE_BITMAP, size,
+      LV_FREETYPE_FONT_STYLE_NORMAL);
+  if (font != nullptr) external_fonts.emplace(key, font);
+  return font;
+}
+
+const lv_font_t *PrimaryFont(size_t index) {
+  if (!selected_font_path.empty()) {
+    if (auto *font = LoadExternalFont(selected_font_path, kSizes[index]))
+      return font;
+  }
+  return kBaseFonts[index];
+}
+
+void RefreshSize(size_t index) {
+  auto &set = fonts[index];
+  const lv_font_t *primary = PrimaryFont(index);
+  set.wrapper = *primary;
+  set.external_primary = primary != kBaseFonts[index];
+  if (set.loaded) LinkFallbacks(set, index);
 }
 
 void LoadSize(size_t index) {
@@ -119,7 +169,7 @@ void LoadSize(size_t index) {
         kFontPaths[script], LV_FREETYPE_FONT_RENDER_MODE_BITMAP, kSizes[index],
         LV_FREETYPE_FONT_STYLE_NORMAL);
   }
-  LinkFallbacks(set);
+  RefreshSize(index);
 }
 
 }  // namespace
@@ -127,15 +177,43 @@ void LoadSize(size_t index) {
 void InitializeFallbackFonts() {
   if (initialized) return;
   initialized = true;
-  for (size_t i = 0; i < kSizes.size(); ++i)
-    fonts[i].wrapper = *kBaseFonts[i];
+  for (size_t i = 0; i < kSizes.size(); ++i) RefreshSize(i);
 }
 
 void SetFallbackLanguage(const std::string &requested) {
   language = requested;
   InitializeFallbackFonts();
-  for (auto &font : fonts)
-    if (font.loaded) LinkFallbacks(font);
+  for (size_t index = 0; index < fonts.size(); ++index)
+    if (fonts[index].loaded) LinkFallbacks(fonts[index], index);
+}
+
+bool SelectUiFont(const std::string &id, const std::string &path) {
+  InitializeFallbackFonts();
+  if (id.empty() || path.empty()) {
+    selected_font_id.clear();
+    selected_font_path.clear();
+  } else {
+    if (LoadExternalFont(path, 24) == nullptr) return false;
+    selected_font_id = id;
+    selected_font_path = path;
+  }
+  for (size_t i = 0; i < fonts.size(); ++i) RefreshSize(i);
+  for (auto &[size, display] : display_fonts) {
+    const char *path = selected_font_path.empty()
+        ? kFontPaths[static_cast<size_t>(Script::kGeneral)]
+        : selected_font_path.c_str();
+    if (auto *font = LoadExternalFont(path, size)) {
+      display.wrapper = *font;
+      display.loaded = true;
+    }
+  }
+  return true;
+}
+
+const std::string &SelectedUiFont() { return selected_font_id; }
+
+const lv_font_t *PreviewFont(const std::string &path, uint32_t size) {
+  return LoadExternalFont(path, size);
 }
 
 const lv_font_t *WithLanguageFallback(const lv_font_t *font) {
@@ -152,16 +230,20 @@ const lv_font_t *WithLanguageFallback(const lv_font_t *font) {
 
 const lv_font_t *DisplayFont(uint32_t size) {
   InitializeFallbackFonts();
-  const auto existing = display_fonts.find(size);
-  if (existing != display_fonts.end()) return existing->second;
-
-  lv_font_t *font = lv_freetype_font_create(
-      kFontPaths[static_cast<size_t>(Script::kGeneral)],
-      LV_FREETYPE_FONT_RENDER_MODE_BITMAP, size,
-      LV_FREETYPE_FONT_STYLE_NORMAL);
-  if (font == nullptr) return WithLanguageFallback(&lv_font_montserrat_48);
-  display_fonts.emplace(size, font);
-  return font;
+  auto [iterator, inserted] = display_fonts.try_emplace(size);
+  (void)inserted;
+  auto &display = iterator->second;
+  if (!display.loaded) {
+    const char *path = selected_font_path.empty()
+        ? kFontPaths[static_cast<size_t>(Script::kGeneral)]
+        : selected_font_path.c_str();
+    if (auto *font = LoadExternalFont(path, size)) {
+      display.wrapper = *font;
+      display.loaded = true;
+    }
+  }
+  return display.loaded ? &display.wrapper
+                        : WithLanguageFallback(&lv_font_montserrat_48);
 }
 
 }  // namespace aeraui::fonts

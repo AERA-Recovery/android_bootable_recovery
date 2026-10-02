@@ -499,8 +499,13 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   lv_obj_add_flag(pager, LV_OBJ_FLAG_SCROLL_ONE);
   lv_obj_add_flag(pager, LV_OBJ_FLAG_SCROLL_MOMENTUM);
   lv_obj_remove_flag(pager, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
+  const size_t launchable_count = static_cast<size_t>(std::count_if(
+      installed.begin(), installed.end(),
+      [](const plugins::Plugin &plugin) {
+        return plugins::IsLaunchable(plugin);
+      }));
   const int page_count = std::max(
-      1, static_cast<int>((installed.size() + slots_per_page - 1) /
+      1, static_cast<int>((launchable_count + slots_per_page - 1) /
                           slots_per_page));
   int visible_index = 0;
   lv_obj_t *page = nullptr;

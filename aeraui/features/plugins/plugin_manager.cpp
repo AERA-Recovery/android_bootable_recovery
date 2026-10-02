@@ -252,6 +252,7 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
   plugin.protocol_version = root.get("protocol_version", 1).asUInt();
   plugin.executable = root.get("executable", "").asString();
   plugin.icon = root.get("icon", "plugin").asString();
+  plugin.font_family = root.get("font_family", "").asString();
   plugin.permissions.clear();
   const Json::Value permissions =
       root.get("permissions", Json::Value(Json::arrayValue));
@@ -302,6 +303,14 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
       plugin.min_host_api == 2 &&
       plugin.executable == "usr/bin/aera-plugin" &&
       plugin.icon.size() <= 24;
+  const bool theme_extension = plugin.type == "theme-extension" &&
+      plugin.entry == "font" && plugin.executable.empty() &&
+      plugin.permissions.empty() && plugin.icon.size() <= 24 &&
+      (plugin.payload_name == "font.ttf" ||
+       plugin.payload_name == "font.otf") &&
+      !plugin.font_family.empty() && plugin.font_family.size() <= 64 &&
+      std::none_of(plugin.font_family.begin(), plugin.font_family.end(),
+                   [](unsigned char c) { return c < 32 || c == 127; });
   const auto has_permission = [&](const char *name) {
     return std::find(plugin.permissions.begin(), plugin.permissions.end(), name) !=
            plugin.permissions.end();
@@ -321,12 +330,15 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
   if (!SafeId(plugin.id) || plugin.name.empty() || plugin.name.size() > 80 ||
       plugin.version.empty() || plugin.version.size() > 32 ||
       plugin.description.size() > 320 || plugin.type.empty() ||
-      plugin.entry.empty() || plugin.payload_name != "runtime.xz" ||
+      plugin.entry.empty() ||
+      ((!theme_extension && plugin.payload_name != "runtime.xz") ||
+       (theme_extension && plugin.payload_size > 32ULL * 1024 * 1024)) ||
       (!local_payload && !OfficialUrl(plugin.payload_url)) ||
       !hash_ok || !expanded_hash_ok ||
       plugin.payload_size == 0 || plugin.payload_size > kMaxPayload ||
       plugin.min_host_api == 0 || plugin.min_host_api > kHostApi ||
-      (!legacy_entry && !generic_entry) || !permissions_ok) {
+      (!legacy_entry && !generic_entry && !theme_extension) ||
+      (!theme_extension && !permissions_ok)) {
     error = "Plugin manifest violates the AERA host policy."; return false;
   }
   if ((plugin.type == "browser-runtime" || plugin.type == "app-runtime" ||
@@ -596,6 +608,7 @@ struct LocalBundle {
   std::string signature;
   Plugin plugin;
   bool has_signature = false;
+  std::string payload_entry_name;
 
   ~LocalBundle() {
     if (archive != nullptr) CloseArchive(archive);
@@ -655,8 +668,10 @@ bool OpenLocalBundle(const std::string &path, LocalBundle &bundle,
     } else if (name == "plugin.json.sig" && !bundle.has_signature) {
       bundle.signature_entry = entry;
       bundle.has_signature = true;
-    } else if (name == "runtime.xz" && !payload_found) {
+    } else if ((name == "runtime.xz" || name == "font.ttf" ||
+                name == "font.otf") && !payload_found) {
       bundle.payload_entry = entry;
+      bundle.payload_entry_name = name;
       payload_found = true;
     } else {
       entries_ok = false;
@@ -671,6 +686,7 @@ bool OpenLocalBundle(const std::string &path, LocalBundle &bundle,
        !ExtractText(bundle.archive, bundle.signature_entry, kMaxSignature,
                     bundle.signature)) ||
       !ParsePlugin(bundle.manifest, bundle.plugin, error, true) ||
+      bundle.payload_entry_name != bundle.plugin.payload_name ||
       bundle.payload_entry.uncompressed_length != bundle.plugin.payload_size) {
     if (error.empty()) error = "The plugin package metadata is invalid.";
     return false;
@@ -746,7 +762,7 @@ bool InstallLocal(const Request &request, Location location,
   progress.value.store(extract_progress);
   const std::string manifest_path = staging + "/plugin.json";
   const std::string signature_path = staging + "/plugin.json.sig";
-  const std::string payload_path = staging + "/runtime.xz";
+  const std::string payload_path = staging + "/" + bundle.plugin.payload_name;
   if (!WriteFile(manifest_path, bundle.manifest) ||
       (bundle.has_signature && !WriteFile(signature_path, bundle.signature)) ||
       !ExtractPayload(bundle, payload_path)) {
@@ -1050,6 +1066,23 @@ bool IsGeneric(const Plugin &plugin) {
   return plugin.type == "ui-runtime" && plugin.entry == "main" &&
          plugin.protocol_version == 2 &&
          plugin.executable == "usr/bin/aera-plugin";
+}
+
+bool IsThemeExtension(const Plugin &plugin) {
+  return plugin.type == "theme-extension" && plugin.entry == "font" &&
+         plugin.executable.empty() &&
+         (plugin.payload_name == "font.ttf" ||
+          plugin.payload_name == "font.otf") &&
+         !plugin.font_family.empty();
+}
+
+bool IsLaunchable(const Plugin &plugin) {
+  if (IsThemeExtension(plugin)) return false;
+  return IsGeneric(plugin) || plugin.entry == "browser" ||
+      plugin.entry == "retroarch" || plugin.entry == "doom" ||
+      plugin.entry == "telegram" || plugin.entry == "gallery" ||
+      plugin.entry == "media" || plugin.entry == "streams" ||
+      plugin.entry == "recorder" || plugin.entry == "appvault";
 }
 
 bool HasPermission(const Plugin &plugin, const std::string &permission) {

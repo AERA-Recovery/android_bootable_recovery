@@ -1131,6 +1131,24 @@ bool RecoverySetTintedIconBackgrounds(bool enabled) {
   return DataManager::SetValue("aera_tinted_icon_backgrounds",
                                enabled ? 1 : 0, 1) == 0;
 }
+std::string RecoveryUiFont() {
+  LoadAeraPreferencesIfAvailable();
+  const std::string id = DataManager::GetStrValue("aera_ui_font");
+  if (id.size() > 64 ||
+      !std::all_of(id.begin(), id.end(), [](unsigned char c) {
+        return std::islower(c) || std::isdigit(c) || c == '-' || c == '.';
+      }))
+    return {};
+  return id;
+}
+bool RecoverySetUiFont(const std::string &plugin_id) {
+  if (plugin_id.size() > 64 ||
+      !std::all_of(plugin_id.begin(), plugin_id.end(), [](unsigned char c) {
+        return std::islower(c) || std::isdigit(c) || c == '-' || c == '.';
+      }))
+    return false;
+  return DataManager::SetValue("aera_ui_font", plugin_id, 1) == 0;
+}
 InterfaceSize RecoveryInterfaceSize() {
   LoadAeraPreferencesIfAvailable();
   const int value = std::clamp(
@@ -1711,6 +1729,7 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "browser_zoom") DataManager::SetValue("aera_browser_zoom", value);
     else if (key == "browser_cookies")
       DataManager::SetValue("aera_browser_cookies", value);
+    else if (key == "ui_font") DataManager::SetValue("aera_ui_font", value);
     else if (key == "wifi_auto_enable") DataManager::SetValue("of_wlan_auto_enable", value);
     else if (key == "wifi_auto_connect") DataManager::SetValue("of_wlan_auto_connect", value);
     else if (key == "wifi_last_ssid") DataManager::SetValue("of_wlan_last_ssid", value);
@@ -1750,6 +1769,7 @@ bool SaveAeraPreferences() {
          << "dock_blur=" << RecoveryDockBlur() << '\n'
          << "dock_hide_apps=" << (RecoveryDockHideInApps() ? 1 : 0) << '\n'
          << "language=" << RecoveryLanguage() << '\n'
+         << "ui_font=" << RecoveryUiFont() << '\n'
          << "browser_homepage=" << RecoveryBrowserHomepage() << '\n'
          << "browser_zoom=" << RecoveryBrowserZoom() << '\n'
          << "browser_cookies="

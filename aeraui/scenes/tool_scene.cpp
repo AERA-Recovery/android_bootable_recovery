@@ -15,6 +15,7 @@ using namespace widgets;
 UserDecryptRequest selected_user_decrypt;
 struct Tools {
   lv_obj_t *screen = nullptr, *list = nullptr, *summary = nullptr;
+  lv_obj_t *navigation = nullptr;
   lv_obj_t *selection_detail = nullptr, *review = nullptr;
   Action tool = Action::kNone;
   ActionCallback callback = nullptr;
@@ -35,6 +36,12 @@ std::string SnapshotCowDetail(const SnapshotCowStatus &status);
 void ConfirmSnapshotCowCleanup(Tools *state);
 
 void Open(Tools *state, Action action) { state->callback(action, state->context); }
+int theme_scroll_restore = -1;
+void RefreshTheme(Tools *state) {
+  if (state != nullptr && state->list != nullptr)
+    theme_scroll_restore = lv_obj_get_scroll_y(state->list);
+  Open(state, Action::kTheme);
+}
 void Run(Tools *state, const JobRequest &request) {
   SetJobRequest(request);
   Open(state, Action::kRunOperation);
@@ -1137,7 +1144,7 @@ void OpenAccentPicker(Tools *tools) {
       return;
     }
     ApplyAccent(rgb);
-    Open(picker->tools, Action::kTheme);
+    RefreshTheme(picker->tools);
   }, true);
   lv_obj_set_pos(use, controls_x + button_width + 24, buttons_y);
   lv_obj_set_size(use, button_width, 126);
@@ -1155,8 +1162,12 @@ void BuildTheme(Tools *state) {
          "Choose appearance, sizing, keyboard and accent for every AERA page.", state->callback,
          state->context);
   const bool landscape = Landscape(state->screen);
-  state->list = Scroll(state->screen, landscape ? 340 : 460,
-                       landscape ? 810 : 2200);
+  const int list_y = landscape ? 340 : 460;
+  const int dock_gap = landscape ? 20 : 28;
+  const int list_height = std::max(
+      640, static_cast<int>(lv_obj_get_height(state->screen)) - list_y -
+               NavigationHeight(state->screen) - dock_gap);
+  state->list = Scroll(state->screen, list_y, list_height);
   if (landscape) {
     lv_obj_set_x(state->list, 884);
     lv_obj_set_width(state->list, 1400);
@@ -1221,7 +1232,7 @@ void BuildTheme(Tools *state) {
       }
       ApplySurfaceMode(mode.light);
       ApplyAccent(RecoveryAccentColor());
-      Open(state, Action::kTheme);
+      RefreshTheme(state);
     });
   }
 
@@ -1269,7 +1280,7 @@ void BuildTheme(Tools *state) {
               "The icon background style could not be stored.");
         return;
       }
-      Open(state, Action::kTheme);
+      RefreshTheme(state);
     });
   }
 
@@ -1312,7 +1323,7 @@ void BuildTheme(Tools *state) {
         return;
       }
       ApplyInterfaceSize(static_cast<int>(preset.size));
-      Open(state, Action::kTheme);
+      RefreshTheme(state);
     });
   }
 
@@ -1353,7 +1364,7 @@ void BuildTheme(Tools *state) {
               "The Home plugin grid could not be changed.");
         return;
       }
-      Open(state, Action::kTheme);
+      RefreshTheme(state);
     });
   }
 
@@ -1394,7 +1405,7 @@ void BuildTheme(Tools *state) {
               "The keyboard layout could not be stored.");
         return;
       }
-      Open(state, Action::kTheme);
+      RefreshTheme(state);
     });
   }
 
@@ -1440,7 +1451,7 @@ void BuildTheme(Tools *state) {
         return;
       }
       ApplyAccent(preset.rgb);
-      Open(state, Action::kTheme);
+      RefreshTheme(state);
     });
   }
 
@@ -1483,21 +1494,9 @@ void BuildTheme(Tools *state) {
   lv_obj_set_pos(note, 32, 2470);
   lv_obj_set_width(note, 1220);
 
-  auto *reset = Button(state->list, "Reset to AERA Cyan", [state] {
-    if (!RecoverySetAccentColor(kDefaultAccentRgb)) {
-      Sheet(state->screen, "Theme unavailable",
-            "The default accent could not be restored.");
-      return;
-    }
-    ApplyAccent(kDefaultAccentRgb);
-    Open(state, Action::kTheme);
-  });
-  lv_obj_set_pos(reset, 16, 2600);
-  lv_obj_set_size(reset, 1280, 124);
-
   auto *dock_section = Label(state->list, "Navigation dock",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(dock_section, 32, 2810);
+  lv_obj_set_pos(dock_section, 32, 2590);
   const std::array<std::pair<const char *, DockLayout>, 4> dock_modes{{
       {"Glass", DockLayout::kGlass}, {"Compact", DockLayout::kCompact},
       {"Minimal", DockLayout::kMinimal}, {"Icons only", DockLayout::kIcons}}};
@@ -1505,15 +1504,23 @@ void BuildTheme(Tools *state) {
     const auto mode = dock_modes[i];
     const bool selected = RecoveryDockLayout() == mode.second;
     auto *card = Button(state->list, mode.first, [state, mode] {
-      RecoverySetDockLayout(mode.second);
-      Open(state, Action::kTheme);
-    }, selected);
-    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 320, 2880);
+      if (!RecoverySetDockLayout(mode.second)) {
+        Sheet(state->screen, "Layout unavailable",
+              "The navigation dock style could not be changed.");
+        return;
+      }
+      RefreshTheme(state);
+    });
+    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 320, 2660);
     lv_obj_set_size(card, 304, 128);
     lv_obj_set_style_radius(card, 34, 0);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
     lv_obj_set_style_border_opa(card, selected ? LV_OPA_COVER : LV_OPA_40, 0);
+    if (selected) {
+      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_24, kAccent);
+      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -20, 18);
+    }
   }
 
   auto dock_slider = [state](int y, const char *name, const char *description,
@@ -1535,8 +1542,8 @@ void BuildTheme(Tools *state) {
     lv_slider_set_range(slider, 0, 100);
     lv_slider_set_value(slider, value, LV_ANIM_OFF);
     RangeSlider(slider);
-    struct DockBinding { lv_obj_t *amount; bool blur; };
-    auto *binding = new DockBinding{amount, blur};
+    struct DockBinding { Tools *state; lv_obj_t *amount; bool blur; };
+    auto *binding = new DockBinding{state, amount, blur};
     lv_obj_add_event_cb(slider, [](lv_event_t *event) {
       auto *binding = static_cast<DockBinding *>(lv_event_get_user_data(event));
       if (lv_event_get_code(event) == LV_EVENT_DELETE) {
@@ -1548,29 +1555,180 @@ void BuildTheme(Tools *state) {
       const int value = lv_slider_get_value(lv_event_get_target_obj(event));
       const std::string text = std::to_string(value) + "%";
       lv_label_set_text(binding->amount, text.c_str());
+      const int transparency = binding->blur
+          ? RecoveryDockTransparency() : value;
+      const int blur = binding->blur ? value : RecoveryDockBlur();
+      UpdateNavigationDockAppearance(binding->state->navigation,
+                                     transparency, blur);
       if (code == LV_EVENT_RELEASED) {
         if (binding->blur) RecoverySetDockBlur(value);
         else RecoverySetDockTransparency(value);
       }
     }, LV_EVENT_ALL, binding);
   };
-  dock_slider(3040, "Transparency",
+  dock_slider(2820, "Transparency",
               "0% is solid; 100% leaves only the controls visible",
               RecoveryDockTransparency(), false);
-  dock_slider(3280, "Backdrop blur",
+  dock_slider(3060, "Backdrop blur",
               "GPU-friendly live blur behind the dock surface",
               RecoveryDockBlur(), true);
 
-  auto *save = Button(state->screen, "Save theme", [state] {
+  auto *font_section = Label(state->list, "Typography",
+                             &lv_font_montserrat_32, kAccent);
+  lv_obj_set_pos(font_section, 32, 3340);
+  auto *font_hint = Label(
+      state->list,
+      "Choose the typeface used across the AERA interface.",
+      &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(font_hint, 32, 3390);
+
+  struct FontCards {
+    struct Card {
+      lv_obj_t *object;
+      lv_obj_t *check;
+      std::string id;
+    };
+    std::vector<Card> cards;
+  };
+  auto *font_cards = new FontCards;
+  lv_obj_add_event_cb(state->list, [](lv_event_t *event) {
+    delete static_cast<FontCards *>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, font_cards);
+
+  struct FontChoice {
+    std::string id;
+    std::string family;
+    std::string path;
+  };
+  std::vector<FontChoice> font_choices{{"", "AERA Default", ""}};
+  for (const auto &plugin : plugins::Installed()) {
+    if (!plugins::IsThemeExtension(plugin)) continue;
+    std::string path;
+    std::string error;
+    plugins::Plugin verified;
+    if (plugins::ResolvePayload(plugin.id, verified, path, error) &&
+        plugins::IsThemeExtension(verified)) {
+      font_choices.push_back({verified.id, verified.font_family, path});
+    }
+  }
+  const std::string stored_font = RecoveryUiFont();
+  const bool stored_font_available = std::any_of(
+      font_choices.begin(), font_choices.end(),
+      [&](const FontChoice &choice) { return choice.id == stored_font; });
+  const std::string selected_font = stored_font_available ? stored_font : "";
+  for (size_t i = 0; i < font_choices.size(); ++i) {
+    const FontChoice choice = font_choices[i];
+    const bool selected = selected_font == choice.id;
+    const int column = static_cast<int>(i % 2);
+    const int row = static_cast<int>(i / 2);
+    auto *card = lv_button_create(state->list);
+    Panel(card, 32, kMainPanel);
+    Interactive(card, kMainSelected);
+    lv_obj_set_pos(card, 16 + column * 640, 3450 + row * 220);
+    lv_obj_set_size(card, 624, 196);
+    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
+    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
+    auto *name = Label(card, choice.family.c_str(), &lv_font_montserrat_28,
+                       kText);
+    lv_obj_set_pos(name, 28, 24);
+    auto *sample = lv_label_create(card);
+    i18n::BindLabel(sample, "Aa 123  The quick brown fox");
+    const lv_font_t *preview = choice.path.empty()
+        ? static_cast<const lv_font_t *>(&lv_font_montserrat_36)
+        : fonts::PreviewFont(choice.path, 36);
+    lv_obj_set_style_text_font(
+        sample, preview ? preview : UiFont(&lv_font_montserrat_36), 0);
+    lv_obj_set_style_text_color(sample, kMutedStrong, 0);
+    lv_obj_set_pos(sample, 28, 86);
+    lv_obj_set_width(sample, 540);
+    lv_label_set_long_mode(sample, LV_LABEL_LONG_DOT);
+    auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_28, kAccent);
+    lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -28, 28);
+    if (!selected) lv_obj_add_flag(check, LV_OBJ_FLAG_HIDDEN);
+    font_cards->cards.push_back({card, check, choice.id});
+    OnClick(card, [state, font_cards, choice] {
+      bool applied = false;
+      if (choice.id.empty()) {
+        applied = fonts::SelectUiFont({}, {}) && RecoverySetUiFont({});
+      } else {
+        applied = fonts::SelectUiFont(choice.id, choice.path) &&
+                  RecoverySetUiFont(choice.id);
+      }
+      if (!applied) {
+        Sheet(state->screen, "Font unavailable",
+              "AERA could not load this font extension.");
+        return;
+      }
+      // Existing labels keep the same stable wrapper pointers while their
+      // underlying typefaces change. Refresh every style and layout so the
+      // selected font is visible immediately across the complete UI.
+      lv_obj_report_style_change(nullptr);
+      lv_obj_update_layout(state->screen);
+      for (const auto &item : font_cards->cards) {
+        const bool active = item.id == choice.id;
+        lv_obj_set_style_border_width(item.object, active ? 3 : 1, 0);
+        lv_obj_set_style_border_color(item.object,
+                                      active ? kAccent : kMainLine, 0);
+        if (active)
+          lv_obj_remove_flag(item.check, LV_OBJ_FLAG_HIDDEN);
+        else
+          lv_obj_add_flag(item.check, LV_OBJ_FLAG_HIDDEN);
+      }
+      lv_obj_invalidate(state->screen);
+    });
+  }
+
+  const int font_rows = std::max(
+      1, static_cast<int>((font_choices.size() + 1) / 2));
+  const int save_y = std::max(3760, 3450 + font_rows * 220 + 70);
+  auto *save = Button(state->list, "Save theme", [state] {
     const bool saved = RecoverySavePreferences();
     Sheet(state->screen, saved ? "Theme saved" : "Could not save theme",
           saved ? "Your AERA theme will be restored on the next boot." :
                   "The theme remains active for this session. Unlock settings storage and try again.");
   }, true);
-  lv_obj_set_pos(save, landscape ? 884 : 80,
-                 landscape ? 1170 : 2740);
-  lv_obj_set_size(save, landscape ? 1400 : 1280,
-                  landscape ? 100 : 132);
+  lv_obj_set_pos(save, 16, save_y);
+  lv_obj_set_size(save, 1280, 124);
+
+  const int reset_y = save_y + 148;
+  auto *reset = Button(state->list, "Reset theme settings", [state] {
+    Sheet(
+        state->screen, "Reset theme settings?",
+        "This restores AERA Cyan, Graphite appearance, neutral icons, "
+        "normal interface size, the default Home grid, QWERTY keyboard "
+        "and the standard Glass navigation dock.",
+        [state] {
+          bool restored = true;
+          restored &= RecoverySetLightMode(false);
+          restored &= RecoverySetTintedIconBackgrounds(false);
+          restored &= RecoverySetInterfaceSize(InterfaceSize::kNormal);
+          restored &= RecoverySetKeyboardLayout(KeyboardLayout::kQwerty);
+          restored &= RecoverySetHomeGridColumns(3);
+          restored &= RecoverySetAccentColor(kDefaultAccentRgb);
+          restored &= RecoverySetDockLayout(DockLayout::kGlass);
+          restored &= RecoverySetDockTransparency(60);
+          restored &= RecoverySetDockBlur(60);
+          restored &= RecoverySetDockHideInApps(false);
+          if (!restored) {
+            Sheet(state->screen, "Theme unavailable",
+                  "AERA could not restore every theme setting.");
+            return;
+          }
+          ApplySurfaceMode(false);
+          ApplyInterfaceSize(static_cast<int>(InterfaceSize::kNormal));
+          ApplyAccent(kDefaultAccentRgb);
+          RefreshTheme(state);
+        },
+        0, false, SheetPresentation::kStandard, "Swipe to reset");
+  });
+  lv_obj_set_pos(reset, 16, reset_y);
+  lv_obj_set_size(reset, 1280, 124);
+
+  if (theme_scroll_restore >= 0) {
+    lv_obj_update_layout(state->list);
+    lv_obj_scroll_to_y(state->list, theme_scroll_restore, LV_ANIM_OFF);
+    theme_scroll_restore = -1;
+  }
 }
 
 void BuildPreferences(Tools *state) {
@@ -1955,9 +2113,14 @@ void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void
   else if (tool == Action::kLogs) BuildLogs(state);
   else if (tool == Action::kUsers) BuildUsers(state);
   else BuildMenu(state);
-  Navigation(screen, tool == Action::kBackup || tool == Action::kRestore ? Action::kBackup :
-                     tool == Action::kWipe || tool == Action::kFormatData ? Action::kWipe : Action::kSettings,
-                     callback, context);
+  state->navigation =
+      Navigation(screen,
+                 tool == Action::kBackup || tool == Action::kRestore
+                     ? Action::kBackup
+                     : tool == Action::kWipe || tool == Action::kFormatData
+                           ? Action::kWipe
+                           : Action::kSettings,
+                 callback, context);
 }
 
 void BuildFastbootFormatScene(lv_obj_t *screen, ActionCallback callback,

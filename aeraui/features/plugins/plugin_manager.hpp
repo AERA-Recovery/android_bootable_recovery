@@ -56,6 +56,7 @@ struct Plugin {
   uint32_t protocol_version = 1;
   std::string executable;
   std::string icon;
+  std::string font_family;
   std::vector<std::string> permissions;
   Location location = Location::kNone;
   Trust trust = Trust::kOfficial;
@@ -99,6 +100,8 @@ bool IsPackageFile(const std::string &name);
 bool ResolvePayload(const std::string &id, Plugin &plugin, std::string &path,
                     std::string &error);
 bool IsGeneric(const Plugin &plugin);
+bool IsThemeExtension(const Plugin &plugin);
+bool IsLaunchable(const Plugin &plugin);
 bool HasPermission(const Plugin &plugin, const std::string &permission);
 
 const char *LocationLabel(Location location);
