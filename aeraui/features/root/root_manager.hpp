@@ -21,6 +21,7 @@ enum class Job {
   kRemoveModule,
   kUpdateModule,
   kInstallManager,
+  kUninstallManager,
 };
 
 struct Status {
@@ -78,6 +79,7 @@ struct Module {
 struct ManagerStatus {
   bool installed = false;
   bool staged = false;
+  bool removal_pending = false;
   std::string package_name;
   std::string detail;
 };
@@ -105,6 +107,8 @@ Release BundledRelease(Provider provider, const std::string &kmi);
 Release CachedRelease(Provider provider);
 std::vector<Module> InstalledModules();
 ManagerStatus InspectManager(Provider provider);
+bool PatchUpdateAvailable(const PatchInfo &patch, Provider provider,
+                          const Release &release);
 bool Run(const Request &request, Progress &progress);
 const char *ProviderName(Provider provider);
 

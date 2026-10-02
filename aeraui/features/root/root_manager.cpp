@@ -78,6 +78,40 @@ std::string Trim(std::string value) {
   return value.substr(first);
 }
 
+std::vector<uint64_t> VersionParts(const std::string &version) {
+  std::vector<uint64_t> parts;
+  size_t offset = 0;
+  while (offset < version.size()) {
+    while (offset < version.size() &&
+           !std::isdigit(static_cast<unsigned char>(version[offset])))
+      ++offset;
+    if (offset == version.size()) break;
+    uint64_t value = 0;
+    while (offset < version.size() &&
+           std::isdigit(static_cast<unsigned char>(version[offset]))) {
+      const unsigned digit = static_cast<unsigned>(version[offset] - '0');
+      value = value > (UINT64_MAX - digit) / 10
+                  ? UINT64_MAX : value * 10 + digit;
+      ++offset;
+    }
+    parts.push_back(value);
+  }
+  while (!parts.empty() && parts.back() == 0) parts.pop_back();
+  return parts;
+}
+
+int CompareVersions(const std::string &left, const std::string &right) {
+  const auto a = VersionParts(left);
+  const auto b = VersionParts(right);
+  const size_t count = std::max(a.size(), b.size());
+  for (size_t index = 0; index < count; ++index) {
+    const uint64_t av = index < a.size() ? a[index] : 0;
+    const uint64_t bv = index < b.size() ? b[index] : 0;
+    if (av != bv) return av > bv ? 1 : -1;
+  }
+  return 0;
+}
+
 std::vector<std::string> Lines(const std::string &text) {
   std::vector<std::string> result;
   std::istringstream input(text);
@@ -492,6 +526,29 @@ bool ManagerInstallerPending(Provider provider) {
           std::string::npos;
 }
 
+std::string ManagerRemovalMarker(Provider provider) {
+  return std::string(kManagerStaging) + "/" + ProviderId(provider) +
+         ".uninstall";
+}
+
+bool ManagerRemovalPending(Provider provider) {
+  const std::string service = std::string(kManagerModule) + "/service.sh";
+  const std::string removed = std::string(kManagerModule) + "/remove";
+  const std::string marker = ManagerRemovalMarker(provider);
+  struct stat marker_info{};
+  struct stat service_info{};
+  if (lstat(marker.c_str(), &marker_info) || !S_ISREG(marker_info.st_mode) ||
+      lstat(service.c_str(), &service_info) || !S_ISREG(service_info.st_mode) ||
+      access(removed.c_str(), F_OK) == 0)
+    return false;
+  std::string script;
+  if (!ReadText(service, script, 64 * 1024)) return false;
+  return script.find("ACTION='uninstall'") != std::string::npos &&
+      script.find("PACKAGE='" + std::string(ManagerPackage(provider)) + "'") !=
+          std::string::npos &&
+      script.find("MARKER='" + marker + "'") != std::string::npos;
+}
+
 bool ManagerAssetName(Provider provider, const std::string &name) {
   std::string lower = name;
   std::transform(lower.begin(), lower.end(), lower.begin(),
@@ -834,6 +891,7 @@ bool StageManagerFallback(const std::string &apk,
       !EnsureDirectory("/data/adb/modules") ||
       !EnsureDirectory(kManagerModule)) return false;
   const std::string module = kManagerModule;
+  unlink((module + "/remove").c_str());
   const std::string module_prop =
       "id=aera-manager-installer\n"
       "name=AERA Root Manager installer\n"
@@ -893,6 +951,90 @@ bool StageManagerFallback(const std::string &apk,
   return WriteText(module + "/module.prop", module_prop, 0644) &&
       WriteText(module + "/service.sh", script, 0755) &&
       WriteText(module + "/skip_mount", "", 0600);
+}
+
+bool StageManagerRemoval(Provider provider, Progress &progress) {
+  const std::string package_name = ManagerPackage(provider);
+  if (package_name.empty()) return false;
+  if (access("/data/system/packages.xml", R_OK)) {
+    SetText(progress, "Unlock data first",
+            "AERA needs decrypted Android data to remove the manager app.");
+    return false;
+  }
+  if (!PackageListed(package_name)) {
+    progress.value.store(100);
+    SetText(progress, "Manager already removed",
+            i18n::Format("%s is not installed in Android.",
+                         ProviderName(provider)));
+    return true;
+  }
+  if (!EnsureDirectory("/data/adb") ||
+      !EnsureDirectory("/data/adb/modules") ||
+      !EnsureDirectory(kManagerStaging) ||
+      !EnsureDirectory(kManagerModule)) {
+    SetText(progress, "Uninstall unavailable",
+            "Could not create the one-shot Android uninstall service.");
+    return false;
+  }
+
+  const std::string module = kManagerModule;
+  const std::string marker = ManagerRemovalMarker(provider);
+  const std::string staged_apk = ManagerStagingPath(provider);
+  unlink(staged_apk.c_str());
+  unlink((module + "/remove").c_str());
+  const std::string module_prop =
+      "id=aera-manager-installer\n"
+      "name=AERA Root Manager service\n"
+      "version=1\n"
+      "versionCode=1\n"
+      "author=AERA Recovery Project\n"
+      "description=One-shot manager app maintenance service\n";
+  const std::string script =
+      "#!/system/bin/sh\n"
+      "ACTION='uninstall'\n"
+      "PACKAGE='" + package_name + "'\n"
+      "MARKER='" + marker + "'\n"
+      "MODULE_ID='aera-manager-installer'\n"
+      "MODDIR='/data/adb/modules/aera-manager-installer'\n"
+      "LOG='/data/adb/aera/root-manager/uninstall.log'\n"
+      "boot_attempt=0\n"
+      "while [ \"$(getprop sys.boot_completed)\" != \"1\" ] && "
+          "[ \"$boot_attempt\" -lt 180 ]; do\n"
+      "  sleep 1\n"
+      "  boot_attempt=$((boot_attempt + 1))\n"
+      "done\n"
+      ": >\"$LOG\"\n"
+      "result=1\n"
+      "uninstall_attempt=0\n"
+      "while [ \"$uninstall_attempt\" -lt 30 ]; do\n"
+      "  /system/bin/pm uninstall \"$PACKAGE\" >>\"$LOG\" 2>&1\n"
+      "  result=$?\n"
+      "  [ \"$result\" -eq 0 ] && break\n"
+      "  uninstall_attempt=$((uninstall_attempt + 1))\n"
+      "  sleep 2\n"
+      "done\n"
+      "if [ \"$result\" -eq 0 ]; then\n"
+      "  rm -f \"$MARKER\"\n"
+      "  if [ -x /data/adb/ksud ]; then\n"
+      "    /data/adb/ksud module uninstall \"$MODULE_ID\" "
+          ">/dev/null 2>&1\n"
+      "  else\n"
+      "    touch \"$MODDIR/remove\"\n"
+      "  fi\n"
+      "fi\n";
+  if (!WriteText(marker, package_name + "\n", 0600) ||
+      !WriteText(module + "/module.prop", module_prop, 0644) ||
+      !WriteText(module + "/service.sh", script, 0755) ||
+      !WriteText(module + "/skip_mount", "", 0600)) {
+    unlink(marker.c_str());
+    SetText(progress, "Uninstall unavailable",
+            "Could not stage the one-shot Android uninstall service.");
+    return false;
+  }
+  progress.value.store(100);
+  SetText(progress, "Manager removal ready", i18n::Format(
+      "%s will be uninstalled when Android boots.", ProviderName(provider)));
+  return true;
 }
 
 bool InstallManager(Provider provider, Progress &progress) {
@@ -1478,6 +1620,14 @@ std::vector<Module> InstalledModules() {
   return LoadModules();
 }
 
+bool PatchUpdateAvailable(const PatchInfo &patch, Provider provider,
+                          const Release &release) {
+  return patch.patched && patch.aera_verified && release.available &&
+      patch.provider == ProviderName(provider) && !patch.version.empty() &&
+      !patch.kmi.empty() && patch.kmi == release.kmi &&
+      CompareVersions(release.version, patch.version) > 0;
+}
+
 ManagerStatus InspectManager(Provider provider) {
   ManagerStatus status;
   status.package_name = ManagerPackage(provider);
@@ -1494,6 +1644,7 @@ ManagerStatus InspectManager(Provider provider) {
   const bool has_staged_apk = access(staged_apk.c_str(), R_OK) == 0;
   const bool installer_pending =
       has_staged_apk && ManagerInstallerPending(provider);
+  const bool removal_pending = ManagerRemovalPending(provider);
   if (status.installed) {
     // The boot-time installer normally removes this after pm succeeds.  Also
     // clean it here so an interrupted or older installer cannot leave a stale
@@ -1501,8 +1652,11 @@ ManagerStatus InspectManager(Provider provider) {
     if (installer_pending)
       WriteText(std::string(kManagerModule) + "/remove", "", 0600);
     if (has_staged_apk) unlink(staged_apk.c_str());
-    status.detail = i18n::Format("%s is installed in Android.",
-                                 ProviderName(provider));
+    status.removal_pending = removal_pending;
+    status.detail = removal_pending
+        ? i18n::Format("%s will be uninstalled when Android boots.",
+                       ProviderName(provider))
+        : i18n::Format("%s is installed in Android.", ProviderName(provider));
   } else if (installer_pending) {
     status.staged = true;
     status.detail = i18n::Format(
@@ -1512,6 +1666,10 @@ ManagerStatus InspectManager(Provider provider) {
     // An APK without its matching active one-shot installer cannot be
     // installed on boot.  Remove the orphan instead of presenting it as ready.
     if (has_staged_apk) unlink(staged_apk.c_str());
+    if (removal_pending) {
+      unlink(ManagerRemovalMarker(provider).c_str());
+      WriteText(std::string(kManagerModule) + "/remove", "", 0600);
+    }
     status.detail = i18n::Format(
         "%s is not installed. Download the official manager app from GitHub.",
         ProviderName(provider));
@@ -1540,6 +1698,8 @@ bool Run(const Request &request, Progress &progress) {
     case Job::kRemoveModule: return ModuleCommand(request, progress);
     case Job::kUpdateModule: return UpdateModule(request, progress);
     case Job::kInstallManager: return InstallManager(request.provider, progress);
+    case Job::kUninstallManager:
+      return StageManagerRemoval(request.provider, progress);
   }
   return false;
 }

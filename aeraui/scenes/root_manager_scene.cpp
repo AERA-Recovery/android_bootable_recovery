@@ -54,14 +54,28 @@ struct RootUi {
 
 void RefreshUi(RootUi *state);
 
+void StyleRootButton(lv_obj_t *button, bool danger = false) {
+  if (!button) return;
+  lv_obj_set_style_radius(button, 24, 0);
+  lv_obj_set_style_bg_color(button, kMainPanel, 0);
+  lv_obj_set_style_bg_color(button, kMainSelected, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(button, 1, 0);
+  lv_obj_set_style_border_color(button, kMainLine, 0);
+  lv_obj_set_style_border_opa(button, LV_OPA_30, 0);
+  if (lv_obj_get_child_count(button))
+    lv_obj_set_style_text_color(lv_obj_get_child(button, 0),
+                                danger ? kRed : kText, 0);
+}
+
 void SetSelected(lv_obj_t *button, bool selected) {
   if (!button) return;
-  lv_obj_set_style_bg_color(button, selected ? kAccentSoft : kMainPanel, 0);
+  lv_obj_set_style_bg_color(button, kMainPanel, 0);
+  lv_obj_set_style_border_width(button, selected ? 3 : 1, 0);
   lv_obj_set_style_border_color(button, selected ? kAccent : kMainLine, 0);
-  lv_obj_set_style_border_opa(button, selected ? LV_OPA_70 : LV_OPA_30, 0);
+  lv_obj_set_style_border_opa(button, selected ? LV_OPA_COVER : LV_OPA_30, 0);
   if (lv_obj_get_child_count(button)) {
     auto *label = lv_obj_get_child(button, 0);
-    lv_obj_set_style_text_color(label, selected ? kAccent : kText, 0);
+    lv_obj_set_style_text_color(label, kText, 0);
   }
 }
 
@@ -118,7 +132,8 @@ void Start(RootUi *state, const root::Request &request) {
   state->done.store(false);
   SetBusy(state, true);
   state->active_job = request.job;
-  const bool manager = request.job == root::Job::kInstallManager;
+  const bool manager = request.job == root::Job::kInstallManager ||
+                       request.job == root::Job::kUninstallManager;
   lv_obj_t *bar = manager ? state->manager_progress : state->progress;
   lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN);
   lv_bar_set_value(bar, 0, LV_ANIM_OFF);
@@ -178,6 +193,34 @@ void ConfirmRollback(RootUi *state) {
           root::Request request;
           request.job = root::Job::kRollback;
           request.slot = state->slot;
+          Start(state, request);
+        });
+}
+
+void ConfirmManagerAction(RootUi *state) {
+  const root::ManagerStatus manager = root::InspectManager(state->provider);
+  if (manager.removal_pending || manager.staged) return;
+  if (manager.installed) {
+    Sheet(state->screen, "Uninstall manager app?",
+          std::string("AERA will schedule ") +
+              root::ProviderName(state->provider) +
+              " for removal the next time Android boots.",
+          [state] {
+            root::Request request;
+            request.job = root::Job::kUninstallManager;
+            request.provider = state->provider;
+            Start(state, request);
+          });
+    return;
+  }
+  Sheet(state->screen, "Install manager app?",
+        std::string("AERA will download and verify the latest official ") +
+            root::ProviderName(state->provider) +
+            " manager APK, then make it available when Android boots.",
+        [state] {
+          root::Request request;
+          request.job = root::Job::kInstallManager;
+          request.provider = state->provider;
           Start(state, request);
         });
 }
@@ -248,18 +291,21 @@ void RenderModules(RootUi *state) {
         [state, module] {
           ModuleAction(state, module, module.enabled ? root::Job::kDisableModule
                                                      : root::Job::kEnableModule);
-        }, module.enabled);
+        });
+    StyleRootButton(toggle);
     lv_obj_set_pos(toggle, 860, 24);
     lv_obj_set_size(toggle, 190, 82);
     auto *remove = Button(card, LV_SYMBOL_TRASH,
         [state, module] { ModuleAction(state, module, root::Job::kRemoveModule); });
+    StyleRootButton(remove, true);
     lv_obj_set_pos(remove, 1070, 24);
     lv_obj_set_size(remove, 150, 82);
     if (module.update_available) {
       const std::string update_text = std::string(LV_SYMBOL_DOWNLOAD) + "  " +
           i18n::Format("Update to %s", module.latest_version.c_str());
       auto *update = Button(card, update_text.c_str(),
-          [state, module] { ModuleAction(state, module, root::Job::kUpdateModule); }, true);
+          [state, module] { ModuleAction(state, module, root::Job::kUpdateModule); });
+      StyleRootButton(update);
       lv_obj_set_pos(update, 24, 126);
       lv_obj_set_size(update, 1196, 90);
     } else {
@@ -317,7 +363,17 @@ void RefreshUi(RootUi *state) {
         root::ProviderName(state->provider), release.version.c_str());
   }
   i18n::BindLabel(state->patch_detail, patch_detail.c_str());
-  if (!supported || !state->device.storage_ready)
+  const bool update_available =
+      root::PatchUpdateAvailable(state->patch, state->provider, release);
+  const char *patch_action = !state->patch.patched ? "Verify & patch" :
+      update_available ? "Update" :
+      state->patch.aera_verified &&
+              state->patch.provider == root::ProviderName(state->provider)
+          ? "Up to date" : "Already patched";
+  i18n::BindLabel(lv_obj_get_child(state->patch_button, 0), patch_action);
+  FitButtonLabel(state->patch_button);
+  if (!supported || !state->device.storage_ready ||
+      (state->patch.patched && !update_available))
     lv_obj_add_state(state->patch_button, LV_STATE_DISABLED);
   else if (!state->busy.load())
     lv_obj_remove_state(state->patch_button, LV_STATE_DISABLED);
@@ -328,14 +384,19 @@ void RefreshUi(RootUi *state) {
 
   const root::ManagerStatus manager = root::InspectManager(state->provider);
   i18n::BindLabel(state->manager_status,
+      manager.removal_pending ? "Manager removal ready" :
       manager.installed ? "Manager installed" :
       manager.staged ? "Manager ready for Android" : "Manager app missing");
   i18n::BindLabel(state->manager_detail, manager.detail.c_str());
   i18n::BindLabel(lv_obj_get_child(state->manager_button, 0),
-      manager.installed ? "Installed" :
+      manager.removal_pending ? "Pending reboot" :
+      manager.installed ? "Uninstall" :
       manager.staged ? "Ready on next boot" : "Download & install");
+  StyleRootButton(state->manager_button,
+                  manager.installed && !manager.removal_pending);
   FitButtonLabel(state->manager_button);
-  if (manager.installed || manager.staged || !state->device.storage_ready)
+  if (manager.removal_pending || manager.staged ||
+      !state->device.storage_ready)
     lv_obj_add_state(state->manager_button, LV_STATE_DISABLED);
   else if (!state->busy.load())
     lv_obj_remove_state(state->manager_button, LV_STATE_DISABLED);
@@ -353,7 +414,8 @@ void Poll(RootUi *state) {
     return;
   }
   if (state->busy.load()) {
-    const bool manager = state->active_job == root::Job::kInstallManager;
+    const bool manager = state->active_job == root::Job::kInstallManager ||
+                         state->active_job == root::Job::kUninstallManager;
     lv_obj_t *bar = manager ? state->manager_progress : state->progress;
     lv_bar_set_value(bar, static_cast<int>(state->work.value.load()), LV_ANIM_ON);
     const std::string status = ProgressText(state->work, false);
@@ -368,7 +430,8 @@ void Poll(RootUi *state) {
   if (state->busy.load() && state->done.exchange(false, std::memory_order_acq_rel)) {
     if (state->worker.joinable()) state->worker.join();
     SetBusy(state, false);
-    lv_bar_set_value(state->active_job == root::Job::kInstallManager
+    lv_bar_set_value((state->active_job == root::Job::kInstallManager ||
+                      state->active_job == root::Job::kUninstallManager)
                          ? state->manager_progress : state->progress,
                      static_cast<int>(state->work.value.load()), LV_ANIM_ON);
     RefreshUi(state);
@@ -435,7 +498,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
         });
     lv_obj_set_pos(state->provider_buttons[i], static_cast<int>(i) * 432, 320);
     lv_obj_set_size(state->provider_buttons[i], 412, 104);
-    lv_obj_set_style_border_width(state->provider_buttons[i], 2, 0);
+    StyleRootButton(state->provider_buttons[i]);
   }
 
   auto *slot_title = Label(state->list, "TARGET SLOT", &lv_font_montserrat_20, kMuted);
@@ -451,7 +514,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
         });
     lv_obj_set_pos(state->slot_buttons[i], static_cast<int>(i) * 652, 504);
     lv_obj_set_size(state->slot_buttons[i], 632, 104);
-    lv_obj_set_style_border_width(state->slot_buttons[i], 2, 0);
+    StyleRootButton(state->slot_buttons[i]);
   }
 
   auto *patch_card = lv_obj_create(state->list);
@@ -474,7 +537,8 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_style_radius(state->progress, 7, LV_PART_INDICATOR);
   state->patch_button = Button(patch_card, "Verify & patch", [state] {
     ConfirmPatch(state);
-  }, true);
+  });
+  StyleRootButton(state->patch_button);
   lv_obj_set_pos(state->patch_button, 32, 220);
   lv_obj_set_size(state->patch_button, 570, 106);
   state->refresh_release_button = Button(patch_card, "Check online", [state] {
@@ -483,11 +547,13 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
     request.provider = state->provider;
     Start(state, request);
   });
+  StyleRootButton(state->refresh_release_button);
   lv_obj_set_pos(state->refresh_release_button, 622, 220);
   lv_obj_set_size(state->refresh_release_button, 300, 106);
   state->rollback_button = Button(patch_card, "Restore backup", [state] {
     ConfirmRollback(state);
   });
+  StyleRootButton(state->rollback_button);
   lv_obj_set_pos(state->rollback_button, 942, 220);
   lv_obj_set_size(state->rollback_button, 338, 106);
 
@@ -519,18 +585,9 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_style_radius(state->manager_progress, 6, LV_PART_MAIN);
   lv_obj_set_style_radius(state->manager_progress, 6, LV_PART_INDICATOR);
   lv_obj_add_flag(state->manager_progress, LV_OBJ_FLAG_HIDDEN);
-  state->manager_button = Button(manager_card, "Download & install", [state] {
-    Sheet(state->screen, "Install manager app?",
-          std::string("AERA will download and verify the latest official ") +
-              root::ProviderName(state->provider) +
-              " manager APK, then make it available when Android boots.",
-          [state] {
-            root::Request request;
-            request.job = root::Job::kInstallManager;
-            request.provider = state->provider;
-            Start(state, request);
-          });
-  }, true);
+  state->manager_button = Button(manager_card, "Download & install",
+      [state] { ConfirmManagerAction(state); });
+  StyleRootButton(state->manager_button);
   lv_obj_set_pos(state->manager_button, 864, 52);
   lv_obj_set_size(state->manager_button, 420, 106);
 
@@ -543,6 +600,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
     root::Request request; request.job = root::Job::kRefreshModules;
     Start(state, request);
   });
+  StyleRootButton(refresh);
   lv_obj_set_pos(refresh, 962, 1330);
   lv_obj_set_size(refresh, 350, 96);
   state->module_list = lv_obj_create(state->list);
