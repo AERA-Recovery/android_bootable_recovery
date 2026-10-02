@@ -264,7 +264,7 @@ lv_obj_t *ProtocolButton(NasUi *state, lv_obj_t *parent, int x,
                          const char *type, const char *title) {
   const bool selected = state->snapshot.config.type == type;
   auto *button = lv_button_create(parent);
-  Panel(button, 28, selected ? kAccentSoft : kMainPanel);
+  Panel(button, 28, kMainPanel);
   Interactive(button, kMainSelected);
   lv_obj_set_pos(button, x, 28);
   lv_obj_set_size(button, 282, 112);
@@ -278,17 +278,38 @@ lv_obj_t *ProtocolButton(NasUi *state, lv_obj_t *parent, int x,
   return button;
 }
 
+void StyleSwitch(lv_obj_t *toggle, bool enabled) {
+  lv_obj_set_size(toggle, 108, 60);
+  lv_obj_remove_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(toggle, kMainLine, LV_PART_MAIN);
+  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER,
+                          LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(toggle, kAccent,
+                            LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(toggle, kText, LV_PART_KNOB);
+  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_KNOB);
+  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+  lv_obj_set_style_pad_all(toggle, -8, LV_PART_KNOB);
+  if (enabled)
+    lv_obj_add_state(toggle, LV_STATE_CHECKED);
+  else
+    lv_obj_remove_state(toggle, LV_STATE_CHECKED);
+}
+
 void AddCacheCard(NasUi *state, int x, int y) {
   const bool enabled = state->snapshot.config.cache_mode == "data";
   auto *card = lv_button_create(state->scene.list);
-  Panel(card, 30, enabled ? kAccentSoft : kMainSheet);
+  Panel(card, 30, kMainPanel);
   Interactive(card, kMainSelected);
   lv_obj_set_pos(card, x, y);
   lv_obj_set_size(card, 640, 160);
   lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
-  lv_obj_set_style_border_width(card, enabled ? 2 : 1, 0);
-  lv_obj_set_style_border_color(card, enabled ? kAccent : kMainLine, 0);
-  lv_obj_set_style_border_opa(card, enabled ? LV_OPA_50 : LV_OPA_30, 0);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_border_color(card, kMainLine, 0);
+  lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
   OnClick(card, [state] {
     if (state->snapshot.mounted) {
       Sheet(state->screen, "Network storage is mounted",
@@ -302,11 +323,11 @@ void AddCacheCard(NasUi *state, int x, int y) {
   auto *name = Label(card, "Write cache", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(name, 30, 26);
   auto *copy = Label(card, enabled ? "Write-back enabled" : "Off",
-                     &lv_font_montserrat_32, enabled ? kAccent : kText);
+                     &lv_font_montserrat_32, kText);
   lv_obj_set_pos(copy, 30, 78);
-  auto *end = Label(card, enabled ? "On" : "Off", &lv_font_montserrat_24,
-                    enabled ? kAccent : kMutedStrong);
-  lv_obj_align(end, LV_ALIGN_RIGHT_MID, -30, 0);
+  auto *toggle = lv_switch_create(card);
+  StyleSwitch(toggle, enabled);
+  lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -30, 0);
   AnimateEnter(card, 20 + static_cast<uint32_t>(y / 10), 9);
 }
 
@@ -453,7 +474,7 @@ NasScene BuildNasScene(lv_obj_t *screen, ActionCallback callback,
   state->scene.primary = Button(panel, "Mount & Use", [state] {
     Dispatch(state, state->snapshot.mounted ? NasOperation::kUse
                                             : NasOperation::kMountAndUse);
-  }, true);
+  });
   lv_obj_set_pos(state->scene.primary, 40, 210);
   lv_obj_set_size(state->scene.primary, 760, 104);
   lv_obj_set_style_radius(state->scene.primary, 30, 0);
