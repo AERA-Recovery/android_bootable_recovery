@@ -900,6 +900,18 @@ void DataManager::SetDefaultValues()
     mConst.SetValue("fox_disable_reflash_current", "0");
   #endif
 
+  #if defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION)
+    mConst.SetValue(AERA_RECOVERY_PRESERVATION_SUPPORTED, "1");
+  #else
+    mConst.SetValue(AERA_RECOVERY_PRESERVATION_SUPPORTED, "0");
+  #endif
+
+  #if defined(AERA_ENABLE_ABL_PRESERVATION)
+    mConst.SetValue(AERA_ABL_PRESERVATION_SUPPORTED, "1");
+  #else
+    mConst.SetValue(AERA_ABL_PRESERVATION_SUPPORTED, "0");
+  #endif
+
   #if defined(AERA_AB_DEVICE) || defined(AB_OTA_UPDATER)
     mData.SetValue("of_ab_device", "1");
   #else
@@ -1288,6 +1300,12 @@ void DataManager::SetDefaultValues()
   mPersist.SetValue(TW_TIME_ZONE_GUIOFFSET, "0");
   mPersist.SetValue(TW_TIME_ZONE_GUIDST, "1");
   mPersist.SetValue(TW_AUTO_REFLASHTWRP_VAR, "1");
+#if defined(OF_AB_DEVICE_WITH_RECOVERY_PARTITION)
+  mPersist.SetValue(AERA_PRESERVE_RECOVERY_VAR, "1");
+#else
+  mPersist.SetValue(AERA_PRESERVE_RECOVERY_VAR, "0");
+#endif
+  mPersist.SetValue(AERA_PRESERVE_ABL_VAR, "0");
 
   // avb2.0 disable
   // by patching boot image

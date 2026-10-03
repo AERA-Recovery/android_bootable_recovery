@@ -1066,6 +1066,8 @@ static const char *PreferenceVariable(Preference preference) {
     case Preference::kPluginAutoUpdate: return "aera_plugin_auto_update";
     case Preference::kUpdateNightly: return "aera_update_nightly";
     case Preference::kRecents: return "aera_recents_enabled";
+    case Preference::kPreserveRecovery: return AERA_PRESERVE_RECOVERY_VAR;
+    case Preference::kPreserveAbl: return AERA_PRESERVE_ABL_VAR;
   }
   return nullptr;
 }
@@ -1074,10 +1076,18 @@ bool RecoveryPreference(Preference preference) {
   const char *variable = PreferenceVariable(preference);
   return variable && DataManager::GetIntValue(variable) != 0;
 }
+bool RecoveryPreservationSupported() {
+  return DataManager::GetIntValue(AERA_RECOVERY_PRESERVATION_SUPPORTED) != 0;
+}
+bool RecoveryAblPreservationSupported() {
+  return DataManager::GetIntValue(AERA_ABL_PRESERVATION_SUPPORTED) != 0;
+}
 bool RecoverySha256Available() { return DataManager::GetIntValue(TW_NO_SHA2) == 0; }
 bool RecoverySetPreference(Preference preference, bool enabled) {
   const char *variable = PreferenceVariable(preference);
-  if (!variable || (preference == Preference::kSha256 && !RecoverySha256Available())) return false;
+  if (!variable || (preference == Preference::kSha256 && !RecoverySha256Available()) ||
+      (preference == Preference::kPreserveRecovery && !RecoveryPreservationSupported()) ||
+      (preference == Preference::kPreserveAbl && !RecoveryAblPreservationSupported())) return false;
   return DataManager::SetValue(variable, enabled ? 1 : 0) == 0;
 }
 int RecoveryUtcOffset() {
@@ -1356,6 +1366,8 @@ struct EarlyUiPreferences {
   int haptic_touch;
   int haptic_keyboard;
   int haptic_action;
+  int preserve_recovery;
+  int preserve_abl;
 };
 
 bool gEarlyPreferencesAttempted = false;
@@ -1424,6 +1436,9 @@ EarlyUiPreferences DefaultEarlyUiPreferences() {
   preferences.haptic_keyboard = 40;
   preferences.haptic_action = 160;
 #endif
+  preferences.preserve_recovery =
+      DataManager::GetIntValue(AERA_RECOVERY_PRESERVATION_SUPPORTED) != 0 ? 1 : 0;
+  preferences.preserve_abl = 0;
   return preferences;
 }
 
@@ -1464,6 +1479,10 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.haptic_touch = std::clamp(DataManager::GetIntValue("tw_button_vibrate"), 0, 300);
   preferences.haptic_keyboard = std::clamp(DataManager::GetIntValue("tw_keyboard_vibrate"), 0, 300);
   preferences.haptic_action = std::clamp(DataManager::GetIntValue("tw_action_vibrate"), 0, 500);
+  preferences.preserve_recovery =
+      DataManager::GetIntValue(AERA_PRESERVE_RECOVERY_VAR) != 0 ? 1 : 0;
+  preferences.preserve_abl =
+      DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) != 0 ? 1 : 0;
   return preferences;
 }
 
@@ -1531,6 +1550,12 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "haptic_action") {
     if (!ParseInteger(value, 0, 500, &parsed)) return false;
     preferences->haptic_action = parsed;
+  } else if (key == "preserve_recovery") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->preserve_recovery = parsed;
+  } else if (key == "preserve_abl") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->preserve_abl = parsed;
   } else {
     if (recognized != nullptr) *recognized = false;
     return false;
@@ -1558,6 +1583,9 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue("tw_button_vibrate", preferences.haptic_touch);
   DataManager::SetValue("tw_keyboard_vibrate", preferences.haptic_keyboard);
   DataManager::SetValue("tw_action_vibrate", preferences.haptic_action);
+  DataManager::SetValue(AERA_PRESERVE_RECOVERY_VAR,
+                        preferences.preserve_recovery);
+  DataManager::SetValue(AERA_PRESERVE_ABL_VAR, preferences.preserve_abl);
 }
 
 void ApplyEarlyUiSideEffects() {
@@ -1623,7 +1651,9 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "recents=" << preferences.recents << '\n'
          << "haptic_touch=" << preferences.haptic_touch << '\n'
          << "haptic_keyboard=" << preferences.haptic_keyboard << '\n'
-         << "haptic_action=" << preferences.haptic_action << '\n';
+         << "haptic_action=" << preferences.haptic_action << '\n'
+         << "preserve_recovery=" << preferences.preserve_recovery << '\n'
+         << "preserve_abl=" << preferences.preserve_abl << '\n';
   return output.str();
 }
 
@@ -1722,6 +1752,10 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "compression") DataManager::SetValue(TW_USE_COMPRESSION_VAR, value);
     else if (key == "sha256") DataManager::SetValue(TW_USE_SHA2, value);
     else if (key == "verify_zip") DataManager::SetValue(TW_SIGNED_ZIP_VERIFY_VAR, value);
+    else if (key == "preserve_recovery")
+      DataManager::SetValue(AERA_PRESERVE_RECOVERY_VAR, value);
+    else if (key == "preserve_abl")
+      DataManager::SetValue(AERA_PRESERVE_ABL_VAR, value);
     else if (key == "plugin_auto_update") DataManager::SetValue("aera_plugin_auto_update", value);
     else if (key == "update_nightly")
       DataManager::SetValue("aera_update_nightly", value);
@@ -1750,6 +1784,8 @@ bool SaveAeraPreferences() {
          << "compression=" << DataManager::GetIntValue(TW_USE_COMPRESSION_VAR) << '\n'
          << "sha256=" << DataManager::GetIntValue(TW_USE_SHA2) << '\n'
          << "verify_zip=" << DataManager::GetIntValue(TW_SIGNED_ZIP_VERIFY_VAR) << '\n'
+         << "preserve_recovery=" << DataManager::GetIntValue(AERA_PRESERVE_RECOVERY_VAR) << '\n'
+         << "preserve_abl=" << DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) << '\n'
          << "plugin_auto_update=" << DataManager::GetIntValue("aera_plugin_auto_update") << '\n'
          << "update_nightly=" << DataManager::GetIntValue("aera_update_nightly") << '\n'
          << "recents=" << DataManager::GetIntValue("aera_recents_enabled") << '\n'

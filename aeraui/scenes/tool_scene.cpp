@@ -1810,16 +1810,29 @@ void BuildPreferences(Tools *state) {
   PreferenceSection(state, 1100, "Files & installation");
   PreferenceToggle(state, 1180, "Show hidden files", "Include dot-prefixed files and folders", Preference::kHiddenFiles);
   PreferenceToggle(state, 1370, "Verify ZIP signatures", "Only install packages signed by a trusted recovery key", Preference::kVerifyZip);
-  PreferenceSection(state, 1610, "Backup & restore");
-  PreferenceToggle(state, 1690, "Compress backups by default", "Smaller archives; backup and restore may take longer", Preference::kCompression);
+  int installation_offset = 0;
+  if (RecoveryPreservationSupported()) {
+    PreferenceToggle(state, 1560 + installation_offset, "Keep AERA installed",
+                     "Restore the running AERA recovery to both slots after ZIP installs",
+                     Preference::kPreserveRecovery);
+    installation_offset += 190;
+  }
+  if (RecoveryAblPreservationSupported()) {
+    PreferenceToggle(state, 1560 + installation_offset, "Keep current ABL",
+                     "Restore the active-slot ABL to both slots after ZIP installs",
+                     Preference::kPreserveAbl);
+    installation_offset += 190;
+  }
+  PreferenceSection(state, 1610 + installation_offset, "Backup & restore");
+  PreferenceToggle(state, 1690 + installation_offset, "Compress backups by default", "Smaller archives; backup and restore may take longer", Preference::kCompression);
   if (RecoverySha256Available())
-    PreferenceToggle(state, 1880, "SHA-256 backup checksums", "On: SHA-256 / Off: legacy MD5 checksums", Preference::kSha256);
+    PreferenceToggle(state, 1880 + installation_offset, "SHA-256 backup checksums", "On: SHA-256 / Off: legacy MD5 checksums", Preference::kSha256);
   auto *integrity = Label(state->list,
       "Backup checksums are always generated. Restore verification stays on.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(integrity, 116, 2080);
+  lv_obj_set_pos(integrity, 116, 2080 + installation_offset);
   lv_obj_set_width(integrity, 1120);
-  PreferenceSection(state, 2230, "USB connection");
+  PreferenceSection(state, 2230 + installation_offset, "USB connection");
   auto *mtp = Button(state->list, RecoveryMtpEnabled() ? "USB file transfer: on" :
                        "USB file transfer: off", [] {});
   auto *mtp_label = lv_obj_get_child(mtp, 0);
@@ -1828,31 +1841,32 @@ void BuildPreferences(Tools *state) {
       Sheet(state->screen, "USB transfer unavailable", "Check that storage is unlocked and mounted.");
     i18n::BindLabel(mtp_label, RecoveryMtpEnabled() ? "USB file transfer: on" : "USB file transfer: off");
   });
-  lv_obj_set_pos(mtp, 32, 2330);
+  lv_obj_set_pos(mtp, 32, 2330 + installation_offset);
   lv_obj_set_size(mtp, 1248, 132);
   auto *hint = Label(state->list,
       "MTP makes accessible storage available to your computer.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(hint, 48, 2510);
+  lv_obj_set_pos(hint, 48, 2510 + installation_offset);
   lv_obj_set_width(hint, 1190);
   if (RecoveryHapticsAvailable()) {
-    PreferenceSection(state, 2630, "Haptics");
-    HapticSlider(state, 2710, "Touch feedback",
+    PreferenceSection(state, 2630 + installation_offset, "Haptics");
+    HapticSlider(state, 2710 + installation_offset, "Touch feedback",
                  "Buttons, cards and navigation", Haptic::kTouch, 300);
-    HapticSlider(state, 2950, "Keyboard feedback",
+    HapticSlider(state, 2950 + installation_offset, "Keyboard feedback",
                  "Keys in PIN, Wi-Fi and text entry", Haptic::kKeyboard, 300);
-    HapticSlider(state, 3190, "Operation feedback",
+    HapticSlider(state, 3190 + installation_offset, "Operation feedback",
                  "A stronger pulse when recovery work finishes", Haptic::kAction, 500);
     auto *test = Button(state->list, "Test operation vibration", [] {
       RecoveryVibrate(Haptic::kAction);
     });
-    lv_obj_set_pos(test, 32, 3430);
+    lv_obj_set_pos(test, 32, 3430 + installation_offset);
     lv_obj_set_size(test, 1248, 124);
   }
   auto *save_hint = Label(state->list,
       "Changes apply now. Save to keep preferences after reboot.\nSettings storage must be available to save.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(save_hint, 48, RecoveryHapticsAvailable() ? 3620 : 2630);
+  lv_obj_set_pos(save_hint, 48,
+                 (RecoveryHapticsAvailable() ? 3620 : 2630) + installation_offset);
   lv_obj_set_width(save_hint, 1190);
   auto *save = Button(state->screen, "Save preferences", [state] {
     const bool saved = RecoverySavePreferences();

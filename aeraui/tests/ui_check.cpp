@@ -18,7 +18,8 @@
 using namespace aeraui;
 static std::string backup_root;
 static std::string file_root;
-static bool preferences[8] = {true, false, true, true, false, false, false, true};
+static bool preferences[10] = {true, false, true, true, false, false, false, true,
+                               true, false};
 static int utc_offset = 120;
 static uint32_t accent_color = design::kDefaultAccentRgb;
 static bool light_mode = false;
@@ -45,6 +46,8 @@ std::string LaunchBlockReason() { return "Sandbox unavailable in this test."; }
 namespace aeraui {
 bool RecoveryPreference(Preference p) { return preferences[static_cast<int>(p)]; }
 bool RecoverySetPreference(Preference p, bool enabled) { preferences[static_cast<int>(p)] = enabled; return true; }
+bool RecoveryPreservationSupported() { return true; }
+bool RecoveryAblPreservationSupported() { return true; }
 bool RecoverySha256Available() { return true; }
 int RecoveryUtcOffset() { return utc_offset; }
 bool RecoverySetUtcOffset(int minutes) { utc_offset = minutes; return true; }
@@ -525,6 +528,8 @@ int main(int argc,char **argv) {
       {"24-hour clock",Preference::kClock24},{"Gesture navigation",Preference::kRecents},
       {"Show hidden files",Preference::kHiddenFiles},
       {"Verify ZIP signatures",Preference::kVerifyZip},{"Compress backups by default",Preference::kCompression},
+      {"Keep AERA installed",Preference::kPreserveRecovery},
+      {"Keep current ABL",Preference::kPreserveAbl},
       {"SHA-256 backup checksums",Preference::kSha256}}) {
     const bool old=RecoveryPreference(item.second);
     auto *toggle=Find(prefs,item.first); assert(toggle);

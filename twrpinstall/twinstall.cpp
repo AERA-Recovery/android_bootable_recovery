@@ -34,13 +34,20 @@
 #include <sys/mount.h>
 #include <unistd.h>
 #include <algorithm>
+#include <cstdint>
 #include <iostream>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <vector>
 
 #include <string.h>
 #include <stdio.h>
+#include <linux/fs.h>
+#include <openssl/sha.h>
 #include <cutils/properties.h>
+#include <sys/ioctl.h>
+#include <sys/statvfs.h>
 
 #include <android-base/unique_fd.h>
 
@@ -98,6 +105,278 @@ static void Append_Aera_Install_Status(const char* line) {
 	}
 	DataManager::SetValue("aera_install_status", history);
 }
+
+namespace {
+
+constexpr char kPreservationDirectory[] = "/tmp/aera-partition-preservation";
+constexpr uint64_t kPreservationHeadroom = 16ULL * 1024ULL * 1024ULL;
+
+struct PreservedPartition {
+	std::string label;
+	std::string partition;
+	std::string slot_a;
+	std::string slot_b;
+	std::string source;
+	std::string backup;
+	std::string digest;
+	uint64_t bytes = 0;
+};
+
+void PreservationStatus(const std::string& message) {
+	Append_Aera_Install_Status(message.c_str());
+	gui_print("%s\n", message.c_str());
+}
+
+void PreservationError(const std::string& message) {
+	const std::string full = "Partition protection failed: " + message;
+	Append_Aera_Install_Status(full.c_str());
+	gui_print_color("error", "%s\n", full.c_str());
+}
+
+std::string CurrentSlotSuffix() {
+	std::string slot = android::base::GetProperty("ro.boot.slot_suffix", "");
+	if (slot.empty())
+		slot = android::base::GetProperty("ro.boot.slot", "");
+	if (slot == "a" || slot == "_a") return "_a";
+	if (slot == "b" || slot == "_b") return "_b";
+	const std::string display = PartitionManager.Get_Active_Slot_Display();
+	if (display == "A") return "_a";
+	if (display == "B") return "_b";
+	return {};
+}
+
+std::string ResolveSlotPartition(const std::string& partition,
+		const std::string& suffix) {
+	for (const char* root : {"/dev/block/bootdevice/by-name/",
+						 "/dev/block/by-name/"}) {
+		const std::string path = std::string(root) + partition + suffix;
+		if (TWFunc::Path_Exists(path)) return path;
+	}
+	return {};
+}
+
+bool BlockDeviceSize(const std::string& path, uint64_t* bytes) {
+	android::base::unique_fd fd(open(path.c_str(), O_RDONLY | O_CLOEXEC));
+	if (fd.get() < 0) return false;
+	uint64_t size = 0;
+	if (ioctl(fd.get(), BLKGETSIZE64, &size) != 0 || size == 0) return false;
+	*bytes = size;
+	return true;
+}
+
+bool CopyExact(const std::string& source, const std::string& destination,
+		uint64_t bytes, bool destination_is_file) {
+	android::base::unique_fd input(open(source.c_str(), O_RDONLY | O_CLOEXEC));
+	if (input.get() < 0) return false;
+	int flags = O_WRONLY | O_CLOEXEC;
+	if (destination_is_file) flags |= O_CREAT | O_TRUNC;
+	android::base::unique_fd output(open(destination.c_str(), flags, 0600));
+	if (output.get() < 0) return false;
+
+	std::vector<unsigned char> buffer(1024 * 1024);
+	uint64_t remaining = bytes;
+	while (remaining > 0) {
+		const size_t request = static_cast<size_t>(
+				std::min<uint64_t>(remaining, buffer.size()));
+		ssize_t count;
+		do {
+			count = read(input.get(), buffer.data(), request);
+		} while (count < 0 && errno == EINTR);
+		if (count <= 0) return false;
+
+		ssize_t written = 0;
+		while (written < count) {
+			ssize_t result;
+			do {
+				result = write(output.get(), buffer.data() + written,
+						count - written);
+			} while (result < 0 && errno == EINTR);
+			if (result <= 0) return false;
+			written += result;
+		}
+		remaining -= static_cast<uint64_t>(count);
+	}
+	return fsync(output.get()) == 0;
+}
+
+bool Sha256Exact(const std::string& path, uint64_t bytes, std::string* digest) {
+	android::base::unique_fd fd(open(path.c_str(), O_RDONLY | O_CLOEXEC));
+	if (fd.get() < 0) return false;
+	SHA256_CTX context;
+	if (SHA256_Init(&context) != 1) return false;
+	std::vector<unsigned char> buffer(1024 * 1024);
+	uint64_t remaining = bytes;
+	while (remaining > 0) {
+		const size_t request = static_cast<size_t>(
+				std::min<uint64_t>(remaining, buffer.size()));
+		ssize_t count;
+		do {
+			count = read(fd.get(), buffer.data(), request);
+		} while (count < 0 && errno == EINTR);
+		if (count <= 0 || SHA256_Update(&context, buffer.data(), count) != 1)
+			return false;
+		remaining -= static_cast<uint64_t>(count);
+	}
+	unsigned char hash[SHA256_DIGEST_LENGTH];
+	if (SHA256_Final(hash, &context) != 1) return false;
+	std::ostringstream value;
+	value << std::hex << std::setfill('0');
+	for (unsigned char byte : hash)
+		value << std::setw(2) << static_cast<unsigned int>(byte);
+	*digest = value.str();
+	return true;
+}
+
+bool ZipEntryContains(ZipArchiveHandle archive, const char* path,
+		const char* marker) {
+	ZipEntry64 entry;
+	if (FindEntry(archive, path, &entry) != 0 || entry.uncompressed_length == 0 ||
+			entry.uncompressed_length > 128 * 1024)
+		return false;
+	std::vector<uint8_t> contents(entry.uncompressed_length);
+	if (ExtractToMemory(archive, &entry, contents.data(), contents.size()) != 0)
+		return false;
+	return std::string(reinterpret_cast<const char*>(contents.data()),
+			contents.size()).find(marker) != std::string::npos;
+}
+
+bool IsAeraRecoveryPackage(ZipArchiveHandle archive) {
+	ZipEntry64 recovery_image;
+	return FindEntry(archive, "recovery.img", &recovery_image) == 0 &&
+			ZipEntryContains(archive, "INSTALL.txt",
+					"AERA Recovery Project installation") &&
+			ZipEntryContains(archive, "META-INF/debug/fox_build_vars.txt",
+					"AERA_PRODUCT_PREFIX=\"AERA\"");
+}
+
+class PartitionPreserver {
+public:
+	bool Prepare(bool allow_recovery_preservation) {
+		Cleanup();
+		const bool preserve_recovery =
+				allow_recovery_preservation &&
+				DataManager::GetIntValue(AERA_RECOVERY_PRESERVATION_SUPPORTED) != 0 &&
+				DataManager::GetIntValue(AERA_PRESERVE_RECOVERY_VAR) != 0;
+		const bool preserve_abl =
+				DataManager::GetIntValue(AERA_ABL_PRESERVATION_SUPPORTED) != 0 &&
+				DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) != 0;
+		if (!preserve_recovery && !preserve_abl) return true;
+
+		const std::string slot = CurrentSlotSuffix();
+		if (slot.empty()) {
+			PreservationError("the active slot could not be determined");
+			return false;
+		}
+		if (preserve_recovery && !Add("AERA recovery", "recovery", slot)) {
+			Cleanup();
+			return false;
+		}
+		if (preserve_abl && !Add("current ABL", "abl", slot)) {
+			Cleanup();
+			return false;
+		}
+
+		uint64_t required = kPreservationHeadroom;
+		for (const auto& target : targets_) {
+			if (UINT64_MAX - required < target.bytes) {
+				PreservationError("the required temporary size overflowed");
+				Cleanup();
+				return false;
+			}
+			required += target.bytes;
+		}
+		struct statvfs filesystem = {};
+		if (statvfs("/tmp", &filesystem) != 0 ||
+				static_cast<uint64_t>(filesystem.f_bavail) * filesystem.f_frsize < required) {
+			PreservationError("not enough free RAM is available in /tmp");
+			Cleanup();
+			return false;
+		}
+
+		TWFunc::removeDir(kPreservationDirectory, false);
+		if (mkdir(kPreservationDirectory, 0700) != 0 && errno != EEXIST) {
+			PreservationError("the temporary backup directory could not be created");
+			Cleanup();
+			return false;
+		}
+		for (auto& target : targets_) {
+			target.backup = std::string(kPreservationDirectory) + "/" +
+					target.partition + ".img";
+			PreservationStatus("Backing up protected " + target.label);
+			if (!CopyExact(target.source, target.backup, target.bytes, true) ||
+					!Sha256Exact(target.backup, target.bytes, &target.digest)) {
+				PreservationError("the " + target.label + " backup could not be verified");
+				Cleanup();
+				return false;
+			}
+		}
+		prepared_ = true;
+		return true;
+	}
+
+	bool Finalize() {
+		if (!prepared_) return true;
+		PartitionManager.Unlock_Block_Partitions();
+		bool success = true;
+		for (const auto& target : targets_) {
+			for (const auto& slot : std::vector<std::pair<const char*, std::string>>{
+						{"A", target.slot_a}, {"B", target.slot_b}}) {
+				std::string installed_digest;
+				if (Sha256Exact(slot.second, target.bytes, &installed_digest) &&
+						installed_digest == target.digest)
+					continue;
+				PreservationStatus("Restoring protected " + target.label +
+						" to slot " + slot.first);
+				std::string restored_digest;
+				if (!CopyExact(target.backup, slot.second, target.bytes, false) ||
+						!Sha256Exact(slot.second, target.bytes, &restored_digest) ||
+						restored_digest != target.digest) {
+					PreservationError("the " + target.label + " restore to slot " +
+							slot.first + " could not be verified");
+					success = false;
+				}
+			}
+		}
+		if (success)
+			PreservationStatus("Protected partitions verified on both slots");
+		Cleanup();
+		return success;
+	}
+
+private:
+	bool Add(const std::string& label, const std::string& partition,
+			const std::string& current_slot) {
+		PreservedPartition target;
+		target.label = label;
+		target.partition = partition;
+		target.slot_a = ResolveSlotPartition(partition, "_a");
+		target.slot_b = ResolveSlotPartition(partition, "_b");
+		target.source = current_slot == "_a" ? target.slot_a : target.slot_b;
+		uint64_t size_a = 0, size_b = 0;
+		if (target.slot_a.empty() || target.slot_b.empty() || target.source.empty() ||
+				!BlockDeviceSize(target.slot_a, &size_a) ||
+				!BlockDeviceSize(target.slot_b, &size_b) || size_a != size_b) {
+			PreservationError("the " + partition + " A/B partitions are unavailable or incompatible");
+			return false;
+		}
+		target.bytes = size_a;
+		targets_.push_back(std::move(target));
+		return true;
+	}
+
+	void Cleanup() {
+		for (const auto& target : targets_)
+			if (!target.backup.empty()) unlink(target.backup.c_str());
+		rmdir(kPreservationDirectory);
+		targets_.clear();
+		prepared_ = false;
+	}
+
+	std::vector<PreservedPartition> targets_;
+	bool prepared_ = false;
+};
+
+}  // namespace
 
 static std::vector<std::string> Split_Aera_Installer_Fields(
 		const char* payload, size_t maximum_fields) {
@@ -486,6 +765,9 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
       gui_err("zip_corrupt=Zip file is corrupt!");
       return INSTALL_CORRUPT;
     }
+	const bool aera_recovery_package = IsAeraRecoveryPackage(Zip);
+	if (aera_recovery_package)
+		PreservationStatus("AERA recovery package detected; allowing recovery update");
 
     if (unmount_system) {
 	if (PartitionManager.Is_Mounted_By_Path(PartitionManager.Get_Android_Root_Path())) {
@@ -524,6 +806,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 
   time_t start, stop;
   time(&start);
+  PartitionPreserver preserver;
 
   std::string update_binary_name(UPDATE_BINARY_NAME);
   ZipEntry64 update_binary_entry;
@@ -533,6 +816,8 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 		if (!Fox_Skip_Treble_Compatibility_Check() && !verify_package_compatibility(Zip)) {
 			gui_err("zip_compatible_err=Zip Treble compatibility error!");
 			ret_val = INSTALL_CORRUPT;
+		} else if (!preserver.Prepare(!aera_recovery_package)) {
+			ret_val = INSTALL_ERROR;
 		} else {
 			ret_val = Prepare_Update_Binary(path, Zip);
 			if (ret_val == INSTALL_SUCCESS) {
@@ -558,6 +843,9 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 		ZipEntry64 ab_binary_entry;
 		if (FindEntry(Zip, ab_binary_name, &ab_binary_entry) == 0) {
 			LOGINFO("AB zip\n");
+			if (!preserver.Prepare(!aera_recovery_package)) {
+				ret_val = INSTALL_ERROR;
+			} else {
 			gui_msg(Msg(msg::kHighlight, "flash_ab_inactive=Flashing A/B zip to inactive slot: {1}")(PartitionManager.Get_Active_Slot_Display()=="A"?"B":"A"));
 			// We need this so backuptool can do its magic
 			bool system_mount_state = PartitionManager.Is_Mounted_By_Path(PartitionManager.Get_Android_Root_Path());
@@ -573,8 +861,6 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 			if (run_rom_scripts && TWFunc::Path_Exists(AERA_PRE_ROM_FLASH_SCRIPT)) {
 				TWFunc::RunFoxScript(AERA_PRE_ROM_FLASH_SCRIPT, path);
 			}
-
-			TWFunc::IsRecoveryOverwritten(true);
 
 			ret_val = Run_Update_Binary(path, wipe_cache, AB_OTA_ZIP_TYPE);
 
@@ -592,6 +878,7 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 				gui_warn("mount_vab_partitions=Devices on super may not mount until after rebooting recovery.");
 			}
 			gui_warn("flash_ab_reboot=To flash additional zips, please reboot recovery to switch to the updated slot.");
+			}
 		} else {
 			std::string binary_name("ui.xml");
 			ZipEntry64 binary_entry;
@@ -603,6 +890,8 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
 			}
 		}
    }
+
+  if (!preserver.Finalize()) ret_val = INSTALL_ERROR;
 
   time(&stop);
   int total_time = (int) difftime(stop, start);

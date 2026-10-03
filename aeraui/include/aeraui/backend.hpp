@@ -139,9 +139,13 @@ enum class Preference {
   kPluginAutoUpdate,
   kUpdateNightly,
   kRecents,
+  kPreserveRecovery,
+  kPreserveAbl,
 };
 bool RecoveryPreference(Preference preference);
 bool RecoverySetPreference(Preference preference, bool enabled);
+bool RecoveryPreservationSupported();
+bool RecoveryAblPreservationSupported();
 bool RecoverySha256Available();
 int RecoveryUtcOffset();  // Minutes east of UTC.
 bool RecoverySetUtcOffset(int minutes);

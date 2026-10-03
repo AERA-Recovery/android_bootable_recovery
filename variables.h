@@ -363,6 +363,10 @@ static int Aera_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI
 #define TW_IS_SUPER             "tw_is_super"
 #define TW_VIRTUAL_AB_ENABLED   "tw_virtual_ab.enabled"
 #define TW_AUTO_REFLASHTWRP_VAR "tw_auto_reflashtwrp"
+#define AERA_PRESERVE_RECOVERY_VAR "aera_preserve_recovery"
+#define AERA_PRESERVE_ABL_VAR      "aera_preserve_abl"
+#define AERA_RECOVERY_PRESERVATION_SUPPORTED "aera_recovery_preservation_supported"
+#define AERA_ABL_PRESERVATION_SUPPORTED      "aera_abl_preservation_supported"
 
 // BUILD PROPS
 // Keep runtime AERA mode state under the writable sys.usb.config.* property

@@ -178,6 +178,10 @@ ifeq ($(OF_AB_DEVICE_WITH_RECOVERY_PARTITION),1)
     endif
 endif
 
+ifneq ($(filter 1 true,$(AERA_ENABLE_ABL_PRESERVATION)),)
+    LOCAL_CFLAGS += -DAERA_ENABLE_ABL_PRESERVATION=1
+endif
+
 ifeq ($(AERA_AB_DEVICE),1)
     LOCAL_CFLAGS += -DAERA_AB_DEVICE='"1"'
     ifneq ($(AB_OTA_UPDATER),true)

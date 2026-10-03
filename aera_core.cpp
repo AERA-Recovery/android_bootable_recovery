@@ -643,10 +643,6 @@ int Fox_Prepare_Update_Binary(const char *path, ZipArchiveHandle Zip)
   DataManager::SetValue("found_fox_overwriting_rom", "0");
   TWFunc::Fox_Property_Set("found_fox_overwriting_rom", "");
   DataManager::SetValue("found_non_standard_vAB_install", "0");
-#ifdef AB_OTA_UPDATER
-  TWFunc::IsRecoveryOverwritten(true);
-#endif
-
   if (TWFunc::Block_Operations_Until_Reboot())
 	return INSTALL_ERROR;
 
@@ -1111,13 +1107,6 @@ void Fox_Post_Zip_Install(const int result)
 	}
 	#endif
 	//---- Virtual A/B compensations ---- //
-#ifdef AB_OTA_UPDATER
-	if (DataManager::GetIntValue(TW_AUTO_REFLASHTWRP_VAR) && TWFunc::IsRecoveryOverwritten()) {
-		twrpRepacker repacker;
-		repacker.Flash_Current_Twrp();
-		TWFunc::IsRecoveryOverwritten(true);
-	}
-#endif
          PartitionManager.Update_System_Details();
 	// Run any custom script after completion of all ROM flashing processes
 	TWFunc::RunFoxScript("/system/bin/post_rom_flash_completion.sh", "");
