@@ -875,13 +875,37 @@ static drmModeConnector *find_main_monitor(int fd, drmModeRes *resources,
         return nullptr;
 
     *mode_index = 0;
+    uint32_t preferred_mode = 0;
     for (int modes = 0; modes < main_monitor_connector->count_modes; modes++) {
         if (main_monitor_connector->modes[modes].type &
                 DRM_MODE_TYPE_PREFERRED) {
+            preferred_mode = modes;
+            break;
+        }
+    }
+    *mode_index = preferred_mode;
+
+#if defined(AERA_DRM_FIXED_REFRESH_RATE) && AERA_DRM_FIXED_REFRESH_RATE > 0
+    const drmModeModeInfo& preferred =
+        main_monitor_connector->modes[preferred_mode];
+    for (int modes = 0; modes < main_monitor_connector->count_modes; modes++) {
+        const drmModeModeInfo& candidate =
+            main_monitor_connector->modes[modes];
+        printf("display mode candidate %d: %dx%d @ %d Hz, hskew=%d%s\n",
+               modes, candidate.hdisplay, candidate.vdisplay,
+               candidate.vrefresh, candidate.hskew,
+               modes == static_cast<int>(preferred_mode) ? " preferred" : "");
+        if (candidate.hdisplay == preferred.hdisplay &&
+            candidate.vdisplay == preferred.vdisplay &&
+            candidate.vrefresh == AERA_DRM_FIXED_REFRESH_RATE &&
+            candidate.hskew == 0) {
             *mode_index = modes;
             break;
         }
     }
+    printf("AERA fixed DRM refresh request: %d Hz; selected mode %u\n",
+           AERA_DRM_FIXED_REFRESH_RATE, *mode_index);
+#endif
 
     return main_monitor_connector;
 }

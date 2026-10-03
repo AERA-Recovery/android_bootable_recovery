@@ -31,6 +31,10 @@ import (
 func globalFlags(ctx android.BaseContext) []string {
 	var cflags []string
 
+	if fixedRefreshRate := getMakeVars(ctx, "AERA_DRM_FIXED_REFRESH_RATE"); fixedRefreshRate != "" {
+		cflags = append(cflags, "-DAERA_DRM_FIXED_REFRESH_RATE="+fixedRefreshRate)
+	}
+
 	if getMakeVars(ctx, "TW_SUPPORT_INPUT_FF_HAPTICS") == "true" {
 		cflags = append(cflags, "-DUSE_INPUT_FF_HAPTICS")
 	}
