@@ -119,6 +119,8 @@ struct PreservedPartition {
 	std::string source;
 	std::string backup;
 	std::string digest;
+	std::string before_a;
+	std::string before_b;
 	uint64_t bytes = 0;
 };
 
@@ -309,6 +311,21 @@ public:
 				Cleanup();
 				return false;
 			}
+			if (target.source == target.slot_a) {
+				target.before_a = target.digest;
+				if (!Sha256Exact(target.slot_b, target.bytes, &target.before_b)) {
+					PreservationError("the " + target.label + " state on slot B could not be recorded");
+					Cleanup();
+					return false;
+				}
+			} else {
+				target.before_b = target.digest;
+				if (!Sha256Exact(target.slot_a, target.bytes, &target.before_a)) {
+					PreservationError("the " + target.label + " state on slot A could not be recorded");
+					Cleanup();
+					return false;
+				}
+			}
 		}
 		prepared_ = true;
 		return true;
@@ -319,11 +336,22 @@ public:
 		PartitionManager.Unlock_Block_Partitions();
 		bool success = true;
 		for (const auto& target : targets_) {
+			std::string after_a;
+			std::string after_b;
+			const bool read_a = Sha256Exact(target.slot_a, target.bytes, &after_a);
+			const bool read_b = Sha256Exact(target.slot_b, target.bytes, &after_b);
+			if (read_a && read_b && after_a == target.before_a &&
+					after_b == target.before_b) {
+				LOGINFO("Partition protection: %s was not changed; no restore needed\n",
+						target.label.c_str());
+				continue;
+			}
 			for (const auto& slot : std::vector<std::pair<const char*, std::string>>{
 						{"A", target.slot_a}, {"B", target.slot_b}}) {
-				std::string installed_digest;
-				if (Sha256Exact(slot.second, target.bytes, &installed_digest) &&
-						installed_digest == target.digest)
+				const std::string& installed_digest =
+						slot.first[0] == 'A' ? after_a : after_b;
+				const bool digest_available = slot.first[0] == 'A' ? read_a : read_b;
+				if (digest_available && installed_digest == target.digest)
 					continue;
 				PreservationStatus("Restoring protected " + target.label +
 						" to slot " + slot.first);
