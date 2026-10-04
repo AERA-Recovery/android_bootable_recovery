@@ -637,6 +637,10 @@ void Refresh(StatusState *state, bool refresh_battery) {
     strftime(clock_text, sizeof(clock_text),
              RecoveryPreference(Preference::kClock24) ? "%H:%M" : "%I:%M %p", &local);
   i18n::BindLabel(state->clock, clock_text);
+  lv_obj_update_layout(state->bar);
+
+  lv_obj_t *activity_anchor = state->clock;
+  int activity_gap = 26;
 
   const auto mirror = plugin_api::ActiveMirrorMode();
   if (mirror != plugin_api::MirrorMode::kOff) {
@@ -645,25 +649,29 @@ void Refresh(StatusState *state, bool refresh_battery) {
             ? std::string(LV_SYMBOL_VIDEO) + "  Wi-Fi Mirror"
             : std::string(LV_SYMBOL_USB) + "  USB Mirror";
     i18n::BindLabel(state->mirror, text.c_str());
-    lv_obj_align_to(state->mirror, state->clock, LV_ALIGN_OUT_RIGHT_MID, 26, 0);
+    lv_obj_align_to(state->mirror, activity_anchor,
+                    LV_ALIGN_OUT_RIGHT_MID, activity_gap, 0);
     lv_obj_remove_flag(state->mirror, LV_OBJ_FLAG_HIDDEN);
+    activity_anchor = state->mirror;
+    activity_gap = 18;
   } else {
     lv_obj_add_flag(state->mirror, LV_OBJ_FLAG_HIDDEN);
   }
 
   const auto download = web::CurrentDownloadSummary();
   if (download.active_count) {
-    lv_obj_align(state->download, LV_ALIGN_LEFT_MID,
-                 mirror != plugin_api::MirrorMode::kOff ? 584 : 250, 0);
+    lv_obj_align_to(state->download, activity_anchor,
+                    LV_ALIGN_OUT_RIGHT_MID, activity_gap, 0);
     lv_obj_remove_flag(state->download, LV_OBJ_FLAG_HIDDEN);
+    activity_anchor = state->download;
+    activity_gap = 18;
   } else {
     lv_obj_add_flag(state->download, LV_OBJ_FLAG_HIDDEN);
   }
-  const int activity_x = mirror != plugin_api::MirrorMode::kOff
-      ? (download.active_count ? 660 : 620)
-      : (download.active_count ? 330 : 250);
-  lv_obj_align(state->recording_dot, LV_ALIGN_LEFT_MID, activity_x, 0);
-  lv_obj_align(state->recording, LV_ALIGN_LEFT_MID, activity_x + 30, 0);
+  lv_obj_align_to(state->recording_dot, activity_anchor,
+                  LV_ALIGN_OUT_RIGHT_MID, activity_gap, 0);
+  lv_obj_align_to(state->recording, state->recording_dot,
+                  LV_ALIGN_OUT_RIGHT_MID, 14, 0);
 
   const auto recording = recorder::GetSnapshot();
   if (recorder::Active()) {
