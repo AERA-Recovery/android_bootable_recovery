@@ -836,18 +836,20 @@ public:
     if (event.pressed && !was_pressed) {
       const int32_t visible_width = landscape_ ? height_ : width_;
       const int32_t edge = std::max(72, visible_width / 20);
-      if (pointer_.x <= edge)
+      if (pointer_.x <= edge) {
         BeginEdgeSwipe(false);
-      else if (pointer_.x >= visible_width - edge)
+      } else if (pointer_.x >= visible_width - edge) {
         BeginEdgeSwipe(true);
+      }
       return;
     }
 
     if (event.pressed && swipe_active_) {
+      if (swipe_rejected_) return;
       const int32_t vertical = std::abs(pointer_.y - swipe_start_y_);
       const int32_t visible_height = landscape_ ? width_ : height_;
-      if (vertical > visible_height / 8) {
-        CancelEdgeSwipe();
+      if (!edge_contact_captured_ && vertical > visible_height / 8) {
+        RejectEdgeSwipe();
         return;
       }
       swipe_last_y_ = pointer_.y;
@@ -856,6 +858,14 @@ public:
                                : pointer_.x - swipe_start_x_);
       swipe_max_inward_ = std::max(swipe_max_inward_, inward);
       UpdateEdgeSwipe(inward);
+      const int32_t visible_width = landscape_ ? height_ : width_;
+      if (!edge_contact_captured_ &&
+          swipe_max_inward_ >= visible_width / 6 &&
+          swipe_max_inward_ > vertical * 2) {
+        edge_contact_captured_ = true;
+        if (pointer_device_ != nullptr)
+          lv_indev_reset(pointer_device_, nullptr);
+      }
       return;
     }
 
@@ -863,12 +873,10 @@ public:
       // Several touch controllers zero ABS_MT_POSITION_Y when the tracking ID
       // is released. Validate direction with the last coordinate seen while
       // the contact was still active.
-      const int32_t vertical = std::abs(swipe_last_y_ - swipe_start_y_);
-      const int32_t visible_width = landscape_ ? height_ : width_;
-      const bool accepted = swipe_max_inward_ >= visible_width / 6 &&
-                            swipe_max_inward_ > vertical * 2;
+      const bool accepted = edge_contact_captured_;
       const bool right_edge = swipe_right_edge_;
       FinishEdgeSwipe(accepted);
+      edge_contact_captured_ = false;
       if (accepted) {
         if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
         RecoveryVibrate(Haptic::kTouch);
@@ -2976,6 +2984,8 @@ private:
   void BeginEdgeSwipe(bool right_edge) {
     CancelEdgeSwipe();
     swipe_active_ = true;
+    edge_contact_captured_ = false;
+    swipe_rejected_ = false;
     swipe_right_edge_ = right_edge;
     swipe_start_x_ = pointer_.x;
     swipe_start_y_ = pointer_.y;
@@ -3026,6 +3036,7 @@ private:
 
   void FinishEdgeSwipe(bool accepted) {
     swipe_active_ = false;
+    swipe_rejected_ = false;
     gesture_navigate_back_ = accepted;
     if (gesture_indicator_ == nullptr) {
       gesture_navigate_back_ = false;
@@ -3044,8 +3055,21 @@ private:
     lv_anim_start(&settle);
   }
 
+  void RejectEdgeSwipe() {
+    swipe_rejected_ = true;
+    gesture_navigate_back_ = false;
+    lv_anim_delete(this, SetEdgeGestureDepth);
+    if (gesture_indicator_ != nullptr) {
+      lv_obj_delete(gesture_indicator_);
+      gesture_indicator_ = nullptr;
+    }
+    gesture_depth_ = 0;
+  }
+
   void CancelEdgeSwipe() {
     swipe_active_ = false;
+    edge_contact_captured_ = false;
+    swipe_rejected_ = false;
     gesture_navigate_back_ = false;
     lv_anim_delete(this, SetEdgeGestureDepth);
     if (gesture_indicator_ != nullptr) {
@@ -3238,8 +3262,9 @@ private:
       data->point.x = self->pointer_.x;
       data->point.y = self->pointer_.y;
     }
-    data->state = self->pointer_.pressed ? LV_INDEV_STATE_PRESSED
-                                         : LV_INDEV_STATE_RELEASED;
+    data->state = self->pointer_.pressed && !self->edge_contact_captured_
+        ? LV_INDEV_STATE_PRESSED
+        : LV_INDEV_STATE_RELEASED;
   }
 
   int32_t physical_width_ = 0;
@@ -3374,6 +3399,8 @@ private:
   bool interactive_ready_ = false;
   bool navigating_back_ = false;
   bool swipe_active_ = false;
+  bool edge_contact_captured_ = false;
+  bool swipe_rejected_ = false;
   bool swipe_right_edge_ = false;
   bool gesture_navigate_back_ = false;
   bool recents_swipe_active_ = false;
