@@ -556,6 +556,7 @@ endif
 LOCAL_C_INCLUDES += system/vold \
 
 TWRP_REQUIRED_MODULES += \
+    task_profiles.json \
     relink_libraries \
     relink_binaries \
     relink_vendor_hw_binaries \
@@ -646,7 +647,6 @@ TWRP_REQUIRED_MODULES += \
 ifneq ($(TW_INCLUDE_CRYPTO),)
 TWRP_REQUIRED_MODULES += \
     vold_prepare_subdirs \
-    task_profiles.json \
     fscryptpolicyget.recovery \
     keystore_auth \
     keystore2 \

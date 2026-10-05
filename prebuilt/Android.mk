@@ -492,6 +492,7 @@ LOCAL_POST_INSTALL_CMD += \
     mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/etc/selinux/ && \
     mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/vendor/etc/selinux/ && \
     mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/etc/task_profiles/ && \
+    cp $(TARGET_OUT_ETC)/task_profiles.json $(TARGET_RECOVERY_ROOT_OUT)/system/etc/task_profiles.json && \
     cp $(TARGET_OUT_ETC)/selinux/plat_service_contexts $(TARGET_RECOVERY_ROOT_OUT)/system/etc/selinux/plat_service_contexts && \
     cp $(TARGET_OUT_ETC)/selinux/plat_hwservice_contexts $(TARGET_RECOVERY_ROOT_OUT)/system/etc/selinux/plat_hwservice_contexts && \
     cp $(TARGET_OUT_VENDOR_ETC)/selinux/vndservice_contexts $(TARGET_RECOVERY_ROOT_OUT)/vendor/etc/selinux/vndservice_contexts && \
