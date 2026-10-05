@@ -302,10 +302,18 @@ void Handle(int descriptor) {
     return;
   }
   if (request.method == "GET" && request.path == "/screen.jpg") {
+    // Captures run only while someone asks, so the newest JPEG can be from
+    // the previous request, long ago. Wait for one taken after this request.
+    uint64_t before = 0;
+    std::string stale;
+    frames::Latest(&stale, &before);
     frames::Request();
     std::string jpeg;
-    for (int attempt = 0; attempt < 20 && !frames::Latest(&jpeg, nullptr); ++attempt)
+    uint64_t generation = 0;
+    for (int attempt = 0; attempt < 20; ++attempt) {
+      if (frames::Latest(&jpeg, &generation) && generation != before) break;
       std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
     if (jpeg.empty()) Reply(descriptor, "503 Service Unavailable", "text/plain", "No frame\n");
     else Reply(descriptor, "200 OK", "image/jpeg", jpeg);
     return;
