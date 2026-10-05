@@ -462,7 +462,9 @@ public:
     const int rpc_fd = aera::rpc::Channel::InputFd();
     if (rpc_fd >= 0) {
       pollfd rpc{rpc_fd, POLLIN, 0};
-      if (poll(&rpc, 1, 0) > 0 && (rpc.revents & POLLIN))
+      // A writer that closes between two frames leaves only POLLHUP: the
+      // request is already buffered and its end is that hang-up.
+      if (poll(&rpc, 1, 0) > 0 && (rpc.revents & (POLLIN | POLLHUP)))
         aera::rpc::Channel::HandleInput();
     }
     const int cancel_fd = aera::rpc::Channel::CancelFd();
