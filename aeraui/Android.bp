@@ -20,6 +20,8 @@ cc_library_static {
     srcs: [
         "components/aera_logo.cpp",
         "components/android_icon.cpp",
+        "components/file_picker.cpp",
+        "components/file_picker_list.cpp",
         "components/matrix_engraving.cpp",
         "components/picture_decode.cpp",
         "components/picture_viewer.cpp",

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "scene.hpp"
 #include "browser/runtime.hpp"
+#include "file_picker.hpp"
 #include "phone_keyboard.hpp"
 #include "picture_decode.hpp"
 #include "telegram/launcher.hpp"
@@ -772,145 +773,19 @@ void SetChatKeyboard(TelegramScene *scene, bool visible) {
   lv_obj_scroll_to_y(scene->list, scene->item_y, LV_ANIM_OFF);
 }
 
-struct AttachmentEntry {
-  std::string name;
-  std::string path;
-  bool directory = false;
-  uint64_t size = 0;
-};
-
-struct PickerThumbnail {
-  std::string path;
-  int y = 0;
-  lv_obj_t *preview = nullptr;
-  lv_obj_t *placeholder = nullptr;
-  lv_obj_t *image = nullptr;
-  std::shared_ptr<PictureData> data;
-  lv_image_dsc_t descriptor{};
-  int state = 0;
-};
-
-struct AttachmentPickerState {
-  lv_obj_t *list = nullptr;
-  lv_timer_t *timer = nullptr;
-  std::vector<std::unique_ptr<PickerThumbnail>> thumbnails;
-  int loading = -1;
-};
-
-bool PickerThumbnailVisible(const AttachmentPickerState *state,
-                            const PickerThumbnail *thumbnail) {
-  const int scroll = lv_obj_get_scroll_y(state->list);
-  const int viewport = lv_obj_get_height(state->list);
-  return thumbnail->y + 142 >= scroll - 142 &&
-         thumbnail->y <= scroll + viewport + 142;
-}
-
-void ShowPickerThumbnail(PickerThumbnail *thumbnail) {
-  if (!thumbnail->data || !thumbnail->data->pixels) {
-    thumbnail->state = 3;
-    thumbnail->data.reset();
-    return;
-  }
-  auto &descriptor = thumbnail->descriptor;
-  descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
-  descriptor.header.cf = LV_COLOR_FORMAT_ARGB8888;
-  descriptor.header.w = thumbnail->data->width;
-  descriptor.header.h = thumbnail->data->height;
-  descriptor.header.stride = thumbnail->data->width * 4;
-  descriptor.data_size = thumbnail->data->width * thumbnail->data->height * 4;
-  descriptor.data = thumbnail->data->pixels;
-  thumbnail->image = lv_image_create(thumbnail->preview);
-  lv_image_set_src(thumbnail->image, &descriptor);
-  lv_image_set_antialias(thumbnail->image, true);
-  const uint32_t scale = std::max(
-      (76U * 256 + thumbnail->data->width - 1) / thumbnail->data->width,
-      (76U * 256 + thumbnail->data->height - 1) / thumbnail->data->height);
-  lv_image_set_scale(thumbnail->image, scale);
-  lv_obj_center(thumbnail->image);
-  lv_obj_remove_flag(thumbnail->image, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_flag(thumbnail->placeholder, LV_OBJ_FLAG_HIDDEN);
-  thumbnail->state = 2;
-}
-
-void AttachmentPickerTick(lv_timer_t *timer) {
-  auto *state = static_cast<AttachmentPickerState *>(
-      lv_timer_get_user_data(timer));
-  if (!state || !state->list) return;
-  if (state->loading >= 0) {
-    auto *thumbnail = state->thumbnails[state->loading].get();
-    if (thumbnail->data &&
-        thumbnail->data->ready.load(std::memory_order_acquire)) {
-      ShowPickerThumbnail(thumbnail);
-      state->loading = -1;
-    }
-  }
-  if (state->loading >= 0) return;
-  for (size_t index = 0; index < state->thumbnails.size(); ++index) {
-    auto *thumbnail = state->thumbnails[index].get();
-    if (thumbnail->state != 0 ||
-        !PickerThumbnailVisible(state, thumbnail)) continue;
-    thumbnail->state = 1;
-    thumbnail->data = std::make_shared<PictureData>();
-    state->loading = static_cast<int>(index);
-    std::thread([data = thumbnail->data, path = thumbnail->path] {
-      DecodePictureThumbnail(path, 76, 76, *data);
-    }).detach();
-    break;
-  }
-}
-
-void DeleteAttachmentPicker(lv_event_t *event) {
-  auto *state = static_cast<AttachmentPickerState *>(
-      lv_event_get_user_data(event));
-  if (!state) return;
-  if (state->timer) lv_timer_delete(state->timer);
-  for (auto &thumbnail : state->thumbnails) {
-    if (thumbnail->data) thumbnail->data->cancelled = true;
-    if (thumbnail->image) {
-      lv_obj_delete(thumbnail->image);
-      thumbnail->image = nullptr;
-      lv_image_cache_drop(&thumbnail->descriptor);
-    }
-  }
-  delete state;
-}
-
-bool StoragePath(const std::string &path) {
-  for (const char *root : {"/sdcard", "/mnt/nas", "/usb_otg",
-                           "/external_sd"}) {
-    const size_t length = strlen(root);
-    if (path == root || (path.compare(0, length, root) == 0 &&
-        path.size() > length && path[length] == '/')) return true;
-  }
-  return false;
-}
-
-std::string StorageRoot(const std::string &path) {
-  for (const char *root : {"/sdcard", "/mnt/nas", "/usb_otg",
-                           "/external_sd"}) {
-    const size_t length = strlen(root);
-    if (path == root || (path.compare(0, length, root) == 0 &&
-        path.size() > length && path[length] == '/')) return root;
-  }
-  return {};
-}
-
-std::string ParentDirectory(const std::string &path) {
-  const std::string root = StorageRoot(path);
-  if (root.empty() || path == root) return {};
-  const auto slash = path.find_last_of('/');
-  if (slash == std::string::npos || slash < root.size()) return root;
-  return path.substr(0, slash);
-}
-
-std::vector<AttachmentEntry> AttachmentRoots() {
-  std::vector<AttachmentEntry> roots;
+// The storage Telegram's worker can read, as the picker's roots.
+std::vector<std::pair<std::string, std::string>> AttachmentRoots() {
+  std::vector<std::pair<std::string, std::string>> roots;
   auto add = [&roots](const std::string &name, const std::string &path) {
-    if (!StoragePath(path)) return;
-    if (std::any_of(roots.begin(), roots.end(), [&](const auto &entry) {
-          return entry.path == path;
+    bool storage = false;
+    for (const char *root : {"/sdcard", "/mnt/nas", "/usb_otg",
+                             "/external_sd"})
+      storage = storage || path == root;
+    if (!storage) return;
+    if (std::any_of(roots.begin(), roots.end(), [&](const auto &root) {
+          return root.second == path;
         })) return;
-    roots.push_back({name, path, true, 0});
+    roots.emplace_back(name, path);
   };
   // Recovery exposes internal storage to applications as /sdcard even when
   // the partition backend reports its physical /data/media/0 path.
@@ -932,150 +807,24 @@ std::vector<AttachmentEntry> AttachmentRoots() {
   return roots;
 }
 
-void ShowAttachmentPicker(TelegramScene *scene, const std::string &requested) {
-  const bool root_view = requested.empty() || !StoragePath(requested) ||
-      requested.find("/../") != std::string::npos;
-  const std::string path = !root_view
-      ? requested : std::string{};
-  auto *overlay = lv_obj_create(scene->screen);
-  Clear(overlay);
-  lv_obj_set_user_data(overlay, &kModalMarker);
-  lv_obj_set_align(overlay, LV_ALIGN_TOP_LEFT);
-  const int status_height = StatusBarHeight();
-  const int overlay_width = lv_obj_get_width(scene->screen);
-  const int overlay_height = lv_obj_get_height(scene->screen) - status_height;
-  lv_obj_set_pos(overlay, 0, status_height);
-  lv_obj_set_size(overlay, overlay_width, overlay_height);
-  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
-  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
-
-  auto *close = Button(overlay, LV_SYMBOL_LEFT, [overlay] {
-    lv_obj_delete_async(overlay);
-  });
-  lv_obj_set_pos(close, 24, 20);
-  lv_obj_set_size(close, 120, 112);
-  auto *title = Label(overlay, "Attach a file", &lv_font_montserrat_48, kText);
-  lv_obj_set_pos(title, 174, 22);
-  auto *where = Label(overlay, root_view ? "Available storage" : path.c_str(),
-                      &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(where, 174, 84);
-  lv_obj_set_width(where, scene->landscape ? 2850 : 1190);
-  lv_label_set_long_mode(where, LV_LABEL_LONG_DOT);
-
-  auto *list = lv_obj_create(overlay);
-  Clear(list);
-  lv_obj_set_pos(list, 24, 160);
-  lv_obj_set_size(list, overlay_width - 48, overlay_height - 184);
-  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(list, LV_DIR_VER);
-  lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
-  auto *picker = new AttachmentPickerState;
-  picker->list = list;
-  lv_obj_add_event_cb(overlay, DeleteAttachmentPicker, LV_EVENT_DELETE, picker);
-
-  std::vector<AttachmentEntry> entries = root_view
-      ? AttachmentRoots() : std::vector<AttachmentEntry>{};
-  if (!root_view)
-    entries.push_back({"Up one level", ParentDirectory(path), true, 0});
-  if (!root_view) {
-    if (DIR *directory = opendir(path.c_str())) {
-      while (auto *item = readdir(directory)) {
-        if (!strcmp(item->d_name, ".") || !strcmp(item->d_name, "..")) continue;
-        std::string child = path + "/" + item->d_name;
-        if (child.size() >= telegram::kTextBytes) continue;
-        struct stat info{};
-        if (lstat(child.c_str(), &info) != 0 || S_ISLNK(info.st_mode)) continue;
-        if (!S_ISDIR(info.st_mode) && !S_ISREG(info.st_mode)) continue;
-        entries.push_back({item->d_name, std::move(child), S_ISDIR(info.st_mode),
-                           static_cast<uint64_t>(std::max<off_t>(0, info.st_size))});
-        if (entries.size() >= 300) break;
-      }
-      closedir(directory);
+void ShowAttachmentPicker(TelegramScene *scene) {
+  file_picker::Request request;
+  request.mode = file_picker::Mode::kFile;
+  request.title = "Attach a file";
+  request.roots = AttachmentRoots();
+  request.max_path = telegram::kTextBytes;
+  file_picker::Show(scene->screen, std::move(request),
+                    [scene](std::vector<std::string> paths) {
+    const std::string &path = paths.front();
+    if (!scene->Send(telegram::Kind::kSendFile, path, scene->chat_id,
+                     scene->reply_to_message_id)) return;
+    ClearComposerContext(scene);
+    if (scene->detail) {
+      const std::string name = path.substr(path.find_last_of('/') + 1);
+      const std::string status = i18n::Format("Uploading %s", name.c_str());
+      i18n::BindLabel(scene->detail, status.c_str());
     }
-  }
-  const size_t parent_rows = root_view ? 0 : 1;
-  std::sort(entries.begin() + parent_rows, entries.end(),
-            [](const AttachmentEntry &left, const AttachmentEntry &right) {
-    if (left.directory != right.directory) return left.directory > right.directory;
-    return left.name < right.name;
   });
-
-  int y = 0;
-  for (size_t index = 0; index < entries.size(); ++index) {
-    const auto &entry = entries[index];
-    const bool up = !root_view && index == 0;
-    auto *row = Button(list, "", [scene, overlay, entry] {
-      if (entry.directory) {
-        ShowAttachmentPicker(scene, entry.path);
-        lv_obj_delete_async(overlay);
-        return;
-      }
-      if (scene->Send(telegram::Kind::kSendFile, entry.path, scene->chat_id,
-                      scene->reply_to_message_id)) {
-        ClearComposerContext(scene);
-        if (scene->detail) {
-          const std::string status =
-              i18n::Format("Uploading %s", entry.name.c_str());
-          i18n::BindLabel(scene->detail, status.c_str());
-        }
-      }
-      lv_obj_delete_async(overlay);
-    });
-    lv_obj_set_pos(row, 0, y);
-    const int row_width = overlay_width - 48;
-    lv_obj_set_size(row, row_width, 142);
-    lv_obj_set_style_radius(row, up ? 26 : 0, 0);
-    lv_obj_set_style_bg_color(row, up ? kMainPanel : kMainCanvas, 0);
-    lv_obj_set_style_bg_opa(row, up ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
-    if (!entry.directory && IsPicture(entry.path)) {
-      auto thumbnail = std::make_unique<PickerThumbnail>();
-      thumbnail->path = entry.path;
-      thumbnail->y = y;
-      thumbnail->preview = lv_obj_create(row);
-      Clear(thumbnail->preview);
-      lv_obj_set_pos(thumbnail->preview, 22, 32);
-      lv_obj_set_size(thumbnail->preview, 76, 76);
-      lv_obj_set_style_radius(thumbnail->preview, 18, 0);
-      lv_obj_set_style_clip_corner(thumbnail->preview, true, 0);
-      lv_obj_set_style_bg_color(thumbnail->preview, kMainPanel, 0);
-      lv_obj_set_style_bg_opa(thumbnail->preview, LV_OPA_COVER, 0);
-      lv_obj_remove_flag(thumbnail->preview, LV_OBJ_FLAG_SCROLLABLE);
-      thumbnail->placeholder = Label(thumbnail->preview, LV_SYMBOL_IMAGE,
-                                     &lv_font_montserrat_28, kAccent);
-      lv_obj_center(thumbnail->placeholder);
-      picker->thumbnails.push_back(std::move(thumbnail));
-    } else {
-      auto *icon = IconPlate(row,
-          up ? LV_SYMBOL_UP :
-              entry.directory ? LV_SYMBOL_DIRECTORY : LV_SYMBOL_FILE,
-          entry.directory ? kCyan : kAccent, kMainPanel, 76);
-      lv_obj_set_pos(icon, 22, 32);
-    }
-    auto *name = Label(row, entry.name.c_str(), &lv_font_montserrat_32, kText);
-    lv_obj_set_pos(name, 126, 24);
-    lv_obj_set_width(name, row_width - 280);
-    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
-    const std::string meta = up
-        ? (path == StorageRoot(path) ? "Storage locations" :
-           ParentDirectory(path))
-        : entry.directory ? (root_view ? "Storage" : "Folder")
-                          : Size(entry.size);
-    auto *detail = Label(row, meta.c_str(), &lv_font_montserrat_24, kMuted);
-    lv_obj_set_pos(detail, 126, 82);
-    auto *arrow = Label(row, entry.directory ? LV_SYMBOL_RIGHT : LV_SYMBOL_PLUS,
-                        &lv_font_montserrat_32,
-                        entry.directory ? kMutedStrong : kCyan);
-    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -34, 0);
-    y += 142;
-  }
-  if (entries.empty()) {
-    auto *empty = Label(list, root_view ? "No readable storage is mounted" :
-                        "No attachable files in this folder",
-                        &lv_font_montserrat_32, kMuted);
-    lv_obj_align(empty, LV_ALIGN_TOP_MID, 0, 100);
-  }
-  if (!picker->thumbnails.empty())
-    picker->timer = lv_timer_create(AttachmentPickerTick, 35, picker);
 }
 
 void ApplyMessageStatus(lv_obj_t *label, uint32_t status) {
@@ -1245,7 +994,7 @@ void OpenChat(TelegramScene *scene, int64_t id, const std::string &title) {
 
   scene->attach_button = Button(scene->surface, LV_SYMBOL_PLUS, [scene] {
     SetChatKeyboard(scene, false);
-    ShowAttachmentPicker(scene, "");
+    ShowAttachmentPicker(scene);
   });
   lv_obj_set_pos(scene->attach_button, scene->landscape ? 1600 : 32,
                  scene->landscape ? 170 : 2780);
