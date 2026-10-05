@@ -387,6 +387,7 @@ bool Start(int port) {
     return false;
   }
 
+  input::Prepare();
   g_access_code = GenerateCode();
   g_listener = listener;
   g_port = port;

@@ -118,6 +118,12 @@ int KeyCode(const std::string& name) {
 
 }  // namespace
 
+bool Prepare() {
+  auto& device = Shared();
+  std::lock_guard<std::mutex> guard(device.lock);
+  return Open(&device);
+}
+
 bool Touch(const std::string& action, int x, int y) {
   auto& device = Shared();
   std::lock_guard<std::mutex> guard(device.lock);
