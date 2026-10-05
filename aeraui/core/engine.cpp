@@ -761,6 +761,19 @@ public:
         visible_y = logical_x;
       }
     }
+    RoutePointer(event.slot, visible_x, visible_y, event.pressed);
+  }
+
+  // Routes one contact event, in visible-screen coordinates.
+  void RoutePointer(int slot, int32_t visible_x, int32_t visible_y,
+                    bool pressed) {
+    bool first_contact = false;
+    if (slot == 0) {
+      first_contact = pressed && !slot0_down_;
+      slot0_down_ = pressed;
+      // A new contact ends one that was held and never released.
+      if (first_contact) recents_pending_ = false;
+    }
     // Global raw-input consumers live below lock/operation overlays. Keep
     // those consumers from stealing contacts that belong to trusted AERA UI.
     if (suspended_ || lock_overlay_ != nullptr || power_overlay_ != nullptr ||
@@ -768,72 +781,107 @@ public:
         operation_running_ || nas_running_ || plugin_running_ ||
         update_installing_ ||
         (update_running_ && update_task_ == UpdateTask::kDownload)) {
-      if (event.slot != 0) return;
+      if (slot != 0) return;
       pointer_.x = visible_x;
       pointer_.y = visible_y;
-      pointer_.pressed = event.pressed;
+      pointer_.pressed = pressed;
       CancelEdgeSwipe();
       CancelRecentsSwipe();
       return;
     }
-    if (event.slot == 0 && recents_swipe_active_) {
+    if (slot == 0 && recents_swipe_active_) {
       pointer_.x = visible_x;
       pointer_.y = visible_y;
       pointer_.pressed = false;
-      if (event.pressed)
+      if (pressed)
         UpdateRecentsSwipe(visible_x, visible_y);
       else
         FinishRecentsSwipe();
       return;
     }
     if (recents_overlay_ != nullptr) {
-      if (event.slot != 0) return;
+      if (slot != 0) return;
       pointer_.x = visible_x;
       pointer_.y = visible_y;
-      pointer_.pressed = recents_transition_active_ ? false : event.pressed;
+      pointer_.pressed = recents_transition_active_ ? false : pressed;
       CancelEdgeSwipe();
       return;
     }
-    if (event.slot == 0 && event.pressed &&
-        RecoveryPreference(Preference::kRecents) && !fastboot_mode_ &&
-        !decryption_active_) {
+    // A contact that lands in the bottom strip may be the Recents swipe.
+    // Decide by movement, as Android's gesture navigation does: nothing is
+    // shown while it stays within the touch slop; once it moves up, mostly
+    // vertically, the swipe starts from where it landed. A tap, or a contact
+    // that moves along the edge, goes to what is under it.
+    if (slot == 0 && recents_pending_) {
+      const int32_t upward = recents_pending_y_ - visible_y;
+      const int32_t sideways = std::abs(visible_x - recents_pending_x_);
+      const int32_t slop = std::max(16, RecentsStripHeight() / 3);
+      if (pressed && upward <= slop && sideways <= slop) return;
+      recents_pending_ = false;
+      if (pressed && upward > sideways) {
+        BeginRecentsSwipe(recents_pending_x_, recents_pending_y_);
+        UpdateRecentsSwipe(visible_x, visible_y);
+        return;
+      }
+      // Released within the slop, it is released where it landed: some
+      // controllers zero a coordinate on release.
+      if (!pressed) {
+        visible_x = recents_pending_x_;
+        visible_y = recents_pending_y_;
+      }
+      slot0_down_ = true;
+      RoutePointer(0, recents_pending_x_, recents_pending_y_, true);
+      if (!pressed && pointer_.pressed) {
+        // AERA's own UI has the press: LVGL reads it once before the release,
+        // so a tap is a click.
+        CancelEdgeSwipe();
+        pointer_release_on_read_ = true;
+        slot0_down_ = false;
+        return;
+      }
+      slot0_down_ = pressed;
+    }
+    if (first_contact && RecoveryPreference(Preference::kRecents) &&
+        !fastboot_mode_ && !decryption_active_) {
       const int32_t visible_width = landscape_ ? height_ : width_;
       const int32_t visible_height = landscape_ ? width_ : height_;
-      const int32_t bottom_edge = std::max(64, visible_height / 44);
       const int32_t side_guard = std::max(76, visible_width / 22);
-      if (visible_y >= visible_height - bottom_edge &&
+      if (visible_y >= visible_height - RecentsStripHeight() &&
           visible_x > side_guard && visible_x < visible_width - side_guard) {
         pointer_.x = visible_x;
         pointer_.y = visible_y;
         pointer_.pressed = false;
+        pointer_release_on_read_ = false;
         CancelEdgeSwipe();
         if (pointer_device_ != nullptr)
           lv_indev_reset(pointer_device_, nullptr);
-        BeginRecentsSwipe(visible_x, visible_y);
+        recents_pending_ = true;
+        recents_pending_x_ = visible_x;
+        recents_pending_y_ = visible_y;
         return;
       }
     }
-    if (PictureViewerHandlePointer(event.slot, visible_x, visible_y,
-                                   event.pressed)) {
+    if (PictureViewerHandlePointer(slot, visible_x, visible_y,
+                                   pressed)) {
       CancelEdgeSwipe();
       pointer_.pressed = false;
       if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
       return;
     }
-    if (BrowserHandlePointer(event.slot, visible_x, visible_y,
-                             event.pressed)) {
+    if (BrowserHandlePointer(slot, visible_x, visible_y, pressed)) {
       CancelEdgeSwipe();
       pointer_.pressed = false;
       if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
       return;
     }
-    if (event.slot != 0) return;
+    if (slot != 0) return;
     const bool was_pressed = pointer_.pressed;
     pointer_.x = visible_x;
     pointer_.y = visible_y;
-    pointer_.pressed = event.pressed;
+    pointer_.pressed = pressed;
+    pointer_release_on_read_ = false;
 
-    if (event.pressed && !was_pressed) {
+    if (pressed && !was_pressed) {
       const int32_t visible_width = landscape_ ? height_ : width_;
       const int32_t edge = std::max(72, visible_width / 20);
       if (pointer_.x <= edge) {
@@ -844,7 +892,7 @@ public:
       return;
     }
 
-    if (event.pressed && swipe_active_) {
+    if (pressed && swipe_active_) {
       if (swipe_rejected_) return;
       const int32_t vertical = std::abs(pointer_.y - swipe_start_y_);
       const int32_t visible_height = landscape_ ? width_ : height_;
@@ -869,7 +917,7 @@ public:
       return;
     }
 
-    if (!event.pressed && was_pressed && swipe_active_) {
+    if (!pressed && was_pressed && swipe_active_) {
       // Several touch controllers zero ABS_MT_POSITION_Y when the tracking ID
       // is released. Validate direction with the last coordinate seen while
       // the contact was still active.
@@ -1786,6 +1834,11 @@ private:
     if (!gesture_transition) lv_obj_fade_in(overlay, 170, 0);
   }
 
+  // The bottom strip in which a contact may start the Recents swipe.
+  int32_t RecentsStripHeight() const {
+    return std::max(64, (landscape_ ? width_ : height_) / 44);
+  }
+
   void BeginRecentsSwipe(int32_t x, int32_t y) {
     CancelRecentsSwipe();
     recents_swipe_active_ = true;
@@ -2121,6 +2174,7 @@ private:
   }
 
   void CancelRecentsSwipe() {
+    recents_pending_ = false;
     recents_swipe_active_ = false;
     recents_swipe_max_up_ = 0;
     recents_swipe_hold_started_ms_ = 0;
@@ -3265,6 +3319,10 @@ private:
     data->state = self->pointer_.pressed && !self->edge_contact_captured_
         ? LV_INDEV_STATE_PRESSED
         : LV_INDEV_STATE_RELEASED;
+    if (self->pointer_release_on_read_) {
+      self->pointer_release_on_read_ = false;
+      self->pointer_.pressed = false;
+    }
   }
 
   int32_t physical_width_ = 0;
@@ -3404,6 +3462,14 @@ private:
   bool swipe_right_edge_ = false;
   bool gesture_navigate_back_ = false;
   bool recents_swipe_active_ = false;
+  // A contact held in the bottom strip, not yet a Recents swipe.
+  bool recents_pending_ = false;
+  int32_t recents_pending_x_ = 0;
+  int32_t recents_pending_y_ = 0;
+  // Slot 0 is down, whoever has it.
+  bool slot0_down_ = false;
+  // The pointer reads pressed once more, then released (a replayed tap).
+  bool pointer_release_on_read_ = false;
   bool suspended_ = false;
   bool fastboot_mode_ = false;
   bool on_home_ = false;
