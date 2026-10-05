@@ -147,6 +147,19 @@ void SetSelectedPluginId(const std::string &id);
 std::string GetSelectedPluginId();
 void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
                              ActionCallback callback, void *context);
+// Host API 3: BuildGenericPluginScene routes pixel plugins here.
+void BuildPixelPluginScene(lv_obj_t *screen, const plugins::Plugin &plugin,
+                           ActionCallback callback, void *context);
+// Consumes touch slots that start on a pixel plugin's surface and forwards
+// them as Host API 3 touches; edges stay AERA's gestures.
+bool PixelPluginHandlePointer(int slot, int x, int y, bool pressed);
+// A pixel plugin is running; it follows a rotation in place instead of AERA
+// returning Home.
+bool PixelPluginActive();
+// Stops a running (possibly paused) pixel plugin, or all of them; the one on
+// screen stops when its scene is left.
+void ShutdownPixelPlugin(const std::string &id);
+void ShutdownPixelPlugins();
 void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback,
                            void *context);
 void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context);

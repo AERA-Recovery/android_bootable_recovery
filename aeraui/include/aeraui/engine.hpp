@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <memory>
 
 namespace aeraui {
@@ -142,6 +143,9 @@ class Engine final {
     void SetSuspended(bool suspended);
     void ShowLockScreen();
     void ShowPowerMenu();
+
+    // Opens an installed generic plugin as the launcher does.
+    void OpenPlugin(const std::string& id);
     void ShowVolume(int percent);
     void ShowScreenshotResult(bool success);
 

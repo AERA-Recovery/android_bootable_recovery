@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "launcher.hpp"
 
+#include "protocol.hpp"
+
+#include <aeraui/backend.hpp>
 #include <aeraui/i18n.hpp>
 
 #include <cerrno>
@@ -16,8 +19,14 @@
 
 namespace aeraui::plugin_api {
 bool Process::Start(const std::string &runtime, int &control_fd,
-                    std::string &error) {
+                    std::string &error, const LaunchOptions &options) {
   control_fd = -1;
+  const bool v3 = options.host_api == 3;
+  if ((options.host_api != 2 && !v3) || (v3 && options.surface_fd < 0) ||
+      (!v3 && options.surface_fd >= 0)) {
+    error = "The plugin launch options are invalid.";
+    return false;
+  }
   if (pid_ >= 0 || runtime.size() != 19 ||
       runtime.compare(0, 13, "/tmp/aera-p2-")) {
     error = "The verified API 2 runtime path is invalid.";
@@ -39,6 +48,15 @@ bool Process::Start(const std::string &runtime, int &control_fd,
   const std::string locale = i18n::CurrentLanguage();
   const std::string locale_env = "AERA_LOCALE=" + locale;
   const std::string lang_env = "LANG=" + locale + ".UTF-8";
+  const std::string api_argument =
+      "--aera-host-api=" + std::to_string(options.host_api);
+  const std::string api_env =
+      "AERA_HOST_API=" + std::to_string(options.host_api);
+  const std::string data_env = "AERA_PLUGIN_DATA=" + options.data_dir;
+  // Host API 3 apps follow AERA's light or dark surface, as desktop apps
+  // follow the system colour scheme.
+  const char *appearance_env =
+      RecoveryLightMode() ? "AERA_APPEARANCE=light" : "AERA_APPEARANCE=dark";
   struct stat loader_info{}, program_info{};
   if (lstat(program.c_str(), &program_info) != 0 ||
       !S_ISREG(program_info.st_mode) || program_info.st_uid != 0 ||
@@ -65,11 +83,24 @@ bool Process::Start(const std::string &runtime, int &control_fd,
     error = "Could not protect the plugin channel.";
     return false;
   }
+  // Like the control channel, keep the surface above the fixed child fds so
+  // the dup2 calls below cannot clobber each other.
+  const int child_surface =
+      v3 ? fcntl(options.surface_fd, F_DUPFD_CLOEXEC, 10) : -1;
+  if (v3 && child_surface < 0) {
+    close(child_control);
+    close(channels[0]);
+    close(channels[1]);
+    error = "Could not share the plugin surface.";
+    return false;
+  }
   const pid_t child = fork();
   if (child == 0) {
     close(3);
+    if (v3 && dup2(child_surface, kSurfaceFd) < 0) _exit(78);
     if (dup2(child_control, 4) < 0) _exit(78);
     close(child_control);
+    if (v3) close(child_surface);
     if (setpgid(0, 0) != 0 || chdir(runtime.c_str()) != 0 ||
         syscall(SYS_close_range, 5U, ~0U, 0) != 0) {
       _exit(78);
@@ -79,7 +110,9 @@ bool Process::Start(const std::string &runtime, int &control_fd,
         const_cast<char *>("--library-path"),
         const_cast<char *>(libraries.c_str()),
         const_cast<char *>(program.c_str()),
-        const_cast<char *>("--aera-host-api=2"), nullptr};
+        const_cast<char *>(api_argument.c_str()), nullptr};
+    // Host API 3 adds AERA_SURFACE_FD and AERA_PLUGIN_DATA; a Host API 2
+    // environment is unchanged.
     char *const environment[] = {
         const_cast<char *>(path.c_str()),
         const_cast<char *>("HOME=/tmp"),
@@ -87,21 +120,29 @@ bool Process::Start(const std::string &runtime, int &control_fd,
         const_cast<char *>(lang_env.c_str()),
         const_cast<char *>(locale_env.c_str()),
         const_cast<char *>("AERA_PLUGIN_FD=4"),
-        const_cast<char *>("AERA_HOST_API=2"),
+        const_cast<char *>(api_env.c_str()),
         const_cast<char *>(plugin_root.c_str()),
-        const_cast<char *>(data_dirs.c_str()), nullptr};
+        const_cast<char *>(data_dirs.c_str()),
+        v3 ? const_cast<char *>("AERA_SURFACE_FD=3") : nullptr,
+        v3 ? const_cast<char *>(appearance_env) : nullptr,
+        v3 && !options.data_dir.empty()
+            ? const_cast<char *>(data_env.c_str()) : nullptr,
+        options.data_volatile
+            ? const_cast<char *>("AERA_PLUGIN_DATA_VOLATILE=1") : nullptr,
+        nullptr};
     // Most API 2 plugins are intentionally static, keeping their package small
     // and self-contained. Execute those directly. A dynamic plugin whose ELF
     // interpreter is not present in recovery returns here with ENOENT; only
     // then fall back to its verified, root-owned packaged musl loader.
     char *const direct_arguments[] = {
         const_cast<char *>(program.c_str()),
-        const_cast<char *>("--aera-host-api=2"), nullptr};
+        const_cast<char *>(api_argument.c_str()), nullptr};
     execve(program.c_str(), direct_arguments, environment);
     if (loader_trusted) execve(loader.c_str(), arguments, environment);
     _exit(78);
   }
   close(child_control);
+  if (child_surface >= 0) close(child_surface);
   close(channels[1]);
   if (child < 0) {
     close(channels[0]);

@@ -29,6 +29,7 @@
 #include "aeraui/platform/aera_screen_timer.hpp"
 #include "aeraui/status_bar.hpp"
 #include "../components/power_transition.hpp"
+#include "../features/plugins/plugin_manager.hpp"
 
 namespace aeraui {
 namespace {
@@ -184,6 +185,8 @@ std::atomic<bool> gFileBasedEncryption{false};
 std::atomic<int> gUiMode{0};
 std::atomic<int> gModeTransitionRequest{0};
 std::atomic<bool> gModeTransitionBusy{false};
+std::mutex gPluginLaunchMutex;
+std::string gPluginLaunch;
 std::mutex gEarlyMutex;
 std::mutex gDecryptMutex;
 std::condition_variable gDecryptCondition;
@@ -392,6 +395,18 @@ ModeTransitionRequestResult RequestModeTransition(bool toward_fastboot) {
     return ModeTransitionRequestResult::kAccepted;
 }
 
+PluginLaunchRequestResult RequestPluginLaunch(const std::string& id) {
+    if (gUiMode.load(std::memory_order_acquire) != 1 ||
+        !gBackendReady.load(std::memory_order_acquire))
+        return PluginLaunchRequestResult::kUnavailable;
+    plugins::Plugin plugin;
+    if (!plugins::FindInstalled(id, plugin) || !plugins::IsGeneric(plugin))
+        return PluginLaunchRequestResult::kNotInstalled;
+    std::lock_guard<std::mutex> lock(gPluginLaunchMutex);
+    gPluginLaunch = id;
+    return PluginLaunchRequestResult::kAccepted;
+}
+
 RunResult RunLoop(bool fastboot_mode = false,
                   const DisplayMetrics& metrics = {},
                   bool resume_recovery = false) {
@@ -484,6 +499,17 @@ RunResult RunLoop(bool fastboot_mode = false,
                                     "CLI requested live transition to %s",
                                     toward_fastboot ? "fastboot" : "recovery");
             }
+        }
+        std::string plugin_launch;
+        {
+            std::lock_guard<std::mutex> lock(gPluginLaunchMutex);
+            plugin_launch.swap(gPluginLaunch);
+        }
+        if (!plugin_launch.empty() && !fastboot_mode) {
+            engine.OpenPlugin(plugin_launch);
+            performance.BoostFor(3000);
+            __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                "CLI requested plugin %s", plugin_launch.c_str());
         }
         const int wait_ms = static_cast<int>(engine.RunFrame());
         // The display backend may still own/import the current GPU buffer

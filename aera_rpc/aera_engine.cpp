@@ -289,6 +289,26 @@ int Transition(const Request &request, EventSink &events) {
   return Fail(events, "transition_failed", "Could not queue the transition");
 }
 
+int Plugin(const Request &request, EventSink &events) {
+  const std::string action = Text(request.arguments, "action", "open");
+  const std::string id = Text(request.arguments, "id");
+  if (action != "open")
+    return Fail(events, "invalid_plugin_action", "Unknown plugin action: " + action, 2);
+  if (id.empty()) return Fail(events, "missing_plugin", "plugin open requires an id", 2);
+  switch (aeraui::RequestPluginLaunch(id)) {
+    case aeraui::PluginLaunchRequestResult::kAccepted:
+      events.Log("Opening " + id + "\n");
+      return 0;
+    case aeraui::PluginLaunchRequestResult::kNotInstalled:
+      return Fail(events, "plugin_not_installed",
+                  id + " is not an installed Host API 2 or 3 plugin");
+    case aeraui::PluginLaunchRequestResult::kUnavailable:
+      return Fail(events, "plugin_unavailable",
+                  "The native AERA recovery interface is not ready");
+  }
+  return Fail(events, "plugin_failed", "Could not queue the plugin");
+}
+
 int Log(EventSink &events) {
   std::ifstream input("/tmp/recovery.log");
   if (!input) return Fail(events, "log_unavailable", "The recovery log is not available");
@@ -372,6 +392,7 @@ int Execute(const Request &request, EventSink &events) {
   if (op == "reboot") return Reboot(request, events);
   if (op == "transition") return Transition(request, events);
   if (op == "log") return Log(events);
+  if (op == "plugin") return Plugin(request, events);
   if (op == "mirror") return Mirror(request, events);
   return Fail(events, "unsupported_operation",
               "This AERA RPC build does not support operation: " + op, 2);

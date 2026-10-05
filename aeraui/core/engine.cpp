@@ -381,6 +381,7 @@ public:
     if (update_thread_.joinable())
       update_thread_.join();
     ShutdownWebRuntime();
+    ShutdownPixelPlugins();
     CancelEdgeSwipe();
     lv_anim_delete(this, SetRecentLaunchProgress);
     recent_launch_active_ = false;
@@ -821,7 +822,9 @@ public:
       return;
     }
     if (BrowserHandlePointer(event.slot, visible_x, visible_y,
-                             event.pressed)) {
+                             event.pressed) ||
+        PixelPluginHandlePointer(event.slot, visible_x, visible_y,
+                                 event.pressed)) {
       CancelEdgeSwipe();
       pointer_.pressed = false;
       if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
@@ -908,6 +911,16 @@ public:
     pointer_.pressed = false;
     if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
     lock_overlay_ = BuildLockScene(lv_layer_top(), HandleSceneAction, this);
+  }
+
+  void OpenPlugin(const std::string &id) {
+    if (lock_overlay_ != nullptr || !backend_ready_ || decryption_active_ ||
+        operation_running_ || nas_running_ || plugin_running_ ||
+        fastboot_mode_)
+      return;
+    if (recents_overlay_ != nullptr) DismissRecents();
+    SetSelectedPluginId(id);
+    HandleSceneAction(Action::kPluginApp, this);
   }
 
   void ShowPowerMenu() {
@@ -1254,6 +1267,10 @@ private:
                        }),
         recent_apps_.end());
     recent_apps_.insert(recent_apps_.begin(), std::move(app));
+    // A pixel plugin that drops out of Recents stops.
+    for (size_t index = 7; index < recent_apps_.size(); ++index)
+      if (recent_apps_[index].action == Action::kPluginApp)
+        ShutdownPixelPlugin(recent_apps_[index].plugin_id);
     if (recent_apps_.size() > 7) recent_apps_.resize(7);
   }
 
@@ -1609,10 +1626,11 @@ private:
       auto *clear = widgets::Button(actions, LV_SYMBOL_TRASH "  Clear all",
                                     [this] {
         recent_apps_.clear();
-        // Browser is the one app runtime intentionally kept alive between
+        // Browser and pixel plugins are the app runtimes kept alive between
         // scenes. Other app workers are owned by their scene and stop when
         // ShowHome replaces that scene.
         ShutdownWebRuntime();
+        ShutdownPixelPlugins();
         ShowHome();
       });
       lv_obj_set_size(clear, action_width, action_height);
@@ -2281,7 +2299,7 @@ private:
       __android_log_print(ANDROID_LOG_INFO, kLogTag,
                           "display orientation changed to %s",
                           self->landscape_ ? "landscape" : "portrait");
-      if (action == Action::kToggleRotation)
+      if (action == Action::kToggleRotation && !PixelPluginActive())
         self->ShowHome();
       return;
     }
@@ -3443,6 +3461,7 @@ void Engine::SetPointer(const PointerEvent &event) { impl_->SetPointer(event); }
 void Engine::SetSuspended(bool suspended) { impl_->SetSuspended(suspended); }
 void Engine::ShowLockScreen() { impl_->ShowLockScreen(); }
 void Engine::ShowPowerMenu() { impl_->ShowPowerMenu(); }
+void Engine::OpenPlugin(const std::string &id) { impl_->OpenPlugin(id); }
 void Engine::ShowVolume(int percent) { impl_->ShowVolume(percent); }
 void Engine::ShowScreenshotResult(bool success) {
   impl_->ShowScreenshotResult(success);

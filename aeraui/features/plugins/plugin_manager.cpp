@@ -22,6 +22,7 @@
 #include <sstream>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -37,6 +38,9 @@ constexpr char kCatalogSignatureUrl[] =
 constexpr char kCacheRoot[] = "/tmp/aera-plugin-store";
 constexpr char kStorageRoot[] = "/sdcard/AERA/plugins";
 constexpr char kMemoryRoot[] = "/tmp/aera/plugins";
+// Kept apart from the install roots, which an update replaces wholesale.
+constexpr char kStorageDataRoot[] = "/sdcard/AERA/plugin-data";
+constexpr char kMemoryDataRoot[] = "/tmp/aera/plugin-data";
 constexpr uint64_t kMaxCatalog = 1024 * 1024;
 constexpr uint64_t kMaxManifest = 64 * 1024;
 constexpr uint64_t kMaxSignature = 4096;
@@ -299,8 +303,9 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
       (plugin.id == "streams" && plugin.type == "app-runtime" &&
        plugin.entry == "streams");
   const bool generic_entry = plugin.type == "ui-runtime" &&
-      plugin.entry == "main" && plugin.protocol_version == 2 &&
-      plugin.min_host_api == 2 &&
+      plugin.entry == "main" &&
+      (plugin.protocol_version == 2 || plugin.protocol_version == 3) &&
+      plugin.min_host_api == plugin.protocol_version &&
       plugin.executable == "usr/bin/aera-plugin" &&
       plugin.icon.size() <= 24;
   const bool theme_extension = plugin.type == "theme-extension" &&
@@ -311,11 +316,27 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
       !plugin.font_family.empty() && plugin.font_family.size() <= 64 &&
       std::none_of(plugin.font_family.begin(), plugin.font_family.end(),
                    [](unsigned char c) { return c < 32 || c == 127; });
+  const bool pixel_entry = generic_entry && plugin.protocol_version == 3;
   const auto has_permission = [&](const char *name) {
     return std::find(plugin.permissions.begin(), plugin.permissions.end(), name) !=
            plugin.permissions.end();
   };
-  const bool permissions_ok = !generic_entry ||
+  // Host API 3 pixel plugins draw and take input through their own surface;
+  // host operations stay with the declarative API.
+  const bool pixel_permissions_ok = !pixel_entry ||
+      (has_permission("display") && has_permission("touch-input") &&
+       has_permission("pixel-surface") &&
+       std::all_of(plugin.permissions.begin(), plugin.permissions.end(),
+                   [](const std::string &permission) {
+                     return permission == "display" ||
+                            permission == "touch-input" ||
+                            permission == "pixel-surface" ||
+                            permission == "gpu-acceleration" ||
+                            permission == "network" ||
+                            permission == "audio-output";
+                   }));
+  const bool permissions_ok = pixel_entry ? pixel_permissions_ok :
+      !generic_entry ||
       (has_permission("display") && has_permission("touch-input") &&
        std::all_of(plugin.permissions.begin(), plugin.permissions.end(),
                    [](const std::string &permission) {
@@ -943,7 +964,11 @@ bool Remove(const std::string &id, Progress &progress) {
   if (!SafeId(id)) { progress.error = "Invalid plugin identifier."; return false; }
   const bool memory = RemoveTree(std::string(kMemoryRoot) + "/" + id);
   const bool storage = RemoveTree(std::string(kStorageRoot) + "/" + id);
-  if (!memory || !storage) {
+  // The plugin's data goes with it, as an app's does on Android; data on
+  // storage that is not mounted now stays behind.
+  const bool data = RemoveTree(std::string(kMemoryDataRoot) + "/" + id) &&
+                    RemoveTree(std::string(kStorageDataRoot) + "/" + id);
+  if (!memory || !storage || !data) {
     progress.error = "One or more plugin files could not be removed."; return false;
   }
   progress.status = "Plugin removed"; progress.value.store(100); return true;
@@ -1064,7 +1089,7 @@ bool ResolvePayload(const std::string &id, Plugin &plugin, std::string &path,
 
 bool IsGeneric(const Plugin &plugin) {
   return plugin.type == "ui-runtime" && plugin.entry == "main" &&
-         plugin.protocol_version == 2 &&
+         (plugin.protocol_version == 2 || plugin.protocol_version == 3) &&
          plugin.executable == "usr/bin/aera-plugin";
 }
 
@@ -1083,6 +1108,42 @@ bool IsLaunchable(const Plugin &plugin) {
       plugin.entry == "telegram" || plugin.entry == "gallery" ||
       plugin.entry == "media" || plugin.entry == "streams" ||
       plugin.entry == "recorder" || plugin.entry == "appvault";
+}
+
+bool IsPixel(const Plugin &plugin) {
+  return IsGeneric(plugin) && plugin.protocol_version == 3;
+}
+
+// /sdcard/AERA can exist while /data is not mounted: then it is a folder in
+// recovery's own RAM root, and nothing written there survives a reboot.
+static bool PersistentStorage(const char *path) {
+  struct stat storage{};
+  struct stat root{};
+  struct statfs filesystem{};
+  if (stat(path, &storage) != 0 || !S_ISDIR(storage.st_mode) ||
+      stat("/", &root) != 0 || statfs(path, &filesystem) != 0)
+    return false;
+  constexpr decltype(filesystem.f_type) kTmpfs = 0x01021994;
+  constexpr decltype(filesystem.f_type) kRamfs = 0x858458f6;
+  return storage.st_dev != root.st_dev && filesystem.f_type != kTmpfs &&
+         filesystem.f_type != kRamfs;
+}
+
+std::string DataDirectory(const Plugin &plugin) {
+  if (!SafeId(plugin.id)) return {};
+  const bool on_storage = PersistentStorage("/sdcard/AERA");
+  const std::string root = on_storage ? kStorageDataRoot : kMemoryDataRoot;
+  const std::string path = root + "/" + plugin.id;
+  if (!EnsureDirectory(root)) return {};
+  if (mkdir(path.c_str(), 0700) != 0 && errno != EEXIST) return {};
+  struct stat info{};
+  if (lstat(path.c_str(), &info) != 0 || !S_ISDIR(info.st_mode)) return {};
+  return path;
+}
+
+bool DataDirectoryVolatile(const std::string &path) {
+  const std::string root = std::string(kMemoryDataRoot) + "/";
+  return path.compare(0, root.size(), root) == 0;
 }
 
 bool HasPermission(const Plugin &plugin, const std::string &permission) {

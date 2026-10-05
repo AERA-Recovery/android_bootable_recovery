@@ -580,6 +580,12 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
     delete scene;
     return;
   }
+  if (plugins::IsPixel(scene->plugin)) {
+    const plugins::Plugin plugin = scene->plugin;
+    delete scene;
+    BuildPixelPluginScene(screen, plugin, callback, context);
+    return;
+  }
   lv_obj_add_event_cb(screen, [](lv_event_t *event) {
     delete static_cast<GenericScene *>(lv_event_get_user_data(event));
   }, LV_EVENT_DELETE, scene);

@@ -46,6 +46,20 @@ target_include_directories(plugin_api_session_test PRIVATE ..
   ../features)
 target_compile_options(plugin_api_session_test PRIVATE -UNDEBUG)
 add_test(NAME plugin_api_negotiation_and_limits COMMAND plugin_api_session_test)
+add_executable(plugin_api_surface_test plugin_api_surface_test.cpp
+  ../features/plugin_api/surface.cpp)
+target_include_directories(plugin_api_surface_test PRIVATE .. ../features)
+target_compile_options(plugin_api_surface_test PRIVATE -UNDEBUG)
+add_test(NAME plugin_api_pixel_surface_slots COMMAND plugin_api_surface_test)
+# Needs root and an expanded pixel plugin runtime, so it is not an add_test:
+#   plugin_api_pixel_host_check RUNTIME_TREE OUT_DIR
+add_executable(plugin_api_pixel_host_check plugin_api_pixel_host_check.cpp
+  ../features/plugin_api/launcher.cpp ../features/plugin_api/session.cpp
+  ../features/plugin_api/surface.cpp)
+target_include_directories(plugin_api_pixel_host_check PRIVATE .. ../include
+  ../features)
+target_compile_options(plugin_api_pixel_host_check PRIVATE -UNDEBUG)
+target_link_libraries(plugin_api_pixel_host_check PRIVATE lvgl)
 add_executable(sideload_ui_test sideload_ui_test.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
   ../localization/catalog/catalog_generated.cpp

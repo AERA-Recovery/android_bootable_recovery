@@ -103,6 +103,32 @@ void SetShadeVisible(StatusState *state, int visible) {
   lv_obj_set_y(state->sheet, state->shade_visible - state->shade_height);
 }
 
+// Drops the state's references to the shade's widgets; the caller deletes
+// the shade.
+void ForgetShade(StatusState *state) {
+  state->shade = nullptr;
+  state->sheet = nullptr;
+  state->shade_wifi = nullptr;
+  state->shade_wifi_detail = nullptr;
+  state->shade_rotation = nullptr;
+  state->shade_rotation_detail = nullptr;
+  state->shade_flashlight = nullptr;
+  state->shade_flashlight_detail = nullptr;
+  state->shade_reboot = nullptr;
+  state->shade_reboot_detail = nullptr;
+  state->shade_recorder = nullptr;
+  state->shade_recorder_detail = nullptr;
+  state->shade_update = nullptr;
+  state->shade_update_title = nullptr;
+  state->shade_update_detail = nullptr;
+  state->shade_download = nullptr;
+  state->shade_download_title = nullptr;
+  state->shade_download_detail = nullptr;
+  state->shade_download_progress = nullptr;
+  state->brightness_value = nullptr;
+  state->brightness_slider = nullptr;
+}
+
 void AnimateShade(StatusState *state, bool open) {
   if (state == nullptr || state->shade == nullptr) return;
   if (!open) {
@@ -119,27 +145,7 @@ void AnimateShade(StatusState *state, bool open) {
       lv_obj_set_y(static_cast<lv_obj_t *>(target), value);
     });
     lv_anim_start(&slide);
-    state->shade = nullptr;
-    state->sheet = nullptr;
-    state->shade_wifi = nullptr;
-    state->shade_wifi_detail = nullptr;
-    state->shade_rotation = nullptr;
-    state->shade_rotation_detail = nullptr;
-    state->shade_flashlight = nullptr;
-    state->shade_flashlight_detail = nullptr;
-    state->shade_reboot = nullptr;
-    state->shade_reboot_detail = nullptr;
-    state->shade_recorder = nullptr;
-    state->shade_recorder_detail = nullptr;
-    state->shade_update = nullptr;
-    state->shade_update_title = nullptr;
-    state->shade_update_detail = nullptr;
-    state->shade_download = nullptr;
-    state->shade_download_title = nullptr;
-    state->shade_download_detail = nullptr;
-    state->shade_download_progress = nullptr;
-    state->brightness_value = nullptr;
-    state->brightness_slider = nullptr;
+    ForgetShade(state);
     lv_obj_delete_delayed(closing, 250);
     return;
   }
@@ -772,6 +778,24 @@ bool StatusBarShadeOpen() {
   return gOpenShade != nullptr;
 }
 
+// A screen that changes size keeps its scene (a pixel plugin across a
+// rotation started from the shade): an open shade is laid out again for the
+// new size and stays open.
+void ScreenResized(lv_event_t *event) {
+  auto *state = static_cast<StatusState *>(lv_event_get_user_data(event));
+  if (state == nullptr || state->shade == nullptr) return;
+  lv_anim_delete(state, nullptr);
+  // The rotation that resized the screen may come from a tile in this very
+  // shade, so it goes after the event that is running.
+  lv_obj_t *shade = state->shade;
+  ForgetShade(state);
+  lv_obj_add_flag(shade, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_delete_async(shade);
+  state->dragging = false;
+  BuildShade(state);
+  SetShadeVisible(state, state->shade_height);
+}
+
 void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
                      void *context, StatusBarAction action, bool soft_surface) {
   auto *state = new StatusState;
@@ -780,6 +804,7 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
   state->context = context;
   state->action = action;
   lv_obj_add_event_cb(screen, DeleteState, LV_EVENT_DELETE, state);
+  lv_obj_add_event_cb(screen, ScreenResized, LV_EVENT_SIZE_CHANGED, state);
 
   lv_obj_t *bar = lv_obj_create(screen);
   state->bar = bar;

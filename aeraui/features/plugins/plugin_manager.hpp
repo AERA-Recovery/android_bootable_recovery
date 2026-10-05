@@ -11,7 +11,7 @@
 
 namespace aeraui::plugins {
 
-constexpr uint32_t kHostApi = 2;
+constexpr uint32_t kHostApi = 3;
 
 enum class Location {
   kNone = 0,
@@ -99,9 +99,19 @@ bool IsPackageFile(const std::string &name);
 // payload hash is checked by its consumer immediately before extraction/use.
 bool ResolvePayload(const std::string &id, Plugin &plugin, std::string &path,
                     std::string &error);
+// A Host API 2 declarative plugin or a Host API 3 pixel plugin; both run
+// usr/bin/aera-plugin from an expanded ui-runtime payload.
 bool IsGeneric(const Plugin &plugin);
 bool IsThemeExtension(const Plugin &plugin);
 bool IsLaunchable(const Plugin &plugin);
+// Host API 3: the plugin draws its own pixels (IsGeneric is also true).
+bool IsPixel(const Plugin &plugin);
+// Host API 3's AERA_PLUGIN_DATA: a private directory that survives updates
+// but not Remove, on internal storage when it is mounted and in RAM
+// otherwise. Created on demand; empty when it cannot be.
+std::string DataDirectory(const Plugin &plugin);
+// Whether a DataDirectory() path is the RAM one, lost at reboot.
+bool DataDirectoryVolatile(const std::string &path);
 bool HasPermission(const Plugin &plugin, const std::string &permission);
 
 const char *LocationLabel(Location location);

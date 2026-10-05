@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace aeraui {
 
@@ -26,6 +27,12 @@ enum class DecryptionResult {
     // not launch a fallback decrypt renderer; RunAeraUi() preserves and
     // returns the terminal action at the normal handoff.
     kTerminalAction = 2,
+};
+
+enum class PluginLaunchRequestResult {
+    kAccepted = 0,
+    kNotInstalled,
+    kUnavailable,
 };
 
 enum class ModeTransitionRequestResult {
@@ -82,5 +89,10 @@ RunResult RunAeraUiFastboot(const DisplayMetrics& metrics = {});
 // thread. RPC workers must use this entry point instead of touching LVGL or
 // the transition backend directly.
 ModeTransitionRequestResult RequestModeTransition(bool toward_fastboot);
+
+// Queues opening an installed Host API 2 or 3 plugin on the native UI thread,
+// as tapping it in the launcher does. For developers over adb (AERA RPC
+// "plugin"); the plugin runs exactly as when started from the UI.
+PluginLaunchRequestResult RequestPluginLaunch(const std::string& id);
 
 }  // namespace aeraui

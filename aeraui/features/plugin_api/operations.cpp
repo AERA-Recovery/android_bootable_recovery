@@ -440,6 +440,9 @@ bool OperationAllowed(const plugins::Plugin& plugin, Operation operation) {
     case Operation::kStopMirror:
     case Operation::kStartWifiMirror:
       return plugins::HasPermission(plugin, "screen-mirror");
+    case Operation::kPickFiles:
+      // Pixel plugins only, answered by their scene without a prompt.
+      return false;
   }
   return false;
 }
@@ -546,6 +549,8 @@ const char* OperationTitle(Operation operation) {
       return "Stop AERA Mirror?";
     case Operation::kStartWifiMirror:
       return "Start Wi-Fi Mirror?";
+    case Operation::kPickFiles:
+      break;
   }
   return "Run plugin operation?";
 }
@@ -574,6 +579,8 @@ const char* OperationPrompt(Operation operation) {
     case Operation::kStartWifiMirror:
       return "AERA will share the recovery display and input on the connected Wi-Fi "
              "network. Enter the phone address shown afterward in any browser.";
+    case Operation::kPickFiles:
+      break;
   }
   return "The plugin requested an unknown operation.";
 }
