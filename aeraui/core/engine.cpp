@@ -297,21 +297,11 @@ public:
       // The OpenGL texture display supplies its own dummy LVGL draw buffer.
       // Its flush callback below composites directly into imported DRM
       // scanout images.
-    } else if (direct_scanout_ && !transform_.IsScaled()) {
-      lv_display_set_color_format(display_, LV_COLOR_FORMAT_XRGB8888);
-      lv_display_set_buffers_with_stride(
-          display_, scanout_surface1_->data, scanout_surface2_->data,
-          static_cast<uint32_t>(buffer_size_),
-          static_cast<uint32_t>(scanout_surface1_->row_bytes),
-          LV_DISPLAY_RENDER_MODE_DIRECT);
     } else {
-      // A full-frame compositor is retained only as a safe non-DRM fallback.
       lv_display_set_color_format(
           display_, direct_scanout_ ? LV_COLOR_FORMAT_XRGB8888
                                     : LV_COLOR_FORMAT_ARGB8888);
-      lv_display_set_buffers(display_, draw_buffer_, nullptr,
-                             static_cast<uint32_t>(buffer_size_),
-                             LV_DISPLAY_RENDER_MODE_FULL);
+      SetPortraitBuffers();
     }
     lv_display_set_flush_cb(display_, FlushDisplay);
     // GpuRenderer reshapes its LVGL texture to the rotated logical viewport;
@@ -412,6 +402,10 @@ public:
     if (draw_buffer_ != nullptr) {
       std::free(draw_buffer_);
       draw_buffer_ = nullptr;
+    }
+    if (landscape_buffer_ != nullptr) {
+      std::free(landscape_buffer_);
+      landscape_buffer_ = nullptr;
     }
     buffer_size_ = 0;
     scanout1_ = nullptr;
@@ -2278,6 +2272,10 @@ private:
       lv_display_set_rotation(
           self->display_, self->landscape_ ? LV_DISPLAY_ROTATION_90
                                           : LV_DISPLAY_ROTATION_0);
+      if (!self->SetRotationBuffers()) {
+        self->landscape_ = false;
+        lv_display_set_rotation(self->display_, LV_DISPLAY_ROTATION_0);
+      }
       __android_log_print(ANDROID_LOG_INFO, kLogTag,
                           "display orientation changed to %s",
                           self->landscape_ ? "landscape" : "portrait");
@@ -3079,6 +3077,75 @@ private:
     gesture_depth_ = 0;
   }
 
+  // The software renderer draws into the panel's own portrait buffers, and
+  // LVGL's software renderer cannot draw rotated into them. While landscape,
+  // it draws into a landscape-shaped buffer that FlushDisplay() turns upright.
+  void SetPortraitBuffers() {
+    if (direct_scanout_ && !transform_.IsScaled()) {
+      // Start drawing in the scanout buffer that is not on screen.
+      const bool second = next_software_scanout_ != 0;
+      lv_display_set_buffers_with_stride(
+          display_, second ? scanout_surface2_->data : scanout_surface1_->data,
+          second ? scanout_surface1_->data : scanout_surface2_->data,
+          static_cast<uint32_t>(buffer_size_),
+          static_cast<uint32_t>(scanout_surface1_->row_bytes),
+          LV_DISPLAY_RENDER_MODE_DIRECT);
+    } else {
+      // A full-frame compositor is retained only as a safe non-DRM fallback.
+      lv_display_set_buffers(display_, draw_buffer_, nullptr,
+                             static_cast<uint32_t>(buffer_size_),
+                             LV_DISPLAY_RENDER_MODE_FULL);
+    }
+  }
+
+  bool SetRotationBuffers() {
+    if (gpu_accelerated_) return true;
+    if (!landscape_) {
+      SetPortraitBuffers();
+      return true;
+    }
+    const size_t size =
+        static_cast<size_t>(width_) * height_ * kBytesPerPixel;
+    if (landscape_buffer_ == nullptr &&
+        posix_memalign(&landscape_buffer_, kBufferAlignment, size) != 0) {
+      landscape_buffer_ = nullptr;
+      __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                          "unable to allocate %zu-byte landscape buffer; "
+                          "staying in portrait", size);
+      SetPortraitBuffers();
+      return false;
+    }
+    std::memset(landscape_buffer_, 0, size);
+    lv_display_set_buffers(display_, landscape_buffer_, nullptr,
+                           static_cast<uint32_t>(size),
+                           LV_DISPLAY_RENDER_MODE_DIRECT);
+    return true;
+  }
+
+  void RotateLandscape(void *destination, int32_t destination_stride) {
+    lv_draw_sw_rotate(landscape_buffer_, destination, height_, width_,
+                      height_ * static_cast<int32_t>(kBytesPerPixel),
+                      destination_stride, LV_DISPLAY_ROTATION_90,
+                      lv_display_get_color_format(display_));
+  }
+
+  // Direct scanout: turn the frame straight into the scanout buffer that is
+  // not on screen.
+  void PresentLandscape() {
+    const unsigned int index = next_software_scanout_;
+    GRSurface *surface = index == 0 ? scanout_surface1_ : scanout_surface2_;
+    gr_surface target = index == 0 ? scanout1_ : scanout2_;
+    RotateLandscape(surface->data, surface->row_bytes);
+    if (gr_drm_present(target) != 0) {
+      __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                          "DRM rejected the landscape frame");
+      return;
+    }
+    next_software_scanout_ = 1U - index;
+    TrackSubmittedFrame();
+    recorder::CapturePresentedFrame();
+  }
+
   bool PresentScaledSoftware(const uint8_t *pixels) {
     const unsigned int index = next_software_scanout_;
     GRSurface *surface = index == 0 ? scanout_surface1_ : scanout_surface2_;
@@ -3129,6 +3196,23 @@ private:
       return;
     }
 
+    if (pixels == self->landscape_buffer_) {
+      // Software rendering cannot draw rotated, so a landscape frame is
+      // drawn upright and turned once into the panel's orientation here.
+      if (!lv_display_flush_is_last(display)) {
+        lv_display_flush_ready(display);
+        return;
+      }
+      if (self->direct_scanout_ && !self->transform_.IsScaled()) {
+        self->PresentLandscape();
+        lv_display_flush_ready(display);
+        return;
+      }
+      self->RotateLandscape(self->draw_buffer_,
+                            self->width_ * static_cast<int32_t>(kBytesPerPixel));
+      pixels = static_cast<uint8_t *>(self->draw_buffer_);
+    }
+
     if (self->direct_scanout_) {
       if (lv_display_flush_is_last(display)) {
         bool presented = false;
@@ -3141,6 +3225,8 @@ private:
           else if (pixels == self->scanout_surface2_->data)
             target = self->scanout2_;
           presented = target != nullptr && gr_drm_present(target) == 0;
+          if (presented)
+            self->next_software_scanout_ = target == self->scanout1_ ? 1U : 0U;
         }
 
         if (!presented) {
@@ -3276,6 +3362,7 @@ private:
   DisplayTransform transform_{};
   size_t buffer_size_ = 0;
   void *draw_buffer_ = nullptr;
+  void *landscape_buffer_ = nullptr;
   gr_surface scanout1_ = nullptr;
   gr_surface scanout2_ = nullptr;
   GRSurface *scanout_surface1_ = nullptr;
