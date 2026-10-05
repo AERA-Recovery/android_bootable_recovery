@@ -239,6 +239,7 @@ static drmModeCrtc *main_monitor_crtc;
 static drmModeConnector *main_monitor_connector;
 
 static int drm_fd = -1;
+static int main_crtc_index = -1;
 
 static bool current_blank_state = true;
 static int fb_prop_id;
@@ -972,6 +973,34 @@ static int update_plane_fb(uint32_t fb_id) {
 
 }
 
+/* True when plane_id is a primary plane that can scan out on the CRTC at
+ * crtc_index. Drivers without Qualcomm's SDE topology (virtio-gpu, most
+ * non-QCOM SoCs) list primary and cursor planes for every CRTC, so the
+ * first planes in the list are not necessarily usable for the main one.
+ */
+static bool plane_is_primary_for_crtc(int fd, uint32_t plane_id, int crtc_index) {
+  if (crtc_index < 0) return false;
+  drmModePlane *plane = drmModeGetPlane(fd, plane_id);
+  if (!plane) return false;
+  bool usable = plane->possible_crtcs & (1u << crtc_index);
+  drmModeFreePlane(plane);
+  if (!usable) return false;
+
+  drmModeObjectProperties *props = drmModeObjectGetProperties(fd, plane_id,
+                                                              DRM_MODE_OBJECT_PLANE);
+  if (!props) return false;
+  bool primary = false;
+  for (uint32_t i = 0; i < props->count_props; ++i) {
+    drmModePropertyRes *prop = drmModeGetProperty(fd, props->props[i]);
+    if (!prop) continue;
+    if (!strcmp(prop->name, "type"))
+      primary = props->prop_values[i] == DRM_PLANE_TYPE_PRIMARY;
+    drmModeFreeProperty(prop);
+  }
+  drmModeFreeObjectProperties(props);
+  return primary;
+}
+
 static GRSurface* drm_init(minui_backend* backend __unused) {
   drmModeRes* res = nullptr;
 
@@ -1032,6 +1061,13 @@ static GRSurface* drm_init(minui_backend* backend __unused) {
     drmModeFreeResources(res);
     close(drm_fd);
     return nullptr;
+  }
+
+  for (int i = 0; i < res->count_crtcs; i++) {
+    if (res->crtcs[i] == main_monitor_crtc->crtc_id) {
+      main_crtc_index = i;
+      break;
+    }
   }
 
   disable_non_main_crtcs(drm_fd, res, main_monitor_crtc);
@@ -1123,6 +1159,7 @@ static GRSurface* drm_init(minui_backend* backend __unused) {
   conn_res.props_info = static_cast<drmModePropertyRes **>
                          (calloc(conn_res.props->count_props,
                          sizeof(conn_res.props_info)));
+  bool has_topology = false;
   if (!conn_res.props_info)
     return NULL;
   else {
@@ -1135,14 +1172,32 @@ static GRSurface* drm_init(minui_backend* backend __unused) {
        */
       if (!strcmp(conn_res.props_info[j]->name, "mode_properties")) {
         number_of_lms = get_topology_lm_number(drm_fd, conn_res.props->prop_values[j]);
+        has_topology = true;
         printf("number of lms in topology %d\n", number_of_lms);
       }
     }
   }
 
+  /* Without an SDE topology there is one layer mixer: scan out on the
+   * CRTC's own primary plane instead of splitting the screen across the
+   * first two planes (on virtio-gpu the second is a cursor plane and every
+   * commit fails with EINVAL).
+   */
+  uint32_t first_plane = 0;
+  if (!has_topology) {
+    number_of_lms = 1;
+    for (uint32_t j = 0; j < plane_options->count_planes; ++j) {
+      if (plane_is_primary_for_crtc(drm_fd, plane_options->planes[j], main_crtc_index)) {
+        first_plane = j;
+        break;
+      }
+    }
+    printf("no SDE topology: 1 layer mixer, plane %u\n", plane_options->planes[first_plane]);
+  }
+
   /* Set plane resources */
   for(uint32_t i = 0; i < number_of_lms; ++i) {
-    plane_res[i].plane = drmModeGetPlane(drm_fd, plane_options->planes[i]);
+    plane_res[i].plane = drmModeGetPlane(drm_fd, plane_options->planes[first_plane + i]);
     if (!plane_res[i].plane)
       return NULL;
   }
