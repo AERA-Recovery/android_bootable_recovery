@@ -115,6 +115,8 @@ struct position {
     struct input_absinfo xi, yi;
 };
 
+#define MT_LAST_SLOTS 16
+
 struct ev {
     struct pollfd *fd;
 
@@ -128,6 +130,9 @@ struct ev {
     struct position p, mt_p;
     struct position mt_slots[2];
     int mt_slot;
+    // Each slot's last position, as the kernel holds it (see
+    // ABS_MT_TRACKING_ID in vk_modify); -1 where it is not known.
+    int mt_last_x[MT_LAST_SLOTS], mt_last_y[MT_LAST_SLOTS];
     bool mt_active[2];
     bool mt_dirty[2];
     int down;
@@ -523,7 +528,27 @@ static int vk_init(struct ev *e)
     e->mt_slots[0].xi = e->mt_slots[1].xi = e->mt_p.xi;
     e->mt_slots[0].yi = e->mt_slots[1].yi = e->mt_p.yi;
     e->mt_slots[0].synced = e->mt_slots[1].synced = 0;
-    e->mt_slot = 0;
+    // The positions the kernel holds for each slot, and the slot it is on:
+    // a new contact at the same place sends no ABS_MT_POSITION_X/Y (see
+    // ABS_MT_TRACKING_ID in vk_modify), and events that name no slot are
+    // for the current one, which need not be 0.
+    {
+        struct input_absinfo slot = {};
+        e->mt_slot = ioctl(e->fd->fd, EVIOCGABS(ABS_MT_SLOT), &slot) == 0
+                ? slot.value : 0;
+        int32_t values[1 + MT_LAST_SLOTS];
+        for (int s = 0; s < MT_LAST_SLOTS; ++s)
+            e->mt_last_x[s] = e->mt_last_y[s] = -1;
+        values[0] = ABS_MT_POSITION_X;
+        if (ioctl(e->fd->fd, EVIOCGMTSLOTS(sizeof(values)), values) >= 0)
+            for (int s = 0; s < MT_LAST_SLOTS; ++s) e->mt_last_x[s] = values[1 + s];
+        values[0] = ABS_MT_POSITION_Y;
+        if (ioctl(e->fd->fd, EVIOCGMTSLOTS(sizeof(values)), values) >= 0)
+            for (int s = 0; s < MT_LAST_SLOTS; ++s) e->mt_last_y[s] = values[1 + s];
+        // Without slots, the one position the device holds.
+        if (e->mt_last_x[0] < 0) e->mt_last_x[0] = e->mt_p.xi.value;
+        if (e->mt_last_y[0] < 0) e->mt_last_y[0] = e->mt_p.yi.value;
+    }
     e->mt_active[0] = e->mt_active[1] = false;
     e->mt_dirty[0] = e->mt_dirty[1] = false;
 #ifdef _EVENT_LOGGING
@@ -738,11 +763,13 @@ static int vk_modify(struct ev *e, struct input_event *ev)
     if (ev->type == EV_ABS && e->mt_slot == 1) {
         switch (ev->code) {
         case ABS_MT_POSITION_X:
+            e->mt_last_x[1] = ev->value;
             e->mt_slots[1].x = ev->value;
             e->mt_slots[1].synced |= 0x01;
             e->mt_dirty[1] = true;
             break;
         case ABS_MT_POSITION_Y:
+            e->mt_last_y[1] = ev->value;
             e->mt_slots[1].y = ev->value;
             e->mt_slots[1].synced |= 0x02;
             e->mt_dirty[1] = true;
@@ -860,6 +887,8 @@ static int vk_modify(struct ev *e, struct input_event *ev)
 		case ABS_MT_POSITION_X: //35
             e->mt_p.synced |= 0x01;
             e->mt_p.x = ev->value;
+            if (e->mt_slot >= 0 && e->mt_slot < MT_LAST_SLOTS)
+                e->mt_last_x[e->mt_slot] = ev->value;
 #ifdef _EVENT_LOGGING
             printf("EV: %s => EV_ABS  ABS_MT_POSITION_X  %d\n", e->deviceName, ev->value);
 #endif
@@ -868,6 +897,8 @@ static int vk_modify(struct ev *e, struct input_event *ev)
         case ABS_MT_POSITION_Y: //36
             e->mt_p.synced |= 0x02;
             e->mt_p.y = ev->value;
+            if (e->mt_slot >= 0 && e->mt_slot < MT_LAST_SLOTS)
+                e->mt_last_y[e->mt_slot] = ev->value;
 #ifdef _EVENT_LOGGING
             printf("EV: %s => EV_ABS  ABS_MT_POSITION_Y  %d\n", e->deviceName, ev->value);
 #endif
@@ -907,6 +938,16 @@ static int vk_modify(struct ev *e, struct input_event *ev)
                 if (use_tracking_id_negative_as_touch_release)
                     printf("using ABS_MT_TRACKING_ID value -1 to indicate touch releases\n");
 #endif
+            } else if (e->mt_slot >= 0 && e->mt_slot < MT_LAST_SLOTS &&
+                       e->mt_last_x[e->mt_slot] >= 0 &&
+                       e->mt_last_y[e->mt_slot] >= 0) {
+                // A new contact starts where its slot last was: the kernel
+                // drops ABS_MT_POSITION_X/Y values equal to the slot's
+                // current ones, so a press at the same x (or the same spot)
+                // carries no X (or nothing). The release above zeroed mt_p.
+                e->mt_p.x = e->mt_last_x[e->mt_slot];
+                e->mt_p.y = e->mt_last_y[e->mt_slot];
+                e->mt_p.synced |= 0x03;
             }
 #ifdef _EVENT_LOGGING
             printf("EV: %s => EV_ABS ABS_MT_TRACKING_ID %d\n", e->deviceName, ev->value);
@@ -974,7 +1015,13 @@ static int vk_modify(struct ev *e, struct input_event *ev)
         // Reset the value
         touchReleaseOnNextSynReport = 0;
 
-        // We are a finger-up state
+        // We are a finger-up state. A contact whose press was never
+        // reported (it had no position) has no release either.
+        if (!discard && downX == -1)
+        {
+            downY = -1;
+            return 1;
+        }
         if (!discard)
         {
             // Report the key up
