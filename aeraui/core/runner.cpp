@@ -352,6 +352,12 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
     if (event.code == KEY_BACK && event.value == 0 && !hardware.screen_off) {
         engine.NavigateBack();
     }
+    if (event.code == KEY_HOMEPAGE && event.value == 0 && !hardware.screen_off) {
+        engine.HomeKey();
+    }
+    if (event.code == KEY_MENU && event.value == 0 && !hardware.screen_off) {
+        engine.MenuKey();
+    }
     return false;
 }
 

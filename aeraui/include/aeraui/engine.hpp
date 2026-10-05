@@ -118,6 +118,11 @@ class Engine final {
     // gesture use NavigateBack() to return to the previous native surface.
     void NavigateHome();
     void NavigateBack();
+    // The Home and Menu keys (AERA Remote's buttons, KEY_HOMEPAGE and
+    // KEY_MENU) do what the bottom-edge swipe does: Home, and Recents when
+    // gesture navigation is on.
+    void HomeKey();
+    void MenuKey();
 
     // Unlocks workflows after recovery has finished fstab, mount and decrypt
     // initialization. The boot renderer can run before this point.

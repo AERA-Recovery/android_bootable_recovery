@@ -642,6 +642,22 @@ public:
     }
   }
 
+  void HomeKey() {
+    if (lock_overlay_ != nullptr || !backend_ready_ || fastboot_mode_ ||
+        decryption_active_)
+      return;
+    if (recents_overlay_ != nullptr) DismissRecents();
+    if (!on_home_) ShowHome();
+  }
+
+  void MenuKey() {
+    if (lock_overlay_ != nullptr || !backend_ready_ || fastboot_mode_ ||
+        decryption_active_ || !RecoveryPreference(Preference::kRecents))
+      return;
+    if (recents_overlay_ != nullptr) DismissRecents();
+    else ShowRecents(false);
+  }
+
   void NavigateBack(bool feedback = true) {
     if (feedback) RecoveryVibrate(Haptic::kTouch);
     if (recents_overlay_ != nullptr) {
@@ -3430,6 +3446,8 @@ uint32_t Engine::RunFrame() { return impl_->RunFrame(); }
 Action Engine::TakeAction() { return impl_->TakeAction(); }
 void Engine::NavigateHome() { impl_->NavigateHome(); }
 void Engine::NavigateBack() { impl_->NavigateBack(); }
+void Engine::HomeKey() { impl_->HomeKey(); }
+void Engine::MenuKey() { impl_->MenuKey(); }
 void Engine::SetBackendReady() { impl_->SetBackendReady(); }
 void Engine::BeginDecryption(int credential_type, bool file_based, int user_id,
                              int pattern_grid_size) {
