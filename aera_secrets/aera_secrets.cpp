@@ -73,11 +73,20 @@ bool Unhex(const std::string& text, std::vector<unsigned char>* bytes) {
   return true;
 }
 
-std::array<unsigned char, SHA256_DIGEST_LENGTH> DeviceKey() {
-  const std::string material =
-      "AERA-Credential-Store-v2\n" + Property("ro.serialno") + "\n" +
-      Property("ro.boot.vbmeta.digest") + "\n" +
-      Property("ro.product.device") + "\n" + Property("ro.product.name");
+bool StableDeviceKeyEnabled() {
+  return Property("ro.aera.stable_secret_key") == "1";
+}
+
+std::array<unsigned char, SHA256_DIGEST_LENGTH> DeviceKey(bool stable) {
+  const std::string serial = Property("ro.serialno");
+  std::string stable_serial = serial;
+  if (stable_serial.empty()) stable_serial = Property("ro.boot.serialno");
+  const std::string material = stable
+      ? "AERA-Credential-Store-v3\n" + stable_serial + "\n" +
+          Property("ro.product.device") + "\n" + Property("ro.product.name")
+      : "AERA-Credential-Store-v2\n" + serial + "\n" +
+          Property("ro.boot.vbmeta.digest") + "\n" +
+          Property("ro.product.device") + "\n" + Property("ro.product.name");
   std::array<unsigned char, SHA256_DIGEST_LENGTH> key {};
   SHA256(reinterpret_cast<const unsigned char*>(material.data()),
          material.size(), key.data());
@@ -89,7 +98,8 @@ bool Seal(const std::string& plain, Json::Value* value) {
   std::array<unsigned char, 16> tag {};
   if (RAND_bytes(nonce.data(), nonce.size()) != 1) return false;
 
-  std::array<unsigned char, SHA256_DIGEST_LENGTH> key = DeviceKey();
+  std::array<unsigned char, SHA256_DIGEST_LENGTH> key =
+      DeviceKey(StableDeviceKeyEnabled());
   EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
   std::vector<unsigned char> cipher(plain.size() + 16);
   int amount = 0;
@@ -123,7 +133,7 @@ bool Seal(const std::string& plain, Json::Value* value) {
   return true;
 }
 
-bool Open(const Json::Value& value, std::string* plain) {
+bool OpenWithKey(const Json::Value& value, std::string* plain, bool stable) {
   if (!value.isObject() || !value["nonce"].isString() ||
       !value["data"].isString() || !value["tag"].isString())
     return false;
@@ -135,7 +145,7 @@ bool Open(const Json::Value& value, std::string* plain) {
       !Unhex(value["tag"].asString(), &tag) || tag.size() != 16)
     return false;
 
-  std::array<unsigned char, SHA256_DIGEST_LENGTH> key = DeviceKey();
+  std::array<unsigned char, SHA256_DIGEST_LENGTH> key = DeviceKey(stable);
   EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
   std::vector<unsigned char> output(cipher.size() + 16);
   int amount = 0;
@@ -162,6 +172,16 @@ bool Open(const Json::Value& value, std::string* plain) {
   plain->assign(reinterpret_cast<const char*>(output.data()),
                 static_cast<size_t>(total));
   OPENSSL_cleanse(output.data(), output.size());
+  return true;
+}
+
+bool Open(const Json::Value& value, std::string* plain,
+          bool* used_legacy = nullptr) {
+  if (used_legacy) *used_legacy = false;
+  if (!StableDeviceKeyEnabled()) return OpenWithKey(value, plain, false);
+  if (OpenWithKey(value, plain, true)) return true;
+  if (!OpenWithKey(value, plain, false)) return false;
+  if (used_legacy) *used_legacy = true;
   return true;
 }
 
@@ -282,11 +302,15 @@ bool AeraSecrets::GetWlanNetwork(const std::string& ssid,
   security.clear();
   if (ssid.empty()) return false;
   std::lock_guard<std::mutex> guard(g_lock);
-  const Json::Value root = ReadDocument(kWifiPath);
-  const Json::Value& network = root["networks"][ssid];
+  Json::Value root = ReadDocument(kWifiPath);
+  Json::Value& network = root["networks"][ssid];
   if (!network.isObject()) return false;
   security = network.get("security", "WPA2").asString();
-  return Open(network["password"], &password);
+  bool used_legacy = false;
+  if (!Open(network["password"], &password, &used_legacy)) return false;
+  if (used_legacy && Seal(password, &network["password"]))
+    WriteDocument(kWifiPath, std::move(root));
+  return true;
 }
 
 bool AeraSecrets::DeleteWlanNetwork(const std::string& ssid) {
@@ -328,8 +352,13 @@ bool AeraSecrets::ClearNasPassword() {
 bool AeraSecrets::GetNasPassword(std::string& password) {
   password.clear();
   std::lock_guard<std::mutex> guard(g_lock);
-  const Json::Value root = ReadDocument(kCredentialPath);
-  return Open(root["nas_password"], &password) && !password.empty();
+  Json::Value root = ReadDocument(kCredentialPath);
+  bool used_legacy = false;
+  if (!Open(root["nas_password"], &password, &used_legacy) || password.empty())
+    return false;
+  if (used_legacy && Seal(password, &root["nas_password"]))
+    WriteDocument(kCredentialPath, std::move(root));
+  return true;
 }
 
 bool AeraSecrets::HasNasPassword() {
