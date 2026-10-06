@@ -2,13 +2,19 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #include "scene.hpp"
 #include "phone_keyboard.hpp"
+#include "picture_decode.hpp"
 #include "ui_components.hpp"
 #include "partition_layout.hpp"
+#include "wallpaper.hpp"
+#include "src/misc/cache/instance/lv_image_cache.h"
 #include <cmath>
+#include <cstring>
 #include <dirent.h>
+#include <memory>
 #include <set>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <thread>
 
 namespace aeraui {
 namespace {
@@ -42,6 +48,314 @@ void RefreshTheme(Tools *state) {
   if (state != nullptr && state->list != nullptr)
     theme_scroll_restore = lv_obj_get_scroll_y(state->list);
   Open(state, Action::kTheme);
+}
+
+struct WallpaperEntry {
+  std::string name;
+  std::string path;
+  bool directory = false;
+};
+
+struct WallpaperThumbnail {
+  std::string path;
+  int y = 0;
+  lv_obj_t *preview = nullptr;
+  lv_obj_t *placeholder = nullptr;
+  lv_obj_t *image = nullptr;
+  std::shared_ptr<PictureData> data;
+  lv_image_dsc_t descriptor{};
+  int state = 0;
+};
+
+struct WallpaperPickerState {
+  lv_obj_t *list = nullptr;
+  lv_obj_t *status = nullptr;
+  lv_timer_t *timer = nullptr;
+  std::vector<std::unique_ptr<WallpaperThumbnail>> thumbnails;
+  int loading = -1;
+};
+
+bool WallpaperStoragePath(const std::string &path) {
+  for (const char *root : {"/sdcard", "/mnt/nas", "/usb_otg",
+                           "/external_sd"}) {
+    const size_t length = strlen(root);
+    if (path == root || (path.compare(0, length, root) == 0 &&
+        path.size() > length && path[length] == '/')) return true;
+  }
+  return false;
+}
+
+std::string WallpaperStorageRoot(const std::string &path) {
+  for (const char *root : {"/sdcard", "/mnt/nas", "/usb_otg",
+                           "/external_sd"}) {
+    const size_t length = strlen(root);
+    if (path == root || (path.compare(0, length, root) == 0 &&
+        path.size() > length && path[length] == '/')) return root;
+  }
+  return {};
+}
+
+std::string WallpaperParent(const std::string &path) {
+  const std::string root = WallpaperStorageRoot(path);
+  if (root.empty() || path == root) return {};
+  const size_t slash = path.find_last_of('/');
+  return slash == std::string::npos || slash < root.size()
+      ? root : path.substr(0, slash);
+}
+
+std::vector<WallpaperEntry> WallpaperRoots() {
+  std::vector<WallpaperEntry> roots;
+  auto add = [&roots](const std::string &name, const std::string &path) {
+    struct stat info{};
+    if (stat(path.c_str(), &info) || !S_ISDIR(info.st_mode)) return;
+    if (std::any_of(roots.begin(), roots.end(), [&](const auto &entry) {
+          return entry.path == path;
+        })) return;
+    roots.push_back({name, path, true});
+  };
+  add("Internal storage", "/sdcard");
+  for (const auto &volume : RecoveryVolumes("storage")) {
+    std::string path = volume.path;
+    std::string name = volume.name;
+    if (path == "/data/media/0" || path == "INTERNAL") {
+      path = "/sdcard";
+      name = "Internal storage";
+    } else if (path == "/mnt/nas") {
+      name = "Network storage";
+    } else if (path == "/usb_otg") {
+      name = "USB OTG";
+    } else if (path == "/external_sd") {
+      name = "SD card";
+    }
+    add(name, path);
+  }
+  add("Network storage", "/mnt/nas");
+  add("USB OTG", "/usb_otg");
+  add("SD card", "/external_sd");
+  return roots;
+}
+
+bool WallpaperThumbnailVisible(const WallpaperPickerState *picker,
+                               const WallpaperThumbnail *thumbnail) {
+  const int scroll = lv_obj_get_scroll_y(picker->list);
+  const int height = lv_obj_get_height(picker->list);
+  return thumbnail->y + 150 >= scroll - 150 &&
+         thumbnail->y <= scroll + height + 150;
+}
+
+void ShowWallpaperThumbnail(WallpaperThumbnail *thumbnail) {
+  if (!thumbnail->data || !thumbnail->data->pixels) {
+    thumbnail->state = 3;
+    thumbnail->data.reset();
+    return;
+  }
+  auto &descriptor = thumbnail->descriptor;
+  descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
+  descriptor.header.cf = LV_COLOR_FORMAT_ARGB8888;
+  descriptor.header.w = thumbnail->data->width;
+  descriptor.header.h = thumbnail->data->height;
+  descriptor.header.stride = thumbnail->data->width * 4;
+  descriptor.data_size = thumbnail->data->width * thumbnail->data->height * 4;
+  descriptor.data = thumbnail->data->pixels;
+  thumbnail->image = lv_image_create(thumbnail->preview);
+  lv_obj_set_size(thumbnail->image, LV_PCT(100), LV_PCT(100));
+  lv_image_set_src(thumbnail->image, &descriptor);
+  lv_image_set_inner_align(thumbnail->image, LV_IMAGE_ALIGN_COVER);
+  lv_image_set_antialias(thumbnail->image, true);
+  lv_obj_center(thumbnail->image);
+  lv_obj_remove_flag(thumbnail->image, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(thumbnail->placeholder, LV_OBJ_FLAG_HIDDEN);
+  thumbnail->state = 2;
+}
+
+void WallpaperPickerTick(lv_timer_t *timer) {
+  auto *picker = static_cast<WallpaperPickerState *>(
+      lv_timer_get_user_data(timer));
+  if (!picker || !picker->list) return;
+  if (picker->loading >= 0) {
+    auto *thumbnail = picker->thumbnails[picker->loading].get();
+    if (thumbnail->data &&
+        thumbnail->data->ready.load(std::memory_order_acquire)) {
+      ShowWallpaperThumbnail(thumbnail);
+      picker->loading = -1;
+    }
+  }
+  if (picker->loading >= 0) return;
+  for (size_t i = 0; i < picker->thumbnails.size(); ++i) {
+    auto *thumbnail = picker->thumbnails[i].get();
+    if (thumbnail->state != 0 ||
+        !WallpaperThumbnailVisible(picker, thumbnail)) continue;
+    thumbnail->state = 1;
+    thumbnail->data = std::make_shared<PictureData>();
+    picker->loading = static_cast<int>(i);
+    std::thread([data = thumbnail->data, path = thumbnail->path] {
+      DecodePictureThumbnail(path, 96, 96, *data);
+    }).detach();
+    break;
+  }
+}
+
+void DeleteWallpaperPicker(lv_event_t *event) {
+  auto *picker = static_cast<WallpaperPickerState *>(
+      lv_event_get_user_data(event));
+  if (!picker) return;
+  if (picker->timer) lv_timer_delete(picker->timer);
+  for (auto &thumbnail : picker->thumbnails) {
+    if (thumbnail->data) thumbnail->data->cancelled = true;
+    if (thumbnail->image) {
+      lv_obj_delete(thumbnail->image);
+      thumbnail->image = nullptr;
+      lv_image_cache_drop(&thumbnail->descriptor);
+    }
+  }
+  delete picker;
+}
+
+void OpenWallpaperPicker(Tools *tools, const std::string &requested = {}) {
+  const bool roots = requested.empty() ||
+      !WallpaperStoragePath(requested) || requested.find("/../") != std::string::npos;
+  const std::string path = roots ? std::string{} : requested;
+  // The screen already has final coordinates. A just-created percentage-sized
+  // overlay does not until LVGL's next layout pass, so querying it here could
+  // collapse the picker rows to zero width.
+  const int overlay_width = lv_obj_get_width(tools->screen);
+  const int overlay_height = lv_obj_get_height(tools->screen);
+  const int list_width = std::max(1, overlay_width - 48);
+  auto *overlay = lv_obj_create(tools->screen);
+  Clear(overlay);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  lv_obj_set_size(overlay, overlay_width, overlay_height);
+  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+
+  auto *close = Button(overlay, LV_SYMBOL_LEFT, [overlay] {
+    lv_obj_delete_async(overlay);
+  });
+  lv_obj_set_pos(close, 24, 36);
+  lv_obj_set_size(close, 120, 112);
+  auto *title = Label(overlay, "Choose wallpaper", &lv_font_montserrat_48,
+                      kText);
+  lv_obj_set_pos(title, 174, 38);
+  auto *where = Label(overlay, roots ? "Available storage" : path.c_str(),
+                      &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(where, 174, 102);
+  lv_obj_set_width(where, overlay_width - 220);
+  lv_label_set_long_mode(where, LV_LABEL_LONG_DOT);
+
+  auto *list = lv_obj_create(overlay);
+  Clear(list);
+  lv_obj_set_pos(list, 24, 184);
+  lv_obj_set_size(list, list_width, overlay_height - 208);
+  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+  auto *picker = new WallpaperPickerState;
+  picker->list = list;
+  lv_obj_add_event_cb(overlay, DeleteWallpaperPicker, LV_EVENT_DELETE, picker);
+
+  std::vector<WallpaperEntry> entries = roots
+      ? WallpaperRoots() : std::vector<WallpaperEntry>{};
+  if (!roots) entries.push_back({"Up one level", WallpaperParent(path), true});
+  if (!roots) {
+    if (DIR *directory = opendir(path.c_str())) {
+      while (auto *item = readdir(directory)) {
+        if (!strcmp(item->d_name, ".") || !strcmp(item->d_name, "..")) continue;
+        if (item->d_name[0] == '.' &&
+            !RecoveryPreference(Preference::kHiddenFiles)) continue;
+        const std::string child = path + "/" + item->d_name;
+        struct stat info{};
+        if (lstat(child.c_str(), &info) || S_ISLNK(info.st_mode)) continue;
+        if (S_ISDIR(info.st_mode))
+          entries.push_back({item->d_name, child, true});
+        else if (S_ISREG(info.st_mode) && IsPicture(child))
+          entries.push_back({item->d_name, child, false});
+        if (entries.size() >= 400) break;
+      }
+      closedir(directory);
+    }
+  }
+  const size_t fixed = roots ? 0 : 1;
+  std::sort(entries.begin() + static_cast<ptrdiff_t>(fixed), entries.end(),
+            [](const auto &left, const auto &right) {
+              if (left.directory != right.directory)
+                return left.directory > right.directory;
+              return left.name < right.name;
+            });
+
+  int y = 0;
+  for (size_t index = 0; index < entries.size(); ++index) {
+    const auto entry = entries[index];
+    const bool up = !roots && index == 0;
+    auto *row = Button(list, "", [tools, overlay, entry] {
+      if (entry.directory) {
+        OpenWallpaperPicker(tools, entry.path);
+        lv_obj_delete_async(overlay);
+        return;
+      }
+      std::string error;
+      if (!wallpaper::Load(entry.path, &error)) {
+        Sheet(tools->screen, "Wallpaper unavailable", error);
+        return;
+      }
+      if (!RecoverySetWallpaperPath(entry.path)) {
+        Sheet(tools->screen, "Wallpaper unavailable",
+              "The selected wallpaper path could not be stored.");
+        return;
+      }
+      lv_obj_delete_async(overlay);
+      RefreshTheme(tools);
+    });
+    lv_obj_set_pos(row, 0, y);
+    lv_obj_set_size(row, list_width, 150);
+    lv_obj_set_style_radius(row, up || roots ? 28 : 0, 0);
+    lv_obj_set_style_bg_color(row, up || roots ? kMainPanel : kMainCanvas, 0);
+    lv_obj_set_style_bg_opa(row, up || roots ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+
+    lv_obj_t *visual = nullptr;
+    if (!entry.directory) {
+      auto thumbnail = std::make_unique<WallpaperThumbnail>();
+      thumbnail->path = entry.path;
+      thumbnail->y = y;
+      thumbnail->preview = lv_obj_create(row);
+      Clear(thumbnail->preview);
+      lv_obj_set_pos(thumbnail->preview, 20, 27);
+      lv_obj_set_size(thumbnail->preview, 96, 96);
+      lv_obj_set_style_radius(thumbnail->preview, 22, 0);
+      lv_obj_set_style_clip_corner(thumbnail->preview, true, 0);
+      lv_obj_set_style_bg_color(thumbnail->preview, kMainPanel, 0);
+      lv_obj_set_style_bg_opa(thumbnail->preview, LV_OPA_COVER, 0);
+      thumbnail->placeholder = Label(thumbnail->preview, LV_SYMBOL_IMAGE,
+                                     &lv_font_montserrat_32, kMuted);
+      lv_obj_center(thumbnail->placeholder);
+      visual = thumbnail->preview;
+      picker->thumbnails.push_back(std::move(thumbnail));
+    } else {
+      visual = IconPlate(row, up ? LV_SYMBOL_UP : LV_SYMBOL_DIRECTORY,
+                         kAccent, kAccentSoft, 84);
+      lv_obj_set_pos(visual, 26, 33);
+    }
+    (void)visual;
+    auto *name = Label(row, entry.name.c_str(), &lv_font_montserrat_28, kText);
+    lv_obj_set_pos(name, 148, 32);
+    SingleLineLabel(name, list_width - 260,
+                    &lv_font_montserrat_28);
+    auto *detail = Label(row,
+        entry.directory ? (up ? "Return to the parent folder" : "Folder")
+                        : "Use as AERA wallpaper",
+        &lv_font_montserrat_20, kMuted);
+    lv_obj_set_pos(detail, 148, 88);
+    auto *arrow = Label(row, LV_SYMBOL_RIGHT, &lv_font_montserrat_24, kDim);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -28, 0);
+    y += 154;
+  }
+  if (entries.empty()) {
+    auto *empty = Label(list, roots ? "No storage is available"
+                                    : "No images in this folder",
+                        &lv_font_montserrat_28, kMuted);
+    lv_obj_align(empty, LV_ALIGN_TOP_MID, 0, 160);
+  }
+  picker->timer = lv_timer_create(WallpaperPickerTick, 50, picker);
+  lv_obj_move_foreground(overlay);
 }
 void Run(Tools *state, const JobRequest &request) {
   SetJobRequest(request);
@@ -1136,9 +1450,9 @@ void OpenAccentPicker(Tools *tools) {
 
 void BuildTheme(Tools *state) {
   Header(state->screen, "Theme Engine",
-         "Choose appearance, surfaces, density, keyboard and accent for every AERA page.", state->callback,
+         "Choose wallpaper, appearance, surfaces, density and accent for every AERA page.", state->callback,
          state->context);
-  constexpr int kSurfaceSectionOffset = 310;
+  constexpr int kSurfaceSectionOffset = 620;
   const bool landscape = Landscape(state->screen);
   const int list_y = landscape ? 340 : 460;
   const int dock_gap = landscape ? 20 : 28;
@@ -1227,9 +1541,65 @@ void BuildTheme(Tools *state) {
     });
   }
 
+  auto *wallpaper_section =
+      Label(state->list, "Wallpaper", &lv_font_montserrat_32, kAccent);
+  lv_obj_set_pos(wallpaper_section, 32, 690);
+  auto *wallpaper_card = lv_obj_create(state->list);
+  Panel(wallpaper_card, 32, kMainPanel);
+  lv_obj_set_pos(wallpaper_card, 16, 760);
+  lv_obj_set_size(wallpaper_card, 1280, 220);
+  auto *wallpaper_preview = lv_obj_create(wallpaper_card);
+  Clear(wallpaper_preview);
+  lv_obj_set_pos(wallpaper_preview, 24, 24);
+  lv_obj_set_size(wallpaper_preview, 260, 172);
+  lv_obj_set_style_radius(wallpaper_preview, 24, 0);
+  lv_obj_set_style_clip_corner(wallpaper_preview, true, 0);
+  lv_obj_set_style_bg_color(wallpaper_preview, kMainSheet, 0);
+  lv_obj_set_style_bg_opa(wallpaper_preview, LV_OPA_COVER, 0);
+  const bool custom_wallpaper = wallpaper::Attach(wallpaper_preview);
+  if (!custom_wallpaper) {
+    auto *image = Label(wallpaper_preview, LV_SYMBOL_IMAGE,
+                        &lv_font_montserrat_48, kMuted);
+    lv_obj_center(image);
+  }
+  auto *wallpaper_title = Label(
+      wallpaper_card, custom_wallpaper ? "Custom wallpaper" : "Appearance background",
+      &lv_font_montserrat_28, kText);
+  lv_obj_set_pos(wallpaper_title, 316, 30);
+  const std::string selected_wallpaper = RecoveryWallpaperPath();
+  const size_t wallpaper_slash = selected_wallpaper.find_last_of('/');
+  const std::string wallpaper_detail = custom_wallpaper
+      ? selected_wallpaper.substr(wallpaper_slash == std::string::npos
+                                      ? 0 : wallpaper_slash + 1)
+      : "Graphite, Light or AMOLED supplies the background";
+  auto *wallpaper_copy = Label(wallpaper_card, wallpaper_detail.c_str(),
+                               &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(wallpaper_copy, 316, 88);
+  SingleLineLabel(wallpaper_copy, 470, &lv_font_montserrat_20);
+  auto *choose_wallpaper = Button(wallpaper_card, "Choose image", [state] {
+    OpenWallpaperPicker(state);
+  });
+  lv_obj_set_pos(choose_wallpaper, 816, 28);
+  lv_obj_set_size(choose_wallpaper, 424, 76);
+  auto *clear_wallpaper = Button(wallpaper_card, "Reset wallpaper", [state] {
+    if (!RecoverySetWallpaperPath({})) {
+      Sheet(state->screen, "Wallpaper unavailable",
+            "AERA could not restore the appearance background.");
+      return;
+    }
+    wallpaper::Clear();
+    RefreshTheme(state);
+  });
+  lv_obj_set_pos(clear_wallpaper, 816, 116);
+  lv_obj_set_size(clear_wallpaper, 424, 76);
+  if (!custom_wallpaper) {
+    lv_obj_add_state(clear_wallpaper, LV_STATE_DISABLED);
+    lv_obj_set_style_opa(clear_wallpaper, LV_OPA_40, LV_STATE_DISABLED);
+  }
+
   auto *surface_section =
       Label(state->list, "Surface style", &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(surface_section, 32, 690);
+  lv_obj_set_pos(surface_section, 32, 1030);
   struct SurfacePreset {
     const char *name;
     const char *detail;
@@ -1247,7 +1617,7 @@ void BuildTheme(Tools *state) {
     const bool selected = selected_surface == preset.style;
     auto *card = lv_button_create(state->list);
     Clear(card);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320, 760);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320, 1100);
     lv_obj_set_size(card, 304, 170);
     lv_obj_set_style_radius(card, 30, 0);
     lv_obj_set_style_bg_color(card, kMainPanel, 0);
@@ -1770,12 +2140,13 @@ void BuildTheme(Tools *state) {
   auto *reset = Button(state->list, "Reset theme settings", [state] {
     Sheet(
         state->screen, "Reset theme settings?",
-        "This restores AERA Cyan, Graphite appearance, Solid surfaces, "
+        "This restores AERA Cyan, Graphite appearance and its default background, Solid surfaces, "
         "neutral icons, Standard density, the default Home grid, QWERTY keyboard "
         "and the standard Glass navigation dock.",
         [state] {
           bool restored = true;
           restored &= RecoverySetAppearanceMode(AppearanceMode::kGraphite);
+          restored &= RecoverySetWallpaperPath({});
           restored &= RecoverySetSurfaceStyle(SurfaceStyle::kSolid);
           restored &= RecoverySetTintedIconBackgrounds(false);
           restored &= RecoverySetInterfaceSize(InterfaceSize::kNormal);
@@ -1792,6 +2163,7 @@ void BuildTheme(Tools *state) {
             return;
           }
           ApplyAppearanceMode(static_cast<int>(AppearanceMode::kGraphite));
+          wallpaper::Clear();
           ApplySurfaceStyle(static_cast<int>(SurfaceStyle::kSolid));
           ApplyInterfaceSize(static_cast<int>(InterfaceSize::kNormal));
           ApplyAccent(kDefaultAccentRgb);

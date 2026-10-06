@@ -1145,6 +1145,22 @@ bool RecoverySetAppearanceMode(AppearanceMode mode) {
   return value != nullptr &&
       DataManager::SetValue("aera_theme_mode", value, 1) == 0;
 }
+std::string RecoveryWallpaperPath() {
+  LoadAeraPreferencesIfAvailable();
+  const std::string path = DataManager::GetStrValue("aera_wallpaper_path");
+  const bool valid = path.size() <= 4096 &&
+      std::none_of(path.begin(), path.end(), [](unsigned char character) {
+        return character < 32 || character == 127;
+      });
+  return valid ? path : std::string{};
+}
+bool RecoverySetWallpaperPath(const std::string &path) {
+  if (path.size() > 4096 ||
+      std::any_of(path.begin(), path.end(), [](unsigned char character) {
+        return character < 32 || character == 127;
+      })) return false;
+  return DataManager::SetValue("aera_wallpaper_path", path, 1) == 0;
+}
 bool RecoveryLightMode() {
   return RecoveryAppearanceMode() == AppearanceMode::kLight;
 }
@@ -1818,6 +1834,8 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "browser_cookies")
       DataManager::SetValue("aera_browser_cookies", value);
     else if (key == "ui_font") DataManager::SetValue("aera_ui_font", value);
+    else if (key == "wallpaper" && ValidPlainText(value, 4096, true))
+      DataManager::SetValue("aera_wallpaper_path", value);
     else if (key == "wifi_auto_enable") DataManager::SetValue("of_wlan_auto_enable", value);
     else if (key == "wifi_auto_connect") DataManager::SetValue("of_wlan_auto_connect", value);
     else if (key == "wifi_last_ssid") DataManager::SetValue("of_wlan_last_ssid", value);
@@ -1865,6 +1883,7 @@ bool SaveAeraPreferences() {
          << "dock_hide_apps=" << (RecoveryDockHideInApps() ? 1 : 0) << '\n'
          << "language=" << RecoveryLanguage() << '\n'
          << "ui_font=" << RecoveryUiFont() << '\n'
+         << "wallpaper=" << RecoveryWallpaperPath() << '\n'
          << "browser_homepage=" << RecoveryBrowserHomepage() << '\n'
          << "browser_zoom=" << RecoveryBrowserZoom() << '\n'
          << "browser_cookies="

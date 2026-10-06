@@ -64,6 +64,8 @@ bool RecoverySetAppearanceMode(AppearanceMode mode) {
   light_mode = mode == AppearanceMode::kLight;
   return true;
 }
+std::string RecoveryWallpaperPath() { return {}; }
+bool RecoverySetWallpaperPath(const std::string &) { return true; }
 SurfaceStyle RecoverySurfaceStyle() { return SurfaceStyle::kSolid; }
 bool RecoverySetSurfaceStyle(SurfaceStyle style) {
   return static_cast<int>(style) >= 0 && static_cast<int>(style) <= 3;

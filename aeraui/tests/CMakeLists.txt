@@ -22,7 +22,8 @@ add_executable(ui_check ui_check.cpp
   ../localization/catalog/catalog_generated.cpp
   ../scenes/tool_scene.cpp ../scenes/sideload_scene.cpp
   ../scenes/wifi_scene.cpp ../components/picture_decode.cpp
-  ../components/picture_viewer.cpp ../scenes/operation_scene.cpp
+  ../components/picture_viewer.cpp ../components/wallpaper.cpp
+  ../scenes/operation_scene.cpp
   ../scenes/decrypt_scene.cpp ../features/browser/web_scene.cpp
   ../features/browser/session.cpp ../features/browser/launcher.cpp)
 target_include_directories(ui_check PRIVATE .. ../include ../components

@@ -158,6 +158,8 @@ enum class AppearanceMode {
 };
 AppearanceMode RecoveryAppearanceMode();
 bool RecoverySetAppearanceMode(AppearanceMode mode);
+std::string RecoveryWallpaperPath();
+bool RecoverySetWallpaperPath(const std::string &path);
 bool RecoveryLightMode();
 bool RecoverySetLightMode(bool enabled);
 enum class SurfaceStyle {

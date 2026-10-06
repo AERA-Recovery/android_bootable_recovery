@@ -1291,6 +1291,13 @@ private:
     design::ApplySurfaceStyle(static_cast<int>(RecoverySurfaceStyle()));
     design::ApplyAccent(RecoveryAccentColor());
     design::ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
+    const std::string wallpaper_path = RecoveryWallpaperPath();
+    if (wallpaper_path.empty()) {
+      wallpaper::Clear();
+    } else {
+      std::string ignored;
+      wallpaper::Load(wallpaper_path, &ignored);
+    }
   }
 
   void RememberRecentApp(Action action) {

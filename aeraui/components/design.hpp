@@ -10,6 +10,7 @@
 #include <lvgl.h>
 
 #include "fonts/aera_fallback.hpp"
+#include "wallpaper.hpp"
 #include <aeraui/i18n.hpp>
 
 namespace aeraui::design {
@@ -317,6 +318,9 @@ struct MatteTexture {
 
 inline void MainBackground(lv_obj_t *screen) {
   Screen(screen);
+  // A user wallpaper replaces only the canvas. Appearance still supplies the
+  // text, panel, dialog and navigation colours layered above it.
+  if (wallpaper::Attach(screen)) return;
   if (kAppearanceMode == 2) {
     lv_obj_set_style_bg_color(screen, kMainCanvas, 0);
     lv_obj_set_style_bg_grad_dir(screen, LV_GRAD_DIR_NONE, 0);

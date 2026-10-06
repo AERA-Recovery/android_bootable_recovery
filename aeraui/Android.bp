@@ -36,6 +36,7 @@ cc_library_static {
         "components/picture_viewer.cpp",
         "components/power_transition.cpp",
         "components/retroarch_icon.cpp",
+        "components/wallpaper.cpp",
         "components/webkit_icon.cpp",
         "core/engine.cpp",
         "core/gpu_renderer.cpp",
