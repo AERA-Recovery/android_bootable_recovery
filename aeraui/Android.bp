@@ -6,10 +6,21 @@ cc_binary {
     name: "aera-browser-jail",
     recovery: true,
     srcs: ["features/browser/jail_main.cpp"],
+    required: ["aera-audio-null-bridge"],
     static_executable: true,
     stl: "libc++_static",
     static_libs: ["libminijail", "libcap"],
     cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}
+
+cc_binary {
+    name: "aera-audio-null-bridge",
+    recovery: true,
+    srcs: ["features/audio/null_bridge.c"],
+    static_executable: true,
+    stl: "none",
+    c_std: "gnu11",
     cflags: ["-Wall", "-Wextra", "-Werror"],
 }
 

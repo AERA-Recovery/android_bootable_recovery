@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "launcher.hpp"
 #include "protocol.hpp"
+#include "audio/bridge.hpp"
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -36,15 +37,7 @@ bool BrowserProcess::Start(const std::string &runtime, int &frame_fd,
     if (channels[1] >= 0) close(channels[1]);
     error = "Could not create the private browser display channel."; return false;
   }
-  if (!access("/system/bin/aera-audio-bridge", X_OK)) {
-    audio_pid_ = fork();
-    if (!audio_pid_) {
-      execl("/system/bin/aera-audio-bridge", "aera-audio-bridge",
-            "--browser-audio", nullptr);
-      _exit(78);
-    }
-    if (audio_pid_ < 0) audio_pid_ = -1;
-  }
+  audio_pid_ = aeraui::audio::StartBridge();
   // Duplicate above the fixed child ABI first, so dup2 cannot overwrite the
   // other source if recovery happened to have fd 3 or 4 available.
   const int child_frame = fcntl(frame, F_DUPFD_CLOEXEC, 10);

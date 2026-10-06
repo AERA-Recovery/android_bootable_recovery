@@ -2,6 +2,7 @@
 #include "launcher.hpp"
 
 #include "protocol.hpp"
+#include "audio/bridge.hpp"
 
 #include <fcntl.h>
 #include <signal.h>
@@ -40,14 +41,7 @@ bool Process::Start(const std::string& runtime, int& frame_fd, int& control_fd,
     error = "Could not create the AERA Streams display channel.";
     return false;
   }
-  if (!access("/system/bin/aera-audio-bridge", X_OK)) {
-    audio_pid_ = fork();
-    if (!audio_pid_) {
-      execl("/system/bin/aera-audio-bridge", "aera-audio-bridge", "--browser-audio", nullptr);
-      _exit(78);
-    }
-    if (audio_pid_ < 0) audio_pid_ = -1;
-  }
+  audio_pid_ = aeraui::audio::StartBridge();
   const int child_frame = fcntl(frame, F_DUPFD_CLOEXEC, 10);
   const int child_control = fcntl(channels[1], F_DUPFD_CLOEXEC, 10);
   if (child_frame < 0 || child_control < 0) {
