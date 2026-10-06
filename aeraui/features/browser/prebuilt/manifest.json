@@ -153,7 +153,7 @@
     "path": "usr/bin/aera-browser-worker",
     "mode": 493,
     "size": 46016,
-    "sha256": "f75b31d74dfee071e48afbaff261bdb1b8bdf35f215368410648b8b3a2a1a46b"
+    "sha256": "192d4c85fa2c52a3f09c73f92fed15ad5987b5d178b948c99daef849a3a72317"
   },
   {
     "path": "usr/bin/bwrap",
@@ -303,7 +303,7 @@
     "path": "usr/lib/libWPEWebKit-2.0.so.1",
     "mode": 493,
     "size": 86526416,
-    "sha256": "19cf8144a6cb8f87f490b20627c9b0b6c50b5dfb5df5ecc86551da0ac7918d42"
+    "sha256": "ea0d0b0df141f10ae9a17218ef63eacf15a114b8b9bbe4f04f62c40783a2a0f1"
   },
   {
     "path": "usr/lib/libX11.so.6",

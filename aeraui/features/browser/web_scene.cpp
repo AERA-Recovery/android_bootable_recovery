@@ -933,6 +933,9 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   if (!s->timer) s->timer = lv_timer_create([](lv_timer_t *timer) {
     auto *s = static_cast<WebScene *>(lv_timer_get_user_data(timer));
     const bool visible = s->screen != nullptr;
+    if (!s->process.Running() && s->session.Connected())
+      s->session.Close();
+    lv_timer_set_period(timer, s->session.Connected() ? 16 : 50);
     if (s->session.Connected()) {
       const bool new_frame = s->session.Poll();
       uint32_t keyboard_purpose = 0;

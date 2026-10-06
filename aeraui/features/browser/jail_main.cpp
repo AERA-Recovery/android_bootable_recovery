@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <string>
@@ -16,6 +17,7 @@
 #include <sys/stat.h>
 #include <sys/statfs.h>
 #include <sys/system_properties.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -25,8 +27,46 @@ static constexpr uid_t kMediaUid = 99092;
 static constexpr uid_t kRecorderUid = 99093;
 static constexpr uid_t kDoomUid = 99094;
 static constexpr gid_t kMediaRwGid = 1023;
+static constexpr gid_t kInetGid = 3003;
 static void Die(const char *message) { perror(message); _exit(78); }
 static void Check(int result, const char *what) { if (result < 0) Die(what); }
+static void CloseUnrelatedDescriptors() {
+  if (!syscall(SYS_close_range, 5U, ~0U, 0)) return;
+  if (errno != ENOSYS) Die("close unrelated descriptors");
+
+  const int directory = open("/proc/self/fd",
+      O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  if (directory < 0) Die("open descriptor directory");
+  DIR *entries = fdopendir(directory);
+  if (!entries) {
+    close(directory);
+    Die("read descriptor directory");
+  }
+  const int iterator = dirfd(entries);
+  errno = 0;
+  while (dirent *entry = readdir(entries)) {
+    char *end = nullptr;
+    const long descriptor = strtol(entry->d_name, &end, 10);
+    if (*entry->d_name && end && !*end && descriptor >= 5 &&
+        descriptor != iterator) {
+      close(static_cast<int>(descriptor));
+    }
+    errno = 0;
+  }
+  if (errno) {
+    closedir(entries);
+    Die("enumerate descriptors");
+  }
+  closedir(entries);
+}
+static bool SupportsProcSubsetPid() {
+  utsname version{};
+  unsigned major = 0;
+  unsigned minor = 0;
+  return !uname(&version) &&
+      sscanf(version.release, "%u.%u", &major, &minor) == 2 &&
+      (major > 5 || (major == 5 && minor >= 8));
+}
 static volatile sig_atomic_t stopping;
 static void Stop(int) { stopping = 1; }
 static bool WriteFile(const std::string &path, const char *value) {
@@ -100,9 +140,10 @@ static void PrepareBrowserStorage() {
       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   close(aera);
   if (downloads < 0) Die("safe AERA downloads directory");
-  // WebKit keeps zero supplementary groups. Temporarily make only this
-  // directory writable by its dedicated UID; the trusted host restores
-  // media_rw ownership after each transfer and when the session closes.
+  // WebKit keeps no storage-related supplementary groups. Temporarily make
+  // only this directory writable by its dedicated UID; the trusted host
+  // restores media_rw ownership after each transfer and when the session
+  // closes.
   Check(fchown(downloads, kBrowserUid, kBrowserUid), "downloads ownership");
   Check(fchmod(downloads, 0700), "downloads permissions");
   close(downloads);
@@ -351,7 +392,7 @@ int main(int argc, char **argv) {
   Check(setrlimit(RLIMIT_FSIZE, &size), "file size limit");
   // Close recovery/ADB inherited descriptors. Only stdio, pixels (3), and
   // browser-only control (4) survive. No mount/device/data descriptor leaks.
-  Check(syscall(SYS_close_range, 5U, ~0U, 0), "close unrelated descriptors");
+  CloseUnrelatedDescriptors();
   auto *jail = minijail_new();
   if (!jail) Die("minijail_new");
   minijail_namespace_vfs(jail);
@@ -369,8 +410,10 @@ int main(int argc, char **argv) {
   Check(minijail_enter_chroot(jail, root.c_str()), "private filesystem");
   Check(minijail_bind(jail, root.c_str(), "/", 0), "read-only runtime");
   const unsigned long flags = MS_NOSUID | MS_NODEV | MS_NOEXEC;
+  const char *proc_options =
+      SupportsProcSubsetPid() ? "hidepid=2,subset=pid" : "hidepid=2";
   Check(minijail_mount_with_data(jail, "proc", "/proc", "proc", flags | MS_RDONLY,
-                                "hidepid=2,subset=pid"), "private proc view");
+                                proc_options), "private proc view");
   Check(minijail_mount_with_data(jail, "tmpfs", "/tmp", "tmpfs", flags,
                                 "size=512M,mode=1777"), "private temporary storage");
   Check(minijail_mount_with_data(jail, "tmpfs", "/run", "tmpfs", flags,
@@ -387,8 +430,15 @@ int main(int argc, char **argv) {
       !streams_media && !streams_engine) {
     Check(minijail_bind(jail, "/dev/kgsl-3d0", "/dev/kgsl-3d0", 1),
           "browser GPU device");
-    Check(minijail_bind(jail, "/dev/dma_heap/system", "/dev/dma_heap/system", 1),
-          "browser system DMA heap");
+    if (!access("/dev/dma_heap/system", R_OK | W_OK)) {
+      Check(minijail_bind(jail, "/dev/dma_heap/system", "/dev/dma_heap/system", 1),
+            "browser system DMA heap");
+    } else if (!access("/dev/ion", R_OK | W_OK)) {
+      // Android 10-era Qualcomm kernels predate DMA-BUF heaps. Turnip retains
+      // its legacy ION allocator for these devices.
+      Check(minijail_bind(jail, "/dev/ion", "/dev/ion", 1),
+            "browser system ION allocator");
+    }
     if (browser)
       Check(minijail_bind(jail, "/sdcard/AERA/Downloads", "/downloads", 1),
             "writable AERA downloads");
@@ -446,12 +496,14 @@ int main(int argc, char **argv) {
       recorder ? kRecorderUid :
       doom ? kDoomUid :
       kBrowserUid);
-  // Android 16 annotates the list parameter as non-null even when a zero
-  // length requests that minijail clear all supplementary groups.
+  // Android kernels gate Internet sockets through AID_INET. Grant that one
+  // non-storage group only to the browser; media plugins retain their narrow
+  // media_rw access and every other mode clears supplementary groups.
   const bool media_access = retroarch || doom || telegram || media || recorder ||
       streams_media || streams_engine;
-  const gid_t group = media_access ? kMediaRwGid : 0;
-  minijail_set_supplementary_gids(jail, media_access ? 1 : 0, &group);
+  const gid_t group = browser ? kInetGid : (media_access ? kMediaRwGid : 0);
+  minijail_set_supplementary_gids(jail, (browser || media_access) ? 1 : 0,
+                                  &group);
   minijail_use_caps(jail, 0);
   minijail_no_new_privs(jail);
   const bool probe = !strcmp(argv[1], "--probe");

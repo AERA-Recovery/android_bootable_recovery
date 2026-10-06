@@ -64,6 +64,10 @@ inline std::vector<sock_filter> Policy() {
     jump(BPF_JMP | BPF_JEQ | BPF_K, SOCK_STREAM, 0, 1);
     ret(SECCOMP_RET_ALLOW);
     ret(denied);
+    // Address-family discovery used by libc before DNS. The browser runs as
+    // an unprivileged dedicated UID with an empty capability set.
+    jump(BPF_JMP | BPF_JEQ | BPF_K, AF_NETLINK, 0, 1);
+    ret(SECCOMP_RET_ALLOW);
     jump(BPF_JMP | BPF_JEQ | BPF_K, AF_INET, 1, 0);
     jump(BPF_JMP | BPF_JEQ | BPF_K, AF_INET6, 0, 4);
     load(offsetof(seccomp_data, args[1]));
@@ -78,8 +82,22 @@ inline std::vector<sock_filter> Policy() {
   });
   special(SYS_prctl, [&] {
     load(offsetof(seccomp_data, args[0]));
+    // Linux 4.19 reports EINVAL when userspace asks about capability numbers
+    // added by newer kernels. Existing browser runtimes check through CAP 40
+    // and interpret that EINVAL as a broken jail. Capabilities above the
+    // kernel's last supported number cannot be present, so answer those
+    // read-only queries as absent while retaining the real kernel check for
+    // every capability this kernel understands.
+    jump(BPF_JMP | BPF_JEQ | BPF_K, PR_CAPBSET_READ, 0, 7);
+    load(offsetof(seccomp_data, args[1]) + 4);
+    jump(BPF_JMP | BPF_JEQ | BPF_K, 0, 1, 0); ret(denied);
+    load(offsetof(seccomp_data, args[1]));
+    jump(BPF_JMP | BPF_JGE | BPF_K, 38, 1, 0);
+    ret(SECCOMP_RET_ALLOW);
+    ret(SECCOMP_RET_ERRNO);
+    load(offsetof(seccomp_data, args[0]));
     const int allowed[] = {PR_GET_NO_NEW_PRIVS, PR_GET_SECCOMP, PR_GET_DUMPABLE,
-      PR_GET_NAME, PR_SET_NAME, PR_GET_PDEATHSIG, PR_CAPBSET_READ,
+      PR_GET_NAME, PR_SET_NAME, PR_GET_PDEATHSIG,
       PR_GET_TIMERSLACK, PR_SET_TIMERSLACK};
     for (int option : allowed) {
       jump(BPF_JMP | BPF_JEQ | BPF_K, option, 0, 1); ret(SECCOMP_RET_ALLOW);
