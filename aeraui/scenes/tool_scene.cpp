@@ -3,6 +3,7 @@
 #include "scene.hpp"
 #include "phone_keyboard.hpp"
 #include "ui_components.hpp"
+#include "partition_layout.hpp"
 #include <cmath>
 #include <dirent.h>
 #include <set>
@@ -171,10 +172,8 @@ void UpdateSelection(Tools *state) {
     summary = i18n::Format("Estimated backup: %s", Size(bytes).c_str());
   i18n::BindLabel(state->summary, summary.c_str());
   if (state->review) {
-    if (state->selected.empty())
-      lv_obj_add_flag(state->review, LV_OBJ_FLAG_HIDDEN);
-    else
-      lv_obj_remove_flag(state->review, LV_OBJ_FLAG_HIDDEN);
+    LayoutPartitionReview(state->screen, state->list, state->review,
+                          !state->selected.empty());
   }
   if (state->selection_detail) {
     std::string detail = state->selected.size() == 1
@@ -358,7 +357,8 @@ void RestoreFolders(Tools *state) {
   state->selected.clear();
   state->volumes.clear();
   lv_obj_clean(state->list);
-  if (state->review) lv_obj_add_flag(state->review, LV_OBJ_FLAG_HIDDEN);
+  if (state->review)
+    LayoutPartitionReview(state->screen, state->list, state->review, false);
   const auto root = RecoveryBackupRoot();
   std::vector<std::string> folders;
   DIR *directory = opendir(root.c_str());
@@ -703,25 +703,8 @@ void BuildPartitions(Tools *state) {
   auto *review = Button(state->screen, backup ? "Review backup" :
                         restore ? "Review restore" : "Review wipe",
                         [state] { Review(state); }, true);
-  constexpr int review_height = 150;
-  const int review_gap = landscape ? 20 : 24;
-  const int review_y = lv_obj_get_height(state->screen) -
-      NavigationHeight(state->screen) - review_gap - review_height;
-  lv_obj_set_pos(review, 80, review_y);
-  lv_obj_set_size(review, landscape ? 940 : 1280, review_height);
-  if (!landscape && (backup || restore)) {
-    constexpr int list_top = 1070;
-    constexpr int list_to_review_gap = 28;
-    lv_obj_set_height(state->list,
-                      std::max(600, review_y - list_top - list_to_review_gap));
-  } else if (!landscape) {
-    constexpr int list_top = 948;
-    constexpr int list_to_review_gap = 28;
-    lv_obj_set_height(state->list,
-                      std::max(600, review_y - list_top - list_to_review_gap));
-  }
   state->review = review;
-  lv_obj_add_flag(review, LV_OBJ_FLAG_HIDDEN);
+  LayoutPartitionReview(state->screen, state->list, review, false);
   if (restore) RestoreFolders(state);
   else {
     state->volumes = RecoveryVolumes(backup ? "backup" : "wipe");

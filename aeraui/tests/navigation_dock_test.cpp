@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui_components.hpp"
+#include "partition_layout.hpp"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -75,6 +76,33 @@ int main(int argc, char **argv) {
         design::ApplyInterfaceSize(size);
         for (int id = 0; id <= kDockLayoutMax; ++id) {
           layout = static_cast<DockLayout>(id);
+          // Backup/restore and wipe must reclaim the hidden review action's
+          // space, including after deselection or returning to the library.
+          for (int top : {1070, 948}) {
+            auto *list = widgets::Scroll(screen, landscape ? 350 : top, 600);
+            auto *review = widgets::Button(screen, "Review", [] {});
+            if (landscape) {
+              lv_obj_set_x(list, 1100);
+              lv_obj_set_width(list, 2004);
+            }
+            lv_obj_update_layout(screen);
+            const int bottom = lv_obj_get_height(screen) -
+                widgets::NavigationHeight(screen) - (landscape ? 20 : 24);
+            for (bool selected : {false, true, false}) {
+              LayoutPartitionReview(screen, list, review, selected);
+              lv_obj_update_layout(screen);
+              assert(lv_obj_has_flag(review, LV_OBJ_FLAG_HIDDEN) == !selected);
+              assert(lv_obj_get_y(list) + lv_obj_get_height(list) ==
+                  bottom - (selected && !landscape ? 178 : 0));
+              assert(lv_obj_get_y(review) + lv_obj_get_height(review) == bottom);
+              Contained(list, screen);
+              if (selected && !landscape)
+                assert(lv_obj_get_y(review) -
+                    (lv_obj_get_y(list) + lv_obj_get_height(list)) == 28);
+            }
+            lv_obj_delete(list);
+            lv_obj_delete(review);
+          }
           for (Action active : actions) {
             long_labels = size == 2;
             auto *bar = widgets::Navigation(screen, active, Click, nullptr);
