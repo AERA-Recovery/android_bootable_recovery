@@ -26,6 +26,7 @@
 #include <minuitwrp/minui.h>
 #include <pixelflinger/pixelflinger.h>
 #include "design.hpp"
+#include "edge_swipe.hpp"
 #include "gpu_renderer.hpp"
 #include "picture_decode.hpp"
 #include "picture_viewer.hpp"
@@ -853,9 +854,9 @@ public:
         return;
       }
       swipe_last_y_ = pointer_.y;
-      const int32_t inward = std::max(
-          0, swipe_right_edge_ ? swipe_start_x_ - pointer_.x
-                               : pointer_.x - swipe_start_x_);
+      const int32_t inward = EdgeSwipeInward(
+          swipe_start_x_, pointer_.x, swipe_right_edge_);
+      swipe_last_inward_ = inward;
       swipe_max_inward_ = std::max(swipe_max_inward_, inward);
       UpdateEdgeSwipe(inward);
       const int32_t visible_width = landscape_ ? height_ : width_;
@@ -873,12 +874,18 @@ public:
       // Several touch controllers zero ABS_MT_POSITION_Y when the tracking ID
       // is released. Validate direction with the last coordinate seen while
       // the contact was still active.
-      const bool accepted = edge_contact_captured_;
+      const bool captured = edge_contact_captured_;
+      const int32_t visible_width = landscape_ ? height_ : width_;
+      const bool accepted = EdgeSwipeShouldCommit(
+          captured, swipe_last_inward_, visible_width);
       const bool right_edge = swipe_right_edge_;
       FinishEdgeSwipe(accepted);
       edge_contact_captured_ = false;
+      // A canceled captured gesture must not release-click an underlying
+      // control when we give the pointer back to LVGL.
+      if (captured && pointer_device_ != nullptr)
+        lv_indev_reset(pointer_device_, nullptr);
       if (accepted) {
-        if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
         RecoveryVibrate(Haptic::kTouch);
         __android_log_print(ANDROID_LOG_INFO, kLogTag,
                             "%s-edge Back gesture accepted",
@@ -2991,6 +2998,7 @@ private:
     swipe_start_y_ = pointer_.y;
     swipe_last_y_ = pointer_.y;
     swipe_max_inward_ = 0;
+    swipe_last_inward_ = 0;
     gesture_depth_ = 2;
 
     const int32_t maximum_depth = std::clamp(width_ / 10, 104, 148);
@@ -3349,6 +3357,7 @@ private:
   int32_t swipe_start_y_ = 0;
   int32_t swipe_last_y_ = 0;
   int32_t swipe_max_inward_ = 0;
+  int32_t swipe_last_inward_ = 0;
   int32_t gesture_depth_ = 0;
   int32_t recents_swipe_start_x_ = 0;
   int32_t recents_swipe_last_x_ = 0;
