@@ -203,21 +203,24 @@ inline int NavigationHeight(lv_obj_t *screen) {
   const bool compact = layout == DockLayout::kCompact;
   const bool minimal = layout == DockLayout::kMinimal;
   const bool icons_only = layout == DockLayout::kIcons;
+  const bool text_only = layout == DockLayout::kTextOnly;
   return landscape ? (minimal ? 138 : 160)
-                   : (minimal ? 170 : compact || icons_only ? 188 : 226);
+                   : (minimal ? 170 : compact || icons_only || text_only ? 188 : 226);
 }
 
 inline void UpdateNavigationDockAppearance(lv_obj_t *bar, int transparency,
                                            int blur) {
   if (bar == nullptr || lv_obj_get_child_count(bar) == 0) return;
   auto *shelf = lv_obj_get_child(bar, 0);
-  const bool minimal = RecoveryDockLayout() == DockLayout::kMinimal;
+  const DockLayout layout = RecoveryDockLayout();
+  const bool bare = layout == DockLayout::kMinimal ||
+      layout == DockLayout::kTextOnly;
   transparency = std::clamp(transparency, 0, 100);
   blur = std::clamp(blur, 0, 100);
   const lv_opa_t surface_opa = static_cast<lv_opa_t>(
       (100 - transparency) * LV_OPA_COVER / 100);
-  lv_obj_set_style_bg_opa(shelf, minimal ? LV_OPA_TRANSP : surface_opa, 0);
-  lv_obj_set_style_blur_backdrop(shelf, blur > 0 && !minimal, 0);
+  lv_obj_set_style_bg_opa(shelf, bare ? LV_OPA_TRANSP : surface_opa, 0);
+  lv_obj_set_style_blur_backdrop(shelf, blur > 0 && !bare, 0);
   /* The former 40% already gives the strongest useful dock blur. Keep the
    * control's friendly 0-100% scale while mapping its full range to that
    * restrained radius. */
@@ -234,23 +237,24 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
     {LV_SYMBOL_SAVE, "Backup", Action::kBackup},
     {LV_SYMBOL_TRASH, "Wipe", Action::kWipe},
     {LV_SYMBOL_LIST, "Menu", Action::kSettings}}};
-  // Style 27, refined: a single floating glass dock. The page background runs
-  // all the way to the panel edge; only the selected icon and label use accent.
+  // All dock styles share actions and safe-area placement. Selection uses
+  // the theme accent while the underlying surfaces stay neutral.
   const bool landscape = Landscape(screen);
   const DockLayout layout = RecoveryDockLayout();
   const bool compact = layout == DockLayout::kCompact;
   const bool minimal = layout == DockLayout::kMinimal;
   const bool icons_only = layout == DockLayout::kIcons;
+  const bool text_only = layout == DockLayout::kTextOnly;
   const int bar_width = landscape
-      ? (icons_only ? 1120 : minimal ? 1360 : compact ? 1600 : 1800)
-      : (icons_only ? 860 : minimal ? 1120 : compact ? 1280 : 1440);
+      ? (icons_only ? 1120 : minimal ? 1360 : compact || text_only ? 1600 : 1800)
+      : (icons_only ? 860 : minimal ? 1120 : compact || text_only ? 1280 : 1440);
   const int bar_height = NavigationHeight(screen);
-  const int shelf_x = landscape || compact || minimal || icons_only ? 0 : 120;
+  const int shelf_x = landscape || compact || minimal || icons_only || text_only ? 0 : 120;
   const int shelf_y = minimal ? 4 : landscape ? 8 : 18;
-  const int shelf_width = landscape || compact || minimal || icons_only
+  const int shelf_width = landscape || compact || minimal || icons_only || text_only
       ? bar_width : 1200;
   const int shelf_height = minimal ? bar_height - 8 :
-      landscape ? 140 : compact || icons_only ? 156 : 180;
+      landscape ? 140 : compact || icons_only || text_only ? 156 : 180;
   auto *bar = lv_obj_create(screen);
   Clear(bar);
   lv_obj_set_size(bar, bar_width, bar_height);
@@ -264,9 +268,8 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
     return bar;
   }
 
-  // One translucent surface, rather than several nested pills. LVGL has no
-  // cheap backdrop blur here, so a restrained tint, border and shadow give the
-  // dock depth without hiding the textured page beneath it.
+  // Keep the first child as the shared surface for live appearance updates.
+  // Text Only leaves it transparent.
   auto *shelf = lv_obj_create(bar);
   Clear(shelf);
   lv_obj_remove_flag(shelf, LV_OBJ_FLAG_CLICKABLE);
@@ -287,10 +290,11 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
   lv_obj_set_style_shadow_offset_y(shelf, 6, 0);
   lv_obj_set_style_shadow_opa(shelf, LV_OPA_10, 0);
   lv_obj_set_style_blur_quality(shelf, LV_BLUR_QUALITY_SPEED, 0);
-  UpdateNavigationDockAppearance(lv_obj_get_parent(shelf),
-                                 RecoveryDockTransparency(),
-                                 RecoveryDockBlur());
-
+  if (text_only) {
+    lv_obj_set_style_bg_grad_dir(shelf, LV_GRAD_DIR_NONE, 0);
+    lv_obj_set_style_border_width(shelf, 0, 0);
+    lv_obj_set_style_shadow_width(shelf, 0, 0);
+  }
   const int slot_width = shelf_width / static_cast<int>(tabs.size());
 
   for (size_t i = 0; i < tabs.size(); ++i) {
@@ -298,8 +302,7 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
     const bool selected = active == tab.action;
     auto *button = lv_button_create(bar);
     Clear(button);
-    lv_obj_set_pos(button, shelf_x + static_cast<int>(i) * slot_width,
-                   shelf_y);
+    lv_obj_set_pos(button, shelf_x + static_cast<int>(i) * slot_width, shelf_y);
     lv_obj_set_size(button, slot_width, shelf_height);
     lv_obj_set_style_radius(button, minimal ? 34 : shelf_height / 2, 0);
     if (minimal && selected) {
@@ -309,7 +312,33 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
     lv_obj_set_style_bg_color(button, Color(0xffffff), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(button, LV_OPA_10, LV_STATE_PRESSED);
     lv_obj_set_style_transform_scale(button, 250, LV_STATE_PRESSED);
+    if (text_only) {
+      lv_obj_set_style_radius(button, 16, 0);
+      lv_obj_set_style_shadow_width(button, 0, 0);
+      lv_obj_set_style_bg_color(button, kMainSelected, LV_STATE_PRESSED);
+    }
     OnClick(button, [=] { callback(tab.action, context); });
+
+    if (text_only) {
+      auto *text = Label(button, tab.text, &lv_font_montserrat_36,
+                          selected ? kAccent : kMutedStrong);
+      FitLabelToLines(text, slot_width - 32, 1,
+          {&lv_font_montserrat_36, &lv_font_montserrat_32,
+           &lv_font_montserrat_28, &lv_font_montserrat_24});
+      lv_obj_set_style_text_align(text, LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_center(text);
+      if (selected) {
+        auto *mark = lv_obj_create(button);
+        Clear(mark);
+        lv_obj_remove_flag(mark, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_size(mark, 72, 3);
+        lv_obj_set_style_bg_color(mark, kAccent, 0);
+        lv_obj_set_style_bg_opa(mark, LV_OPA_COVER, 0);
+        lv_obj_align(mark, LV_ALIGN_BOTTOM_MID, 0, -22);
+      }
+      AnimateEnter(button, 45 + static_cast<uint32_t>(i) * 22, 7);
+      continue;
+    }
 
     auto *icon = Label(button, tab.icon, &lv_font_montserrat_48,
                         selected ? kAccent : kMutedStrong);
@@ -351,6 +380,7 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
     }
     AnimateEnter(button, 45 + static_cast<uint32_t>(i) * 22, 7);
   }
+  UpdateNavigationDockAppearance(bar, RecoveryDockTransparency(), RecoveryDockBlur());
   return bar;
 }
 

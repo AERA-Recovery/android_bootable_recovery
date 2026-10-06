@@ -1199,12 +1199,12 @@ bool RecoverySetHomeGridColumns(int columns) {
 }
 DockLayout RecoveryDockLayout() {
   LoadAeraPreferencesIfAvailable();
-  const int value = std::clamp(DataManager::GetIntValue("aera_dock_layout"), 0, 3);
+  const int value = std::clamp(DataManager::GetIntValue("aera_dock_layout"), 0, kDockLayoutMax);
   return static_cast<DockLayout>(value);
 }
 bool RecoverySetDockLayout(DockLayout layout) {
   const int value = static_cast<int>(layout);
-  return value >= 0 && value <= 3 &&
+  return value >= 0 && value <= kDockLayoutMax &&
       DataManager::SetValue("aera_dock_layout", value, 1) == 0;
 }
 int RecoveryDockTransparency() {
@@ -1468,7 +1468,7 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.home_grid_columns =
       home_grid_columns >= 2 && home_grid_columns <= 5
           ? home_grid_columns : 3;
-  preferences.dock_layout = std::clamp(DataManager::GetIntValue("aera_dock_layout"), 0, 3);
+  preferences.dock_layout = std::clamp(DataManager::GetIntValue("aera_dock_layout"), 0, kDockLayoutMax);
   const std::string dock_transparency = DataManager::GetStrValue("aera_dock_transparency");
   preferences.dock_transparency =
       dock_transparency.empty() ? 60 : std::clamp(atoi(dock_transparency.c_str()), 0, 100);
@@ -1527,8 +1527,10 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
     if (!ParseInteger(value, 2, 5, &parsed)) return false;
     preferences->home_grid_columns = parsed;
   } else if (key == "dock_layout") {
-    if (!ParseInteger(value, 0, 3, &parsed)) return false;
-    preferences->dock_layout = parsed;
+    // IDs 5 and 6 were in a local preview build. Restore them as Text Only
+    // without discarding the rest of a saved theme's preferences.
+    if (!ParseInteger(value, 0, 6, &parsed)) return false;
+    preferences->dock_layout = std::min(parsed, kDockLayoutMax);
   } else if (key == "dock_transparency") {
     if (!ParseInteger(value, 0, 100, &parsed)) return false;
     preferences->dock_transparency = parsed;

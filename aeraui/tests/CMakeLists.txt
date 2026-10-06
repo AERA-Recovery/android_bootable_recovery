@@ -35,6 +35,12 @@ target_compile_definitions(ui_check PRIVATE
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG Threads::Threads)
 enable_testing()
+add_executable(navigation_dock_test navigation_dock_test.cpp)
+target_include_directories(navigation_dock_test PRIVATE .. ../include
+  ../components ../localization ../scenes ../features)
+target_compile_options(navigation_dock_test PRIVATE -UNDEBUG)
+target_link_libraries(navigation_dock_test PRIVATE lvgl PNG::PNG)
+add_test(NAME navigation_dock_layouts COMMAND navigation_dock_test)
 add_executable(edge_swipe_test edge_swipe_test.cpp)
 target_include_directories(edge_swipe_test PRIVATE ../core)
 target_compile_options(edge_swipe_test PRIVATE -UNDEBUG)

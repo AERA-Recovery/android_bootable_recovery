@@ -170,7 +170,10 @@ enum class DockLayout {
   kCompact = 1,
   kMinimal = 2,
   kIcons = 3,
+  // Append values: saved preferences and imported themes use these IDs.
+  kTextOnly = 4,
 };
+inline constexpr int kDockLayoutMax = static_cast<int>(DockLayout::kTextOnly);
 DockLayout RecoveryDockLayout();
 bool RecoverySetDockLayout(DockLayout layout);
 int RecoveryDockTransparency();

@@ -1497,9 +1497,12 @@ void BuildTheme(Tools *state) {
   auto *dock_section = Label(state->list, "Navigation dock",
                              &lv_font_montserrat_32, kAccent);
   lv_obj_set_pos(dock_section, 32, 2590);
-  const std::array<std::pair<const char *, DockLayout>, 4> dock_modes{{
+  const std::array<std::pair<const char *, DockLayout>, 5> dock_modes{{
       {"Glass", DockLayout::kGlass}, {"Compact", DockLayout::kCompact},
-      {"Minimal", DockLayout::kMinimal}, {"Icons only", DockLayout::kIcons}}};
+      {"Minimal", DockLayout::kMinimal}, {"Icons only", DockLayout::kIcons},
+      {"Text Only", DockLayout::kTextOnly}}};
+  const int dock_extra_height =
+      (static_cast<int>((dock_modes.size() + 3) / 4) - 1) * 152;
   for (size_t i = 0; i < dock_modes.size(); ++i) {
     const auto mode = dock_modes[i];
     const bool selected = RecoveryDockLayout() == mode.second;
@@ -1511,7 +1514,8 @@ void BuildTheme(Tools *state) {
       }
       RefreshTheme(state);
     });
-    lv_obj_set_pos(card, 16 + static_cast<int>(i) * 320, 2660);
+    lv_obj_set_pos(card, 16 + static_cast<int>(i % 4) * 320,
+                   2660 + static_cast<int>(i / 4) * 152);
     lv_obj_set_size(card, 304, 128);
     lv_obj_set_style_radius(card, 34, 0);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
@@ -1566,21 +1570,21 @@ void BuildTheme(Tools *state) {
       }
     }, LV_EVENT_ALL, binding);
   };
-  dock_slider(2820, "Transparency",
+  dock_slider(2820 + dock_extra_height, "Transparency",
               "0% is solid; 100% leaves only the controls visible",
               RecoveryDockTransparency(), false);
-  dock_slider(3060, "Backdrop blur",
+  dock_slider(3060 + dock_extra_height, "Backdrop blur",
               "GPU-friendly live blur behind the dock surface",
               RecoveryDockBlur(), true);
 
   auto *font_section = Label(state->list, "Typography",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(font_section, 32, 3340);
+  lv_obj_set_pos(font_section, 32, 3340 + dock_extra_height);
   auto *font_hint = Label(
       state->list,
       "Choose the typeface used across the AERA interface.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(font_hint, 32, 3390);
+  lv_obj_set_pos(font_hint, 32, 3390 + dock_extra_height);
 
   struct FontCards {
     struct Card {
@@ -1624,7 +1628,7 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + column * 640, 3450 + row * 220);
+    lv_obj_set_pos(card, 16 + column * 640, 3450 + dock_extra_height + row * 220);
     lv_obj_set_size(card, 624, 196);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
@@ -1680,7 +1684,7 @@ void BuildTheme(Tools *state) {
 
   const int font_rows = std::max(
       1, static_cast<int>((font_choices.size() + 1) / 2));
-  const int save_y = std::max(3760, 3450 + font_rows * 220 + 70);
+  const int save_y = dock_extra_height + std::max(3760, 3450 + font_rows * 220 + 70);
   auto *save = Button(state->list, "Save theme", [state] {
     const bool saved = RecoverySavePreferences();
     Sheet(state->screen, saved ? "Theme saved" : "Could not save theme",
