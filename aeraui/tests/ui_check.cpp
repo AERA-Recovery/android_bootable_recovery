@@ -55,13 +55,26 @@ uint32_t RecoveryAccentColor() { return accent_color; }
 bool RecoverySetAccentColor(uint32_t rgb) { accent_color = rgb; return true; }
 bool RecoveryLightMode() { return light_mode; }
 bool RecoverySetLightMode(bool enabled) { light_mode = enabled; return true; }
+AppearanceMode RecoveryAppearanceMode() {
+  return light_mode ? AppearanceMode::kLight : AppearanceMode::kGraphite;
+}
+bool RecoverySetAppearanceMode(AppearanceMode mode) {
+  if (mode < AppearanceMode::kGraphite || mode > AppearanceMode::kAmoled)
+    return false;
+  light_mode = mode == AppearanceMode::kLight;
+  return true;
+}
+SurfaceStyle RecoverySurfaceStyle() { return SurfaceStyle::kSolid; }
+bool RecoverySetSurfaceStyle(SurfaceStyle style) {
+  return static_cast<int>(style) >= 0 && static_cast<int>(style) <= 3;
+}
 bool RecoveryTintedIconBackgrounds() { return false; }
 bool RecoverySetTintedIconBackgrounds(bool) { return true; }
 std::string RecoveryUiFont() { return {}; }
 bool RecoverySetUiFont(const std::string &) { return true; }
 InterfaceSize RecoveryInterfaceSize() { return interface_size; }
 bool RecoverySetInterfaceSize(InterfaceSize size) {
-  return static_cast<int>(size) >= 0 && static_cast<int>(size) <= 2;
+  return static_cast<int>(size) >= 0 && static_cast<int>(size) <= 3;
 }
 KeyboardLayout RecoveryKeyboardLayout() { return KeyboardLayout::kQwerty; }
 bool RecoverySetKeyboardLayout(KeyboardLayout layout) {
@@ -644,6 +657,7 @@ int main(int argc,char **argv) {
       {InterfaceSize::kSmall, "small"},
       {InterfaceSize::kNormal, "normal"},
       {InterfaceSize::kLarge, "large"},
+      {InterfaceSize::kSpacious, "spacious"},
   };
   for (bool landscape : {false, true}) {
     lv_display_set_resolution(display, landscape ? 3168 : 1440,
@@ -660,6 +674,7 @@ int main(int argc,char **argv) {
       auto* alpha_row = Find(files, "alpha.txt");
       assert(lv_obj_get_height(alpha_row) ==
              (size == InterfaceSize::kSmall ? 150
+              : size == InterfaceSize::kSpacious ? 264
               : size == InterfaceSize::kLarge ? 228
                                                : 174));
       assert(Find(files, LV_SYMBOL_PLUS));
@@ -911,7 +926,7 @@ int main(int argc,char **argv) {
   interface_size = InterfaceSize::kNormal;
 
   if (!strcmp(argv[1], "--files")) {
-    puts("Headless File Manager UI checks passed in portrait and landscape at Small, Normal and Large interface sizes.");
+    puts("Headless File Manager UI checks passed at all four density sizes.");
     lv_deinit();
     std::filesystem::remove_all(backup_root);
     return 0;

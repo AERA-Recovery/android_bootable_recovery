@@ -63,9 +63,11 @@ inline lv_color_t kAccentPressed = Color(0x0aa8db);
 inline lv_color_t kAccentSoft = Color(0x17343d);
 inline lv_color_t kMainSelected = Color(0x30434a);
 inline int kInterfaceSize = 1;
+inline int kSurfaceStyle = 0;
+inline int kAppearanceMode = 0;
 
 inline void ApplyInterfaceSize(int size) {
-  kInterfaceSize = size < 0 ? 0 : size > 2 ? 2 : size;
+  kInterfaceSize = size < 0 ? 0 : size > 3 ? 3 : size;
 }
 
 inline const lv_font_t *UiFont(const lv_font_t *font) {
@@ -86,13 +88,26 @@ inline const lv_font_t *UiFont(const lv_font_t *font) {
     else if (font == &lv_font_montserrat_24) selected = &lv_font_montserrat_28;
     else if (font == &lv_font_montserrat_20) selected = &lv_font_montserrat_24;
     else if (font == &lv_font_montserrat_18) selected = &lv_font_montserrat_20;
+  } else if (kInterfaceSize == 3) {
+    if (font == &lv_font_montserrat_40) selected = &lv_font_montserrat_48;
+    else if (font == &lv_font_montserrat_36) selected = &lv_font_montserrat_48;
+    else if (font == &lv_font_montserrat_32) selected = &lv_font_montserrat_40;
+    else if (font == &lv_font_montserrat_28) selected = &lv_font_montserrat_36;
+    else if (font == &lv_font_montserrat_24) selected = &lv_font_montserrat_32;
+    else if (font == &lv_font_montserrat_20) selected = &lv_font_montserrat_28;
+    else if (font == &lv_font_montserrat_18) selected = &lv_font_montserrat_24;
+    else if (font == &lv_font_montserrat_16) selected = &lv_font_montserrat_20;
   }
   return fonts::WithLanguageFallback(selected);
 }
 
 inline bool IsLightMode() { return kLightMode; }
 
+inline int SurfaceStyleValue() { return kSurfaceStyle; }
+inline int AppearanceModeValue() { return kAppearanceMode; }
+
 inline void ApplySurfaceMode(bool light) {
+  kAppearanceMode = light ? 1 : 0;
   kLightMode = light;
   if (light) {
     // Warm porcelain rather than pure white: still bright, but comfortable on
@@ -145,6 +160,38 @@ inline void ApplySurfaceMode(bool light) {
   }
 }
 
+inline void ApplyAppearanceMode(int mode) {
+  const int appearance = mode < 0 ? 0 : mode > 2 ? 2 : mode;
+  ApplySurfaceMode(appearance == 1);
+  kAppearanceMode = appearance;
+  if (appearance != 2) return;
+  kLightMode = false;
+  kCanvas = Color(0x000000);
+  kTopbar = Color(0x000000);
+  kPanel = Color(0x070707);
+  kPanelStrong = Color(0x0d0d0d);
+  kPanelPressed = Color(0x191919);
+  kInset = Color(0x030303);
+  kLine = Color(0x25282d);
+  kLineBright = Color(0x444950);
+  kMainTop = Color(0x000000);
+  kMainBottom = Color(0x000000);
+  kMainCanvas = Color(0x000000);
+  kMainPanel = Color(0x080808);
+  kMainSheet = Color(0x0c0c0c);
+  kMainLine = Color(0x30343a);
+  kRedSoft = Color(0x2c1014);
+  kCyanSoft = Color(0x08242c);
+  kGreenSoft = Color(0x0a251a);
+  kAmberSoft = Color(0x281e08);
+}
+
+// Surface style is independent from appearance and accent. It changes the
+// material shared by AERA panels without changing the underlying palette.
+inline void ApplySurfaceStyle(int style) {
+  kSurfaceStyle = style < 0 ? 0 : style > 3 ? 3 : style;
+}
+
 inline uint8_t BlendChannel(uint8_t foreground, uint8_t background,
                             uint8_t foreground_percent) {
   return static_cast<uint8_t>(
@@ -194,6 +241,18 @@ inline lv_obj_t *Label(lv_obj_t *parent, const char *text,
   lv_obj_t *label = lv_label_create(parent);
   i18n::BindLabel(label, text);
   lv_obj_set_style_text_font(label, UiFont(font), 0);
+  lv_obj_set_style_text_color(label, color, 0);
+  return label;
+}
+
+// Decorative artwork has fixed geometry and must not be reflowed by the
+// user's Density setting. Use this only for brand marks and generated art;
+// readable interface copy should continue through Label()/UiFont().
+inline lv_obj_t *FixedLabel(lv_obj_t *parent, const char *text,
+                            const lv_font_t *font, lv_color_t color) {
+  lv_obj_t *label = lv_label_create(parent);
+  i18n::BindLabel(label, text);
+  lv_obj_set_style_text_font(label, font, 0);
   lv_obj_set_style_text_color(label, color, 0);
   return label;
 }
@@ -258,6 +317,12 @@ struct MatteTexture {
 
 inline void MainBackground(lv_obj_t *screen) {
   Screen(screen);
+  if (kAppearanceMode == 2) {
+    lv_obj_set_style_bg_color(screen, kMainCanvas, 0);
+    lv_obj_set_style_bg_grad_dir(screen, LV_GRAD_DIR_NONE, 0);
+    lv_obj_set_style_bg_image_src(screen, nullptr, 0);
+    return;
+  }
   // One continuous opaque surface shared by every page: no tile boundaries,
   // per-frame generation or extra draw objects. Separate descriptors prevent
   // LVGL's image/GPU cache from retaining graphite after a live mode change.
@@ -291,8 +356,43 @@ inline void Panel(lv_obj_t *object, int32_t radius = 28,
   lv_obj_set_style_bg_color(object, fill, 0);
   lv_obj_set_style_bg_opa(object, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(object, 0, 0);
-  // Avoid large software shadow redraws; contrast and borders define depth.
+  lv_obj_set_style_border_color(object, kMainLine, 0);
+  // Keep opacity ready for callers which enable a selected-state border after
+  // Panel(); width zero remains the neutral default.
+  lv_obj_set_style_border_opa(object, LV_OPA_COVER, 0);
   lv_obj_set_style_shadow_width(object, 0, 0);
+  lv_obj_set_style_shadow_opa(object, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_shadow_offset_x(object, 0, 0);
+  lv_obj_set_style_shadow_offset_y(object, 0, 0);
+  lv_obj_set_style_blur_backdrop(object, false, 0);
+  lv_obj_set_style_blur_radius(object, 0, 0);
+
+  switch (kSurfaceStyle) {
+    case 1:  // Frosted glass.
+      lv_obj_set_style_bg_opa(object, kLightMode ? LV_OPA_80 : LV_OPA_70, 0);
+      lv_obj_set_style_border_width(object, 1, 0);
+      lv_obj_set_style_border_opa(object, LV_OPA_50, 0);
+      lv_obj_set_style_blur_backdrop(object, true, 0);
+      lv_obj_set_style_blur_radius(object, 16, 0);
+      lv_obj_set_style_blur_quality(object, LV_BLUR_QUALITY_SPEED, 0);
+      break;
+    case 2:  // Outline.
+      lv_obj_set_style_bg_opa(object, LV_OPA_10, 0);
+      lv_obj_set_style_border_width(object, 2, 0);
+      lv_obj_set_style_border_opa(object, LV_OPA_60, 0);
+      break;
+    case 3:  // Elevated.
+      lv_obj_set_style_border_width(object, 1, 0);
+      lv_obj_set_style_border_opa(object, LV_OPA_30, 0);
+      lv_obj_set_style_shadow_color(object, Color(0x000000), 0);
+      lv_obj_set_style_shadow_width(object, 22, 0);
+      lv_obj_set_style_shadow_offset_y(object, 6, 0);
+      lv_obj_set_style_shadow_opa(object,
+                                  kLightMode ? LV_OPA_20 : LV_OPA_40, 0);
+      break;
+    default:  // Solid uses opaque, shadow-free surfaces.
+      break;
+  }
 }
 
 inline void Interactive(lv_obj_t *object, lv_color_t pressed = kPanelPressed) {

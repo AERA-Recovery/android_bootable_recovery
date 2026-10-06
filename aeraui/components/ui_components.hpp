@@ -217,14 +217,21 @@ inline void UpdateNavigationDockAppearance(lv_obj_t *bar, int transparency,
       layout == DockLayout::kTextOnly;
   transparency = std::clamp(transparency, 0, 100);
   blur = std::clamp(blur, 0, 100);
-  const lv_opa_t surface_opa = static_cast<lv_opa_t>(
+  lv_opa_t surface_opa = static_cast<lv_opa_t>(
       (100 - transparency) * LV_OPA_COVER / 100);
+  const int surface_style = SurfaceStyleValue();
+  if (surface_style == 1)
+    surface_opa = static_cast<lv_opa_t>(surface_opa * 70 / 100);
+  else if (surface_style == 2)
+    surface_opa = static_cast<lv_opa_t>(surface_opa * 14 / 100);
   lv_obj_set_style_bg_opa(shelf, bare ? LV_OPA_TRANSP : surface_opa, 0);
-  lv_obj_set_style_blur_backdrop(shelf, blur > 0 && !bare, 0);
+  lv_obj_set_style_blur_backdrop(
+      shelf, (blur > 0 || surface_style == 1) && !bare, 0);
   /* The former 40% already gives the strongest useful dock blur. Keep the
    * control's friendly 0-100% scale while mapping its full range to that
    * restrained radius. */
-  lv_obj_set_style_blur_radius(shelf, blur * 24 / 250, 0);
+  lv_obj_set_style_blur_radius(
+      shelf, std::max(blur * 24 / 250, surface_style == 1 ? 16 : 0), 0);
   lv_obj_invalidate(shelf);
 }
 
@@ -271,25 +278,35 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
   // Keep the first child as the shared surface for live appearance updates.
   // Text Only leaves it transparent.
   auto *shelf = lv_obj_create(bar);
-  Clear(shelf);
+  Panel(shelf, shelf_height / 2, kMainSheet);
   lv_obj_remove_flag(shelf, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_pos(shelf, shelf_x, shelf_y);
   lv_obj_set_size(shelf, shelf_width, shelf_height);
-  lv_obj_set_style_radius(shelf, shelf_height / 2, 0);
-  lv_obj_set_style_bg_color(shelf,
-      IsLightMode() ? Color(0xffffff) : Color(0x666b73), 0);
-  lv_obj_set_style_bg_grad_color(shelf,
-      IsLightMode() ? Color(0xd9dde2) : Color(0x292d33), 0);
-  lv_obj_set_style_bg_grad_dir(shelf, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_bg_color(shelf, kMainSheet, 0);
+  lv_obj_set_style_bg_grad_color(shelf, kMainPanel, 0);
+  lv_obj_set_style_bg_grad_dir(
+      shelf, SurfaceStyleValue() >= 1 && SurfaceStyleValue() <= 2
+                 ? LV_GRAD_DIR_NONE : LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_border_width(shelf, minimal ? 0 : 1, 0);
-  lv_obj_set_style_border_color(shelf,
-      IsLightMode() ? Color(0x8d949c) : Color(0xb8bec6), 0);
-  lv_obj_set_style_border_opa(shelf, LV_OPA_20, 0);
+  lv_obj_set_style_border_color(shelf, kMainLine, 0);
+  lv_obj_set_style_border_opa(shelf, LV_OPA_30, 0);
   lv_obj_set_style_shadow_color(shelf, lv_color_black(), 0);
   lv_obj_set_style_shadow_width(shelf, 12, 0);
   lv_obj_set_style_shadow_offset_y(shelf, 6, 0);
   lv_obj_set_style_shadow_opa(shelf, LV_OPA_10, 0);
   lv_obj_set_style_blur_quality(shelf, LV_BLUR_QUALITY_SPEED, 0);
+  if (SurfaceStyleValue() == 1) {
+    lv_obj_set_style_border_opa(shelf, LV_OPA_50, 0);
+    lv_obj_set_style_shadow_width(shelf, 0, 0);
+  } else if (SurfaceStyleValue() == 2) {
+    lv_obj_set_style_border_width(shelf, minimal ? 0 : 2, 0);
+    lv_obj_set_style_border_opa(shelf, LV_OPA_60, 0);
+    lv_obj_set_style_shadow_width(shelf, 0, 0);
+  } else if (SurfaceStyleValue() == 3) {
+    lv_obj_set_style_shadow_width(shelf, 22, 0);
+    lv_obj_set_style_shadow_offset_y(shelf, 7, 0);
+    lv_obj_set_style_shadow_opa(shelf, LV_OPA_30, 0);
+  }
   if (text_only) {
     lv_obj_set_style_bg_grad_dir(shelf, LV_GRAD_DIR_NONE, 0);
     lv_obj_set_style_border_width(shelf, 0, 0);

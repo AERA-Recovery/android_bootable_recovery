@@ -151,13 +151,33 @@ int RecoveryUtcOffset();  // Minutes east of UTC.
 bool RecoverySetUtcOffset(int minutes);
 uint32_t RecoveryAccentColor();
 bool RecoverySetAccentColor(uint32_t rgb);
+enum class AppearanceMode {
+  kGraphite = 0,
+  kLight = 1,
+  kAmoled = 2,
+};
+AppearanceMode RecoveryAppearanceMode();
+bool RecoverySetAppearanceMode(AppearanceMode mode);
 bool RecoveryLightMode();
 bool RecoverySetLightMode(bool enabled);
+enum class SurfaceStyle {
+  kSolid = 0,
+  kFrosted = 1,
+  kOutline = 2,
+  kElevated = 3,
+};
+SurfaceStyle RecoverySurfaceStyle();
+bool RecoverySetSurfaceStyle(SurfaceStyle style);
 bool RecoveryTintedIconBackgrounds();
 bool RecoverySetTintedIconBackgrounds(bool enabled);
 std::string RecoveryUiFont();
 bool RecoverySetUiFont(const std::string &plugin_id);
-enum class InterfaceSize { kSmall = 0, kNormal = 1, kLarge = 2 };
+enum class InterfaceSize {
+  kSmall = 0,
+  kNormal = 1,
+  kLarge = 2,
+  kSpacious = 3,
+};
 InterfaceSize RecoveryInterfaceSize();
 bool RecoverySetInterfaceSize(InterfaceSize size);
 enum class KeyboardLayout { kQwerty = 0, kQwertz = 1 };

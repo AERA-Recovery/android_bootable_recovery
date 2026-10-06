@@ -577,29 +577,23 @@ lv_obj_t *WorkflowModeCard(lv_obj_t *parent, int x, int y, int width,
                            const char *description, bool active,
                            Handler action) {
   auto *card = lv_button_create(parent);
-  Clear(card);
+  Panel(card, 34, kMainPanel);
+  Interactive(card, kMainSelected);
   lv_obj_set_pos(card, x, y);
   lv_obj_set_size(card, width, 220);
-  lv_obj_set_style_radius(card, 34, 0);
-  lv_obj_set_style_bg_color(card, active ? kAccent : kMainPanel, 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(card,
-      active ? kAccentPressed : kMainSelected, LV_STATE_PRESSED);
-  lv_obj_set_style_border_width(card, active ? 0 : 1, 0);
-  lv_obj_set_style_border_color(card, kMainLine, 0);
-  lv_obj_set_style_border_opa(card, LV_OPA_50, 0);
-  lv_obj_set_style_transform_scale(card, 252, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(
+      card, active ? 3
+                   : RecoverySurfaceStyle() == SurfaceStyle::kOutline ? 2 : 1,
+      0);
+  lv_obj_set_style_border_color(card, active ? kAccent : kMainLine, 0);
+  lv_obj_set_style_border_opa(card, active ? LV_OPA_COVER : LV_OPA_50, 0);
 
-  auto *symbol = Label(card, icon, &lv_font_montserrat_48,
-                       active ? kOnAccent : kAccent);
+  auto *symbol = Label(card, icon, &lv_font_montserrat_48, kAccent);
   lv_obj_set_pos(symbol, 34, 30);
-  auto *heading = Label(card, title, &lv_font_montserrat_32,
-                        active ? kOnAccent : kText);
+  auto *heading = Label(card, title, &lv_font_montserrat_32, kText);
   lv_obj_set_pos(heading, 112, 28);
   SingleLineLabel(heading, width - 176, &lv_font_montserrat_32);
-  auto *copy = Label(card, description, &lv_font_montserrat_24,
-                     active ? kOnAccent : kMuted);
-  lv_obj_set_style_text_opa(copy, active ? LV_OPA_80 : LV_OPA_COVER, 0);
+  auto *copy = Label(card, description, &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(copy, 34, 112);
   FitLabelToLines(copy, width - 68, 2,
                   {&lv_font_montserrat_24, &lv_font_montserrat_20,
@@ -1142,8 +1136,9 @@ void OpenAccentPicker(Tools *tools) {
 
 void BuildTheme(Tools *state) {
   Header(state->screen, "Theme Engine",
-         "Choose appearance, sizing, keyboard and accent for every AERA page.", state->callback,
+         "Choose appearance, surfaces, density, keyboard and accent for every AERA page.", state->callback,
          state->context);
+  constexpr int kSurfaceSectionOffset = 310;
   const bool landscape = Landscape(state->screen);
   const int list_y = landscape ? 340 : 460;
   const int dock_gap = landscape ? 20 : 28;
@@ -1177,43 +1172,122 @@ void BuildTheme(Tools *state) {
                         &lv_font_montserrat_32, kAccent);
   lv_obj_set_pos(appearance, 32, 380);
 
-  struct ModePreset { const char *name; const char *detail; bool light; };
-  const std::array<ModePreset, 2> modes{{
-      {"Graphite", "Dark, textured and focused", false},
-      {"Light", "Warm white with subtle grain", true},
+  struct ModePreset {
+    const char *name;
+    const char *detail;
+    AppearanceMode mode;
+  };
+  const std::array<ModePreset, 3> modes{{
+      {"Graphite", "Dark, textured and focused", AppearanceMode::kGraphite},
+      {"Light", "Warm white with subtle grain", AppearanceMode::kLight},
+      {"AMOLED", "True black from edge to edge", AppearanceMode::kAmoled},
   }};
-  const bool selected_light = RecoveryLightMode();
+  const AppearanceMode selected_appearance = RecoveryAppearanceMode();
   for (size_t i = 0; i < modes.size(); ++i) {
     const auto mode = modes[i];
-    const bool selected = selected_light == mode.light;
+    const bool selected = selected_appearance == mode.mode;
     auto *card = lv_button_create(state->list);
     Clear(card);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 450);
-    lv_obj_set_size(card, 624, 170);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 426, 450);
+    lv_obj_set_size(card, 410, 170);
     lv_obj_set_style_radius(card, 32, 0);
     lv_obj_set_style_bg_color(card,
-        mode.light ? Color(0xf2f0eb) : Color(0x24272c), 0);
+        mode.mode == AppearanceMode::kLight ? Color(0xf2f0eb)
+        : mode.mode == AppearanceMode::kAmoled ? Color(0x000000)
+                                                : Color(0x24272c), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(card, selected ? 4 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
     lv_obj_set_style_transform_scale(card, 250, LV_STATE_PRESSED);
     auto *name = Label(card, mode.name, &lv_font_montserrat_32,
-        mode.light ? Color(0x171a1e) : Color(0xf5f7fa));
+        mode.mode == AppearanceMode::kLight ? Color(0x171a1e)
+                                            : Color(0xf5f7fa));
     lv_obj_set_pos(name, 32, 30);
     auto *description = Label(card, mode.detail, &lv_font_montserrat_24,
-        mode.light ? Color(0x575d64) : Color(0xaeb6c0));
+        mode.mode == AppearanceMode::kLight ? Color(0x575d64)
+                                            : Color(0xaeb6c0));
     lv_obj_set_pos(description, 32, 94);
+    FitLabelToLines(description, 340, 2,
+                    {&lv_font_montserrat_24, &lv_font_montserrat_20,
+                     &lv_font_montserrat_18});
     if (selected) {
       auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
       lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -32, 38);
     }
     OnClick(card, [state, mode] {
-      if (!RecoverySetLightMode(mode.light)) {
+      if (!RecoverySetAppearanceMode(mode.mode)) {
         Sheet(state->screen, "Theme unavailable",
               "The selected appearance could not be stored.");
         return;
       }
-      ApplySurfaceMode(mode.light);
+      ApplyAppearanceMode(static_cast<int>(mode.mode));
+      ApplySurfaceStyle(static_cast<int>(RecoverySurfaceStyle()));
+      ApplyAccent(RecoveryAccentColor());
+      RefreshTheme(state);
+    });
+  }
+
+  auto *surface_section =
+      Label(state->list, "Surface style", &lv_font_montserrat_32, kAccent);
+  lv_obj_set_pos(surface_section, 32, 690);
+  struct SurfacePreset {
+    const char *name;
+    const char *detail;
+    SurfaceStyle style;
+  };
+  const std::array<SurfacePreset, 4> surfaces{{
+      {"Solid", "Opaque and clean", SurfaceStyle::kSolid},
+      {"Frosted", "Translucent blur", SurfaceStyle::kFrosted},
+      {"Outline", "Borders, little fill", SurfaceStyle::kOutline},
+      {"Elevated", "Shadow and depth", SurfaceStyle::kElevated},
+  }};
+  const SurfaceStyle selected_surface = RecoverySurfaceStyle();
+  for (size_t i = 0; i < surfaces.size(); ++i) {
+    const auto preset = surfaces[i];
+    const bool selected = selected_surface == preset.style;
+    auto *card = lv_button_create(state->list);
+    Clear(card);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320, 760);
+    lv_obj_set_size(card, 304, 170);
+    lv_obj_set_style_radius(card, 30, 0);
+    lv_obj_set_style_bg_color(card, kMainPanel, 0);
+    lv_obj_set_style_bg_opa(
+        card, preset.style == SurfaceStyle::kOutline ? LV_OPA_10
+              : preset.style == SurfaceStyle::kFrosted ? LV_OPA_70
+                                                       : LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(card, selected ? 4 :
+        preset.style == SurfaceStyle::kOutline ? 2 : 1, 0);
+    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
+    lv_obj_set_style_border_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_transform_scale(card, 250, LV_STATE_PRESSED);
+    if (preset.style == SurfaceStyle::kFrosted) {
+      lv_obj_set_style_blur_backdrop(card, true, 0);
+      lv_obj_set_style_blur_radius(card, 16, 0);
+      lv_obj_set_style_blur_quality(card, LV_BLUR_QUALITY_SPEED, 0);
+    } else if (preset.style == SurfaceStyle::kElevated) {
+      lv_obj_set_style_shadow_color(card, Color(0x000000), 0);
+      lv_obj_set_style_shadow_width(card, 18, 0);
+      lv_obj_set_style_shadow_offset_y(card, 6, 0);
+      lv_obj_set_style_shadow_opa(card, LV_OPA_40, 0);
+    }
+    auto *name = Label(card, preset.name, &lv_font_montserrat_28, kText);
+    lv_obj_set_pos(name, 22, 26);
+    auto *detail = Label(card, preset.detail, &lv_font_montserrat_18, kMuted);
+    lv_obj_set_pos(detail, 22, 88);
+    FitLabelToLines(detail, 258, 2,
+                    {&lv_font_montserrat_18, &lv_font_montserrat_16});
+    if (selected) {
+      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_20, kAccent);
+      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -18, 22);
+    }
+    OnClick(card, [state, preset] {
+      if (!RecoverySetSurfaceStyle(preset.style)) {
+        Sheet(state->screen, "Surface unavailable",
+              "The selected surface style could not be stored.");
+        return;
+      }
+      ApplyAppearanceMode(static_cast<int>(RecoveryAppearanceMode()));
+      ApplySurfaceStyle(static_cast<int>(preset.style));
       ApplyAccent(RecoveryAccentColor());
       RefreshTheme(state);
     });
@@ -1221,7 +1295,7 @@ void BuildTheme(Tools *state) {
 
   auto *icon_background_section =
       Label(state->list, "Icon backgrounds", &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(icon_background_section, 32, 690);
+  lv_obj_set_pos(icon_background_section, 32, 690 + kSurfaceSectionOffset);
   struct IconBackgroundPreset {
     const char *name;
     const char *detail;
@@ -1237,7 +1311,8 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 760);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640,
+                   760 + kSurfaceSectionOffset);
     lv_obj_set_size(card, 624, 170);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
@@ -1267,18 +1342,19 @@ void BuildTheme(Tools *state) {
     });
   }
 
-  auto *size_section = Label(state->list, "Interface size",
+  auto *size_section = Label(state->list, "Density",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(size_section, 32, 1000);
+  lv_obj_set_pos(size_section, 32, 1000 + kSurfaceSectionOffset);
   struct SizePreset {
     const char *name;
     const char *detail;
     InterfaceSize size;
   };
-  const std::array<SizePreset, 3> sizes{{
-      {"Small", "More content", InterfaceSize::kSmall},
-      {"Normal", "AERA default", InterfaceSize::kNormal},
-      {"Large", "Easier to read", InterfaceSize::kLarge},
+  const std::array<SizePreset, 4> sizes{{
+      {"Compact", "More content on screen", InterfaceSize::kSmall},
+      {"Standard", "Balanced AERA layout", InterfaceSize::kNormal},
+      {"Comfortable", "Larger text and targets", InterfaceSize::kLarge},
+      {"Spacious", "Maximum text and spacing", InterfaceSize::kSpacious},
   }};
   const InterfaceSize selected_size = RecoveryInterfaceSize();
   for (size_t i = 0; i < sizes.size(); ++i) {
@@ -1287,22 +1363,26 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 426, 1070);
-    lv_obj_set_size(card, 410, 170);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320,
+                   1070 + kSurfaceSectionOffset);
+    lv_obj_set_size(card, 304, 170);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
     auto *name = Label(card, preset.name, &lv_font_montserrat_32, kText);
     lv_obj_set_pos(name, 28, 28);
     auto *detail = Label(card, preset.detail, &lv_font_montserrat_20, kMuted);
     lv_obj_set_pos(detail, 28, 96);
+    FitLabelToLines(detail, 244, 2,
+                    {&lv_font_montserrat_20, &lv_font_montserrat_18,
+                     &lv_font_montserrat_16});
     if (selected) {
       auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
       lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -28, 34);
     }
     OnClick(card, [state, preset] {
       if (!RecoverySetInterfaceSize(preset.size)) {
-        Sheet(state->screen, "Size unavailable",
-              "The interface size could not be changed.");
+        Sheet(state->screen, "Density unavailable",
+              "The interface density could not be changed.");
         return;
       }
       ApplyInterfaceSize(static_cast<int>(preset.size));
@@ -1312,7 +1392,7 @@ void BuildTheme(Tools *state) {
 
   auto *grid_section = Label(state->list, "Home plugin grid",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(grid_section, 32, 1310);
+  lv_obj_set_pos(grid_section, 32, 1310 + kSurfaceSectionOffset);
   struct GridPreset { const char *name; const char *detail; int columns; };
   const std::array<GridPreset, 4> grids{{
       {"2 x 3", "Wide cards - 6 apps per page", 2},
@@ -1327,7 +1407,8 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320, 1380);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320,
+                   1380 + kSurfaceSectionOffset);
     lv_obj_set_size(card, 304, 170);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
@@ -1353,7 +1434,7 @@ void BuildTheme(Tools *state) {
 
   auto *keyboard_section = Label(state->list, "Keyboard layout",
                                  &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(keyboard_section, 32, 1620);
+  lv_obj_set_pos(keyboard_section, 32, 1620 + kSurfaceSectionOffset);
   struct KeyboardPreset {
     const char *name;
     const char *detail;
@@ -1370,7 +1451,8 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640, 1690);
+    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640,
+                   1690 + kSurfaceSectionOffset);
     lv_obj_set_size(card, 624, 170);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
@@ -1394,24 +1476,23 @@ void BuildTheme(Tools *state) {
 
   auto *section = Label(state->list, "Accent palettes",
                         &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(section, 32, 1920);
+  lv_obj_set_pos(section, 32, 1920 + kSurfaceSectionOffset);
   const uint32_t selected_rgb = RecoveryAccentColor();
   for (size_t i = 0; i < kAccentPresets.size(); ++i) {
     const auto preset = kAccentPresets[i];
     const int32_t column = static_cast<int32_t>(i % 4);
     const int32_t row = static_cast<int32_t>(i / 4);
     auto *card = lv_button_create(state->list);
-    Clear(card);
-    lv_obj_set_pos(card, 16 + column * 320, 1990 + row * 220);
+    Panel(card, 32, kMainPanel);
+    Interactive(card, kMainSelected);
+    lv_obj_set_pos(card, 16 + column * 320,
+                   1990 + kSurfaceSectionOffset + row * 220);
     lv_obj_set_size(card, 304, 190);
-    lv_obj_set_style_radius(card, 32, 0);
-    lv_obj_set_style_bg_color(card, kMainPanel, 0);
-    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(card, kMainSelected, LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(card, selected_rgb == preset.rgb ? 4 : 1, 0);
+    lv_obj_set_style_border_width(
+        card, selected_rgb == preset.rgb ? 4
+              : RecoverySurfaceStyle() == SurfaceStyle::kOutline ? 2 : 1, 0);
     lv_obj_set_style_border_color(card,
         selected_rgb == preset.rgb ? Color(preset.rgb) : kMainLine, 0);
-    lv_obj_set_style_transform_scale(card, 250, LV_STATE_PRESSED);
 
     auto *swatch = lv_obj_create(card);
     Clear(swatch);
@@ -1440,17 +1521,15 @@ void BuildTheme(Tools *state) {
 
   const bool custom_selected = !IsPresetAccent(selected_rgb);
   auto *custom = lv_button_create(state->list);
-  Clear(custom);
-  lv_obj_set_pos(custom, 16 + 3 * 320, 1990 + 220);
+  Panel(custom, 32, kMainPanel);
+  Interactive(custom, kMainSelected);
+  lv_obj_set_pos(custom, 16 + 3 * 320, 1990 + kSurfaceSectionOffset + 220);
   lv_obj_set_size(custom, 304, 190);
-  lv_obj_set_style_radius(custom, 32, 0);
-  lv_obj_set_style_bg_color(custom, kMainPanel, 0);
-  lv_obj_set_style_bg_opa(custom, LV_OPA_COVER, 0);
-  lv_obj_set_style_bg_color(custom, kMainSelected, LV_STATE_PRESSED);
-  lv_obj_set_style_border_width(custom, custom_selected ? 4 : 1, 0);
+  lv_obj_set_style_border_width(
+      custom, custom_selected ? 4
+              : RecoverySurfaceStyle() == SurfaceStyle::kOutline ? 2 : 1, 0);
   lv_obj_set_style_border_color(custom,
       custom_selected ? Color(selected_rgb) : kMainLine, 0);
-  lv_obj_set_style_transform_scale(custom, 250, LV_STATE_PRESSED);
   auto *disk = HueSaturationDisk(custom, 72);
   lv_obj_set_pos(disk, 24, 24);
   auto *custom_name = Label(custom, "User select",
@@ -1474,12 +1553,12 @@ void BuildTheme(Tools *state) {
       "AERA Cyan is the default. Choose User select for any colour. Changes\n"
       "apply immediately and are saved with your recovery preferences.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(note, 32, 2470);
+  lv_obj_set_pos(note, 32, 2470 + kSurfaceSectionOffset);
   lv_obj_set_width(note, 1220);
 
   auto *dock_section = Label(state->list, "Navigation dock",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(dock_section, 32, 2590);
+  lv_obj_set_pos(dock_section, 32, 2590 + kSurfaceSectionOffset);
   const std::array<std::pair<const char *, DockLayout>, 5> dock_modes{{
       {"Glass", DockLayout::kGlass}, {"Compact", DockLayout::kCompact},
       {"Minimal", DockLayout::kMinimal}, {"Icons only", DockLayout::kIcons},
@@ -1497,11 +1576,17 @@ void BuildTheme(Tools *state) {
       }
       RefreshTheme(state);
     });
+    Panel(card, 34, kMainPanel);
+    Interactive(card, kMainSelected);
     lv_obj_set_pos(card, 16 + static_cast<int>(i % 4) * 320,
-                   2660 + static_cast<int>(i / 4) * 152);
+                   2660 + kSurfaceSectionOffset +
+                       static_cast<int>(i / 4) * 152);
     lv_obj_set_size(card, 304, 128);
     lv_obj_set_style_radius(card, 34, 0);
-    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
+    lv_obj_set_style_border_width(
+        card, selected ? 3
+                       : RecoverySurfaceStyle() == SurfaceStyle::kOutline
+                             ? 2 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
     lv_obj_set_style_border_opa(card, selected ? LV_OPA_COVER : LV_OPA_40, 0);
     if (selected) {
@@ -1553,21 +1638,23 @@ void BuildTheme(Tools *state) {
       }
     }, LV_EVENT_ALL, binding);
   };
-  dock_slider(2820 + dock_extra_height, "Transparency",
+  dock_slider(2820 + kSurfaceSectionOffset + dock_extra_height, "Transparency",
               "0% is solid; 100% leaves only the controls visible",
               RecoveryDockTransparency(), false);
-  dock_slider(3060 + dock_extra_height, "Backdrop blur",
+  dock_slider(3060 + kSurfaceSectionOffset + dock_extra_height, "Backdrop blur",
               "GPU-friendly live blur behind the dock surface",
               RecoveryDockBlur(), true);
 
   auto *font_section = Label(state->list, "Typography",
                              &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(font_section, 32, 3340 + dock_extra_height);
+  lv_obj_set_pos(font_section, 32,
+                 3340 + kSurfaceSectionOffset + dock_extra_height);
   auto *font_hint = Label(
       state->list,
       "Choose the typeface used across the AERA interface.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(font_hint, 32, 3390 + dock_extra_height);
+  lv_obj_set_pos(font_hint, 32,
+                 3390 + kSurfaceSectionOffset + dock_extra_height);
 
   struct FontCards {
     struct Card {
@@ -1611,7 +1698,8 @@ void BuildTheme(Tools *state) {
     auto *card = lv_button_create(state->list);
     Panel(card, 32, kMainPanel);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + column * 640, 3450 + dock_extra_height + row * 220);
+    lv_obj_set_pos(card, 16 + column * 640,
+                   3450 + kSurfaceSectionOffset + dock_extra_height + row * 220);
     lv_obj_set_size(card, 624, 196);
     lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
     lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
@@ -1667,7 +1755,8 @@ void BuildTheme(Tools *state) {
 
   const int font_rows = std::max(
       1, static_cast<int>((font_choices.size() + 1) / 2));
-  const int save_y = dock_extra_height + std::max(3760, 3450 + font_rows * 220 + 70);
+  const int save_y = kSurfaceSectionOffset + dock_extra_height +
+      std::max(3760, 3450 + font_rows * 220 + 70);
   auto *save = Button(state->list, "Save theme", [state] {
     const bool saved = RecoverySavePreferences();
     Sheet(state->screen, saved ? "Theme saved" : "Could not save theme",
@@ -1681,12 +1770,13 @@ void BuildTheme(Tools *state) {
   auto *reset = Button(state->list, "Reset theme settings", [state] {
     Sheet(
         state->screen, "Reset theme settings?",
-        "This restores AERA Cyan, Graphite appearance, neutral icons, "
-        "normal interface size, the default Home grid, QWERTY keyboard "
+        "This restores AERA Cyan, Graphite appearance, Solid surfaces, "
+        "neutral icons, Standard density, the default Home grid, QWERTY keyboard "
         "and the standard Glass navigation dock.",
         [state] {
           bool restored = true;
-          restored &= RecoverySetLightMode(false);
+          restored &= RecoverySetAppearanceMode(AppearanceMode::kGraphite);
+          restored &= RecoverySetSurfaceStyle(SurfaceStyle::kSolid);
           restored &= RecoverySetTintedIconBackgrounds(false);
           restored &= RecoverySetInterfaceSize(InterfaceSize::kNormal);
           restored &= RecoverySetKeyboardLayout(KeyboardLayout::kQwerty);
@@ -1701,7 +1791,8 @@ void BuildTheme(Tools *state) {
                   "AERA could not restore every theme setting.");
             return;
           }
-          ApplySurfaceMode(false);
+          ApplyAppearanceMode(static_cast<int>(AppearanceMode::kGraphite));
+          ApplySurfaceStyle(static_cast<int>(SurfaceStyle::kSolid));
           ApplyInterfaceSize(static_cast<int>(InterfaceSize::kNormal));
           ApplyAccent(kDefaultAccentRgb);
           RefreshTheme(state);
@@ -2043,10 +2134,9 @@ void BuildMenu(Tools *state) {
                     pinned ? (landscape ? 190 : about ? 218 : 232)
                            : card_height);
     lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(card, pinned ? 0 : 1, 0);
+    lv_obj_set_style_border_width(card, reboot ? 2 : 1, 0);
     lv_obj_set_style_border_color(card, reboot ? kRed : kMainLine, 0);
-    lv_obj_set_style_border_opa(card,
-                                reboot ? LV_OPA_TRANSP : LV_OPA_30, 0);
+    lv_obj_set_style_border_opa(card, reboot ? LV_OPA_60 : LV_OPA_30, 0);
     OnClick(card, [state, item] { Open(state, item.action); });
 
     auto *plate = lv_obj_create(card);

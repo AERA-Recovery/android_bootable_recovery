@@ -39,8 +39,10 @@ void AddMatrixEngraving(lv_obj_t *parent, int width, int height,
       static_cast<int>(sizeof(kStreams) / sizeof(kStreams[0]));
 
   const int column_count = std::clamp(width / 46, 14, 30);
-  const int font_height =
-      lv_font_get_line_height(UiFont(&lv_font_montserrat_18));
+  // The engraving is generated against an exact 18 px cell grid. Applying
+  // interface Density to it changes line metrics without changing the fixed
+  // artwork bounds, which folds and clips the streams.
+  const int font_height = lv_font_get_line_height(&lv_font_montserrat_18);
   const int row_count = std::max(
       kStreamRows, (height + font_height + 7) / (font_height + 8) + 1);
   std::string fields[3];
@@ -59,8 +61,8 @@ void AddMatrixEngraving(lv_obj_t *parent, int width, int height,
       std::max(10, (width - 36) / (column_count - 1) - 7);
   auto add_field = [&](int group, lv_color_t color, lv_opa_t opacity,
                        int x_offset, int y_offset) {
-    auto *field = Label(parent, fields[group].c_str(),
-                        &lv_font_montserrat_18, color);
+    auto *field = FixedLabel(parent, fields[group].c_str(),
+                             &lv_font_montserrat_18, color);
     lv_obj_set_pos(field, 10 + x_offset, 4 + group * 3 + y_offset);
     lv_obj_set_size(field, width - 20, height - 4);
     lv_obj_set_style_text_align(field, LV_TEXT_ALIGN_CENTER, 0);

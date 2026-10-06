@@ -133,11 +133,16 @@ void BrandHero(lv_obj_t *parent, int x, int y, int width, int height,
   lv_obj_set_pos(segment, -kSegmentX * logo_scale / LV_SCALE_NONE,
                  -kSegmentY * logo_scale / LV_SCALE_NONE);
 
-  auto *word = Label(hero, "AERA", &lv_font_montserrat_48, kText);
+  // These two labels are part of the logo composition rather than interface
+  // copy. Keep their metrics fixed so larger Density modes cannot distort the
+  // crop or overlap the mark.
+  auto *word = FixedLabel(hero, "AERA", &lv_font_montserrat_48, kText);
   lv_obj_set_style_transform_scale(word, landscape ? 330 : 310, 0);
   lv_obj_set_style_text_letter_space(word, 8, 0);
   lv_obj_align(word, LV_ALIGN_BOTTOM_MID, 0, landscape ? -132 : -118);
-  auto *project = Kicker(hero, "RECOVERY PROJECT", kCyan);
+  auto *project = FixedLabel(hero, "RECOVERY PROJECT",
+                             &lv_font_montserrat_18, kCyan);
+  lv_obj_set_style_text_letter_space(project, 3, 0);
   lv_obj_set_style_text_letter_space(project, 7, 0);
   lv_obj_align(project, LV_ALIGN_BOTTOM_MID, 0, landscape ? -66 : -54);
   AnimateEnter(hero, 20, 16);
@@ -219,6 +224,12 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     Panel(foundation, 34, kMainSheet);
     lv_obj_set_pos(foundation, 0, 1972);
     lv_obj_set_size(foundation, 1312, 318);
+    // Match the identity and contributor cards above. The global Outline
+    // material is intentionally stronger, but this final card belongs to the
+    // same About-page group and should not look independently selected.
+    lv_obj_set_style_border_width(foundation, 1, 0);
+    lv_obj_set_style_border_color(foundation, kMainLine, 0);
+    lv_obj_set_style_border_opa(foundation, LV_OPA_30, 0);
     auto *open = Kicker(foundation, "OPEN-SOURCE FOUNDATION", kAccent);
     lv_obj_set_pos(open, 38, 34);
     auto *copy = Label(foundation,

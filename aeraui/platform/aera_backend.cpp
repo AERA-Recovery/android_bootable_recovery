@@ -1126,12 +1126,43 @@ bool RecoverySetAccentColor(uint32_t rgb) {
   // when the in-memory settings map is flushed to storage.
   return DataManager::SetValue("aera_theme_accent", value, 1) == 0;
 }
-bool RecoveryLightMode() {
+AppearanceMode RecoveryAppearanceMode() {
   LoadAeraPreferencesIfAvailable();
-  return DataManager::GetStrValue("aera_theme_mode") == "light";
+  const std::string theme = DataManager::GetStrValue("aera_theme_mode");
+  if (theme == "amoled" ||
+      DataManager::GetIntValue("aera_surface_style") == 4)
+    return AppearanceMode::kAmoled;
+  return theme == "light" ? AppearanceMode::kLight
+                           : AppearanceMode::kGraphite;
+}
+bool RecoverySetAppearanceMode(AppearanceMode mode) {
+  const char *value = nullptr;
+  switch (mode) {
+    case AppearanceMode::kGraphite: value = "graphite"; break;
+    case AppearanceMode::kLight: value = "light"; break;
+    case AppearanceMode::kAmoled: value = "amoled"; break;
+  }
+  return value != nullptr &&
+      DataManager::SetValue("aera_theme_mode", value, 1) == 0;
+}
+bool RecoveryLightMode() {
+  return RecoveryAppearanceMode() == AppearanceMode::kLight;
 }
 bool RecoverySetLightMode(bool enabled) {
-  return DataManager::SetValue("aera_theme_mode", enabled ? "light" : "graphite", 1) == 0;
+  return RecoverySetAppearanceMode(enabled ? AppearanceMode::kLight
+                                           : AppearanceMode::kGraphite);
+}
+SurfaceStyle RecoverySurfaceStyle() {
+  LoadAeraPreferencesIfAvailable();
+  const std::string stored = DataManager::GetStrValue("aera_surface_style");
+  if (stored.empty()) return SurfaceStyle::kSolid;
+  const int value = atoi(stored.c_str());
+  return static_cast<SurfaceStyle>(value >= 0 && value <= 3 ? value : 0);
+}
+bool RecoverySetSurfaceStyle(SurfaceStyle style) {
+  const int value = static_cast<int>(style);
+  return value >= 0 && value <= 3 &&
+      DataManager::SetValue("aera_surface_style", value, 1) == 0;
 }
 bool RecoveryTintedIconBackgrounds() {
   LoadAeraPreferencesIfAvailable();
@@ -1162,7 +1193,7 @@ bool RecoverySetUiFont(const std::string &plugin_id) {
 InterfaceSize RecoveryInterfaceSize() {
   LoadAeraPreferencesIfAvailable();
   const int value = std::clamp(
-      DataManager::GetIntValue("aera_interface_size"), 0, 2);
+      DataManager::GetIntValue("aera_interface_size"), 0, 3);
   // DataManager returns zero for an unset integer. Preserve today's UI as the
   // default by storing human-readable names and treating empty as Normal.
   const std::string stored = DataManager::GetStrValue("aera_interface_size");
@@ -1171,7 +1202,7 @@ InterfaceSize RecoveryInterfaceSize() {
 }
 bool RecoverySetInterfaceSize(InterfaceSize size) {
   const int value = static_cast<int>(size);
-  return value >= 0 && value <= 2 &&
+  return value >= 0 && value <= 3 &&
       DataManager::SetValue("aera_interface_size", value, 1) == 0;
 }
 KeyboardLayout RecoveryKeyboardLayout() {
@@ -1353,6 +1384,7 @@ struct EarlyUiPreferences {
   int brightness;
   std::string accent;
   std::string theme;
+  int surface_style;
   int tinted_icon_backgrounds;
   int interface_size;
   std::string language;
@@ -1417,6 +1449,7 @@ EarlyUiPreferences DefaultEarlyUiPreferences() {
 #endif
   preferences.accent = "16c8ff";
   preferences.theme = "graphite";
+  preferences.surface_style = 0;
   preferences.tinted_icon_backgrounds = 0;
   preferences.interface_size = 1;
   preferences.language = AERA_DEFAULT_LANGUAGE;
@@ -1452,13 +1485,22 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.accent = DataManager::GetStrValue("aera_theme_accent");
   if (!ValidAccent(preferences.accent)) preferences.accent = "16c8ff";
   preferences.theme = DataManager::GetStrValue("aera_theme_mode");
-  if (preferences.theme != "light" && preferences.theme != "graphite")
+  if (preferences.theme != "light" && preferences.theme != "graphite" &&
+      preferences.theme != "amoled")
     preferences.theme = "graphite";
+  const std::string surface_style =
+      DataManager::GetStrValue("aera_surface_style");
+  preferences.surface_style = surface_style.empty()
+      ? 0 : std::clamp(atoi(surface_style.c_str()), 0, 4);
+  if (preferences.surface_style == 4) {
+    preferences.theme = "amoled";
+    preferences.surface_style = 0;
+  }
   preferences.tinted_icon_backgrounds =
       DataManager::GetIntValue("aera_tinted_icon_backgrounds") != 0 ? 1 : 0;
   const std::string interface_size = DataManager::GetStrValue("aera_interface_size");
   preferences.interface_size =
-      interface_size.empty() ? 1 : std::clamp(atoi(interface_size.c_str()), 0, 2);
+      interface_size.empty() ? 1 : std::clamp(atoi(interface_size.c_str()), 0, 3);
   preferences.language = DataManager::GetStrValue("tw_language");
   if (!ValidLanguage(preferences.language)) preferences.language = AERA_DEFAULT_LANGUAGE;
   preferences.keyboard_layout =
@@ -1509,13 +1551,17 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
     if (!ValidAccent(value)) return false;
     preferences->accent = value;
   } else if (key == "theme") {
-    if (value != "light" && value != "graphite") return false;
+    if (value != "light" && value != "graphite" && value != "amoled")
+      return false;
     preferences->theme = value;
+  } else if (key == "surface_style") {
+    if (!ParseInteger(value, 0, 4, &parsed)) return false;
+    preferences->surface_style = parsed;
   } else if (key == "tinted_icon_backgrounds") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->tinted_icon_backgrounds = parsed;
   } else if (key == "interface_size") {
-    if (!ParseInteger(value, 0, 2, &parsed)) return false;
+    if (!ParseInteger(value, 0, 3, &parsed)) return false;
     preferences->interface_size = parsed;
   } else if (key == "language") {
     if (!ValidLanguage(value)) return false;
@@ -1570,7 +1616,12 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue(TW_TIME_ZONE_VAR, preferences.timezone);
   DataManager::SetValue("tw_brightness_pct", preferences.brightness);
   DataManager::SetValue("aera_theme_accent", preferences.accent);
-  DataManager::SetValue("aera_theme_mode", preferences.theme);
+  DataManager::SetValue("aera_theme_mode",
+                        preferences.surface_style == 4 ? "amoled"
+                                                       : preferences.theme);
+  DataManager::SetValue("aera_surface_style",
+                        preferences.surface_style == 4 ? 0
+                                                       : preferences.surface_style);
   DataManager::SetValue("aera_tinted_icon_backgrounds",
                         preferences.tinted_icon_backgrounds);
   DataManager::SetValue("aera_interface_size", preferences.interface_size);
@@ -1640,6 +1691,7 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "brightness=" << preferences.brightness << '\n'
          << "accent=" << preferences.accent << '\n'
          << "theme=" << preferences.theme << '\n'
+         << "surface_style=" << preferences.surface_style << '\n'
          << "tinted_icon_backgrounds="
          << preferences.tinted_icon_backgrounds << '\n'
          << "interface_size=" << preferences.interface_size << '\n'
@@ -1794,7 +1846,12 @@ bool SaveAeraPreferences() {
          << "timezone=" << DataManager::GetStrValue(TW_TIME_ZONE_VAR) << '\n'
          << "brightness=" << DataManager::GetIntValue("tw_brightness_pct") << '\n'
          << "accent=" << DataManager::GetStrValue("aera_theme_accent") << '\n'
-         << "theme=" << DataManager::GetStrValue("aera_theme_mode") << '\n'
+         << "theme="
+         << (RecoveryAppearanceMode() == AppearanceMode::kAmoled ? "amoled"
+             : RecoveryAppearanceMode() == AppearanceMode::kLight ? "light"
+                                                                  : "graphite")
+         << '\n'
+         << "surface_style=" << static_cast<int>(RecoverySurfaceStyle()) << '\n'
          << "tinted_icon_backgrounds="
          << (RecoveryTintedIconBackgrounds() ? 1 : 0) << '\n'
          << "interface_size=" << static_cast<int>(RecoveryInterfaceSize()) << '\n'

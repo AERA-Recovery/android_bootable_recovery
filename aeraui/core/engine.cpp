@@ -1287,7 +1287,8 @@ private:
         !fonts::SelectUiFont(font_id, font_path)) {
       fonts::SelectUiFont({}, {});
     }
-    design::ApplySurfaceMode(RecoveryLightMode());
+    design::ApplyAppearanceMode(static_cast<int>(RecoveryAppearanceMode()));
+    design::ApplySurfaceStyle(static_cast<int>(RecoverySurfaceStyle()));
     design::ApplyAccent(RecoveryAccentColor());
     design::ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
   }

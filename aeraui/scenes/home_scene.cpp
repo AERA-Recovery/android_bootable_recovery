@@ -102,6 +102,9 @@ FileListMetrics FileListLayout() {
     case InterfaceSize::kSmall:
       return {150, 156, 108, 53, 27, 82, &lv_font_montserrat_32,
               &lv_font_montserrat_32, &lv_font_montserrat_24};
+    case InterfaceSize::kSpacious:
+      return {264, 272, 144, 102, 46, 148, &lv_font_montserrat_48,
+              &lv_font_montserrat_48, &lv_font_montserrat_36};
     case InterfaceSize::kLarge:
       return {228, 236, 128, 84, 38, 126, &lv_font_montserrat_48,
               &lv_font_montserrat_40, &lv_font_montserrat_32};
@@ -1340,7 +1343,8 @@ void FileRow(Files* state, int y, const Entry& entry, bool alternate) {
   const bool clock24 = RecoveryPreference(Preference::kClock24);
   const std::string modified = EntryModifiedDate(entry, clock24);
   if (!modified.empty()) {
-    const bool large = RecoveryInterfaceSize() == InterfaceSize::kLarge;
+    const bool large = RecoveryInterfaceSize() == InterfaceSize::kLarge ||
+                       RecoveryInterfaceSize() == InterfaceSize::kSpacious;
     const int date_width = large ? (clock24 ? 340 : 410) : (clock24 ? 280 : 340);
     detail_width = std::max(120, detail_width - date_width - 28);
     auto* date = lv_label_create(row);
@@ -1442,18 +1446,25 @@ void UpdateActionBar(Files* state) {
   lv_obj_clean(state->action_bar);
   const bool landscape = Landscape(state->screen);
   const InterfaceSize interface_size = RecoveryInterfaceSize();
-  const int bar_height = interface_size == InterfaceSize::kLarge ? 228
+  const int bar_height = interface_size == InterfaceSize::kSpacious ? 264
+                         : interface_size == InterfaceSize::kLarge ? 228
                          : interface_size == InterfaceSize::kNormal ? 190
                                                                     : 150;
-  const int button_height = interface_size == InterfaceSize::kLarge ? 180
+  const int button_height = interface_size == InterfaceSize::kSpacious ? 208
+                            : interface_size == InterfaceSize::kLarge ? 180
                             : interface_size == InterfaceSize::kNormal ? 146
                                                                        : 108;
-  const int button_width = interface_size == InterfaceSize::kSmall ? 170 : 190;
-  const lv_font_t* action_font = interface_size == InterfaceSize::kLarge
+  const int button_width = interface_size == InterfaceSize::kSpacious ? 220
+                           : interface_size == InterfaceSize::kSmall ? 170 : 190;
+  const lv_font_t* action_font = interface_size == InterfaceSize::kSpacious
+      ? &lv_font_montserrat_48
+      : interface_size == InterfaceSize::kLarge
       ? &lv_font_montserrat_40
       : interface_size == InterfaceSize::kNormal ? &lv_font_montserrat_36
                                                   : &lv_font_montserrat_32;
-  const lv_font_t* status_font = interface_size == InterfaceSize::kLarge
+  const lv_font_t* status_font = interface_size == InterfaceSize::kSpacious
+      ? &lv_font_montserrat_40
+      : interface_size == InterfaceSize::kLarge
       ? &lv_font_montserrat_36
       : interface_size == InterfaceSize::kNormal ? &lv_font_montserrat_32
                                                   : &lv_font_montserrat_24;
@@ -1799,7 +1810,8 @@ bool NavigateFileBack() {
 void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   const InterfaceSize interface_size = RecoveryInterfaceSize();
   ApplyInterfaceSize(static_cast<int>(interface_size));
-  const bool large = interface_size == InterfaceSize::kLarge;
+  const bool large = interface_size == InterfaceSize::kLarge ||
+                     interface_size == InterfaceSize::kSpacious;
   if (gDirectory.empty()) gDirectory = RecoveryStorage();
   if (gDirectory.empty()) gDirectory = "/sdcard";
   auto* state = new Files;
