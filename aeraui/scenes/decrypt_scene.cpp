@@ -467,10 +467,11 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
 
   // A small native lock illustration keeps startup lightweight.
   lv_obj_t *emblem = lv_obj_create(screen);
-  Panel(emblem, LV_RADIUS_CIRCLE, kAccentSoft);
+  Clear(emblem);
   lv_obj_set_size(emblem, 208, 208);
   lv_obj_align(emblem, LV_ALIGN_TOP_MID, 0, 310);
   lv_obj_set_style_pad_all(emblem, 0, 0);
+  lv_obj_remove_flag(emblem, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_t *shackle = lv_obj_create(emblem);
   Clear(shackle);
   lv_obj_set_size(shackle, 74, 86);
@@ -483,10 +484,26 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   lv_obj_set_size(lock_body, 104, 80);
   lv_obj_set_pos(lock_body, 52, 94);
   lv_obj_set_style_pad_all(lock_body, 0, 0);
-  lv_obj_t *keyhole = lv_obj_create(lock_body);
-  Panel(keyhole, 8, kAccentSoft);
-  lv_obj_set_size(keyhole, 12, 28);
-  lv_obj_center(keyhole);
+  // The lock itself must stay opaque even when the selected surface style is
+  // translucent; otherwise the lower arc of the shackle shows through as a
+  // misleading "0". Draw a solid, conventional keyhole on top instead.
+  lv_obj_set_style_bg_opa(lock_body, LV_OPA_COVER, 0);
+  lv_obj_set_style_blur_backdrop(lock_body, false, 0);
+  lv_obj_set_style_blur_radius(lock_body, 0, 0);
+  lv_obj_t *keyhole_dot = lv_obj_create(lock_body);
+  Clear(keyhole_dot);
+  lv_obj_set_size(keyhole_dot, 18, 18);
+  lv_obj_align(keyhole_dot, LV_ALIGN_CENTER, 0, -7);
+  lv_obj_set_style_radius(keyhole_dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(keyhole_dot, kCanvas, 0);
+  lv_obj_set_style_bg_opa(keyhole_dot, LV_OPA_COVER, 0);
+  lv_obj_t *keyhole_stem = lv_obj_create(lock_body);
+  Clear(keyhole_stem);
+  lv_obj_set_size(keyhole_stem, 8, 24);
+  lv_obj_align(keyhole_stem, LV_ALIGN_CENTER, 0, 10);
+  lv_obj_set_style_radius(keyhole_stem, 4, 0);
+  lv_obj_set_style_bg_color(keyhole_stem, kCanvas, 0);
+  lv_obj_set_style_bg_opa(keyhole_stem, LV_OPA_COVER, 0);
 
   const std::string target = user_name.empty()
       ? i18n::Format("Android user %d", user_id)
