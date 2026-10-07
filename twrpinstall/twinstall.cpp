@@ -679,6 +679,16 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype) 
 			DataManager::SetValue("aera_installer_prompt_active", 0);
 			DataManager::SetValue("aera_installer_native", 1);
 			DataManager::SetValue("ui_progress", 100);
+		} else if (strcmp(command, "aera_reboot") == 0) {
+			const auto fields = Split_Aera_Installer_Fields(strtok(NULL, "\n"), 2);
+			if (fields.size() == 2) {
+				DataManager::SetValue("aera_installer_reboot_seconds",
+					Aera_Installer_Integer(fields[0], 0, 60));
+				DataManager::SetValue("aera_installer_reboot_target", fields[1]);
+				DataManager::SetValue("aera_installer_rebooting", 1);
+				DataManager::SetValue("aera_installer_native", 1);
+				DataManager::SetValue("ui_progress", 100);
+			}
 		} else if (strcmp(command, "wipe_cache") == 0) {
 			*wipe_cache = 1;
 		} else if (strcmp(command, "clear_display") == 0) {

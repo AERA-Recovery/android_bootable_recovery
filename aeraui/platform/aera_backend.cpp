@@ -702,6 +702,9 @@ int RecoveryRunJob(const JobRequest &request) {
   DataManager::SetValue("aera_installer_stage_detail", "");
   DataManager::SetValue("aera_installer_stage", 0);
   DataManager::SetValue("aera_installer_stage_count", 0);
+  DataManager::SetValue("aera_installer_rebooting", 0);
+  DataManager::SetValue("aera_installer_reboot_target", "");
+  DataManager::SetValue("aera_installer_reboot_seconds", 0);
   DataManager::SetValue("aera_installer_prompt_active", 0);
   DataManager::SetValue("aera_installer_prompt_id", "");
   DataManager::SetValue("aera_installer_prompt_title", "");
@@ -947,6 +950,12 @@ InstallerPresentation RecoveryInstallerPresentation() {
       DataManager::GetStrValue("aera_installer_stage_title");
   state.stage_detail =
       DataManager::GetStrValue("aera_installer_stage_detail");
+  state.rebooting =
+      DataManager::GetIntValue("aera_installer_rebooting") == 1;
+  state.reboot_target =
+      DataManager::GetStrValue("aera_installer_reboot_target");
+  state.reboot_seconds =
+      DataManager::GetIntValue("aera_installer_reboot_seconds");
   state.stage = DataManager::GetIntValue("aera_installer_stage");
   state.stage_count = DataManager::GetIntValue("aera_installer_stage_count");
   return state;

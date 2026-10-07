@@ -109,6 +109,9 @@ struct InstallerPresentation {
   std::string author;
   std::string stage_title;
   std::string stage_detail;
+  bool rebooting = false;
+  std::string reboot_target;
+  int reboot_seconds = 0;
   int stage = 0;
   int stage_count = 0;
 };

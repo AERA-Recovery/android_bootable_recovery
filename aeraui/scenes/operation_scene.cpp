@@ -154,14 +154,27 @@ void SetIndeterminateProgressX(void *target, int32_t x) {
   lv_obj_set_x(static_cast<lv_obj_t *>(target), x);
 }
 
-constexpr const char *kInstallerStepTitles[4] = {
+constexpr const char *kRomInstallerStepTitles[4] = {
     "Boot partitions", "Device firmware", "Super image", "Finishing up"};
 
-constexpr const char *kInstallerStepDetails[4] = {
+constexpr const char *kRomInstallerStepDetails[4] = {
     "Prepare the boot chain on both slots",
     "Update the device firmware safely",
     "Stream and write the super partition",
     "Verify the installation and clean up"};
+
+constexpr const char *kRecoveryUpdaterStepTitles[4] = {
+    "Verify update", "Recovery image", "Support files", "Finish update"};
+
+constexpr const char *kRecoveryUpdaterStepDetails[4] = {
+    "Check device compatibility and package integrity",
+    "Install AERA Recovery to the required slots",
+    "Update AERA tools and files on device storage",
+    "Apply settings and prepare the updated recovery"};
+
+bool IsRecoveryUpdater(const InstallerPresentation &presentation) {
+  return presentation.package_name.rfind("AERA Recovery", 0) == 0;
+}
 
 void SetInstallerTimelineVisible(const OperationScene &scene, bool visible) {
   for (auto *step : scene.steps) {
@@ -181,7 +194,12 @@ void SetInstallerTimelineVisible(const OperationScene &scene, bool visible) {
 
 void RefreshInstallerTimeline(const OperationScene &scene, int current_stage,
                               const std::string &current_detail,
+                              bool recovery_updater = false,
                               bool finished = false, bool failed = false) {
+  const auto &titles = recovery_updater ? kRecoveryUpdaterStepTitles
+                                        : kRomInstallerStepTitles;
+  const auto &details = recovery_updater ? kRecoveryUpdaterStepDetails
+                                         : kRomInstallerStepDetails;
   for (int i = 0; i < 4; ++i) {
     if (!scene.steps[i]) continue;
     const int number = i + 1;
@@ -206,12 +224,12 @@ void RefreshInstallerTimeline(const OperationScene &scene, int current_stage,
       lv_obj_set_style_text_color(scene.step_icons[i], color, 0);
     }
     if (scene.step_titles[i]) {
-      i18n::BindLabel(scene.step_titles[i], kInstallerStepTitles[i]);
+      i18n::BindLabel(scene.step_titles[i], titles[i]);
       lv_obj_set_style_text_color(scene.step_titles[i],
                                   complete || current ? kText : kMutedStrong, 0);
     }
     if (scene.step_details[i]) {
-      std::string detail = kInstallerStepDetails[i];
+      std::string detail = details[i];
       if (current && !current_detail.empty()) detail = current_detail;
       if (complete) detail = "Completed safely";
       if (failed && current) detail = "Stopped before this stage could finish";
@@ -650,12 +668,12 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
       lv_obj_set_width(result.step_icons[i], 70);
       lv_obj_set_style_text_align(result.step_icons[i], LV_TEXT_ALIGN_CENTER, 0);
 
-      result.step_titles[i] = Label(result.steps[i], kInstallerStepTitles[i],
+      result.step_titles[i] = Label(result.steps[i], kRomInstallerStepTitles[i],
           &lv_font_montserrat_32, kMutedStrong);
       lv_obj_set_pos(result.step_titles[i], 126, landscape ? 14 : 34);
       lv_obj_set_width(result.step_titles[i], landscape ? 850 : 720);
 
-      result.step_details[i] = Label(result.steps[i], kInstallerStepDetails[i],
+      result.step_details[i] = Label(result.steps[i], kRomInstallerStepDetails[i],
           &lv_font_montserrat_20, kMuted);
       lv_obj_set_pos(result.step_details[i], 126, landscape ? 66 : 94);
       lv_obj_set_width(result.step_details[i], landscape ? 930 : 800);
@@ -827,9 +845,26 @@ void RefreshOperationScene(const OperationScene &scene) {
       }
       friendly.files = presentation.device;
       friendly.activity = presentation.stage_detail;
+      if (presentation.rebooting) {
+        friendly.title = "Restarting AERA Recovery";
+        if (presentation.reboot_seconds > 0) {
+          friendly.explanation = i18n::Format(
+              "The update is complete. Recovery will restart in %d second%s.",
+              presentation.reboot_seconds,
+              presentation.reboot_seconds == 1 ? "" : "s");
+          friendly.amount = i18n::Format(
+              "Restarting in %d", presentation.reboot_seconds);
+        } else {
+          friendly.explanation =
+              "The update is complete. Restarting recovery now.";
+          friendly.amount = "Restarting now";
+        }
+        friendly.activity = friendly.explanation;
+      }
       SetInstallerTimelineVisible(scene, true);
       RefreshInstallerTimeline(scene, presentation.stage,
-                               presentation.stage_detail);
+                               friendly.explanation,
+                               IsRecoveryUpdater(presentation));
       if (scene.activity_title)
         i18n::BindLabel(scene.activity_title, "INSTALLATION PROGRESS");
       std::string identity = presentation.package_name;
@@ -954,10 +989,12 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
   const bool structured_installer = scene.steps[0] &&
       RecoveryInstallerPresentation().active;
   if (structured_installer) {
+    const auto presentation = RecoveryInstallerPresentation();
     SetInstallerTimelineVisible(scene, true);
     RefreshInstallerTimeline(scene,
-        std::max(1, RecoveryInstallerPresentation().stage),
-        detail && *detail ? detail : "", success, !success);
+        std::max(1, presentation.stage),
+        detail && *detail ? detail : "",
+        IsRecoveryUpdater(presentation), success, !success);
     if (scene.activity_title)
       i18n::BindLabel(scene.activity_title,
           success ? "INSTALLATION COMPLETE" : "INSTALLATION STOPPED");
