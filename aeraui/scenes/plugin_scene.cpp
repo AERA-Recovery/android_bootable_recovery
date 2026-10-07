@@ -82,8 +82,19 @@ void AddButton(lv_obj_t *parent, const char *text, int x, int width,
 
 void Render(State *state) {
   lv_obj_clean(state->scene.list);
-  const auto catalog = plugins::Catalog();
+  const bool online = RecoveryWifiConnection().connected;
+  const auto available = plugins::Catalog();
   const auto installed = plugins::Installed();
+  std::vector<plugins::Plugin> catalog;
+  if (online) catalog = available;
+  // Offline, the store is an installed-app manager. Online, retain installed
+  // official apps even when an older app has disappeared from the catalog.
+  for (const auto &local : installed) {
+    if (local.trust != plugins::Trust::kOfficial) continue;
+    const bool listed = std::any_of(catalog.begin(), catalog.end(),
+        [&](const plugins::Plugin &item) { return item.id == local.id; });
+    if (!listed) catalog.push_back(local);
+  }
   // The list has only just been created on the first visit. Force its layout
   // before reading the width so the initial cards do not collapse to 600 px.
   lv_obj_update_layout(state->scene.list);
@@ -264,7 +275,8 @@ void Render(State *state) {
   }
   if (catalog.empty()) {
     auto *empty = Label(state->scene.list,
-        "No plugins are currently published in the signed catalog.",
+        online ? "No plugins are currently published in the signed catalog."
+               : "Offline — connect to Wi-Fi to load the store.",
         &lv_font_montserrat_32, kMuted);
     lv_obj_align(empty, LV_ALIGN_TOP_MID, 0, 160);
   }
