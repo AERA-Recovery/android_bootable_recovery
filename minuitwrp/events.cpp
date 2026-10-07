@@ -128,6 +128,7 @@ struct ev {
     struct position p, mt_p;
     struct position mt_slots[2];
     int mt_slot;
+    int mt_secondary_slot;
     bool mt_active[2];
     bool mt_dirty[2];
     int down;
@@ -524,6 +525,7 @@ static int vk_init(struct ev *e)
     e->mt_slots[0].yi = e->mt_slots[1].yi = e->mt_p.yi;
     e->mt_slots[0].synced = e->mt_slots[1].synced = 0;
     e->mt_slot = 0;
+    e->mt_secondary_slot = -1;
     e->mt_active[0] = e->mt_active[1] = false;
     e->mt_dirty[0] = e->mt_dirty[1] = false;
 #ifdef _EVENT_LOGGING
@@ -728,14 +730,19 @@ static int vk_modify(struct ev *e, struct input_event *ev)
 		return 0;
 	}
 
-    // Preserve the second type-B contact for AERA gestures. The legacy
-    // minui path intentionally flattens touch to one pointer; slot 1 is kept
-    // out of that path and emitted as a separate synthesized event instead.
+    // Preserve one non-primary type-B contact for AERA multitouch. Hardware
+    // is free to assign slot 1, 2, or higher, so claim the first active
+    // nonzero slot instead of assuming that the second finger is always 1.
     if (ev->type == EV_ABS && ev->code == ABS_MT_SLOT) {
         e->mt_slot = ev->value;
         return 1;
     }
-    if (ev->type == EV_ABS && e->mt_slot == 1) {
+    if (ev->type == EV_ABS && e->mt_slot != 0) {
+        if (e->mt_secondary_slot < 0 &&
+            (ev->code != ABS_MT_TRACKING_ID || ev->value >= 0))
+            e->mt_secondary_slot = e->mt_slot;
+        if (e->mt_slot != e->mt_secondary_slot)
+            return 1;
         switch (ev->code) {
         case ABS_MT_POSITION_X:
             e->mt_slots[1].x = ev->value;
@@ -780,6 +787,8 @@ static int vk_modify(struct ev *e, struct input_event *ev)
             secondary_touch_pending = true;
         }
         e->mt_dirty[1] = false;
+        if (!e->mt_active[1])
+            e->mt_secondary_slot = -1;
     }
 
     if (ev->type == EV_ABS) {

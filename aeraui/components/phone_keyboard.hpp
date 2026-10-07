@@ -3,13 +3,119 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <cstring>
+#include <vector>
 
 #include "lvgl.h"
+#include "src/widgets/buttonmatrix/lv_buttonmatrix_private.h"
 #include "design.hpp"
 #include "aeraui/backend.hpp"
 
 namespace aeraui::phone_keyboard {
+
+struct SecondaryContact {
+  lv_obj_t *keyboard = nullptr;
+  uint32_t button = LV_BUTTONMATRIX_BUTTON_NONE;
+  bool pressed = false;
+};
+
+inline std::vector<lv_obj_t *> gKeyboards;
+inline SecondaryContact gSecondary;
+
+inline lv_obj_t *VisibleKeyboard() {
+  auto *screen = lv_screen_active();
+  for (auto it = gKeyboards.rbegin(); it != gKeyboards.rend(); ++it) {
+    auto *keyboard = *it;
+    if (lv_obj_is_valid(keyboard) && lv_obj_get_screen(keyboard) == screen &&
+        lv_obj_is_visible(keyboard))
+      return keyboard;
+  }
+  return nullptr;
+}
+
+// LVGL's button matrix owns one selected-button field, so two pointer devices
+// still overwrite each other on a keyboard. Resolve the secondary contact
+// against the matrix geometry ourselves and dispatch its key independently.
+inline uint32_t ButtonAt(lv_obj_t *keyboard, int x, int y) {
+  if (keyboard == nullptr) return LV_BUTTONMATRIX_BUTTON_NONE;
+  auto *matrix = reinterpret_cast<lv_buttonmatrix_t *>(keyboard);
+  lv_area_t object{};
+  lv_obj_get_coords(keyboard, &object);
+  const int width = lv_obj_get_width(keyboard);
+  const int height = lv_obj_get_height(keyboard);
+  const int left = lv_obj_get_style_pad_left(keyboard, LV_PART_MAIN);
+  const int right = lv_obj_get_style_pad_right(keyboard, LV_PART_MAIN);
+  const int top = lv_obj_get_style_pad_top(keyboard, LV_PART_MAIN);
+  const int bottom = lv_obj_get_style_pad_bottom(keyboard, LV_PART_MAIN);
+  const int extra = LV_DPI_DEF / 10;
+  const int row_gap = std::min(
+      (lv_obj_get_style_pad_row(keyboard, LV_PART_MAIN) / 2) + 1,
+      extra);
+  const int column_gap = std::min(
+      (lv_obj_get_style_pad_column(keyboard, LV_PART_MAIN) / 2) + 1,
+      extra);
+  const lv_point_t point{x, y};
+
+  for (uint32_t id = 0; id < matrix->btn_cnt; ++id) {
+    if ((matrix->ctrl_bits[id] & (LV_BUTTONMATRIX_CTRL_HIDDEN |
+                                  LV_BUTTONMATRIX_CTRL_DISABLED)) != 0)
+      continue;
+    lv_area_t area = matrix->button_areas[id];
+    area.x1 += object.x1 - (area.x1 <= left ? std::min(left, extra)
+                                                : column_gap);
+    area.y1 += object.y1 - (area.y1 <= top ? std::min(top, extra)
+                                              : row_gap);
+    area.x2 += object.x1 +
+        (area.x2 >= width - right - 2 ? std::min(right, extra)
+                                      : column_gap);
+    area.y2 += object.y1 +
+        (area.y2 >= height - bottom - 2 ? std::min(bottom, extra)
+                                        : row_gap);
+    if (point.x >= area.x1 && point.x <= area.x2 &&
+        point.y >= area.y1 && point.y <= area.y2)
+      return id;
+  }
+  return LV_BUTTONMATRIX_BUTTON_NONE;
+}
+
+inline bool HandleSecondaryPointer(int x, int y, bool pressed) {
+  if (pressed && !gSecondary.pressed) {
+    auto *keyboard = VisibleKeyboard();
+    const uint32_t button = ButtonAt(keyboard, x, y);
+    if (button == LV_BUTTONMATRIX_BUTTON_NONE) return false;
+    gSecondary = {keyboard, button, true};
+    lv_obj_invalidate(keyboard);
+    return true;
+  }
+  if (!gSecondary.pressed) return false;
+
+  auto *keyboard = gSecondary.keyboard;
+  const uint32_t original = gSecondary.button;
+  if (keyboard == nullptr || !lv_obj_is_valid(keyboard)) {
+    gSecondary = {};
+    return true;
+  }
+  // Dragging away cancels this key, matching normal AERA button behavior.
+  const uint32_t current = ButtonAt(keyboard, x, y);
+  gSecondary.button = current == original ? original
+                                          : LV_BUTTONMATRIX_BUTTON_NONE;
+  lv_obj_invalidate(keyboard);
+  if (pressed) return true;
+
+  const bool activate = gSecondary.button != LV_BUTTONMATRIX_BUTTON_NONE;
+  gSecondary = {};
+  if (activate) {
+    const uint32_t primary = lv_buttonmatrix_get_selected_button(keyboard);
+    lv_buttonmatrix_set_selected_button(keyboard, original);
+    uint32_t dispatched = original;
+    lv_obj_send_event(keyboard, LV_EVENT_VALUE_CHANGED, &dispatched);
+    if (lv_obj_is_valid(keyboard))
+      lv_buttonmatrix_set_selected_button(keyboard, primary);
+  }
+  if (lv_obj_is_valid(keyboard)) lv_obj_invalidate(keyboard);
+  return true;
+}
 
 constexpr lv_buttonmatrix_ctrl_t Key(unsigned width = 1,
                                      unsigned flags = 0) {
@@ -111,8 +217,10 @@ inline void DrawKey(lv_event_t *event) {
   const char *key = lv_buttonmatrix_get_button_text(keyboard, base->id1);
   if (key == nullptr) return;
   const bool pressed =
-      lv_keyboard_get_selected_button(keyboard) == base->id1 &&
-      lv_obj_has_state(keyboard, LV_STATE_PRESSED);
+      (lv_keyboard_get_selected_button(keyboard) == base->id1 &&
+       lv_obj_has_state(keyboard, LV_STATE_PRESSED)) ||
+      (gSecondary.pressed && gSecondary.keyboard == keyboard &&
+       gSecondary.button == base->id1);
   const bool action = IsActionKey(key);
   const bool modifier = IsModifierKey(key);
 
@@ -153,6 +261,13 @@ inline void Style(lv_obj_t *keyboard) {
 }
 
 inline void Apply(lv_obj_t *keyboard, bool multiline = false) {
+  gKeyboards.push_back(keyboard);
+  lv_obj_add_event_cb(keyboard, [](lv_event_t *event) {
+    auto *deleted = lv_event_get_target_obj(event);
+    gKeyboards.erase(std::remove(gKeyboards.begin(), gKeyboards.end(), deleted),
+                     gKeyboards.end());
+    if (gSecondary.keyboard == deleted) gSecondary = {};
+  }, LV_EVENT_DELETE, nullptr);
   const bool qwertz = RecoveryKeyboardLayout() == KeyboardLayout::kQwertz;
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER,
                       multiline

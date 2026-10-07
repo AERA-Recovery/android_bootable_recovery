@@ -35,6 +35,7 @@
 #include "ui_components.hpp"
 #include "update/update_manager.hpp"
 #include "../components/power_transition.hpp"
+#include "../components/phone_keyboard.hpp"
 #include "draw/opengles/lv_draw_opengles.h"
 #include "../../aera_rpc/aera_channel.hpp"
 #include "../../aera_remote/aera_remote.hpp"
@@ -875,12 +876,24 @@ public:
       if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
       return;
     }
-    if (slot != 0) return;
+    if (slot != 0) {
+      phone_keyboard::HandleSecondaryPointer(visible_x, visible_y, pressed);
+      return;
+    }
     const bool was_pressed = pointer_.pressed;
     pointer_.x = visible_x;
     pointer_.y = visible_y;
     pointer_.pressed = pressed;
     pointer_release_on_read_ = false;
+
+    // The raw input loop deliberately coalesces motion before each rendered
+    // frame so sliders track the newest coordinate instead of replaying an
+    // event backlog. A very quick tap can contain both contact edges in that
+    // same drain pass, however, which used to leave LVGL seeing only the final
+    // released state. Process state edges immediately; motion remains
+    // coalesced and fast keyboard taps can no longer disappear between frames.
+    if (pressed != was_pressed && pointer_device_ != nullptr)
+      lv_indev_read(pointer_device_);
 
     if (pressed && !was_pressed) {
       const int32_t visible_width = landscape_ ? height_ : width_;
