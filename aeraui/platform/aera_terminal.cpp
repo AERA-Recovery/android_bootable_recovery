@@ -33,19 +33,35 @@ class TerminalSession {
 
   void Start(int columns, int rows) {
     std::lock_guard<std::mutex> lock(mutex_);
+    columns_ = std::max(1, columns);
+    rows_ = std::max(1, rows);
+    ReapChildLocked();
     if (master_ < 0) Launch();
     if (master_ < 0) return;
+    ResizeLocked();
+  }
+
+  void ResizeLocked() {
     winsize size{};
-    size.ws_col = std::max(1, columns);
-    size.ws_row = std::max(1, rows);
+    size.ws_col = columns_;
+    size.ws_row = rows_;
     ioctl(master_, TIOCSWINSZ, &size);
   }
 
   bool Poll() {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (master_ < 0) return false;
+    ReapChildLocked();
+    if (master_ < 0) {
+      if (child_ < 0) {
+        Launch();
+        if (master_ >= 0) ResizeLocked();
+        return master_ >= 0;
+      }
+      return false;
+    }
     bool changed = false;
     char input[4096];
+    bool disconnected = false;
     for (;;) {
       const ssize_t count = read(master_, input, sizeof(input));
       if (count > 0) {
@@ -55,12 +71,21 @@ class TerminalSession {
         continue;
       }
       if (count < 0 && errno == EINTR) continue;
+      if (count == 0 ||
+          (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+        disconnected = true;
+      }
       break;
     }
     if (changed) ++updates_;
-    if (child_ > 0) {
-      int status = 0;
-      if (waitpid(child_, &status, WNOHANG) == child_) child_ = -1;
+    ReapChildLocked();
+    if (disconnected) CloseMasterLocked();
+    if (master_ < 0 && child_ < 0) {
+      Launch();
+      if (master_ >= 0) {
+        ResizeLocked();
+        changed = true;
+      }
     }
     return changed;
   }
@@ -85,6 +110,10 @@ class TerminalSession {
 
   void Write(const std::string& text) {
     std::lock_guard<std::mutex> lock(mutex_);
+    WriteLocked(text);
+  }
+
+  void WriteLocked(const std::string& text) {
     if (master_ < 0 || text.empty()) return;
     size_t offset = 0;
     while (offset < text.size()) {
@@ -105,7 +134,13 @@ class TerminalSession {
     lines_.clear();
     current_.clear();
     cursor_ = 0;
+    state_ = ParseState::kText;
+    control_.clear();
     ++updates_;
+    // Clearing AERA's scrollback alone leaves an interactive shell silently
+    // waiting at a prompt which has just been erased. Ask the shell's line
+    // editor to redraw the prompt without submitting or changing its input.
+    WriteLocked("\x0c");
   }
 
   bool Running() const {
@@ -115,6 +150,21 @@ class TerminalSession {
 
  private:
   enum class ParseState { kText, kEscape, kControl, kOsc, kOscEscape };
+
+  void CloseMasterLocked() {
+    if (master_ >= 0) close(master_);
+    master_ = -1;
+  }
+
+  void ReapChildLocked() {
+    if (child_ <= 0) return;
+    int status = 0;
+    const pid_t result = waitpid(child_, &status, WNOHANG);
+    if (result == child_ || (result < 0 && errno == ECHILD)) {
+      child_ = -1;
+      CloseMasterLocked();
+    }
+  }
 
   void Launch() {
     const int master = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -143,8 +193,8 @@ class TerminalSession {
       if (slave > STDERR_FILENO) close(slave);
       close(master);
       setenv("TERM", "xterm-256color", 1);
-      setenv("SHELL", "/system/bin/sh", 1);
-      execl("/system/bin/sh", "sh", static_cast<char*>(nullptr));
+      setenv("SHELL", "/bin/sh", 1);
+      execl("/bin/sh", "sh", static_cast<char*>(nullptr));
       _exit(127);
     }
     master_ = master;
@@ -152,6 +202,8 @@ class TerminalSession {
     lines_.clear();
     current_.clear();
     cursor_ = 0;
+    state_ = ParseState::kText;
+    control_.clear();
     ++updates_;
   }
 
@@ -269,6 +321,8 @@ class TerminalSession {
   mutable std::mutex mutex_;
   int master_ = -1;
   pid_t child_ = -1;
+  int columns_ = 80;
+  int rows_ = 40;
   int updates_ = 0;
   std::deque<std::string> lines_;
   std::string current_;
