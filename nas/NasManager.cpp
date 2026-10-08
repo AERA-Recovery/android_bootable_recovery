@@ -797,9 +797,6 @@ std::string NasManager::GetRemoteSpec() {
 
 	std::string path = GetValue(TW_NAS_PATH, "");
 
-	if (path.empty())
-		return "nas:";
-
 	if (type == "sftp") {
 		// Preserve absolute SFTP paths.
 		// /home/koaan/OrangeFoxNAS becomes:
@@ -811,10 +808,14 @@ std::string NasManager::GetRemoteSpec() {
 	while (!path.empty() && path.front() == '/')
 		path.erase(path.begin());
 
-	if (path.empty())
-		return "nas:";
+	// Rclone's SMB backend takes the share as the first remote path segment.
+	std::string share = GetValue(TW_NAS_SHARE, "Backups");
+	while (!share.empty() && share.front() == '/')
+		share.erase(share.begin());
+	while (!share.empty() && share.back() == '/')
+		share.pop_back();
 
-	return "nas:" + path;
+	return "nas:" + share + (path.empty() ? "" : "/" + path);
 }
 
 bool NasManager::BuildRcloneConfig() {
@@ -860,7 +861,6 @@ bool NasManager::BuildRcloneConfig() {
 	} else {
 		cfg << "type = smb\n";
 		cfg << "host = " << host << "\n";
-		cfg << "share = " << GetValue(TW_NAS_SHARE, "Backups") << "\n";
 
 		if (!user.empty())
 			cfg << "user = " << user << "\n";
