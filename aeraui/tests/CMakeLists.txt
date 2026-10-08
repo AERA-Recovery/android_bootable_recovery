@@ -114,3 +114,20 @@ target_compile_definitions(phone_keyboard_test PRIVATE
 target_compile_options(phone_keyboard_test PRIVATE -UNDEBUG)
 target_link_libraries(phone_keyboard_test PRIVATE lvgl PNG::PNG)
 add_test(NAME phone_keyboard_shift_and_symbols COMMAND phone_keyboard_test)
+
+foreach(target ui_check navigation_dock_test sideload_ui_test nas_ui_test)
+  target_sources(${target} PRIVATE ../components/text_edit.cpp)
+  target_include_directories(${target} PRIVATE ../features)
+endforeach()
+
+add_executable(text_edit_test text_edit_test.cpp ../components/text_edit.cpp
+  ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
+  ../localization/catalog/catalog_generated.cpp)
+target_include_directories(text_edit_test PRIVATE .. ../include ../components
+  ../localization ../localization/fonts ../scenes ../features)
+target_compile_definitions(text_edit_test PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES
+  AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets"
+  AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets")
+target_compile_options(text_edit_test PRIVATE -UNDEBUG)
+target_link_libraries(text_edit_test PRIVATE lvgl PNG::PNG)
+add_test(NAME text_edit_selection_and_clipboard COMMAND text_edit_test)

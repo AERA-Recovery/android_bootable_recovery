@@ -7,6 +7,7 @@
 #include <initializer_list>
 #include <string>
 #include "design.hpp"
+#include "text_edit.hpp"
 #include "scene.hpp"
 #include "aeraui/status_bar.hpp"
 
@@ -29,6 +30,7 @@ inline bool Landscape(lv_obj_t *object) {
 }
 
 inline bool DismissModal(lv_obj_t *screen) {
+  if (text_edit::Dismiss(screen)) return true;
   for (int i = static_cast<int>(lv_obj_get_child_count(screen)) - 1; i >= 0; --i) {
     auto *child = lv_obj_get_child(screen, i);
     void *marker = lv_obj_get_user_data(child);
@@ -106,6 +108,7 @@ inline lv_obj_t *TextArea(lv_obj_t *parent) {
   lv_obj_set_style_border_side(input, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR);
   lv_obj_set_style_pad_left(input, -2, LV_PART_CURSOR);
   lv_obj_set_style_anim_duration(input, 500, LV_PART_CURSOR);
+  text_edit::Attach(input);
   return input;
 }
 

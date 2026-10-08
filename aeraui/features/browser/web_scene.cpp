@@ -446,6 +446,7 @@ void ShowBrowserSettings(WebScene *s) {
       &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(home_hint, 4, 60);
   settings->homepage = TextArea(content);
+  text_edit::SetSelectAllOnHold(settings->homepage, true);
   lv_obj_set_pos(settings->homepage, 4, 108);
   lv_obj_set_size(settings->homepage, content_width - 8, 112);
   lv_textarea_set_one_line(settings->homepage, true);
@@ -761,6 +762,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   lv_obj_set_style_bg_color(s->web_progress, kAccent, LV_PART_INDICATOR);
   lv_obj_add_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
   s->address = TextArea(screen);
+  text_edit::SetSelectAllOnHold(s->address, true);
   // LVGL's one-line setter derives a compact height. Apply it before the
   // explicit browser-bar geometry so the field and Go button stay aligned.
   lv_textarea_set_one_line(s->address, true);

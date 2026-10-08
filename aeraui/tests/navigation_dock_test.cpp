@@ -25,6 +25,7 @@ namespace aeraui::fonts {
 const lv_font_t *WithLanguageFallback(const lv_font_t *font) { return font; }
 }
 namespace aeraui::i18n {
+const char *Translate(const char *text) { return text; }
 void BindLabel(lv_obj_t *label, const char *text) {
   lv_label_set_text(label, long_labels && !strcmp(text, "Backup")
       ? "Sicherungen" : text);

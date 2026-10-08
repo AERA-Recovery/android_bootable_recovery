@@ -50,6 +50,7 @@ cc_library_static {
         "components/picture_viewer.cpp",
         "components/power_transition.cpp",
         "components/retroarch_icon.cpp",
+        "components/text_edit.cpp",
         "components/wallpaper.cpp",
         "components/webkit_icon.cpp",
         "core/engine.cpp",
