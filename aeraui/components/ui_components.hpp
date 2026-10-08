@@ -587,7 +587,8 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
                    int preferred_height = 0,
                    bool dismiss_on_backdrop = false,
                    SheetPresentation presentation = SheetPresentation::kStandard,
-                   const char *confirm_text = "Swipe to confirm") {
+                   const char *confirm_text = "Swipe to confirm",
+                   std::function<void(lv_obj_t *)> build_body = {}) {
   const bool compact_glass =
       presentation == SheetPresentation::kCompactGlass;
   auto *overlay = lv_obj_create(screen);
@@ -674,9 +675,13 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   lv_obj_set_scrollbar_mode(area, LV_SCROLLBAR_MODE_ACTIVE);
   lv_obj_set_style_bg_color(area, kAccent, LV_PART_SCROLLBAR);
   lv_obj_set_style_width(area, 5, LV_PART_SCROLLBAR);
+  if (build_body) {
+    build_body(area);
+  } else {
   auto *body = Label(area, copy.c_str(), &lv_font_montserrat_32, kMutedStrong);
   lv_obj_set_width(body, sheet_width - (compact_glass ? 136 : 152));
   lv_obj_set_style_text_line_space(body, 16, 0);
+  }
 
   if (state->confirm) {
     auto *divider = lv_obj_create(sheet);

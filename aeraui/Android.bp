@@ -2,6 +2,19 @@ package {
     default_applicable_licenses: ["Android-Apache-2.0"],
 }
 
+cc_test_host {
+    name: "aera_payload_inspector_test",
+    srcs: [
+        "features/update/payload_inspector.cpp",
+        "tests/payload_inspector_test.cpp",
+    ],
+    local_include_dirs: ["."],
+    static_libs: ["update_metadata-protos", "ota_metadata_proto_cc"],
+    shared_libs: ["libziparchive", "libprotobuf-cpp-lite", "libbase"],
+    cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}
+
 cc_binary {
     name: "aera-browser-jail",
     recovery: true,
@@ -54,6 +67,7 @@ cc_library_static {
         "features/plugin_api/launcher.cpp",
         "features/plugin_api/session.cpp",
         "features/plugins/plugin_manager.cpp",
+        "features/update/payload_inspector.cpp",
         "features/recorder/service.cpp",
         "features/retroarch/launcher.cpp",
         "features/retroarch/session.cpp",
@@ -81,6 +95,7 @@ cc_library_static {
         "scenes/media_scene.cpp",
         "scenes/nas_scene.cpp",
         "scenes/operation_scene.cpp",
+        "scenes/package_review.cpp",
         "scenes/plugin_scene.cpp",
         "scenes/reboot_scene.cpp",
         "scenes/recorder_scene.cpp",
@@ -133,6 +148,8 @@ cc_library_static {
         "liblvgl_recovery",
         "libxz",
         "libjsoncpp",
+        "update_metadata-protos",
+        "ota_metadata_proto_cc",
     ],
     shared_libs: [
         "libandroidfw",
@@ -141,6 +158,7 @@ cc_library_static {
         "libminuitwrp",
         "libjpeg",
         "libpng",
+        "libprotobuf-cpp-lite",
         "libselinux",
         "libutils",
         "libziparchive",

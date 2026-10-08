@@ -22,6 +22,7 @@
 #include "picture_viewer.hpp"
 #include "scene.hpp"
 #include "ui_components.hpp"
+#include "package_review.hpp"
 
 namespace aeraui {
 namespace {
@@ -1225,20 +1226,7 @@ void OpenFile(Files *state, const Entry &entry) {
       });
     }
   } else if (Zip(entry.name)) {
-    JobRequest request;
-    request.job = Job::kInstall;
-    request.title = "Install ZIP";
-    request.path = entry.path;
-    const std::string detail = i18n::Format(
-        "%s\n\n%s\n%s\n\nActive slot: %s\n\nThe package's installer "
-        "can modify your system and data.\nReview the file above before "
-        "continuing.",
-        entry.name.c_str(), Size(entry.bytes).c_str(), entry.path.c_str(),
-        RecoverySlot().c_str());
-    Sheet(state->screen, "Install this package?", detail, [state, request] {
-      SetJobRequest(request);
-      state->callback(Action::kRunOperation, state->context);
-    });
+    ReviewPackage(state->screen, entry.path, state->callback, state->context);
   } else if (Image(entry.name)) {
     OpenImageTargetPicker(state, entry);
   } else if (entry.text) {

@@ -4,6 +4,7 @@
  */
 
 #include "scene.hpp"
+#include "package_review.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -118,11 +119,8 @@ void OpenEntry(lv_event_t *event) {
     return;
   }
   if (!EndsWithInsensitive(entry.name, ".zip")) return;
-  state->selected = entry.path;
-  i18n::BindLabel(state->confirm_name, entry.name.c_str());
-  i18n::BindLabel(state->confirm_path, entry.path.c_str());
-  lv_obj_clear_flag(state->overlay, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(state->overlay);
+  ReviewPackage(lv_obj_get_screen(state->list), entry.path,
+                state->callback, state->context);
 }
 
 void AddEntryRow(BrowserState *state, const Entry &entry, size_t index,
