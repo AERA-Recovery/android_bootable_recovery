@@ -83,9 +83,9 @@ void SetKeyboardVisible(TerminalUi *state, bool visible) {
       lv_obj_set_pos(state->viewport, 64, 350);
       lv_obj_set_size(state->viewport, 1292, 900);
     } else {
-      lv_obj_set_pos(state->controls, 64, 2110);
+      lv_obj_set_pos(state->controls, 64, 1910);
       lv_obj_set_size(state->controls, 1312, 112);
-      lv_obj_set_height(state->viewport, 1650);
+      lv_obj_set_height(state->viewport, 1450);
     }
     lv_obj_remove_flag(state->keyboard, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(state->keyboard);
@@ -239,9 +239,9 @@ void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
   phone_keyboard::Apply(state->keyboard);
   lv_obj_set_align(state->keyboard, LV_ALIGN_TOP_LEFT);
   lv_obj_set_pos(state->keyboard, state->landscape ? 1400 : 0,
-                 state->landscape ? 640 : 2270);
+                 state->landscape ? 500 : 2070);
   lv_obj_set_size(state->keyboard, state->landscape ? 1768 : 1440,
-                  state->landscape ? 628 : 898);
+                  state->landscape ? 768 : 1098);
   lv_keyboard_set_textarea(state->keyboard, state->command);
   lv_obj_add_flag(state->keyboard, LV_OBJ_FLAG_HIDDEN);
 

@@ -103,3 +103,14 @@ target_compile_definitions(nas_ui_test PRIVATE
 target_compile_options(nas_ui_test PRIVATE -UNDEBUG)
 target_link_libraries(nas_ui_test PRIVATE lvgl Threads::Threads PNG::PNG)
 add_test(NAME nas_picker_navigation_and_layout COMMAND nas_ui_test)
+
+add_executable(phone_keyboard_test phone_keyboard_test.cpp
+  ../localization/fonts/aera_fallback.cpp)
+target_include_directories(phone_keyboard_test PRIVATE .. ../include ../components
+  ../localization ../localization/fonts)
+target_compile_definitions(phone_keyboard_test PRIVATE
+  AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets"
+  AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets")
+target_compile_options(phone_keyboard_test PRIVATE -UNDEBUG)
+target_link_libraries(phone_keyboard_test PRIVATE lvgl PNG::PNG)
+add_test(NAME phone_keyboard_shift_and_symbols COMMAND phone_keyboard_test)

@@ -1101,7 +1101,7 @@ void BuildStreamsScene(lv_obj_t* screen, ActionCallback callback, void* context)
     lv_obj_set_pos(scene->keyboard, lv_obj_get_width(screen) / 2, 300);
     lv_obj_set_size(scene->keyboard, lv_obj_get_width(screen) / 2, 900);
   } else {
-    constexpr int height = 800;
+    constexpr int height = 1000;
     lv_obj_set_pos(scene->keyboard, 0, lv_obj_get_height(screen) - height);
     lv_obj_set_size(scene->keyboard, lv_obj_get_width(screen), height);
   }

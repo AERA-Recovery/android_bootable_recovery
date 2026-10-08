@@ -904,7 +904,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   }, LV_EVENT_CANCEL, s);
   phone_keyboard::Apply(s->keyboard);
   lv_obj_set_size(s->keyboard, landscape ? 2408 : 1440,
-                  landscape ? 720 : 760);
+                  landscape ? 900 : 950);
   if (landscape) lv_obj_align(s->keyboard, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
   else lv_obj_align(s->keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_add_flag(s->keyboard, LV_OBJ_FLAG_HIDDEN);
@@ -920,13 +920,13 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
              lv_event_get_code(e) == LV_EVENT_CANCEL)
       HideKeyboard(s);
     else if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED && s->web_keyboard && s->session.Connected()) {
-      const auto selected = lv_buttonmatrix_get_selected_button(s->keyboard);
-      const char *key = lv_buttonmatrix_get_button_text(s->keyboard, selected);
+      const char *key = phone_keyboard::ActivatedKey(s->keyboard);
       if (!key) return;
       if (!strcmp(key, LV_SYMBOL_BACKSPACE)) s->session.Send(web::Kind::kKey, 0, 0, 8);
       else if (!strcmp(key, LV_SYMBOL_NEW_LINE)) s->session.Send(web::Kind::kKey, 0, 0, 13);
-      else if (strlen(key) == 1 && static_cast<unsigned char>(key[0]) >= 32)
-        s->session.Send(web::Kind::kKey, 0, 0, static_cast<unsigned char>(key[0]));
+      else if (const uint32_t codepoint = phone_keyboard::KeyCodepoint(key);
+               codepoint >= 32)
+        s->session.Send(web::Kind::kKey, 0, 0, codepoint);
       // Mode selectors are keyboard UI, never injected as strings into a page.
     }
   }, LV_EVENT_ALL, s);

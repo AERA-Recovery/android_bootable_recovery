@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "lvgl.h"
+#include "src/misc/lv_text_private.h"
 #include "src/widgets/buttonmatrix/lv_buttonmatrix_private.h"
 #include "design.hpp"
 #include "aeraui/backend.hpp"
@@ -126,24 +127,28 @@ constexpr unsigned kLetter = LV_BUTTONMATRIX_CTRL_POPOVER;
 constexpr unsigned kUtility = LV_BUTTONMATRIX_CTRL_NO_REPEAT;
 
 inline constexpr const char *kLower[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
     "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
     " ", "a", "s", "d", "f", "g", "h", "j", "k", "l", " ", "\n",
     LV_SYMBOL_UP, "z", "x", "c", "v", "b", "n", "m", LV_SYMBOL_BACKSPACE, "\n",
     "?123", ",", " ", ".", LV_SYMBOL_OK, ""};
 
 inline constexpr const char *kUpper[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
     "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
     " ", "A", "S", "D", "F", "G", "H", "J", "K", "L", " ", "\n",
     LV_SYMBOL_UP, "Z", "X", "C", "V", "B", "N", "M", LV_SYMBOL_BACKSPACE, "\n",
     "?123", ",", " ", ".", LV_SYMBOL_OK, ""};
 
 inline constexpr const char *kLowerQwertz[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
     "q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "\n",
     " ", "a", "s", "d", "f", "g", "h", "j", "k", "l", " ", "\n",
     LV_SYMBOL_UP, "y", "x", "c", "v", "b", "n", "m", LV_SYMBOL_BACKSPACE, "\n",
     "?123", ",", " ", ".", LV_SYMBOL_OK, ""};
 
 inline constexpr const char *kUpperQwertz[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
     "Q", "W", "E", "R", "T", "Z", "U", "I", "O", "P", "\n",
     " ", "A", "S", "D", "F", "G", "H", "J", "K", "L", " ", "\n",
     LV_SYMBOL_UP, "Y", "X", "C", "V", "B", "N", "M", LV_SYMBOL_BACKSPACE, "\n",
@@ -151,11 +156,21 @@ inline constexpr const char *kUpperQwertz[] = {
 
 inline constexpr const char *kSpecial[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
-    " ", "@", "#", "$", "%", "&", "*", "(", ")", "'", "\"", " ", "\n",
-    "!", "?", "/", ":", ";", "-", "+", "=", LV_SYMBOL_BACKSPACE, "\n",
+    "@", "#", "$", "_", "&", "-", "+", "(", ")", "/", "\n",
+    "=\\<", "*", "\"", "'", ":", ";", "!", "?", LV_SYMBOL_BACKSPACE, "\n",
     "ABC", ",", " ", ".", LV_SYMBOL_OK, ""};
 
+inline constexpr const char *kSpecialExtra[] = {
+    "~", "`", "|", "\xe2\x80\xa2", "\xe2\x88\x9a", "\xcf\x80",
+    "\xc3\xb7", "\xc3\x97", "\xc2\xa7", "\xce\x94", "\n",
+    "\xc2\xa3", "\xc2\xa2", "\xe2\x82\xac", "\xc2\xa5", "^",
+    "\xc2\xb0", "=", "{", "}", "\\", "\n",
+    "?123", "%", "\xc2\xa9", "\xc2\xae", "\xe2\x84\xa2",
+    "\xe2\x9c\x93", "[", "]", LV_SYMBOL_BACKSPACE, "\n",
+    "ABC", "<", " ", ">", LV_SYMBOL_OK, ""};
+
 inline constexpr lv_buttonmatrix_ctrl_t kTextControls[] = {
+    Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(),
     Key(1, kLetter), Key(1, kLetter), Key(1, kLetter), Key(1, kLetter),
     Key(1, kLetter), Key(1, kLetter), Key(1, kLetter), Key(1, kLetter),
     Key(1, kLetter), Key(1, kLetter),
@@ -165,20 +180,96 @@ inline constexpr lv_buttonmatrix_ctrl_t kTextControls[] = {
     Key(2, kLetter), Key(1, LV_BUTTONMATRIX_CTRL_HIDDEN),
     Key(2, kUtility), Key(1, kLetter), Key(1, kLetter), Key(1, kLetter),
     Key(1, kLetter), Key(1, kLetter), Key(1, kLetter), Key(1, kLetter),
-    Key(2, kUtility),
+    Key(2),
     Key(2, kUtility), Key(1), Key(8), Key(1), Key(2, kUtility)};
 
 inline constexpr lv_buttonmatrix_ctrl_t kSpecialControls[] = {
     Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(),
-    Key(1, LV_BUTTONMATRIX_CTRL_HIDDEN),
-    Key(2), Key(2), Key(2), Key(2), Key(2), Key(2), Key(2), Key(2), Key(2),
+    Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(),
+    Key(2, kUtility), Key(), Key(), Key(), Key(), Key(), Key(), Key(),
     Key(2),
-    Key(1, LV_BUTTONMATRIX_CTRL_HIDDEN),
-    Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(2, kUtility),
     Key(2, kUtility), Key(1), Key(8), Key(1), Key(2, kUtility)};
 
 inline bool SameKey(const char *key, const char *expected) {
   return key != nullptr && std::strcmp(key, expected) == 0;
+}
+
+enum class ShiftMode { kOff, kOnce, kLocked };
+
+struct ShiftState {
+  ShiftMode mode = ShiftMode::kOff;
+  uint32_t last_tap = 0;
+  bool double_tap_pending = false;
+  const char *activated_key = nullptr;
+};
+
+inline constexpr uint32_t kShiftDoubleTapMs = 350;
+
+inline void HandleKey(lv_event_t *event) {
+  auto *keyboard = lv_event_get_current_target_obj(event);
+  auto *shift = static_cast<ShiftState *>(lv_event_get_user_data(event));
+  const char *key = lv_keyboard_get_button_text(
+      keyboard, lv_keyboard_get_selected_button(keyboard));
+  if (key == nullptr) return;
+  shift->activated_key = key;
+  RecoveryVibrate(Haptic::kKeyboard);
+
+  const auto mode = lv_keyboard_get_mode(keyboard);
+  if (mode == LV_KEYBOARD_MODE_TEXT_LOWER) shift->mode = ShiftMode::kOff;
+
+  if (SameKey(key, LV_SYMBOL_UP)) {
+    const bool double_tap = shift->double_tap_pending &&
+        lv_tick_elaps(shift->last_tap) <= kShiftDoubleTapMs;
+    if (shift->mode == ShiftMode::kOff) {
+      shift->mode = ShiftMode::kOnce;
+      shift->last_tap = lv_tick_get();
+      shift->double_tap_pending = true;
+    } else {
+      shift->mode = shift->mode == ShiftMode::kOnce && double_tap
+                        ? ShiftMode::kLocked : ShiftMode::kOff;
+      shift->double_tap_pending = false;
+    }
+    lv_keyboard_set_mode(keyboard, shift->mode == ShiftMode::kOff
+        ? LV_KEYBOARD_MODE_TEXT_LOWER : LV_KEYBOARD_MODE_TEXT_UPPER);
+    lv_obj_invalidate(keyboard);
+    return;
+  }
+
+  shift->double_tap_pending = false;
+  if (SameKey(key, "=\\<")) {
+    lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_USER_1);
+    return;
+  }
+  if (SameKey(key, "ABC")) {
+    lv_keyboard_set_mode(keyboard, shift->mode == ShiftMode::kOff
+        ? LV_KEYBOARD_MODE_TEXT_LOWER : LV_KEYBOARD_MODE_TEXT_UPPER);
+    return;
+  }
+
+  const bool consume_shift = shift->mode == ShiftMode::kOnce &&
+      mode == LV_KEYBOARD_MODE_TEXT_UPPER && key[0] >= 'A' &&
+      key[0] <= 'Z' && key[1] == '\0';
+  if (consume_shift) shift->mode = ShiftMode::kOff;
+
+  // Keep LVGL's editing/Ready behavior, then reset after inserting the letter.
+  // Ready or textarea callbacks can delete this keyboard and its ShiftState.
+  lv_keyboard_def_event_cb(event);
+  if (consume_shift && lv_obj_is_valid(keyboard) &&
+      lv_keyboard_get_mode(keyboard) == LV_KEYBOARD_MODE_TEXT_UPPER)
+    lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
+}
+
+// Scene callbacks need the original key, not the lower-case map after Shift.
+inline const char *ActivatedKey(lv_obj_t *keyboard) {
+  for (uint32_t i = 0; i < lv_obj_get_event_count(keyboard); ++i) {
+    auto *descriptor = lv_obj_get_event_dsc(keyboard, i);
+    if (lv_event_dsc_get_cb(descriptor) == HandleKey) {
+      const auto *shift = static_cast<const ShiftState *>(
+          lv_event_dsc_get_user_data(descriptor));
+      return shift->activated_key;
+    }
+  }
+  return nullptr;
 }
 
 template <size_t N>
@@ -196,6 +287,7 @@ inline const auto kUpperMultiline = MultilineMap(kUpper);
 inline const auto kLowerQwertzMultiline = MultilineMap(kLowerQwertz);
 inline const auto kUpperQwertzMultiline = MultilineMap(kUpperQwertz);
 inline const auto kSpecialMultiline = MultilineMap(kSpecial);
+inline const auto kSpecialExtraMultiline = MultilineMap(kSpecialExtra);
 
 inline bool IsActionKey(const char *key) {
   return SameKey(key, LV_SYMBOL_OK) || SameKey(key, LV_SYMBOL_NEW_LINE);
@@ -203,7 +295,19 @@ inline bool IsActionKey(const char *key) {
 
 inline bool IsModifierKey(const char *key) {
   return SameKey(key, LV_SYMBOL_UP) || SameKey(key, LV_SYMBOL_BACKSPACE) ||
-         SameKey(key, "?123") || SameKey(key, "ABC");
+         SameKey(key, "?123") || SameKey(key, "=\\<") || SameKey(key, "ABC");
+}
+
+inline uint32_t KeyCodepoint(const char *key) {
+  if (key == nullptr || IsModifierKey(key) || IsActionKey(key)) return 0;
+  uint32_t index = 0;
+  const uint32_t codepoint = lv_text_encoded_next(key, &index);
+  return key[index] == '\0' ? codepoint : 0;
+}
+
+inline const char *KeyLabel(const char *key) {
+  // Reuse the built-in checkmark glyph; typing still inserts Unicode U+2713.
+  return SameKey(key, "\xe2\x9c\x93") ? LV_SYMBOL_OK : key;
 }
 
 inline void DrawKey(lv_event_t *event) {
@@ -223,20 +327,33 @@ inline void DrawKey(lv_event_t *event) {
        gSecondary.button == base->id1);
   const bool action = IsActionKey(key);
   const bool modifier = IsModifierKey(key);
+  const bool shifted = SameKey(key, LV_SYMBOL_UP) &&
+      lv_keyboard_get_mode(keyboard) == LV_KEYBOARD_MODE_TEXT_UPPER;
+  const auto *shift = static_cast<const ShiftState *>(
+      lv_event_get_user_data(event));
 
   if (auto *fill = lv_draw_task_get_fill_dsc(task)) {
-    fill->color = action ? (pressed ? design::kAccentPressed : design::kAccent)
+    fill->color = action || shifted
+                      ? (pressed ? design::kAccentPressed : design::kAccent)
                   : modifier ? (pressed ? design::kMainSelected
                                         : design::kAccentSoft)
                   : pressed ? design::kMainSelected : design::kMainPanel;
   }
   if (auto *label = lv_draw_task_get_label_dsc(task)) {
-    label->color = action ? design::kOnAccent
+    if (SameKey(key, "\xe2\x9c\x93")) {
+      if (label->text_local) lv_free(const_cast<char *>(label->text));
+      label->text = KeyLabel(key);
+      label->text_local = false;
+      label->text_static = true;
+    }
+    label->color = action || shifted ? design::kOnAccent
                    : modifier ? design::kAccent : design::kText;
+    if (shifted && shift != nullptr && shift->mode == ShiftMode::kLocked)
+      label->decor = LV_TEXT_DECOR_UNDERLINE;
   }
 }
 
-inline void Style(lv_obj_t *keyboard) {
+inline void Style(lv_obj_t *keyboard, ShiftState *shift) {
   lv_obj_set_style_bg_color(keyboard, design::kMainBottom, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(keyboard, 0, LV_PART_MAIN);
@@ -256,18 +373,20 @@ inline void Style(lv_obj_t *keyboard) {
   lv_obj_set_style_border_width(keyboard, 0, LV_PART_ITEMS);
   lv_obj_set_style_shadow_width(keyboard, 0, LV_PART_ITEMS);
 
-  lv_obj_add_event_cb(keyboard, DrawKey, LV_EVENT_DRAW_TASK_ADDED, nullptr);
+  lv_obj_add_event_cb(keyboard, DrawKey, LV_EVENT_DRAW_TASK_ADDED, shift);
   lv_obj_add_flag(keyboard, LV_OBJ_FLAG_SEND_DRAW_TASK_EVENTS);
 }
 
 inline void Apply(lv_obj_t *keyboard, bool multiline = false) {
+  auto *shift = new ShiftState;
   gKeyboards.push_back(keyboard);
   lv_obj_add_event_cb(keyboard, [](lv_event_t *event) {
     auto *deleted = lv_event_get_target_obj(event);
     gKeyboards.erase(std::remove(gKeyboards.begin(), gKeyboards.end(), deleted),
                      gKeyboards.end());
     if (gSecondary.keyboard == deleted) gSecondary = {};
-  }, LV_EVENT_DELETE, nullptr);
+    delete static_cast<ShiftState *>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, shift);
   const bool qwertz = RecoveryKeyboardLayout() == KeyboardLayout::kQwertz;
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER,
                       multiline
@@ -284,13 +403,14 @@ inline void Apply(lv_obj_t *keyboard, bool multiline = false) {
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_SPECIAL,
                       multiline ? kSpecialMultiline.data() : kSpecial,
                       kSpecialControls);
+  lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_USER_1,
+                      multiline ? kSpecialExtraMultiline.data() : kSpecialExtra,
+                      kSpecialControls);
   lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
   lv_keyboard_set_popovers(keyboard, true);
-  Style(keyboard);
-  lv_obj_add_event_cb(keyboard, [](lv_event_t *event) {
-    if (lv_event_get_code(event) == LV_EVENT_VALUE_CHANGED)
-      RecoveryVibrate(Haptic::kKeyboard);
-  }, LV_EVENT_VALUE_CHANGED, nullptr);
+  Style(keyboard, shift);
+  lv_obj_remove_event_cb(keyboard, lv_keyboard_def_event_cb);
+  lv_obj_add_event_cb(keyboard, HandleKey, LV_EVENT_VALUE_CHANGED, shift);
 }
 
 }  // namespace aeraui::phone_keyboard

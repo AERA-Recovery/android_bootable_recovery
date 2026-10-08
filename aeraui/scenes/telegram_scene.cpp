@@ -756,12 +756,12 @@ void SetChatKeyboard(TelegramScene *scene, bool visible) {
   if (!scene->keyboard || !scene->composer || !scene->list ||
       !scene->send_button || !scene->attach_button) return;
   scene->keyboard_visible = visible;
-  const int composer_y = scene->landscape ? 170 : visible ? 1990 : 2780;
+  const int composer_y = scene->landscape ? 170 : visible ? 1790 : 2780;
   lv_obj_set_y(scene->attach_button, composer_y);
   lv_obj_set_y(scene->composer, composer_y);
   lv_obj_set_y(scene->send_button, composer_y);
   lv_obj_set_height(scene->list, scene->landscape ? 1080 :
-                    visible ? 1760 : 2520);
+                    visible ? 1560 : 2520);
   if (visible) {
     lv_obj_remove_flag(scene->keyboard, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(scene->keyboard);
@@ -1305,7 +1305,7 @@ void OpenChat(TelegramScene *scene, int64_t id, const std::string &title) {
     lv_obj_set_pos(scene->keyboard, 1600, 330);
     lv_obj_set_size(scene->keyboard, 1552, 900);
   } else {
-    constexpr int keyboard_height = 800;
+    constexpr int keyboard_height = 1000;
     lv_obj_set_pos(scene->keyboard, 0,
                    lv_obj_get_height(scene->surface) - keyboard_height);
     lv_obj_set_size(scene->keyboard, lv_obj_get_width(scene->surface),
