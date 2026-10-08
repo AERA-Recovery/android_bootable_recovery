@@ -36,6 +36,9 @@ struct Info {
   std::string device_codename;
   bool name_from_filename = false;
   std::string system_fingerprint;
+  bool arb_available = false;
+  uint32_t arb_index = 0;
+  std::string arb_detail;
   std::string target_sdk;
   std::string security_patch;
   std::string operation_types;
@@ -43,9 +46,9 @@ struct Info {
   std::vector<Partition> partitions;
 };
 
-// Reads only the ZIP directory, OTA metadata and the payload manifest. Payload
-// operation data is never read and no device state is changed.
-Info InspectZip(const std::string &path);
+// Reads the ZIP directory, OTA metadata and payload manifest. Optional ARB
+// inspection also reconstructs bounded xbl_config data in RAM. No device writes.
+Info InspectZip(const std::string &path, bool read_arb = false);
 
 // Compact, display-ready preflight summary for the install confirmation.
 std::string Summary(const Info &info);

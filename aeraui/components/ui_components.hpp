@@ -588,7 +588,9 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
                    bool dismiss_on_backdrop = false,
                    SheetPresentation presentation = SheetPresentation::kStandard,
                    const char *confirm_text = "Swipe to confirm",
-                   std::function<void(lv_obj_t *)> build_body = {}) {
+                   std::function<void(lv_obj_t *)> build_body = {},
+                   std::function<void(lv_obj_t *, lv_obj_t *)> setup_actions = {},
+                   Handler on_close = {}) {
   const bool compact_glass =
       presentation == SheetPresentation::kCompactGlass;
   auto *overlay = lv_obj_create(screen);
@@ -683,6 +685,7 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   lv_obj_set_style_text_line_space(body, 16, 0);
   }
 
+  lv_obj_t *confirm_slider = nullptr;
   if (state->confirm) {
     auto *divider = lv_obj_create(sheet);
     Clear(divider);
@@ -695,6 +698,7 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
     lv_obj_set_style_bg_opa(divider, LV_OPA_40, 0);
 
     auto *slider = lv_obj_create(sheet);
+    confirm_slider = slider;
     Clear(slider);
     const int track_width = compact_glass ? 1020 : kConfirmTrackWidth;
     state->slider_travel =
@@ -753,8 +757,9 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
     lv_obj_remove_flag(chevron, LV_OBJ_FLAG_CLICKABLE);
   }
 
-  auto *close = Button(sheet, state->confirm ? "Cancel" : "Close", [overlay] {
-    lv_obj_delete_async(overlay);
+  auto *close = Button(sheet, state->confirm ? "Cancel" : "Close", [overlay, on_close] {
+    if (on_close) on_close();
+    else lv_obj_delete_async(overlay);
   });
   lv_obj_set_size(close, compact_glass ? 280 : 1140,
                   compact_glass ? 92 : 100);
@@ -763,6 +768,7 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
                0, compact_glass ? -4 : -8);
   lv_obj_set_style_bg_opa(close, LV_OPA_TRANSP, 0);
   lv_obj_set_style_bg_opa(close, LV_OPA_10, LV_STATE_PRESSED);
+  if (setup_actions) setup_actions(confirm_slider, close);
   AnimateEnter(sheet, 0, 52);
 }
 }  // namespace aeraui::widgets

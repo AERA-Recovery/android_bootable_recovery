@@ -4,6 +4,7 @@
  */
 
 #include "payload_inspector.hpp"
+#include "payload_arb.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -174,7 +175,7 @@ std::string PartitionNames(const std::vector<Partition> &partitions) {
 
 }  // namespace
 
-Info InspectZip(const std::string &path) {
+Info InspectZip(const std::string &path, bool read_arb) {
   Info info;
   int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
   struct stat file_info {};
@@ -361,6 +362,14 @@ Info InspectZip(const std::string &path) {
                                       operation_types.end());
   info.operation_types = Join(operations, ", ");
   info.valid = !info.partitions.empty();
+  if (info.valid && read_arb) {
+    const auto data_offset = header_bytes + manifest_bytes + signature_bytes;
+    const auto arb = InspectArb(fd, payload_entry.offset + data_offset,
+                                payload_entry.uncompressed_length - data_offset, manifest);
+    info.arb_available = arb.available;
+    info.arb_index = arb.index;
+    info.arb_detail = arb.detail;
+  }
   if (!info.valid) info.error = "The payload manifest contains no partitions.";
   CloseArchive(archive);
   return info;

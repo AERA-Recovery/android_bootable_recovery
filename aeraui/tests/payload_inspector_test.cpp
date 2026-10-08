@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "features/update/payload_inspector.hpp"
+#include "features/update/payload_arb.hpp"
+#include <openssl/sha.h>
+#include <bzlib.h>
 #include "update_engine/update_metadata.pb.h"
 #include "ota_metadata.pb.h"
 #include <cstdlib>
@@ -12,6 +15,90 @@
 using namespace aeraui::payload;
 using chromeos_update_engine::DeltaArchiveManifest;
 namespace {
+void Put(std::vector<uint8_t> &v, size_t offset, uint64_t value, unsigned bytes) {
+  for (unsigned i = 0; i < bytes; ++i) v.at(offset + i) = value >> (8 * i);
+}
+std::vector<uint8_t> Firmware(uint32_t index) {
+  std::vector<uint8_t> v(4096);
+  memcpy(v.data(), "\177ELF", 4); v[4] = 2; v[5] = 1;
+  Put(v, 32, 64, 8); Put(v, 54, 56, 2); Put(v, 56, 1, 2);
+  Put(v, 72, 256, 8); Put(v, 96, 128, 8);
+  Put(v, 256, 7, 4); Put(v, 268, 12, 4); Put(v, 272, 32, 4);
+  Put(v, 292, 3, 4); Put(v, 300, index, 4);
+  return v;
+}
+std::string Digest(const std::vector<uint8_t> &v) {
+  unsigned char hash[SHA256_DIGEST_LENGTH];
+  SHA256(v.data(), v.size(), hash);
+  return std::string(reinterpret_cast<char *>(hash), sizeof(hash));
+}
+TEST(PayloadArb, ZeroAndMalformedFirmware) {
+  auto v = Firmware(0);
+  ASSERT_TRUE(ReadFirmwareArb(v).available);
+  EXPECT_EQ(ReadFirmwareArb(v).index, 0u);
+  v = Firmware(5); EXPECT_EQ(ReadFirmwareArb(v).index, 5u);
+  v[5] = 2; EXPECT_FALSE(ReadFirmwareArb(v).available);
+  v = Firmware(5); Put(v, 32, UINT64_MAX, 8);
+  EXPECT_FALSE(ReadFirmwareArb(v).available);
+  v = Firmware(5); Put(v, 268, 8, 4);
+  EXPECT_FALSE(ReadFirmwareArb(v).available);
+  v = Firmware(5); v.resize(300);
+  EXPECT_FALSE(ReadFirmwareArb(v).available);
+}
+TEST(PayloadArb, BothSlotsMustBeCheckedBeforeInstall) {
+  using D = ArbDecision;
+  const Arb zero{true, 0, ""}, one{true, 1, ""}, two{true, 2, ""}, unknown{};
+  EXPECT_EQ(CompareArb(true, one, {zero, zero}), D::Upgrade);
+  EXPECT_EQ(CompareArb(true, zero, {one, one}), D::Downgrade);
+  EXPECT_EQ(CompareArb(true, one, {one, one}), D::Same);
+  EXPECT_EQ(CompareArb(true, zero, {zero, zero}), D::Same);
+  EXPECT_EQ(CompareArb(true, one, {zero, two}), D::Downgrade);
+  EXPECT_EQ(CompareArb(true, one, {two, zero}), D::Downgrade);
+  EXPECT_EQ(CompareArb(true, one, {zero, one}), D::Upgrade);
+  EXPECT_EQ(CompareArb(true, one, {one, zero}), D::Upgrade);
+  EXPECT_EQ(CompareArb(true, one, {unknown, two}), D::Downgrade);
+  EXPECT_EQ(CompareArb(true, one, {zero, unknown}), D::Unknown);
+  EXPECT_EQ(CompareArb(true, unknown, {zero, zero}), D::Unknown);
+  EXPECT_EQ(CompareArb(false, unknown, {unknown, unknown}), D::NotApplicable);
+  EXPECT_FALSE(ArbAllowsInstall(D::Upgrade, false));
+  EXPECT_TRUE(ArbAllowsInstall(D::Upgrade, true));
+  for (bool acknowledged : {false, true}) {
+    EXPECT_FALSE(ArbAllowsInstall(D::Downgrade, acknowledged));
+    EXPECT_TRUE(ArbAllowsInstall(D::Unknown, acknowledged));
+    EXPECT_TRUE(ArbAllowsInstall(D::Same, acknowledged));
+    EXPECT_TRUE(ArbAllowsInstall(D::NotApplicable, acknowledged));
+  }
+}
+TEST(PayloadArb, RawBzipAndIntegrity) {
+  for (bool compressed : {false, true}) {
+    auto image = Firmware(7), data = image;
+    if (compressed) {
+      data.resize(8192); unsigned length = data.size();
+      ASSERT_EQ(BZ2_bzBuffToBuffCompress(reinterpret_cast<char *>(data.data()), &length,
+          reinterpret_cast<char *>(image.data()), image.size(), 9, 0, 30), BZ_OK);
+      data.resize(length);
+    }
+    TemporaryFile file;
+    ASSERT_EQ(write(file.fd, data.data(), data.size()), static_cast<ssize_t>(data.size()));
+    DeltaArchiveManifest manifest;
+    manifest.set_block_size(4096);
+    auto *p = manifest.add_partitions(); p->set_partition_name("xbl_config");
+    p->mutable_new_partition_info()->set_size(image.size());
+    p->mutable_new_partition_info()->set_hash(Digest(image));
+    auto *op = p->add_operations();
+    op->set_type(compressed ? chromeos_update_engine::InstallOperation::REPLACE_BZ :
+                             chromeos_update_engine::InstallOperation::REPLACE);
+    op->set_data_length(data.size()); op->set_data_sha256_hash(Digest(data));
+    op->add_dst_extents()->set_num_blocks(1);
+    const auto result = InspectArb(file.fd, 0, data.size(), manifest);
+    ASSERT_TRUE(result.available) << result.detail;
+    EXPECT_EQ(result.index, 7u);
+    p->mutable_new_partition_info()->set_hash(std::string(32, 'x'));
+    EXPECT_FALSE(InspectArb(file.fd, 0, data.size(), manifest).available);
+    op->set_type(chromeos_update_engine::InstallOperation::SOURCE_COPY);
+    EXPECT_FALSE(InspectArb(file.fd, 0, data.size(), manifest).available);
+  }
+}
 std::string Payload(const DeltaArchiveManifest &manifest) {
   const auto proto = manifest.SerializeAsString();
   std::string header = "CrAU";
@@ -92,6 +179,9 @@ TEST(PayloadReview, CustomRomFileWhenProvided) {
   EXPECT_EQ(info.target_sdk, "Android 17");
   EXPECT_EQ(info.target_build, "Project_Infinity-X-4.0-BETA-lighthouse-08.10.2026-GAPPS-UNOFFICIAL");
   EXPECT_EQ(info.build_id, "1791456637");
+  const auto arb = InspectZip(path, true);
+  ASSERT_TRUE(arb.arb_available) << arb.arb_detail;
+  EXPECT_EQ(arb.arb_index, 0u);
 }
 TEST(PayloadReview, RejectBrokenHeaderAndCompression) {
   EXPECT_FALSE(Inspect("CrAU").valid);

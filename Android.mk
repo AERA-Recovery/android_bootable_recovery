@@ -165,7 +165,7 @@ LOCAL_C_INCLUDES += \
     $(LOCAL_PATH)/minuitwrp/include \
     $(LOCAL_PATH)/twinstall/include
 
-LOCAL_STATIC_LIBRARIES += libaera_recovery_host libaeraui libaera_webp_decoder liblvgl_recovery libxz libvold
+LOCAL_STATIC_LIBRARIES += libaera_recovery_host libaeraui libaera_webp_decoder liblvgl_recovery libxz libbz libvold
 LOCAL_SHARED_LIBRARIES += libz libc libcutils libstdc++ libtar libblkid libminuitwrp libmtdutils libtwadbbu libjpeg libpng
 LOCAL_SHARED_LIBRARIES += libbootloader_message libcrecovery libtwrpdigest libc++ libaosprecovery libcrypto libbase
 LOCAL_SHARED_LIBRARIES += libandroidfw libziparchive libselinux libdl_android.bootstrap libft2
