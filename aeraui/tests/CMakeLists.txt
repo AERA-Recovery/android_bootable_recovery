@@ -80,3 +80,26 @@ target_include_directories(file_manager_test PRIVATE .. ../features/files)
 target_compile_options(file_manager_test PRIVATE -UNDEBUG)
 target_link_libraries(file_manager_test PRIVATE Threads::Threads)
 add_test(NAME file_manager_operations COMMAND file_manager_test)
+
+set(JSONCPP_WITH_TESTS OFF CACHE BOOL "" FORCE)
+set(JSONCPP_WITH_POST_BUILD_UNITTEST OFF CACHE BOOL "" FORCE)
+add_subdirectory("${LVGL_DIR}/../jsoncpp" jsoncpp)
+add_executable(smb_browser_test smb_browser_test.cpp ../features/nas/smb_browser.cpp)
+target_include_directories(smb_browser_test PRIVATE ../include ../features)
+target_compile_options(smb_browser_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_options(smb_browser_test PRIVATE -Wl,--wrap=posix_spawn)
+target_link_libraries(smb_browser_test PRIVATE jsoncpp_static Threads::Threads)
+add_test(NAME smb_browse_paths_and_cancellation COMMAND smb_browser_test)
+
+add_executable(nas_ui_test nas_ui_test.cpp ../scenes/nas_scene.cpp
+  ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
+  ../localization/catalog/catalog_generated.cpp)
+target_include_directories(nas_ui_test PRIVATE .. ../include ../components
+  ../features ../localization ../localization/fonts ../scenes)
+target_compile_definitions(nas_ui_test PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES)
+target_compile_definitions(nas_ui_test PRIVATE
+  AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets"
+  AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets")
+target_compile_options(nas_ui_test PRIVATE -UNDEBUG)
+target_link_libraries(nas_ui_test PRIVATE lvgl Threads::Threads PNG::PNG)
+add_test(NAME nas_picker_navigation_and_layout COMMAND nas_ui_test)

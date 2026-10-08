@@ -6,8 +6,12 @@
 #include "scene.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <memory>
 #include <string>
+#include <thread>
 
+#include "nas/smb_browser.hpp"
 #include "phone_keyboard.hpp"
 #include "ui_components.hpp"
 
@@ -19,6 +23,7 @@ using namespace widgets;
 NasRequest gRequest;
 
 enum class Field { kHost, kPort, kUser, kPassword, kShare, kPath, kDomain };
+struct FolderPicker;
 
 struct NasUi {
   NasScene scene;
@@ -34,6 +39,29 @@ struct NasUi {
   bool busy = false;
   bool activity_animating = false;
   uint32_t busy_phase = 0;
+  bool advanced = false;
+  FolderPicker *picker = nullptr;
+};
+
+struct BrowseWork {
+  std::atomic<bool> cancel{false};
+  std::atomic<bool> done{false};
+  smb::Result result;
+};
+
+struct FolderPicker {
+  NasUi *owner = nullptr;
+  lv_obj_t *overlay = nullptr;
+  lv_obj_t *title = nullptr;
+  lv_obj_t *path_label = nullptr;
+  lv_obj_t *list = nullptr;
+  lv_obj_t *select = nullptr;
+  lv_obj_t *back = nullptr;
+  lv_timer_t *timer = nullptr;
+  std::string share;
+  std::string path;
+  bool valid = false;
+  std::shared_ptr<BrowseWork> work;
 };
 
 const char *FieldTitle(Field field) {
@@ -85,6 +113,8 @@ uint32_t FieldLimit(Field field) {
 }
 
 void Populate(NasUi *state);
+void OpenBrowser(NasUi *state, const std::string &share = {},
+                 const std::string &path = {});
 
 bool SaveConfig(NasUi *state, const NasConfig &config) {
   std::string error;
@@ -135,7 +165,7 @@ std::string BusyTitle(const NasUi *state) {
   return title;
 }
 
-void EditField(NasUi *state, Field field) {
+void EditField(NasUi *state, Field field, bool browse_after = false) {
   if (state->busy) return;
   if (state->snapshot.mounted) {
     Sheet(state->screen, "Network storage is mounted",
@@ -194,17 +224,216 @@ void EditField(NasUi *state, Field field) {
   auto *cancel = Button(sheet, "Cancel", [overlay] { Close(overlay); });
   lv_obj_set_pos(cancel, 0, 986);
   lv_obj_set_size(cancel, 580, 116);
-  auto *save = Button(sheet, "Save", [state, field, input, overlay] {
+  auto save_value = [state, field, input, overlay, browse_after] {
     NasConfig config = state->snapshot.config;
     SetField(&config, field, lv_textarea_get_text(input));
     if (!SaveConfig(state, config)) return;
     Close(overlay);
     Populate(state);
-  }, true);
+    if (browse_after) OpenBrowser(state, config.share);
+  };
+  auto *save = Button(sheet, "Save", save_value, true);
   lv_obj_set_pos(save, 636, 986);
   lv_obj_set_size(save, 580, 116);
+  auto *ready = new Handler(save_value);
+  lv_obj_add_event_cb(input, [](lv_event_t *event) {
+    auto *ready = static_cast<Handler *>(lv_event_get_user_data(event));
+    if (lv_event_get_code(event) == LV_EVENT_DELETE) delete ready;
+    else if (lv_event_get_code(event) == LV_EVENT_READY) (*ready)();
+  }, LV_EVENT_ALL, ready);
   lv_obj_send_event(input, LV_EVENT_CLICKED, nullptr);
   AnimateEnter(sheet, 0, 42);
+}
+
+void DismissPicker(FolderPicker *picker) {
+  if (picker->work) picker->work->cancel.store(true);
+  if (picker->owner) picker->owner->picker = nullptr;
+  picker->owner = nullptr;
+  Close(picker->overlay);
+}
+
+void LoadFolder(FolderPicker *picker) {
+  if (picker->work) picker->work->cancel.store(true);
+  picker->valid = false;
+  lv_obj_add_state(picker->select, LV_STATE_DISABLED);
+  if (picker->share.empty()) lv_obj_add_state(picker->back, LV_STATE_DISABLED);
+  else lv_obj_remove_state(picker->back, LV_STATE_DISABLED);
+  i18n::BindLabel(picker->title, picker->share.empty() ? "SMB shares" : "Folder");
+  const NasConfig config = picker->owner->snapshot.config;
+  const std::string location = "//" + config.host +
+      (picker->share.empty() ? "" : "/" + picker->share) +
+      (picker->path.empty() ? "" : "/" + picker->path);
+  lv_label_set_text(picker->path_label, location.c_str());
+  lv_obj_clean(picker->list);
+  lv_obj_scroll_to_y(picker->list, 0, LV_ANIM_OFF);
+  auto *loading = Label(picker->list, "Loading folders...", &lv_font_montserrat_32, kMuted);
+  lv_obj_set_width(loading, LV_PCT(100));
+  auto work = std::make_shared<BrowseWork>();
+  picker->work = work;
+  const std::string share = picker->share;
+  const std::string path = picker->path;
+  std::thread([work, config, share, path] {
+    work->result = smb::List(config, share, path, work->cancel);
+    work->done.store(true, std::memory_order_release);
+  }).detach();
+}
+
+void PopulateFolders(FolderPicker *picker) {
+  lv_obj_clean(picker->list);
+  const auto &result = picker->work->result;
+  picker->valid = result.error.empty();
+  if (!picker->valid) {
+    auto *error = Label(picker->list, "Network storage action failed", &lv_font_montserrat_32, kText);
+    lv_obj_set_width(error, LV_PCT(100));
+    auto *detail = Label(picker->list, "", &lv_font_montserrat_24, kMuted);
+    lv_label_set_text(detail, result.error.c_str());
+    lv_obj_set_pos(detail, 0, 110);
+    lv_obj_set_width(detail, LV_PCT(100));
+    return;
+  }
+  if (!picker->share.empty()) lv_obj_remove_state(picker->select, LV_STATE_DISABLED);
+  if (result.directories.empty()) {
+    auto *empty = Label(picker->list, picker->share.empty() ? "No shares found" : "No folders found",
+                        &lv_font_montserrat_32, kMuted);
+    lv_obj_set_width(empty, LV_PCT(100));
+    return;
+  }
+  int y = 0;
+  const int height = std::max(144, 2 * static_cast<int>(UiFont(&lv_font_montserrat_32)->line_height) + 36);
+  for (const auto &name : result.directories) {
+    auto *row = Button(picker->list, "", [picker, name] {
+      if (picker->share.empty()) picker->share = name;
+      else picker->path += (picker->path.empty() ? "" : "/") + name;
+      LoadFolder(picker);
+    });
+    lv_obj_set_pos(row, 0, y);
+    lv_obj_set_size(row, LV_PCT(100), height);
+    lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
+    auto *icon = Label(row, picker->share.empty() ? LV_SYMBOL_DRIVE : LV_SYMBOL_DIRECTORY,
+                       &lv_font_montserrat_32, kAccent);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 24, 0);
+    auto *label = Label(row, "", &lv_font_montserrat_32, kText);
+    lv_label_set_text(label, name.c_str());
+    lv_obj_set_pos(label, 108, 18);
+    lv_obj_set_width(label, lv_obj_get_width(picker->list) - 190);
+    lv_obj_set_height(label, height - 36);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    auto *arrow = Label(row, LV_SYMBOL_RIGHT, &lv_font_montserrat_24, kMuted);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -24, 0);
+    y += height + 12;
+  }
+}
+
+void ParentFolder(FolderPicker *picker) {
+  if (picker->share.empty()) { DismissPicker(picker); return; }
+  if (picker->path.empty()) picker->share.clear();
+  else {
+    const auto slash = picker->path.rfind('/');
+    picker->path = slash == std::string::npos ? "" : picker->path.substr(0, slash);
+  }
+  LoadFolder(picker);
+}
+
+void OpenBrowser(NasUi *state, const std::string &share, const std::string &path) {
+  if (state->busy || state->picker) return;
+  if (state->snapshot.mounted) {
+    Sheet(state->screen, "Network storage is mounted",
+          "Unmount it before changing its connection settings.");
+    return;
+  }
+  if (state->snapshot.config.host.empty()) {
+    Sheet(state->screen, "Host required",
+          "Enter the SFTP or SMB server hostname/IP before mounting.");
+    return;
+  }
+  auto *picker = new FolderPicker;
+  picker->owner = state;
+  picker->share = share;
+  picker->path = path;
+  state->picker = picker;
+  picker->overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(picker->overlay, &kPersistentModalMarker);
+  Clear(picker->overlay);
+  lv_obj_set_size(picker->overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(picker->overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(picker->overlay, LV_OPA_60, 0);
+  lv_obj_add_flag(picker->overlay, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(picker->overlay, [](lv_event_t *event) {
+    auto *picker = static_cast<FolderPicker *>(lv_event_get_user_data(event));
+    if (lv_event_get_target_obj(event) == lv_event_get_current_target_obj(event))
+      DismissPicker(picker);
+  }, LV_EVENT_CLICKED, picker);
+  lv_obj_add_event_cb(picker->overlay, [](lv_event_t *event) {
+    ParentFolder(static_cast<FolderPicker *>(lv_event_get_user_data(event)));
+  }, LV_EVENT_CANCEL, picker);
+  lv_obj_add_event_cb(picker->overlay, [](lv_event_t *event) {
+    auto *picker = static_cast<FolderPicker *>(lv_event_get_user_data(event));
+    if (picker->work) picker->work->cancel.store(true);
+    if (picker->timer) lv_timer_delete(picker->timer);
+    if (picker->owner) picker->owner->picker = nullptr;
+    delete picker;
+  }, LV_EVENT_DELETE, picker);
+
+  auto *sheet = lv_obj_create(picker->overlay);
+  Panel(sheet, 48, kMainSheet);
+  lv_obj_update_layout(state->screen);
+  const int width = std::min(1500, static_cast<int>(lv_obj_get_width(state->screen)) - 128);
+  const int height = std::min(2320, static_cast<int>(lv_obj_get_height(state->screen)) - 400);
+  lv_obj_set_size(sheet, width, height);
+  lv_obj_center(sheet);
+  lv_obj_set_style_pad_all(sheet, 40, 0);
+  picker->title = Label(sheet, "SMB shares", &lv_font_montserrat_48, kText);
+  lv_obj_set_width(picker->title, width - 520);
+  lv_label_set_long_mode(picker->title, LV_LABEL_LONG_DOT);
+  picker->path_label = Label(sheet, "", &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(picker->path_label, 0, 110);
+  lv_obj_set_size(picker->path_label, width - 80, 110);
+  lv_label_set_long_mode(picker->path_label, LV_LABEL_LONG_DOT);
+  auto *close = Button(sheet, LV_SYMBOL_CLOSE, [picker] { DismissPicker(picker); });
+  lv_obj_set_pos(close, width - 180, 0);
+  lv_obj_set_size(close, 100, 88);
+  auto *refresh = Button(sheet, LV_SYMBOL_REFRESH, [picker] { LoadFolder(picker); });
+  lv_obj_set_pos(refresh, width - 300, 0);
+  lv_obj_set_size(refresh, 100, 88);
+  picker->back = Button(sheet, LV_SYMBOL_UP, [picker] {
+    ParentFolder(picker);
+  });
+  lv_obj_set_pos(picker->back, width - 420, 0);
+  lv_obj_set_size(picker->back, 100, 88);
+  picker->list = Scroll(sheet, 250, height - 500);
+  lv_obj_set_x(picker->list, 0);
+  lv_obj_set_width(picker->list, width - 80);
+  lv_obj_set_scrollbar_mode(picker->list, LV_SCROLLBAR_MODE_ON);
+  lv_obj_update_layout(picker->list);
+
+  auto *manual = Button(sheet, "SMB share name", [picker] {
+    auto *owner = picker->owner;
+    DismissPicker(picker);
+    EditField(owner, Field::kShare, true);
+  });
+  lv_obj_set_pos(manual, 0, height - 190);
+  lv_obj_set_size(manual, (width - 100) / 2, 110);
+  picker->select = Button(sheet, "Use this folder", [picker] {
+    if (!picker->valid || picker->share.empty()) return;
+    auto *owner = picker->owner;
+    NasConfig config = owner->snapshot.config;
+    config.share = picker->share;
+    config.path = picker->path;
+    if (!SaveConfig(owner, config)) return;
+    DismissPicker(picker);
+    Populate(owner);
+  }, true);
+  lv_obj_set_pos(picker->select, (width - 100) / 2 + 20, height - 190);
+  lv_obj_set_size(picker->select, (width - 100) / 2, 110);
+  picker->timer = lv_timer_create([](lv_timer_t *timer) {
+    auto *picker = static_cast<FolderPicker *>(lv_timer_get_user_data(timer));
+    if (picker->work && picker->work->done.load(std::memory_order_acquire)) {
+      PopulateFolders(picker);
+      picker->work.reset();
+    }
+  }, 80, picker);
+  LoadFolder(picker);
+  AnimateEnter(sheet, 0, 18);
 }
 
 void Dispatch(NasUi *state, NasOperation operation) {
@@ -365,15 +594,46 @@ void Populate(NasUi *state) {
   if (state->snapshot.config.type == "sftp") {
     AddField(state, 672, y, Field::kPort);
   } else {
-    AddField(state, 672, y, Field::kShare);
+    AddCacheCard(state, 672, y);
   }
   y += 180;
-  AddField(state, 0, y, Field::kPath);
   if (state->snapshot.config.type == "smb") {
-    AddField(state, 672, y, Field::kDomain);
+    const auto &config = state->snapshot.config;
+    const std::string target = config.share + (config.path.empty() ? "" : "/" + config.path);
+    auto *folder = Row(state->scene.list, y, LV_SYMBOL_DIRECTORY, "Browse folders", "",
+        [state] { OpenBrowser(state); });
+    // Server names and remote paths are data, not translation keys.
+    lv_label_set_text(lv_obj_get_child(folder, 3), target.c_str());
     y += 180;
-    AddCacheCard(state, 0, y);
+    auto *advanced = Button(state->scene.list, "Advanced", [state] {
+      state->advanced = !state->advanced;
+      Populate(state);
+    });
+    lv_obj_set_pos(advanced, 0, y);
+    lv_obj_set_size(advanced, LV_PCT(100), 112);
+    lv_obj_set_style_bg_opa(advanced, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_opa(advanced, LV_OPA_10, LV_STATE_PRESSED);
+    lv_obj_set_style_transform_scale(advanced, 256, LV_STATE_PRESSED);
+    lv_obj_set_style_radius(advanced, 0, 0);
+    lv_obj_set_style_border_width(advanced, 1, 0);
+    lv_obj_set_style_border_side(advanced, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_color(advanced, kMainLine, 0);
+    lv_obj_set_style_border_opa(advanced, LV_OPA_30, 0);
+    auto *advanced_label = lv_obj_get_child(advanced, 0);
+    lv_obj_set_style_text_color(advanced_label, kMutedStrong, 0);
+    lv_obj_align(advanced_label, LV_ALIGN_LEFT_MID, 32, 0);
+    auto *arrow = Label(advanced, state->advanced ? LV_SYMBOL_UP : LV_SYMBOL_DOWN,
+                        &lv_font_montserrat_24, kMuted);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -32, 0);
+    if (state->advanced) {
+      y += 132;
+      AddField(state, 0, y, Field::kShare);
+      AddField(state, 672, y, Field::kPath);
+      y += 180;
+      AddField(state, 0, y, Field::kDomain);
+    }
   } else {
+    AddField(state, 0, y, Field::kPath);
     AddCacheCard(state, 672, y);
   }
 }
@@ -431,6 +691,10 @@ NasScene BuildNasScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_add_event_cb(screen, [](lv_event_t *event) {
     auto *state = static_cast<NasUi *>(lv_event_get_user_data(event));
     if (state->timer != nullptr) lv_timer_delete(state->timer);
+    if (state->picker) {
+      state->picker->owner = nullptr;
+      if (state->picker->work) state->picker->work->cancel.store(true);
+    }
     delete state;
   }, LV_EVENT_DELETE, state);
 
