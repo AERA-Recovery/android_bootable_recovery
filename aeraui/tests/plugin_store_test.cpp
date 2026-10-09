@@ -46,7 +46,7 @@ const char *LocationLabel(Location value) { return value == Location::kMemory ? 
 static void Tick() { for (int i = 0; i < 8; ++i) { lv_tick_inc(32); lv_timer_handler(); } }
 static lv_obj_t *LabelWith(lv_obj_t *root, const char *text) {
   if (lv_obj_check_type(root, &lv_label_class) && !strcmp(lv_label_get_text(root), text)) return root;
-  for (uint32_t i = 0; i < lv_obj_get_child_count(root); ++i)
+  for (int i = static_cast<int>(lv_obj_get_child_count(root)) - 1; i >= 0; --i)
     if (auto *value = LabelWith(lv_obj_get_child(root, i), text)) return value;
   return nullptr;
 }
@@ -56,8 +56,28 @@ static lv_obj_t *Type(lv_obj_t *root, const lv_obj_class_t *type) {
     if (auto *value = Type(lv_obj_get_child(root, i), type)) return value;
   return nullptr;
 }
+static lv_obj_t *SearchButton(lv_obj_t *root) {
+  auto *handle = Type(root, &lv_line_class); assert(handle);
+  auto *button = lv_obj_get_parent(lv_obj_get_parent(handle));
+  assert(lv_obj_check_type(button, &lv_button_class));
+  return button;
+}
+static void ClickSearch(lv_obj_t *root) {
+  lv_obj_send_event(SearchButton(root), LV_EVENT_CLICKED, nullptr); Tick();
+}
 static void Click(lv_obj_t *root, const char *text, bool translate = true) {
-  auto *label = LabelWith(root, translate ? i18n::Translate(text) : text);
+  const char *wanted = translate ? i18n::Translate(text) : text;
+  // Category headings are not buttons. Prefer the topmost matching action.
+  std::function<lv_obj_t *(lv_obj_t *)> find_action = [&](lv_obj_t *object) -> lv_obj_t * {
+    for (int i = static_cast<int>(lv_obj_get_child_count(object)) - 1; i >= 0; --i)
+      if (auto *match = find_action(lv_obj_get_child(object, i))) return match;
+    if (lv_obj_check_type(object, &lv_label_class) && !strcmp(lv_label_get_text(object), wanted)) {
+      for (auto *parent = lv_obj_get_parent(object); parent; parent = lv_obj_get_parent(parent))
+        if (lv_obj_check_type(parent, &lv_button_class)) return object;
+    }
+    return nullptr;
+  };
+  auto *label = find_action(root);
   assert(label);
   auto *object = lv_obj_get_parent(label);
   while (!lv_obj_check_type(object, &lv_button_class) && lv_obj_get_parent(object)) object = lv_obj_get_parent(object);
@@ -69,6 +89,10 @@ static void Inside(lv_obj_t *label) {
   lv_obj_update_layout(label);
   lv_area_t inner{}, outer{};
   lv_obj_get_coords(label, &inner); lv_obj_get_coords(lv_obj_get_parent(label), &outer);
+  if (inner.y1 < outer.y1 || inner.y2 > outer.y2)
+    fprintf(stderr, "Outside parent: %s child=(%d,%d) parent=(%d,%d)\n",
+        lv_obj_check_type(label, &lv_label_class) ? lv_label_get_text(label) : "widget",
+        inner.y1, inner.y2, outer.y1, outer.y2);
   assert(inner.x1 >= outer.x1 && inner.x2 <= outer.x2);
   assert(inner.y1 >= outer.y1 && inner.y2 <= outer.y2);
 }
@@ -145,7 +169,7 @@ int main(int argc, char **argv) {
     save("store");
     Click(screen, "All"); save("categories");
     assert(widgets::DismissModal(screen)); Tick();
-    Click(screen, "Search plugins"); save("search");
+    ClickSearch(screen); save("search");
     assert(widgets::DismissModal(screen)); Tick();
     const auto browser = std::find_if(catalog.begin(), catalog.end(), [](const auto &p) { return p.id == "browser"; });
     assert(browser != catalog.end()); Click(screen, browser->name.c_str(), false); save("detail");
@@ -160,6 +184,19 @@ int main(int argc, char **argv) {
     auto *screen = lv_obj_create(nullptr);
     auto scene = BuildPluginScene(screen, [](Action action, void *) { last_action = action; }, nullptr);
     lv_screen_load(screen); Tick();
+    assert(!LabelWith(screen, i18n::Translate("Search plugins")));
+    auto *search_button = SearchButton(screen);
+    assert(lv_obj_has_flag(lv_obj_get_child(search_button, 0), LV_OBJ_FLAG_HIDDEN)); Inside(search_button);
+    auto *store_tab = lv_obj_get_parent(LabelWith(screen, i18n::Translate("Store")));
+    assert(lv_obj_get_style_border_width(store_tab, LV_PART_MAIN) == 2);
+    assert(lv_color_eq(lv_obj_get_style_bg_color(store_tab, LV_PART_MAIN), design::kMainPanel));
+    int last_bottom = -1;
+    for (const char *category : {"Tools", "Backup", "Network", "Themes"}) {
+      auto *heading = LabelWith(scene.list, i18n::Translate(category)); assert(heading);
+      assert(lv_obj_get_parent(heading) == scene.list);
+      lv_area_t bounds{}; lv_obj_get_coords(heading, &bounds);
+      assert(bounds.y1 > last_bottom); last_bottom = bounds.y2;
+    }
     assert(!LabelWith(scene.list, i18n::Translate("Install on storage")));
     Click(screen, "All");
     auto *choice = LabelWith(screen, i18n::Translate("Themes")); assert(choice); Inside(choice);
@@ -181,7 +218,7 @@ int main(int argc, char **argv) {
     save("detail");
     assert(NavigatePluginBack(scene)); assert(!NavigatePluginBack(scene)); Tick();
     assert(!LabelWith(screen, LV_SYMBOL_DIRECTORY));
-    Click(screen, "Search plugins");
+    ClickSearch(screen);
     auto *input = Type(screen, &lv_textarea_class); assert(input); Inside(input);
     auto *keyboard = Type(screen, &lv_keyboard_class); assert(keyboard); Inside(keyboard);
     lv_area_t keyboard_bounds{}, input_bounds{}, action_bounds{};

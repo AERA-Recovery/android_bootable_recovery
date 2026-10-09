@@ -348,7 +348,6 @@ void OpenCategories(State *state) {
       lv_obj_set_style_radius(choice, 26, 0);
       const bool selected = i == state->category_index;
       if (selected) {
-        lv_obj_set_style_bg_color(choice, kMainSelected, 0);
         lv_obj_set_style_border_width(choice, 2, 0);
         lv_obj_set_style_border_color(choice, kAccent, 0);
       }
@@ -376,7 +375,10 @@ void Render(State *state) {
   };
   for (int i = 0; i < 3; ++i) {
     hidden(state->tabs[i], detail);
-    lv_obj_set_style_bg_color(state->tabs[i], static_cast<int>(state->view) == i ? kMainSelected : kMainPanel, 0);
+    lv_obj_set_style_bg_color(state->tabs[i], kMainPanel, 0);
+    lv_obj_set_style_bg_color(state->tabs[i], kMainPanel, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(state->tabs[i], static_cast<int>(state->view) == i ? 2 : 0, 0);
+    lv_obj_set_style_border_color(state->tabs[i], kAccent, 0);
     lv_obj_set_style_text_color(lv_obj_get_child(state->tabs[i], 0),
         static_cast<int>(state->view) == i ? kAccent : kMuted, 0);
   }
@@ -386,6 +388,9 @@ void Render(State *state) {
   hidden(state->back, !detail);
   hidden(state->scene.refresh, detail);
   hidden(state->clear_search, state->query.empty());
+  hidden(state->search, detail || updates_view);
+  lv_obj_set_style_border_width(state->search, state->query.empty() ? 0 : 2, 0);
+  lv_obj_set_style_border_color(state->search, kAccent, 0);
   const int toolbar = Landscape(state->screen) ? 310 : 430;
   lv_obj_set_y(state->scene.status, toolbar + (detail ? 142 : 282));
   lv_obj_set_y(state->scene.progress, toolbar + (detail ? 210 : 350));
@@ -394,10 +399,12 @@ void Render(State *state) {
   lv_obj_scroll_to_y(state->scene.list, 0, LV_ANIM_OFF);
   if (detail) { Detail(state, catalog, installed); return; }
   const int half_width = (lv_obj_get_width(state->filters) - 24) / 2;
-  lv_obj_set_width(state->search, half_width - (state->query.empty() ? 0 : 104));
-  i18n::BindLabel(lv_obj_get_child(state->search, 0),
-      state->query.empty() ? "Search plugins" : state->query.c_str());
-  FitButtonLabel(state->search);
+  const int category_width = state->query.empty() ? lv_obj_get_width(state->filters) : half_width;
+  lv_obj_set_width(state->category, category_width);
+  lv_obj_set_width(lv_obj_get_child(state->category, 0), category_width - 128);
+  const std::string clear_query = state->query + "  " LV_SYMBOL_CLOSE;
+  i18n::BindLabel(lv_obj_get_child(state->clear_search, 0), clear_query.c_str());
+  FitButtonLabel(state->clear_search);
   i18n::BindLabel(lv_obj_get_child(state->category, 0),
       state->category_index ? plugins::CategoryLabel(kCategories[state->category_index]) : "All");
   std::vector<plugins::Plugin> items;
@@ -421,21 +428,38 @@ void Render(State *state) {
         ((state->category_index && plugin.category != kCategories[state->category_index]) ||
          (!query.empty() && Lower(plugin.name + " " + plugin.id + " " + plugin.description).find(query) == std::string::npos));
   }), items.end());
-  std::sort(items.begin(), items.end(), [](const auto &a, const auto &b) { return Lower(a.name) < Lower(b.name); });
+  const auto category_rank = [](const auto &plugin) {
+    for (unsigned i = 1; i < 7; ++i) if (plugin.category == kCategories[i]) return i;
+    return 1U; // Unspecified categories belong to Tools.
+  };
+  std::sort(items.begin(), items.end(), [&](const auto &a, const auto &b) {
+    const auto first = category_rank(a), second = category_rank(b);
+    return first != second ? first < second : Lower(a.name) < Lower(b.name);
+  });
   const int width = lv_obj_get_width(state->scene.list);
   const int name_height = lv_font_get_line_height(UiFont(&lv_font_montserrat_36));
   const int description_height = 2 * lv_font_get_line_height(UiFont(&lv_font_montserrat_24));
   const int meta_height = lv_font_get_line_height(UiFont(&lv_font_montserrat_20));
   const int row_height = 64 + name_height + description_height + meta_height + 24;
   int y = 0;
+  unsigned last_category = 0, category_row = 0;
   for (const auto &plugin : items) {
+    const auto category = category_rank(plugin);
+    if (category != last_category) {
+      if (last_category) y += 36;
+      y = PlaceText(state->scene.list, y,
+          i18n::Translate(plugins::CategoryLabel(kCategories[category])),
+          &lv_font_montserrat_24, kMuted, width - 56);
+      last_category = category;
+      category_row = 0;
+    }
     const auto *local = Find(installed, plugin.id);
     const bool update = local && plugins::IsUpdateAvailable(*local, plugin);
     auto *row = StoreButton(state->scene.list, "", [state, id = plugin.id] { ShowDetail(state, id); });
     lv_obj_set_pos(row, 0, y);
     lv_obj_set_size(row, width, row_height);
     lv_obj_set_style_radius(row, 24, 0);
-    lv_obj_set_style_bg_opa(row, y == 0 || (y / (row_height + 12)) % 2 == 0 ? LV_OPA_30 : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_opa(row, category_row++ % 2 == 0 ? LV_OPA_30 : LV_OPA_TRANSP, 0);
     lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
     const bool unofficial = local && local->trust == plugins::Trust::kUnofficial;
     auto *plate = plugin.id == "retroarch" ? RetroArchIconPlate(row, kText, 84)
@@ -511,15 +535,36 @@ PluginScene BuildPluginScene(lv_obj_t *screen, ActionCallback callback, void *co
   lv_obj_set_pos(state->filters, 80, top + 138);
   lv_obj_set_size(state->filters, width, 116);
   const int half_width = (width - 24) / 2;
-  state->search = StoreButton(state->filters, "Search plugins", [state] { OpenSearch(state); });
-  lv_obj_set_size(state->search, half_width, 116);
+  state->search = StoreButton(screen, "Search", [state] { OpenSearch(state); });
+  lv_obj_set_size(state->search, 96, 96);
+  lv_obj_set_style_radius(state->search, 28, 0);
+  lv_obj_align(state->search, LV_ALIGN_TOP_RIGHT, -80, Landscape(screen) ? 184 : 232);
+  lv_obj_add_flag(lv_obj_get_child(state->search, 0), LV_OBJ_FLAG_HIDDEN);
+  // Draw the magnifier independently of the selected font's glyph coverage.
+  auto *search_icon = lv_obj_create(state->search);
+  Clear(search_icon);
+  lv_obj_set_size(search_icon, 44, 44);
+  lv_obj_center(search_icon);
+  auto *lens = lv_obj_create(search_icon);
+  Clear(lens);
+  lv_obj_set_size(lens, 30, 30);
+  lv_obj_set_style_radius(lens, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(lens, 4, 0);
+  lv_obj_set_style_border_color(lens, kMuted, 0);
+  auto *handle = lv_line_create(search_icon);
+  static const lv_point_precise_t handle_points[] = {{26, 26}, {41, 41}};
+  lv_line_set_points(handle, handle_points, 2);
+  lv_obj_set_style_line_width(handle, 4, 0);
+  lv_obj_set_style_line_color(handle, kMuted, 0);
+  lv_obj_set_style_line_rounded(handle, true, 0);
+  for (auto *object : {search_icon, lens, handle}) lv_obj_remove_flag(object, LV_OBJ_FLAG_CLICKABLE);
   state->clear_search = StoreButton(state->filters, LV_SYMBOL_CLOSE, [state] {
     if (!state->busy) { state->query.clear(); Render(state); }
   });
-  lv_obj_set_pos(state->clear_search, half_width - 88, 0);
-  lv_obj_set_size(state->clear_search, 88, 116);
+  lv_obj_set_pos(state->clear_search, half_width + 24, 0);
+  lv_obj_set_size(state->clear_search, half_width, 116);
   state->category = StoreButton(state->filters, "All", [state] { OpenCategories(state); });
-  lv_obj_set_pos(state->category, half_width + 24, 0);
+  lv_obj_set_pos(state->category, 0, 0);
   lv_obj_set_size(state->category, half_width, 116);
   lv_obj_set_style_radius(state->category, 28, 0);
   auto *category_label = lv_obj_get_child(state->category, 0);
