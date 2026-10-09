@@ -12,6 +12,7 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LVGL_DIR}" lvgl)
 find_package(Freetype REQUIRED)
 find_package(PNG REQUIRED)
+find_package(JPEG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
@@ -19,7 +20,9 @@ add_executable(ui_check ui_check.cpp
   ../scenes/about_scene.cpp ../components/aera_logo.cpp
   ../components/matrix_engraving.cpp
   ../scenes/home_scene.cpp ../features/files/file_manager.cpp
+  ../components/text_edit.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
+  ../localization/catalog/catalog.cpp
   ../localization/catalog/catalog_generated.cpp
   ../scenes/tool_scene.cpp ../scenes/sideload_scene.cpp
   ../scenes/wifi_scene.cpp ../components/picture_decode.cpp
@@ -27,7 +30,7 @@ add_executable(ui_check ui_check.cpp
   ../scenes/operation_scene.cpp
   ../scenes/decrypt_scene.cpp ../features/browser/web_scene.cpp
   ../features/browser/session.cpp ../features/browser/launcher.cpp)
-target_include_directories(ui_check PRIVATE .. ../include ../components
+target_include_directories(ui_check PRIVATE .. ../include ../components ../assets
   ../features ../features/files ../localization ../localization/fonts
   ../scenes)
 target_compile_definitions(ui_check PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES)
@@ -35,7 +38,7 @@ target_compile_definitions(ui_check PRIVATE
   AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets"
   AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets")
 target_compile_options(ui_check PRIVATE -UNDEBUG)
-target_link_libraries(ui_check PRIVATE lvgl PNG::PNG Threads::Threads)
+target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
 add_executable(navigation_dock_test navigation_dock_test.cpp)
 target_include_directories(navigation_dock_test PRIVATE .. ../include
@@ -53,6 +56,8 @@ target_link_libraries(button_cancel_test PRIVATE lvgl)
 add_test(NAME button_drag_cancel COMMAND button_cancel_test)
 add_test(NAME ui_confirmation_navigation_preferences
   COMMAND ui_check "${LVGL_DIR}/examples/libs/libpng/png_demo.png")
+add_test(NAME file_timestamp_layout COMMAND ui_check --file-dates)
+add_test(NAME settings_autosave_and_reset COMMAND ui_check --settings)
 add_executable(display_transform_test display_transform_test.cpp)
 target_include_directories(display_transform_test PRIVATE ../include)
 add_test(NAME adaptive_display_transform COMMAND display_transform_test)
@@ -175,6 +180,7 @@ add_test(NAME touch_single_axis_retention COMMAND touch_input_test single)
 add_test(NAME touch_legacy_release_retention COMMAND touch_input_test legacy)
 
 add_executable(status_gesture_test status_gesture_test.cpp
+  ../components/text_edit.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
   ../localization/catalog/catalog.cpp ../localization/catalog/catalog_generated.cpp)
 target_include_directories(status_gesture_test PRIVATE .. ../include ../components

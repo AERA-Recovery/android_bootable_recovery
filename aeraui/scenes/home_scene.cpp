@@ -1331,16 +1331,21 @@ void FileRow(Files* state, int y, const Entry& entry, bool alternate) {
   const bool clock24 = RecoveryPreference(Preference::kClock24);
   const std::string modified = EntryModifiedDate(entry, clock24);
   if (!modified.empty()) {
-    const bool large = RecoveryInterfaceSize() == InterfaceSize::kLarge ||
-                       RecoveryInterfaceSize() == InterfaceSize::kSpacious;
-    const int date_width = large ? (clock24 ? 340 : 410) : (clock24 ? 280 : 340);
+    const lv_font_t* date_font = UiFont(metrics.detail_font);
+    lv_point_t measured{};
+    lv_text_get_size(&measured, modified.c_str(), date_font, 0, 0,
+                    LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    const int date_width = measured.x + 8;
     detail_width = std::max(120, detail_width - date_width - 28);
     auto* date = lv_label_create(row);
     lv_label_set_text(date, modified.c_str());
+    lv_label_set_long_mode(date, LV_LABEL_LONG_MODE_CLIP);
     lv_obj_set_pos(date, width - (state->selecting ? 104 : 54) - date_width, metrics.detail_y);
-    lv_obj_set_size(date, date_width, lv_font_get_line_height(UiFont(metrics.detail_font)));
+    lv_obj_set_size(date, date_width, lv_font_get_line_height(date_font));
     lv_obj_set_style_text_align(date, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_style_text_font(date, UiFont(metrics.detail_font), 0);
+    lv_obj_set_style_text_font(date, date_font, 0);
+    lv_obj_set_style_text_letter_space(date, 0, 0);
+    lv_obj_set_style_text_line_space(date, 0, 0);
     lv_obj_set_style_text_color(date, kDim, 0);
   }
   SingleLineLabel(copy, detail_width, metrics.detail_font);

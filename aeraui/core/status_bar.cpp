@@ -15,6 +15,7 @@
 #include <lvgl.h>
 
 #include "design.hpp"
+#include "ui_components.hpp"
 #include "browser/session.hpp"
 #include "plugin_api/operations.hpp"
 #include "recorder/service.hpp"
@@ -215,6 +216,10 @@ void BrightnessChanged(lv_event_t *event) {
     RecoverySetBrightness(percent);
     state->applied_brightness = percent;
   }
+  if (lv_event_get_code(event) == LV_EVENT_RELEASED &&
+      !RecoveryAutoSavePreferences())
+    widgets::Sheet(state->screen, "Could not save preferences",
+        "Changes still apply to this session. Unlock and mount settings storage, then try again.");
 }
 
 void ShadeGesture(lv_event_t *event) {

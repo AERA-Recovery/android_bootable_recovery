@@ -3,11 +3,13 @@
 #include <vector>
 #include "../core/status_bar.cpp"
 
+static int autosave_count = 0;
 namespace aeraui {
 std::string RecoveryUiFont() { return {}; }
 bool RecoveryPreference(Preference) { return true; }
 int RecoveryBrightness() { return 50; }
 void RecoverySetBrightness(int) {}
+bool RecoveryAutoSavePreferences() { ++autosave_count; return true; }
 bool RecoveryFlashlightSupported() { return false; }
 bool RecoveryFlashlightEnabled() { return false; }
 bool RecoverySetFlashlight(bool) { return false; }
@@ -57,6 +59,11 @@ int main() {
   assert(state.shade == nullptr);
   Touch(400, 80, true); Touch(400, 80, false); Settle();
   assert(state.shade && state.shade_visible == state.shade_height);
+  lv_slider_set_value(state.brightness_slider, 70, LV_ANIM_OFF);
+  lv_obj_send_event(state.brightness_slider, LV_EVENT_VALUE_CHANGED, nullptr);
+  assert(autosave_count == 0);
+  lv_obj_send_event(state.brightness_slider, LV_EVENT_RELEASED, nullptr);
+  assert(autosave_count == 1);
   AnimateShade(&state, false); Settle();
 
   Touch(400, 80, true);

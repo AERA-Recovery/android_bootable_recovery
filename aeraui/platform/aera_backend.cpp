@@ -92,7 +92,9 @@ int aeraui::RecoveryDecrypt(const std::string &credential, int user_id) {
 namespace aeraui {
 namespace {
 void LoadAeraPreferencesIfAvailable();
-bool SaveAeraPreferences();
+bool SaveAeraPreferences(bool require_early = false);
+bool ResetAeraSettings(bool theme);
+int DefaultHapticDuration(Haptic haptic);
 std::atomic<bool> gSideloadActive{false};
 std::atomic<bool> gSideloadCancelRequested{false};
 std::atomic<uint64_t> gSideloadReceivedBytes{0};
@@ -1334,6 +1336,12 @@ bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy policy) {
   return DataManager::SetValue("aera_browser_cookies", value, 1) == 0;
 }
 bool RecoverySavePreferences() { return SaveAeraPreferences(); }
+bool RecoveryAutoSavePreferences() { return SaveAeraPreferences(true); }
+bool RecoveryResetThemeSettings() { return ResetAeraSettings(true); }
+bool RecoveryResetPreferences() { return ResetAeraSettings(false); }
+int RecoveryDefaultHapticDuration(Haptic haptic) {
+  return DefaultHapticDuration(haptic);
+}
 
 namespace {
 const char *HapticVariable(Haptic haptic) {
@@ -1557,6 +1565,59 @@ void CaptureEarlyDefaultsIfNeeded() {
   if (gEarlyDefaultsCaptured) return;
   gEarlyDefaults = DefaultEarlyUiPreferences();
   gEarlyDefaultsCaptured = true;
+}
+
+int DefaultHapticDuration(Haptic haptic) {
+  CaptureEarlyDefaultsIfNeeded();
+  switch (haptic) {
+    case Haptic::kTouch: return gEarlyDefaults.haptic_touch;
+    case Haptic::kKeyboard: return gEarlyDefaults.haptic_keyboard;
+    case Haptic::kAction: return gEarlyDefaults.haptic_action;
+  }
+  return 0;
+}
+
+bool ResetAeraSettings(bool theme) {
+  LoadAeraPreferencesIfAvailable();
+  const auto &defaults = gEarlyDefaults;
+  bool restored = true;
+  auto set = [&restored](const char *key, const auto &value) {
+    restored &= DataManager::SetValue(key, value, 1) == 0;
+  };
+  // Reset only the selected settings group; keep language, network and plugins.
+  if (theme) {
+    set("aera_theme_accent", defaults.accent);
+    set("aera_theme_mode", defaults.theme);
+    set("aera_wallpaper_path", std::string());
+    set("aera_surface_style", defaults.surface_style);
+    set("aera_tinted_icon_backgrounds", defaults.tinted_icon_backgrounds);
+    set("aera_interface_size", defaults.interface_size);
+    set("aera_keyboard_layout", defaults.keyboard_layout);
+    set("aera_home_grid_columns", defaults.home_grid_columns);
+    set("aera_dock_layout", defaults.dock_layout);
+    set("aera_dock_transparency", defaults.dock_transparency);
+    set("aera_dock_blur", defaults.dock_blur);
+    set("aera_dock_hide_apps", defaults.dock_hide_apps);
+    set("aera_ui_font", std::string());
+  } else {
+    set("tw_military_time", defaults.clock24);
+    set(TW_TIME_ZONE_VAR, defaults.timezone);
+    set("aera_recents_enabled", defaults.recents);
+    set("tw_hidden_files", 0);
+    set(TW_SIGNED_ZIP_VERIFY_VAR, 0);
+    set(TW_USE_COMPRESSION_VAR, 0);
+    if (RecoverySha256Available()) set(TW_USE_SHA2, 1);
+    if (RecoveryPreservationSupported())
+      set(AERA_PRESERVE_RECOVERY_VAR, defaults.preserve_recovery);
+    if (RecoveryAblPreservationSupported())
+      set(AERA_PRESERVE_ABL_VAR, defaults.preserve_abl);
+    set("tw_button_vibrate", defaults.haptic_touch);
+    set("tw_keyboard_vibrate", defaults.haptic_keyboard);
+    set("tw_action_vibrate", defaults.haptic_action);
+    DataManager::update_tz_environment_variables();
+    RecoverySetBrightness(defaults.brightness);
+  }
+  return restored;
 }
 
 bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
@@ -1856,7 +1917,7 @@ void LoadAeraPreferencesIfAvailable() {
   LOGINFO("AERA: restored preferences from shared storage.\n");
 }
 
-bool SaveAeraPreferences() {
+bool SaveAeraPreferences(bool require_early) {
   constexpr const char *directory = "/data/media/0/AERA";
   if (!TWFunc::Recursive_Mkdir(directory, false)) return false;
   std::ostringstream output;
@@ -1904,10 +1965,11 @@ bool SaveAeraPreferences() {
          << "wifi_auto_connect=" << DataManager::GetIntValue("of_wlan_auto_connect") << '\n'
          << "wifi_last_ssid=" << DataManager::GetStrValue("of_wlan_last_ssid") << '\n';
   if (!WriteFileAtomically(kAeraPreferencesPath, output.str())) return false;
-  if (!SaveEarlyUiPreferences())
+  const bool early_saved = SaveEarlyUiPreferences();
+  if (!early_saved)
     LOGERR("AERA: saved full preferences but could not update the early UI cache.\n");
   LOGINFO("AERA: saved preferences to shared storage.\n");
-  return true;
+  return !require_early || early_saved;
 }
 
 bool LoadNasProfile(NasConfig *config) {

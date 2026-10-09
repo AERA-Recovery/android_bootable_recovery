@@ -43,8 +43,15 @@ std::string SnapshotCowDetail(const SnapshotCowStatus &status);
 void ConfirmSnapshotCowCleanup(Tools *state);
 
 void Open(Tools *state, Action action) { state->callback(action, state->context); }
+bool AutoSaveSettings(Tools *state) {
+  if (RecoveryAutoSavePreferences()) return true;
+  Sheet(state->screen, "Could not save preferences",
+        "Changes still apply to this session. Unlock and mount settings storage, then try again.");
+  return false;
+}
 int theme_scroll_restore = -1;
 void RefreshTheme(Tools *state) {
+  if (!AutoSaveSettings(state)) return;
   if (state != nullptr && state->list != nullptr)
     theme_scroll_restore = lv_obj_get_scroll_y(state->list);
   Open(state, Action::kTheme);
@@ -1156,12 +1163,18 @@ void PreferenceToggle(Tools *state, int y, const char *title, const char *descri
     }
     if (enabled) lv_obj_add_state(toggle, LV_STATE_CHECKED);
     else lv_obj_remove_state(toggle, LV_STATE_CHECKED);
+    AutoSaveSettings(state);
   });
 }
 
 void PreferenceSection(Tools *state, int y, const char *title) {
   auto *label = Label(state->list, title, &lv_font_montserrat_32, kAccent);
   lv_obj_set_pos(label, 32, y);
+}
+
+void HapticValue(lv_obj_t *label, int milliseconds) {
+  i18n::BindLabel(label, milliseconds == 0 ? "Off" :
+      (std::to_string(milliseconds) + " ms").c_str());
 }
 
 void HapticSlider(Tools *state, int y, const char *title,
@@ -1172,20 +1185,20 @@ void HapticSlider(Tools *state, int y, const char *title,
   lv_obj_set_size(card, 1280, 220);
   auto *name = Label(card, title, &lv_font_montserrat_32, kText);
   lv_obj_set_pos(name, 36, 26);
+  lv_obj_set_width(name, 850);
+  FitLabelToLines(name, 850, 1,
+                  {&lv_font_montserrat_32, &lv_font_montserrat_28});
   auto *copy = Label(card, description, &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(copy, 36, 78);
-  lv_obj_set_width(copy, 950);
-  auto duration_text = [](int milliseconds) {
-    return milliseconds == 0 ? std::string("Off") :
-        std::to_string(milliseconds) + " ms";
-  };
+  lv_obj_set_width(copy, 850);
+  FitLabelToLines(copy, 850, 2,
+                  {&lv_font_montserrat_24, &lv_font_montserrat_20});
   auto *value_plate = lv_obj_create(card);
   Panel(value_plate, 28, kAccentSoft);
-  lv_obj_set_pos(value_plate, 1060, 24);
+  lv_obj_set_pos(value_plate, 936, 24);
   lv_obj_set_size(value_plate, 176, 68);
-  auto *value = Label(value_plate,
-                      duration_text(RecoveryHapticDuration(haptic)).c_str(),
-                      &lv_font_montserrat_24, kAccent);
+  auto *value = Label(value_plate, "", &lv_font_montserrat_24, kAccent);
+  HapticValue(value, RecoveryHapticDuration(haptic));
   lv_obj_center(value);
   auto *slider = lv_slider_create(card);
   lv_obj_set_pos(slider, 52, 166);
@@ -1196,8 +1209,9 @@ void HapticSlider(Tools *state, int y, const char *title,
   struct Binding {
     lv_obj_t *value;
     Haptic haptic;
+    Tools *state;
   };
-  auto *binding = new Binding{value, haptic};
+  auto *binding = new Binding{value, haptic, state};
   lv_obj_add_event_cb(slider, [](lv_event_t *event) {
     auto *binding = static_cast<Binding *>(lv_event_get_user_data(event));
     const auto code = lv_event_get_code(event);
@@ -1207,14 +1221,24 @@ void HapticSlider(Tools *state, int y, const char *title,
     }
     if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
     const int duration = lv_slider_get_value(lv_event_get_target_obj(event));
-    const std::string text = duration == 0 ? "Off" :
-        std::to_string(duration) + " ms";
-    lv_label_set_text(binding->value, text.c_str());
+    HapticValue(binding->value, duration);
     if (code == LV_EVENT_RELEASED) {
-      RecoverySetHapticDuration(binding->haptic, duration);
-      RecoveryVibrate(binding->haptic);
+      if (RecoverySetHapticDuration(binding->haptic, duration)) {
+        AutoSaveSettings(binding->state);
+        RecoveryVibrate(binding->haptic);
+      }
     }
   }, LV_EVENT_ALL, binding);
+  auto *reset = Button(card, LV_SYMBOL_REFRESH, [state, slider, value, haptic] {
+    const int duration = RecoveryDefaultHapticDuration(haptic);
+    if (!RecoverySetHapticDuration(haptic, duration)) return;
+    lv_slider_set_value(slider, duration, LV_ANIM_OFF);
+    HapticValue(value, duration);
+    AutoSaveSettings(state);
+    RecoveryVibrate(haptic);
+  });
+  lv_obj_set_pos(reset, 1136, 8);
+  lv_obj_set_size(reset, 104, 104);
 }
 
 struct AccentPreset {
@@ -2005,6 +2029,7 @@ void BuildTheme(Tools *state) {
       if (code == LV_EVENT_RELEASED) {
         if (binding->blur) RecoverySetDockBlur(value);
         else RecoverySetDockTransparency(value);
+        AutoSaveSettings(binding->state);
       }
     }, LV_EVENT_ALL, binding);
   };
@@ -2120,56 +2145,33 @@ void BuildTheme(Tools *state) {
           lv_obj_add_flag(item.check, LV_OBJ_FLAG_HIDDEN);
       }
       lv_obj_invalidate(state->screen);
+      AutoSaveSettings(state);
     });
   }
 
   const int font_rows = std::max(
       1, static_cast<int>((font_choices.size() + 1) / 2));
-  const int save_y = kSurfaceSectionOffset + dock_extra_height +
+  const int reset_y = kSurfaceSectionOffset + dock_extra_height +
       std::max(3760, 3450 + font_rows * 220 + 70);
-  auto *save = Button(state->list, "Save theme", [state] {
-    const bool saved = RecoverySavePreferences();
-    Sheet(state->screen, saved ? "Theme saved" : "Could not save theme",
-          saved ? "Your AERA theme will be restored on the next boot." :
-                  "The theme remains active for this session. Unlock settings storage and try again.");
-  }, true);
-  lv_obj_set_pos(save, 16, save_y);
-  lv_obj_set_size(save, 1280, 124);
-
-  const int reset_y = save_y + 148;
   auto *reset = Button(state->list, "Reset theme settings", [state] {
     Sheet(
-        state->screen, "Reset theme settings?",
-        "This restores AERA Cyan, Graphite appearance and its default background, Solid surfaces, "
-        "neutral icons, Standard density, the default Home grid, QWERTY keyboard "
-        "and the standard Glass navigation dock.",
+        state->screen, "Reset theme settings",
+        "Restore default colors, appearance, wallpaper, layout and font?",
         [state] {
-          bool restored = true;
-          restored &= RecoverySetAppearanceMode(AppearanceMode::kGraphite);
-          restored &= RecoverySetWallpaperPath({});
-          restored &= RecoverySetSurfaceStyle(SurfaceStyle::kSolid);
-          restored &= RecoverySetTintedIconBackgrounds(false);
-          restored &= RecoverySetInterfaceSize(InterfaceSize::kNormal);
-          restored &= RecoverySetKeyboardLayout(KeyboardLayout::kQwerty);
-          restored &= RecoverySetHomeGridColumns(3);
-          restored &= RecoverySetAccentColor(kDefaultAccentRgb);
-          restored &= RecoverySetDockLayout(DockLayout::kGlass);
-          restored &= RecoverySetDockTransparency(60);
-          restored &= RecoverySetDockBlur(60);
-          restored &= RecoverySetDockHideInApps(false);
-          if (!restored) {
+          if (!RecoveryResetThemeSettings() || !fonts::SelectUiFont({}, {})) {
             Sheet(state->screen, "Theme unavailable",
                   "AERA could not restore every theme setting.");
             return;
           }
-          ApplyAppearanceMode(static_cast<int>(AppearanceMode::kGraphite));
+          ApplyAppearanceMode(static_cast<int>(RecoveryAppearanceMode()));
           wallpaper::Clear();
-          ApplySurfaceStyle(static_cast<int>(SurfaceStyle::kSolid));
-          ApplyInterfaceSize(static_cast<int>(InterfaceSize::kNormal));
-          ApplyAccent(kDefaultAccentRgb);
+          ApplySurfaceStyle(static_cast<int>(RecoverySurfaceStyle()));
+          ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
+          ApplyAccent(RecoveryAccentColor());
+          lv_obj_report_style_change(nullptr);
           RefreshTheme(state);
         },
-        0, false, SheetPresentation::kStandard, "Swipe to reset");
+        0, false, SheetPresentation::kStandard, "Swipe to confirm");
   });
   lv_obj_set_pos(reset, 16, reset_y);
   lv_obj_set_size(reset, 1280, 124);
@@ -2184,8 +2186,10 @@ void BuildTheme(Tools *state) {
 void BuildPreferences(Tools *state) {
   Header(state->screen, "Preferences", "Display, files, backups and connection settings.", state->callback, state->context);
   const bool landscape = Landscape(state->screen);
-  state->list = Scroll(state->screen, landscape ? 340 : 480,
-                       landscape ? 810 : 2210);
+  const int list_y = landscape ? 340 : 480;
+  state->list = Scroll(state->screen, list_y,
+      std::max(640, static_cast<int>(lv_obj_get_height(state->screen)) -
+          list_y - NavigationHeight(state->screen) - 28));
   if (landscape) {
     lv_obj_set_x(state->list, 884);
     lv_obj_set_width(state->list, 1400);
@@ -2229,6 +2233,9 @@ void BuildPreferences(Tools *state) {
         std::abs(percent - RecoveryBrightness()) >= 2)
       RecoverySetBrightness(percent);
   }, LV_EVENT_ALL, value);
+  lv_obj_add_event_cb(slider, [](lv_event_t *event) {
+    AutoSaveSettings(static_cast<Tools *>(lv_event_get_user_data(event)));
+  }, LV_EVENT_RELEASED, state);
 
   PreferenceToggle(state, 340, "24-hour clock", "Off uses 12-hour time with AM / PM", Preference::kClock24);
   auto *zone = Label(state->list, "", &lv_font_montserrat_32, kText);
@@ -2246,9 +2253,12 @@ void BuildPreferences(Tools *state) {
     auto *button = Button(state->list, direction < 0 ? LV_SYMBOL_MINUS : LV_SYMBOL_PLUS,
         [state, direction, refresh_zone] {
       const int next = std::clamp(RecoveryUtcOffset() + 15 * direction, -720, 840);
-      if (!RecoverySetUtcOffset(next))
+      if (!RecoverySetUtcOffset(next)) {
         Sheet(state->screen, "Time offset unavailable", "The time offset could not be changed.");
+        return;
+      }
       refresh_zone();
+      AutoSaveSettings(state);
     });
     lv_obj_set_pos(button, direction < 0 ? 996 : 1156, 534);
     lv_obj_set_size(button, 132, 112);
@@ -2312,22 +2322,20 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_pos(test, 32, 3430 + installation_offset);
     lv_obj_set_size(test, 1248, 124);
   }
-  auto *save_hint = Label(state->list,
-      "Changes apply now. Save to keep preferences after reboot.\nSettings storage must be available to save.",
-      &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(save_hint, 48,
+  auto *reset = Button(state->list, "Reset preferences", [state] {
+    Sheet(state->screen, "Reset preferences",
+          "Restore default preferences? Theme, language, Wi-Fi and plugin settings are kept.",
+          [state] {
+            if (!RecoveryResetPreferences()) {
+              Sheet(state->screen, "Setting unavailable", "This setting could not be changed.");
+              return;
+            }
+            if (AutoSaveSettings(state)) Open(state, Action::kPreferences);
+          }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
+  });
+  lv_obj_set_pos(reset, 32,
                  (RecoveryHapticsAvailable() ? 3620 : 2630) + installation_offset);
-  lv_obj_set_width(save_hint, 1190);
-  auto *save = Button(state->screen, "Save preferences", [state] {
-    const bool saved = RecoverySavePreferences();
-    Sheet(state->screen, saved ? "Preferences saved" : "Could not save preferences",
-          saved ? "Your preferences have been saved for the next recovery session." :
-                  "Changes still apply to this session. Unlock and mount settings storage, then try again.");
-  }, true);
-  lv_obj_set_pos(save, landscape ? 884 : 80,
-                 landscape ? 1170 : 2740);
-  lv_obj_set_size(save, landscape ? 1400 : 1280,
-                  landscape ? 100 : 132);
+  lv_obj_set_size(reset, 1248, 124);
 }
 
 void BuildLogs(Tools *state) {
@@ -2393,8 +2401,7 @@ void BuildLanguage(Tools *state) {
               "AERA could not apply the selected language.");
         return;
       }
-      RecoverySavePreferences();
-      Open(state, Action::kLanguage);
+      if (AutoSaveSettings(state)) Open(state, Action::kLanguage);
     });
   }
 }

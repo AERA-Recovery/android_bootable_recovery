@@ -24,6 +24,9 @@ static int utc_offset = 120;
 static uint32_t accent_color = design::kDefaultAccentRgb;
 static bool light_mode = false;
 static bool save_succeeds = true;
+static bool early_save_succeeds = true;
+static int autosave_count = 0;
+static int haptic_durations[] = {40, 40, 160};
 static InterfaceSize interface_size = InterfaceSize::kNormal;
 static std::string active_slot = "A";
 static bool wifi_auto_enable = false;
@@ -110,11 +113,33 @@ BrowserCookiePolicy RecoveryBrowserCookiePolicy() {
 }
 bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy) { return true; }
 bool RecoverySavePreferences() { return save_succeeds; }
+bool RecoveryAutoSavePreferences() {
+  ++autosave_count;
+  return save_succeeds && early_save_succeeds;
+}
+bool RecoveryResetThemeSettings() {
+  accent_color = design::kDefaultAccentRgb;
+  light_mode = false;
+  interface_size = InterfaceSize::kNormal;
+  return true;
+}
+bool RecoveryResetPreferences() {
+  preferences[static_cast<int>(Preference::kClock24)] = false;
+  haptic_durations[0] = haptic_durations[1] = 40;
+  haptic_durations[2] = 160;
+  return true;
+}
 bool RecoveryHapticsAvailable() { return true; }
 int RecoveryHapticDuration(Haptic haptic) {
+  return haptic_durations[static_cast<int>(haptic)];
+}
+int RecoveryDefaultHapticDuration(Haptic haptic) {
   return haptic == Haptic::kAction ? 160 : 40;
 }
-bool RecoverySetHapticDuration(Haptic, int) { return true; }
+bool RecoverySetHapticDuration(Haptic haptic, int duration) {
+  haptic_durations[static_cast<int>(haptic)] = duration;
+  return true;
+}
 void RecoveryVibrate(Haptic) {}
 void RecoveryTerminalStart(int, int, int, int) {}
 bool RecoveryTerminalPoll() { return false; }
@@ -250,8 +275,14 @@ std::vector<AdbPairedDevice> RecoveryAdbPairedDevices() {
 }
 bool RecoveryForgetAdbDevice(const std::string &) { return true; }
 void SetPluginRequest(const plugins::Request &) {}
+void ReviewPackage(lv_obj_t *, const std::string &, ActionCallback, void *) {
+  assert(false && "Package installation is not part of this UI test");
+}
 }
 namespace aeraui::plugins {
+std::vector<Plugin> Installed() { return {}; }
+bool IsThemeExtension(const Plugin &plugin) { return plugin.type == "theme-extension"; }
+bool ResolvePayload(const std::string &, Plugin &, std::string &, std::string &) { return false; }
 bool IsPackageFile(const std::string &name) {
   return name.size() >= 6 && name.substr(name.size() - 6) == ".aerap";
 }
@@ -286,6 +317,23 @@ static lv_obj_t *FindType(lv_obj_t *root, const lv_obj_class_t *type) {
   for(uint32_t i=0;i<lv_obj_get_child_count(root);++i)
     if(auto *found=FindType(lv_obj_get_child(root,i),type)) return found;
   return nullptr;
+}
+static void ConfirmSettingsModal(lv_obj_t *screen) {
+  for (uint32_t i = 0; i < lv_obj_get_child_count(screen); ++i) {
+    auto *overlay = lv_obj_get_child(screen, i);
+    if (lv_obj_get_user_data(overlay) != &widgets::kModalMarker) continue;
+    for (uint32_t j = 0; j < lv_obj_get_event_count(overlay); ++j) {
+      auto *event = lv_obj_get_event_dsc(overlay, j);
+      if (lv_event_dsc_get_user_data(event) == nullptr) continue;
+      auto *state = static_cast<widgets::SheetState *>(lv_event_dsc_get_user_data(event));
+      assert(state && state->confirm);
+      auto confirm = state->confirm;
+      confirm();
+      assert(widgets::DismissModal(screen));
+      return;
+    }
+  }
+  assert(false && "No settings confirmation found");
 }
 static void PressKeyboardKey(lv_obj_t *keyboard, const char *key) {
   const char *const *map = lv_buttonmatrix_get_map(keyboard);
@@ -381,6 +429,119 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--settings")) {
+    auto *prefs = lv_obj_create(nullptr);
+    BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
+    lv_screen_load(prefs); Tick();
+    assert(!Find(prefs, "Save preferences"));
+    assert(Find(prefs, "Reset preferences"));
+    auto *clock = Find(prefs, "24-hour clock"); assert(clock);
+    const bool old_clock = RecoveryPreference(Preference::kClock24);
+    lv_obj_send_event(clock, LV_EVENT_CLICKED, nullptr);
+    assert(RecoveryPreference(Preference::kClock24) != old_clock);
+    assert(autosave_count == 1);
+    auto *brightness = Find(prefs, "Brightness"); assert(brightness);
+    auto *slider = FindType(brightness, &lv_slider_class); assert(slider);
+    lv_slider_set_value(slider, 70, LV_ANIM_OFF);
+    lv_obj_send_event(slider, LV_EVENT_VALUE_CHANGED, nullptr);
+    assert(autosave_count == 1);
+    lv_obj_send_event(slider, LV_EVENT_RELEASED, nullptr);
+    assert(autosave_count == 2);
+    for (const auto &item : std::vector<std::pair<const char *, Haptic>>{
+        {"Touch feedback", Haptic::kTouch},
+        {"Keyboard feedback", Haptic::kKeyboard},
+        {"Operation feedback", Haptic::kAction}}) {
+      auto *card = Find(prefs, item.first); assert(card);
+      auto *control = FindType(card, &lv_slider_class); assert(control);
+      const int before = autosave_count;
+      lv_slider_set_value(control, 220, LV_ANIM_OFF);
+      lv_obj_send_event(control, LV_EVENT_VALUE_CHANGED, nullptr);
+      assert(autosave_count == before);
+      lv_obj_send_event(control, LV_EVENT_RELEASED, nullptr);
+      assert(autosave_count == before + 1);
+      assert(RecoveryHapticDuration(item.second) == 220);
+      auto *reset = Find(card, LV_SYMBOL_REFRESH); assert(reset);
+      lv_obj_send_event(reset, LV_EVENT_CLICKED, nullptr);
+      assert(autosave_count == before + 2);
+      assert(RecoveryHapticDuration(item.second) == RecoveryDefaultHapticDuration(item.second));
+      assert(lv_slider_get_value(control) == RecoveryDefaultHapticDuration(item.second));
+    }
+    for (bool main_failure : {true, false}) {
+      save_succeeds = !main_failure;
+      early_save_succeeds = main_failure;
+      lv_obj_send_event(clock, LV_EVENT_CLICKED, nullptr);
+      assert(Find(prefs, "Could not save preferences"));
+      assert(widgets::DismissModal(prefs)); Tick(2);
+    }
+    save_succeeds = early_save_succeeds = true;
+    const auto kept_accent = accent_color;
+    const int before_reset = autosave_count;
+    lv_obj_send_event(Find(prefs, "Reset preferences"), LV_EVENT_CLICKED, nullptr);
+    assert(Find(prefs, "Restore default preferences? Theme, language, Wi-Fi and plugin settings are kept."));
+    assert(autosave_count == before_reset);
+    ConfirmSettingsModal(prefs); Tick(2);
+    assert(autosave_count == before_reset + 1);
+    assert(!RecoveryPreference(Preference::kClock24));
+    assert(accent_color == kept_accent);
+    assert(last_action == Action::kPreferences);
+    lv_screen_load(screen); lv_obj_delete(prefs);
+    auto *theme = lv_obj_create(nullptr);
+    BuildToolScene(theme, Action::kTheme, RecordAction, nullptr);
+    lv_screen_load(theme); Tick();
+    assert(!Find(theme, "Save theme"));
+    assert(Find(theme, "Reset theme settings"));
+    const int before = autosave_count;
+    auto *preset = Find(theme, "Violet"); assert(preset);
+    lv_obj_send_event(preset, LV_EVENT_CLICKED, nullptr);
+    assert(autosave_count == before + 1);
+    assert(accent_color == 0xa991ff);
+    save("/tmp/aera-theme-autosave.png");
+    lv_obj_send_event(Find(theme, "Reset theme settings"), LV_EVENT_CLICKED, nullptr);
+    assert(autosave_count == before + 1);
+    ConfirmSettingsModal(theme); Tick(2);
+    assert(autosave_count == before + 2);
+    assert(accent_color == design::kDefaultAccentRgb);
+    assert(last_action == Action::kTheme);
+    lv_screen_load(screen); lv_obj_delete(theme);
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Settings autosave, deferred sliders, per-haptic resets, reset confirmation and save failures passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--file-dates")) {
+    for (bool landscape : {false, true}) for (bool clock24 : {false, true})
+      for (auto size : {InterfaceSize::kSmall, InterfaceSize::kNormal,
+                        InterfaceSize::kLarge, InterfaceSize::kSpacious}) {
+        lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                  landscape ? 1440 : 3168);
+        interface_size = size;
+        preferences[static_cast<int>(Preference::kClock24)] = clock24;
+        auto *files = lv_obj_create(nullptr);
+        BuildFilesScene(files, RecordAction, nullptr);
+        lv_screen_load(files); Tick();
+        auto *row = Find(files, "alpha.txt"); assert(row);
+        auto *date = FindLabelContaining(row, ":"); assert(date);
+        const char *text = lv_label_get_text(date);
+        assert(strlen(text) == (clock24 ? 17 : 20));
+        const auto *font = lv_obj_get_style_text_font(date, LV_PART_MAIN);
+        lv_point_t measured{};
+        lv_text_get_size(&measured, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        assert(lv_obj_get_width(date) >= measured.x);
+        assert(lv_obj_get_height(date) >= measured.y);
+        AssertContained(date, row);
+        for (uint32_t i = 0; i < lv_obj_get_child_count(row); ++i) {
+          auto *child = lv_obj_get_child(row, i);
+          if (child != date && lv_obj_check_type(child, &lv_label_class) &&
+              Bounds(child).y1 == Bounds(date).y1)
+            assert(!Overlaps(child, date));
+        }
+        lv_screen_load(screen); lv_obj_delete(files); Tick(2);
+      }
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("File timestamps fit all four sizes, both clock formats and both orientations");
+    return 0;
+  }
   if (!strcmp(argv[1], "--about")) {
     auto *about=lv_obj_create(nullptr);
     BuildAboutScene(about,RecordAction,nullptr);
@@ -555,11 +716,12 @@ int main(int argc,char **argv) {
   lv_obj_send_event(Find(prefs,LV_SYMBOL_PLUS),LV_EVENT_CLICKED,nullptr); assert(utc_offset==135);
   utc_offset=840; lv_obj_send_event(Find(prefs,LV_SYMBOL_PLUS),LV_EVENT_CLICKED,nullptr); assert(utc_offset==840);
   utc_offset=-720; lv_obj_send_event(Find(prefs,LV_SYMBOL_MINUS),LV_EVENT_CLICKED,nullptr); assert(utc_offset==-720);
-  lv_obj_send_event(Find(prefs,"Save preferences"),LV_EVENT_CLICKED,nullptr);
-  assert(Find(prefs,"Preferences saved")); assert(widgets::DismissModal(prefs)); Tick();
+  assert(!Find(prefs,"Save preferences"));
+  assert(Find(prefs,"Reset preferences"));
   save_succeeds=false;
-  lv_obj_send_event(Find(prefs,"Save preferences"),LV_EVENT_CLICKED,nullptr);
+  lv_obj_send_event(clock_row,LV_EVENT_CLICKED,nullptr);
   assert(Find(prefs,"Could not save preferences")); assert(widgets::DismissModal(prefs)); Tick();
+  save_succeeds=true;
   lv_screen_load(screen); lv_obj_delete(prefs);
   auto *users=lv_obj_create(nullptr);
   BuildToolScene(users,Action::kUsers,RecordAction,nullptr);

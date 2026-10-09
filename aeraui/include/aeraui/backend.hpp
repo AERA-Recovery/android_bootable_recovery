@@ -221,9 +221,15 @@ bool RecoverySetBrowserZoom(int percent);
 BrowserCookiePolicy RecoveryBrowserCookiePolicy();
 bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy policy);
 bool RecoverySavePreferences();
+// Autosave reports failure if either the full or enabled early cache cannot be written.
+bool RecoveryAutoSavePreferences();
+// Reset the in-memory group; the UI then applies it and autosaves once.
+bool RecoveryResetThemeSettings();
+bool RecoveryResetPreferences();
 enum class Haptic { kTouch, kKeyboard, kAction };
 bool RecoveryHapticsAvailable();
 int RecoveryHapticDuration(Haptic haptic);
+int RecoveryDefaultHapticDuration(Haptic haptic);
 bool RecoverySetHapticDuration(Haptic haptic, int milliseconds);
 void RecoveryVibrate(Haptic haptic);
 
