@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "scene.hpp"
+#include "../../aera_remote/aera_remote.hpp"
 
 #include "browser/runtime.hpp"
 #include "plugin_api/launcher.hpp"
@@ -57,6 +58,8 @@ struct GenericScene {
   lv_obj_t *progress = nullptr;
   lv_obj_t *mirror_tabs[2] = {nullptr, nullptr};
   uint32_t mirror_selection = 0;
+  std::string mirror_access_code;
+  uint64_t mirror_code_checked_ms = 0;
   plugins::Plugin plugin;
   web::Preparation preparation;
   plugin_api::Process process;
@@ -319,6 +322,10 @@ void RenderPage(GenericScene *scene) {
   const int content_width = lv_obj_get_width(scene->content);
   const bool mirror = scene->plugin.id == "mirror";
   if (mirror) {
+    scene->mirror_access_code = plugin_api::ActiveMirrorMode() ==
+        plugin_api::MirrorMode::kOff ? "" : aera::remote::AccessCode();
+  }
+  if (mirror) {
     for (int index = 0; index < 2; ++index) {
       auto *tab = scene->mirror_tabs[index];
       if (!tab) continue;
@@ -398,6 +405,22 @@ void RenderPage(GenericScene *scene) {
   lv_obj_set_height(body_panel, panel_height);
   AnimateEnter(body_panel, 10, 10);
   int y = 134 + panel_height;
+  if (mirror && !scene->mirror_access_code.empty()) {
+    // Read the actual running session's code for both transports, rather
+    // than relying on the plugin's Wi-Fi-only result URL.
+    auto *caption = Label(scene->content, "Access code",
+                           &lv_font_montserrat_24, kMutedStrong);
+    lv_obj_set_pos(caption, 36, y + 8);
+    lv_obj_set_width(caption, std::max(400, content_width - 72));
+    lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
+    auto *code = Label(scene->content, scene->mirror_access_code.c_str(),
+                        &lv_font_montserrat_48, kText);
+    lv_obj_set_pos(code, 36, y + 48);
+    lv_obj_set_width(code, std::max(400, content_width - 72));
+    lv_obj_set_style_text_align(code, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_letter_space(code, 8, 0);
+    y += 138;
+  }
   const ButtonModel *stop_button = nullptr;
   size_t visible_index = 0;
   for (size_t index = 0; index < scene->buttons.size(); ++index) {
@@ -710,6 +733,13 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
     }
     for (const auto &message : scene->session.Poll())
       HandleMessage(scene, message);
+    if (scene->plugin.id == "mirror" && !scene->page_pending &&
+        NowMs() - scene->mirror_code_checked_ms >= 500) {
+      scene->mirror_code_checked_ms = NowMs();
+      const std::string code = plugin_api::ActiveMirrorMode() ==
+          plugin_api::MirrorMode::kOff ? "" : aera::remote::AccessCode();
+      if (code != scene->mirror_access_code) RenderPage(scene);
+    }
     if (scene->session.Connected() && !scene->session.Negotiated() &&
         NowMs() - scene->launched_ms > 5000) {
       scene->session.Close();
