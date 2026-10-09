@@ -61,6 +61,7 @@ struct StatusState {
   int battery = -1;
   int shade_height = 1390;
   int shade_visible = 0;
+  int drag_start_x = 0;
   int drag_start_y = 0;
   int drag_start_visible = 0;
   int applied_brightness = -1;
@@ -220,6 +221,13 @@ void ShadeGesture(lv_event_t *event) {
   auto *state = static_cast<StatusState *>(lv_event_get_user_data(event));
   if (state == nullptr || state->shade == nullptr) return;
   const auto code = lv_event_get_code(event);
+  if (code == LV_EVENT_PRESS_LOST) {
+    if (state->dragging) {
+      state->dragging = false;
+      AnimateShade(state, state->drag_start_visible >= state->shade_height - 170);
+    }
+    return;
+  }
   lv_indev_t *input = lv_indev_active();
   if (input == nullptr) return;
   lv_point_t point{};
@@ -230,8 +238,7 @@ void ShadeGesture(lv_event_t *event) {
     state->drag_start_visible = state->shade_visible;
   } else if (code == LV_EVENT_PRESSING && state->dragging) {
     SetShadeVisible(state, state->drag_start_visible + point.y - state->drag_start_y);
-  } else if ((code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) &&
-             state->dragging) {
+  } else if (code == LV_EVENT_RELEASED && state->dragging) {
     state->dragging = false;
     AnimateShade(state, state->shade_visible >= state->shade_height - 170);
   }
@@ -469,20 +476,32 @@ void StatusGesture(lv_event_t *event) {
   auto *state = static_cast<StatusState *>(lv_event_get_user_data(event));
   if (state == nullptr || state->callback == nullptr) return;
   const auto code = lv_event_get_code(event);
+  if (code == LV_EVENT_PRESS_LOST) {
+    if (state->dragging) {
+      state->dragging = false;
+      AnimateShade(state, false);
+    }
+    return;
+  }
   lv_indev_t *input = lv_indev_active();
   if (input == nullptr) return;
   lv_point_t point{};
   lv_indev_get_point(input, &point);
   if (code == LV_EVENT_PRESSED) {
+    lv_area_t bounds{};
+    lv_obj_get_coords(state->bar, &bounds);
+    if (point.x < bounds.x1 || point.x > bounds.x2 ||
+        point.y < bounds.y1 || point.y > bounds.y2) return;
     BuildShade(state);
     state->dragging = true;
+    state->drag_start_x = point.x;
     state->drag_start_y = point.y;
     state->drag_start_visible = 0;
   } else if (code == LV_EVENT_PRESSING && state->dragging) {
     SetShadeVisible(state, point.y - state->drag_start_y);
-  } else if ((code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) &&
-             state->dragging) {
-    const bool tap = std::abs(point.y - state->drag_start_y) < 20;
+  } else if (code == LV_EVENT_RELEASED && state->dragging) {
+    const bool tap = std::abs(point.x - state->drag_start_x) < 20 &&
+                     std::abs(point.y - state->drag_start_y) < 20;
     state->dragging = false;
     AnimateShade(state, tap || state->shade_visible >= 150);
   }

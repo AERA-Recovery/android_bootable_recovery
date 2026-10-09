@@ -112,6 +112,7 @@ struct virtualkey {
 struct position {
     int x, y;
     int synced;
+    int valid;
     struct input_absinfo xi, yi;
 };
 
@@ -514,6 +515,7 @@ static int vk_init(struct ev *e)
     ioctl(e->fd->fd, EVIOCGABS(ABS_X), &e->p.xi);
     ioctl(e->fd->fd, EVIOCGABS(ABS_Y), &e->p.yi);
     e->p.synced = 0;
+    e->p.valid = 0;
 #ifdef _EVENT_LOGGING
     printf("EV: ST minX: %d  maxX: %d  minY: %d  maxY: %d\n", e->p.xi.minimum, e->p.xi.maximum, e->p.yi.minimum, e->p.yi.maximum);
 #endif
@@ -521,6 +523,7 @@ static int vk_init(struct ev *e)
     ioctl(e->fd->fd, EVIOCGABS(ABS_MT_POSITION_X), &e->mt_p.xi);
     ioctl(e->fd->fd, EVIOCGABS(ABS_MT_POSITION_Y), &e->mt_p.yi);
     e->mt_p.synced = 0;
+    e->mt_p.valid = 0;
     e->mt_slots[0].xi = e->mt_slots[1].xi = e->mt_p.xi;
     e->mt_slots[0].yi = e->mt_slots[1].yi = e->mt_p.yi;
     e->mt_slots[0].synced = e->mt_slots[1].synced = 0;
@@ -796,6 +799,7 @@ static int vk_modify(struct ev *e, struct input_event *ev)
 
         case ABS_X: //00
             e->p.synced |= 0x01;
+            e->p.valid |= 0x01;
             e->p.x = ev->value;
 #ifdef _EVENT_LOGGING
             printf("EV: %s => EV_ABS  ABS_X  %d\n", e->deviceName, ev->value);
@@ -804,6 +808,7 @@ static int vk_modify(struct ev *e, struct input_event *ev)
 
         case ABS_Y: //01
             e->p.synced |= 0x02;
+            e->p.valid |= 0x02;
             e->p.y = ev->value;
 #ifdef _EVENT_LOGGING
             printf("EV: %s => EV_ABS  ABS_Y  %d\n", e->deviceName, ev->value);
@@ -815,13 +820,11 @@ static int vk_modify(struct ev *e, struct input_event *ev)
             if (ev->value == (1 << 31))
             {
 #ifndef TW_IGNORE_MT_POSITION_0
-                e->mt_p.x = 0;
-                e->mt_p.y = 0;
                 lastWasSynReport = 1;
 #endif
 #ifdef _EVENT_LOGGING
 #ifndef TW_IGNORE_MT_POSITION_0
-                printf("EV: %s => EV_ABS  ABS_MT_POSITION  %d, set x and y to 0 and lastWasSynReport to 1\n", e->deviceName, ev->value);
+                printf("EV: %s => EV_ABS  ABS_MT_POSITION  %d, touch released\n", e->deviceName, ev->value);
 #else
                 printf("Ignoring ABS_MT_POSITION 0\n", e->deviceName, ev->value);
 #endif
@@ -830,6 +833,7 @@ static int vk_modify(struct ev *e, struct input_event *ev)
             else
             {
                 lastWasSynReport = 0;
+                e->mt_p.valid = 0x03;
                 e->mt_p.x = (ev->value & 0x7FFF0000) >> 16;
                 e->mt_p.y = (ev->value & 0xFFFF);
 #ifdef _EVENT_LOGGING
@@ -843,8 +847,6 @@ static int vk_modify(struct ev *e, struct input_event *ev)
             {
 #ifndef TW_IGNORE_MAJOR_AXIS_0
                 // We're in a touch release, although some devices will still send positions as well
-                e->mt_p.x = 0;
-                e->mt_p.y = 0;
                 touchReleaseOnNextSynReport = 1;
 #endif
             }
@@ -857,8 +859,6 @@ static int vk_modify(struct ev *e, struct input_event *ev)
                     if (ev->value == 0)
             {
                 // We're in a touch release, although some devices will still send positions as well
-                e->mt_p.x = 0;
-                e->mt_p.y = 0;
                 touchReleaseOnNextSynReport = 1;
             }
 #ifdef _EVENT_LOGGING
@@ -866,8 +866,9 @@ static int vk_modify(struct ev *e, struct input_event *ev)
 #endif
             break;
 
-		case ABS_MT_POSITION_X: //35
+        case ABS_MT_POSITION_X: //35
             e->mt_p.synced |= 0x01;
+            e->mt_p.valid |= 0x01;
             e->mt_p.x = ev->value;
 #ifdef _EVENT_LOGGING
             printf("EV: %s => EV_ABS  ABS_MT_POSITION_X  %d\n", e->deviceName, ev->value);
@@ -876,6 +877,7 @@ static int vk_modify(struct ev *e, struct input_event *ev)
 
         case ABS_MT_POSITION_Y: //36
             e->mt_p.synced |= 0x02;
+            e->mt_p.valid |= 0x02;
             e->mt_p.y = ev->value;
 #ifdef _EVENT_LOGGING
             printf("EV: %s => EV_ABS  ABS_MT_POSITION_Y  %d\n", e->deviceName, ev->value);
@@ -908,8 +910,8 @@ static int vk_modify(struct ev *e, struct input_event *ev)
             return 1;
 #endif
             if (ev->value < 0) {
-                e->mt_p.x = 0;
-                e->mt_p.y = 0;
+                // ABS axes retain their last value when an unchanged axis is
+                // omitted from a later report. A release is not a (0,0) sample.
                 touchReleaseOnNextSynReport = 2;
                 use_tracking_id_negative_as_touch_release = 1;
 #ifdef _EVENT_LOGGING
@@ -982,6 +984,9 @@ static int vk_modify(struct ev *e, struct input_event *ev)
     {
         // Reset the value
         touchReleaseOnNextSynReport = 0;
+        e->p.synced = e->mt_p.synced = 0;
+        if (downX < 0 && !discard)
+            return 1;
 
         // We are a finger-up state
         if (!discard)
@@ -1007,11 +1012,11 @@ static int vk_modify(struct ev *e, struct input_event *ev)
     lastWasSynReport = 1;
 
     // Retrieve where the x,y position is
-    if (e->p.synced & 0x03)
+    if ((e->p.synced & 0x03) && e->p.valid == 0x03)
     {
         vk_tp_to_screen(&e->p, &x, &y);
     }
-    else if (e->mt_p.synced & 0x03)
+    else if ((e->mt_p.synced & 0x03) && e->mt_p.valid == 0x03)
     {
         vk_tp_to_screen(&e->mt_p, &x, &y);
     }

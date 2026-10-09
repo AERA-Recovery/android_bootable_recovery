@@ -165,3 +165,21 @@ target_compile_definitions(plugin_store_test PRIVATE AERA_DEFAULT_LANGUAGE="en" 
 target_compile_options(plugin_store_test PRIVATE -UNDEBUG)
 target_link_libraries(plugin_store_test PRIVATE lvgl PNG::PNG Threads::Threads jsoncpp_static ZLIB::ZLIB)
 add_test(NAME plugin_store_views_and_layout COMMAND plugin_store_test)
+
+add_executable(touch_input_test touch_input_test.cpp)
+target_include_directories(touch_input_test PRIVATE ../.. ../../minuitwrp/include ../../twrpinstall/include)
+target_compile_definitions(touch_input_test PRIVATE BUILD_TWRPTAR_MAIN TW_NO_HAPTICS)
+target_compile_options(touch_input_test PRIVATE -UNDEBUG)
+add_test(NAME touch_coordinate_retention COMMAND touch_input_test)
+add_test(NAME touch_single_axis_retention COMMAND touch_input_test single)
+add_test(NAME touch_legacy_release_retention COMMAND touch_input_test legacy)
+
+add_executable(status_gesture_test status_gesture_test.cpp
+  ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
+  ../localization/catalog/catalog.cpp ../localization/catalog/catalog_generated.cpp)
+target_include_directories(status_gesture_test PRIVATE .. ../include ../components
+  ../features ../localization ../localization/fonts ../scenes)
+target_compile_definitions(status_gesture_test PRIVATE AERA_DEFAULT_LANGUAGE="en")
+target_compile_options(status_gesture_test PRIVATE -UNDEBUG)
+target_link_libraries(status_gesture_test PRIVATE lvgl PNG::PNG Threads::Threads jsoncpp_static ZLIB::ZLIB)
+add_test(NAME status_gesture_cancellation COMMAND status_gesture_test)
