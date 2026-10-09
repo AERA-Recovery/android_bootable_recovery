@@ -1,5 +1,6 @@
 #include "scene.hpp"
 #include "ui_components.hpp"
+#include "themed_app_art.hpp"
 #include "picture_viewer.hpp"
 #include "browser/runtime.hpp"
 #include "browser/protocol.hpp"
@@ -33,6 +34,7 @@ static bool wifi_auto_enable = false;
 static bool wifi_auto_connect = false;
 static bool adb_over_wifi = false;
 static bool adb_pairing = false;
+static std::vector<plugins::Plugin> home_plugins;
 static WifiRequest wifi_request;
 static SideloadStatus sideload_status;
 static int callback_count = 0;
@@ -70,6 +72,9 @@ bool RecoverySetAppearanceMode(AppearanceMode mode) {
 std::string RecoveryWallpaperPath() { return {}; }
 bool RecoverySetWallpaperPath(const std::string &) { return true; }
 SurfaceStyle RecoverySurfaceStyle() { return SurfaceStyle::kSolid; }
+static bool themed_home_icons = false;
+bool RecoveryThemedHomeIcons() { return themed_home_icons; }
+bool RecoverySetThemedHomeIcons(bool enabled) { themed_home_icons = enabled; return true; }
 bool RecoverySetSurfaceStyle(SurfaceStyle style) {
   return static_cast<int>(style) >= 0 && static_cast<int>(style) <= 3;
 }
@@ -118,6 +123,7 @@ bool RecoveryAutoSavePreferences() {
   return save_succeeds && early_save_succeeds;
 }
 bool RecoveryResetThemeSettings() {
+  themed_home_icons = false;
   accent_color = design::kDefaultAccentRgb;
   light_mode = false;
   interface_size = InterfaceSize::kNormal;
@@ -275,12 +281,16 @@ std::vector<AdbPairedDevice> RecoveryAdbPairedDevices() {
 }
 bool RecoveryForgetAdbDevice(const std::string &) { return true; }
 void SetPluginRequest(const plugins::Request &) {}
+void SetSelectedPluginId(const std::string &) {}
 void ReviewPackage(lv_obj_t *, const std::string &, ActionCallback, void *) {
   assert(false && "Package installation is not part of this UI test");
 }
 }
 namespace aeraui::plugins {
-std::vector<Plugin> Installed() { return {}; }
+std::vector<Plugin> Installed() { return home_plugins; }
+std::vector<PluginUpdate> AvailableUpdates(const std::vector<Plugin> &) { return {}; }
+bool IsGeneric(const Plugin &plugin) { return plugin.entry == "main"; }
+bool IsLaunchable(const Plugin &plugin) { return !IsThemeExtension(plugin); }
 bool IsThemeExtension(const Plugin &plugin) { return plugin.type == "theme-extension"; }
 bool ResolvePayload(const std::string &, Plugin &, std::string &, std::string &) { return false; }
 bool IsPackageFile(const std::string &name) {
@@ -429,6 +439,81 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--home-art")) {
+    for (const char *entry : {"retroarch", "browser", "telegram", "gallery", "media",
+                             "recorder", "streams", "doom", "appvault", "main"}) {
+      plugins::Plugin plugin;
+      plugin.id = plugin.entry = entry;
+      plugin.name = std::string("AERA ") + entry;
+      plugin.description = "Test app description";
+      home_plugins.push_back(plugin);
+    }
+    for (bool themed : {false, true}) {
+      RecoverySetThemedHomeIcons(themed);
+      auto *home = lv_obj_create(nullptr);
+      BuildHomeScene(home, RecordAction, nullptr);
+      lv_screen_load(home); Tick();
+      auto *terminal = Find(home, "Terminal"); assert(terminal);
+      // The terminal icon is an object tree containing an LVGL line; matrix
+      // decoration is labels only and must remain in both modes.
+      assert((FindType(terminal, &lv_line_class) != nullptr) == !themed);
+      assert(Find(home, "AERA main"));
+      save(themed ? "/tmp/aera-home-themed.png" : "/tmp/aera-home-classic.png");
+      lv_screen_load(screen); lv_obj_delete(home);
+    }
+    lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Home themed/classic layouts and Terminal icon hiding passed.");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--art")) {
+    using namespace themed_art;
+    {
+      detail::Artwork cached(Kind::Browser);
+      cached.Prepare(600, 330, 44, false);
+      assert(cached.renders == 1 && !cached.pixels.empty());
+      assert((cached.pixels.front() >> 24) == 0);
+      auto *pixels = cached.image.data;
+      auto generation = cached.generation;
+      for (int frame = 0; frame < 120; ++frame) cached.Prepare(600, 330, 44, false);
+      assert(cached.renders == 1 && cached.image.data == pixels);
+      assert(cached.generation == generation);
+      cached.Prepare(200, 200, 34, false);
+      assert(cached.renders == 2 && cached.generation != generation);
+      cached.Prepare(200, 200, 34, true);
+      assert(cached.renders == 3);
+    }
+    assert(ForPlugin("future-app", "main", "tools") == Kind::Tools);
+    assert(ForPlugin("future-game", "main", "games") == Kind::Games);
+    assert(ForPlugin("mirror", "main", "network") == Kind::Mirror);
+    assert(ForPlugin("settings-backup", "main", "backup") == Kind::Backup);
+    const char *names[] = {"Files", "Plugin Manager", "Browser", "Telegram", "Gallery",
+      "Media", "Recorder", "RetroArch", "Doom", "Streams", "Mirror", "App Vault",
+      "Settings", "System Info", "Other plugins"};
+    for (int mode = 0; mode < 3; ++mode) {
+      design::ApplyAppearanceMode(mode);
+      lv_obj_set_style_bg_color(screen, design::kMainCanvas, 0);
+      for (int i = 0; i < 15; ++i) {
+        auto *card = lv_button_create(screen);
+        design::Panel(card, 34, design::kMainPanel);
+        lv_obj_set_pos(card, 30 + i % 3 * 470, 30 + i / 3 * 370);
+        lv_obj_set_size(card, 440, 340);
+        auto *art = Attach(card, static_cast<Kind>(i));
+        assert(!lv_obj_has_flag(art, LV_OBJ_FLAG_CLICKABLE));
+        assert(!lv_obj_get_style_clip_corner(card, LV_PART_MAIN));
+        auto *label = design::Label(card, names[i], &lv_font_montserrat_28, design::kText);
+        lv_obj_set_pos(label, 22, 245);
+      }
+      lv_display_set_resolution(display, 1440, 1900);
+      const std::string path = "/tmp/aera-themed-art-" + std::to_string(mode) + ".png";
+      save(path.c_str());
+      lv_obj_clean(screen);
+    }
+    lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Themed artwork: every design rendered in three appearances; fallback and input transparency passed.");
+    return 0;
+  }
   if (!strcmp(argv[1], "--settings")) {
     auto *prefs = lv_obj_create(nullptr);
     BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
@@ -490,6 +575,12 @@ int main(int argc,char **argv) {
     lv_screen_load(theme); Tick();
     assert(!Find(theme, "Save theme"));
     assert(Find(theme, "Reset theme settings"));
+    assert(!RecoveryThemedHomeIcons());
+    const int before_icons = autosave_count;
+    lv_obj_send_event(Find(theme, "Themed"), LV_EVENT_CLICKED, nullptr);
+    Tick(2);
+    assert(RecoveryThemedHomeIcons());
+    assert(autosave_count == before_icons + 1);
     const int before = autosave_count;
     auto *preset = Find(theme, "Violet"); assert(preset);
     lv_obj_send_event(preset, LV_EVENT_CLICKED, nullptr);
@@ -501,6 +592,7 @@ int main(int argc,char **argv) {
     ConfirmSettingsModal(theme); Tick(2);
     assert(autosave_count == before + 2);
     assert(accent_color == design::kDefaultAccentRgb);
+    assert(!RecoveryThemedHomeIcons());
     assert(last_action == Action::kTheme);
     lv_screen_load(screen); lv_obj_delete(theme);
     lv_display_delete(display); lv_deinit();

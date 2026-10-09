@@ -1476,7 +1476,7 @@ void BuildTheme(Tools *state) {
   Header(state->screen, "Theme Engine",
          "Choose wallpaper, appearance, surfaces, density and accent for every AERA page.", state->callback,
          state->context);
-  constexpr int kSurfaceSectionOffset = 620;
+  constexpr int kSurfaceSectionOffset = 930;
   const bool landscape = Landscape(state->screen);
   const int list_y = landscape ? 340 : 460;
   const int dock_gap = landscape ? 20 : 28;
@@ -1683,6 +1683,42 @@ void BuildTheme(Tools *state) {
       ApplyAppearanceMode(static_cast<int>(RecoveryAppearanceMode()));
       ApplySurfaceStyle(static_cast<int>(preset.style));
       ApplyAccent(RecoveryAccentColor());
+      RefreshTheme(state);
+    });
+  }
+
+  auto *home_icons_section = Label(state->list, "Home icon style",
+                                    &lv_font_montserrat_32, kAccent);
+  lv_obj_set_pos(home_icons_section, 32, 1310);
+  for (int index = 0; index < 2; ++index) {
+    const bool themed = index == 1;
+    const bool selected = RecoveryThemedHomeIcons() == themed;
+    auto *card = lv_button_create(state->list);
+    Panel(card, 32, kMainPanel);
+    Interactive(card, kMainSelected);
+    lv_obj_set_pos(card, 16 + index * 640, 1380);
+    lv_obj_set_size(card, 624, 170);
+    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
+    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
+    auto *name = Label(card, themed ? "Themed" : "Classic",
+                        &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(name, 28, 28);
+    auto *detail = Label(card, themed ? "Edge-to-edge artwork for every app"
+                                     : "Accent icons on clean cards",
+                          &lv_font_montserrat_20, kMuted);
+    lv_obj_set_pos(detail, 28, 92);
+    FitLabelToLines(detail, 552, 2,
+                    {&lv_font_montserrat_20, &lv_font_montserrat_18});
+    if (selected) {
+      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_24, kAccent);
+      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -24, 28);
+    }
+    OnClick(card, [state, themed] {
+      if (!RecoverySetThemedHomeIcons(themed)) {
+        Sheet(state->screen, "Theme unavailable",
+              "The home icon style could not be stored.");
+        return;
+      }
       RefreshTheme(state);
     });
   }

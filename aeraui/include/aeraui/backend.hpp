@@ -172,6 +172,8 @@ enum class SurfaceStyle {
   kElevated = 3,
 };
 SurfaceStyle RecoverySurfaceStyle();
+bool RecoveryThemedHomeIcons();
+bool RecoverySetThemedHomeIcons(bool enabled);
 bool RecoverySetSurfaceStyle(SurfaceStyle style);
 bool RecoveryTintedIconBackgrounds();
 bool RecoverySetTintedIconBackgrounds(bool enabled);

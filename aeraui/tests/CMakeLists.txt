@@ -17,6 +17,8 @@ find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
 add_executable(ui_check ui_check.cpp
+  ../scenes/launcher_scene.cpp ../components/retroarch_icon.cpp
+  ../components/webkit_icon.cpp
   ../scenes/about_scene.cpp ../components/aera_logo.cpp
   ../components/matrix_engraving.cpp
   ../scenes/home_scene.cpp ../features/files/file_manager.cpp
@@ -58,6 +60,8 @@ add_test(NAME ui_confirmation_navigation_preferences
   COMMAND ui_check "${LVGL_DIR}/examples/libs/libpng/png_demo.png")
 add_test(NAME file_timestamp_layout COMMAND ui_check --file-dates)
 add_test(NAME settings_autosave_and_reset COMMAND ui_check --settings)
+add_test(NAME themed_home_artwork COMMAND ui_check --art)
+add_test(NAME themed_home_layout COMMAND ui_check --home-art)
 add_executable(display_transform_test display_transform_test.cpp)
 target_include_directories(display_transform_test PRIVATE ../include)
 add_test(NAME adaptive_display_transform COMMAND display_transform_test)

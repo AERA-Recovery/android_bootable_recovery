@@ -11,6 +11,7 @@
 
 #include "design.hpp"
 #include "matrix_engraving.hpp"
+#include "themed_app_art.hpp"
 #include "plugins/plugin_manager.hpp"
 #include "retroarch_icon.hpp"
 #include "ui_components.hpp"
@@ -147,7 +148,8 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
                   lv_color_t accent, Handler action,
                   bool retroarch_icon = false,
                   bool terminal_engraving = false,
-                  bool webkit_icon = false) {
+                  bool webkit_icon = false,
+                  themed_art::Kind artwork = themed_art::Kind::Tools) {
   auto *card = lv_button_create(screen);
   Panel(card, 44, kMainPanel);
   Interactive(card, kMainSelected);
@@ -161,10 +163,14 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
     lv_obj_set_style_clip_corner(card, true, 0);
     AddMatrixEngraving(card, width, 360, kAccent);
   }
-  auto *plate = AppIconPlate(card, icon, accent, 144, retroarch_icon,
-                             terminal_engraving, webkit_icon);
-  lv_obj_set_pos(plate, 28, 22);
-  MakeDecorationPassThrough(plate);
+  if (RecoveryThemedHomeIcons()) {
+    if (!terminal_engraving) themed_art::Attach(card, artwork);
+  } else {
+    auto *plate = AppIconPlate(card, icon, accent, 144, retroarch_icon,
+                               terminal_engraving, webkit_icon);
+    lv_obj_set_pos(plate, 28, 22);
+    MakeDecorationPassThrough(plate);
+  }
   // 40 px is the Normal Home identity size. The shared scale maps it down for
   // Small and up to 48 px for Large, keeping all three modes visibly distinct.
   auto *title = Label(card, name, &lv_font_montserrat_40, kText);
@@ -189,7 +195,8 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   if (width >= 600) {
     auto *card = AppCard(parent, x, y, width, icon, plugin.name.c_str(),
                          PluginSummary(plugin), accent, std::move(action),
-                         retroarch_icon, false, plugin.entry == "browser");
+                         retroarch_icon, false, plugin.entry == "browser",
+                         themed_art::ForPlugin(plugin.id, plugin.entry, plugin.category));
     lv_obj_set_height(card, height);
     return card;
   }
@@ -202,14 +209,18 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
   const bool webkit_icon = plugin.entry == "browser";
-  auto *plate = AppIconPlate(card, icon, accent, 154, retroarch_icon, false,
+  if (RecoveryThemedHomeIcons()) {
+    themed_art::Attach(card, themed_art::ForPlugin(plugin.id, plugin.entry, plugin.category));
+  } else {
+    auto *plate = AppIconPlate(card, icon, accent, 154, retroarch_icon, false,
                              webkit_icon);
-  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 18);
-  if (!retroarch_icon && !webkit_icon) {
-    auto *mark = lv_obj_get_child(plate, 0);
-    lv_obj_set_style_transform_scale(mark, 384, 0);
+    lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 18);
+    if (!retroarch_icon && !webkit_icon) {
+      auto *mark = lv_obj_get_child(plate, 0);
+      lv_obj_set_style_transform_scale(mark, 384, 0);
+    }
+    MakeDecorationPassThrough(plate);
   }
-  MakeDecorationPassThrough(plate);
   auto *title = Label(card, plugin.name.c_str(), &lv_font_montserrat_32, kText);
   FitLabelToLines(title, width - 40, 1,
                   {&lv_font_montserrat_32, &lv_font_montserrat_28,
@@ -243,9 +254,13 @@ lv_obj_t *PluginIconTile(lv_obj_t *parent, int x, int y, int width,
   lv_obj_set_style_border_width(plate, 1, 0);
   lv_obj_set_style_border_color(plate, kMainLine, 0);
   lv_obj_set_style_border_opa(plate, LV_OPA_40, 0);
-  auto *art = AppIconPlate(plate, icon, accent, 122, retroarch_icon, false,
+  if (RecoveryThemedHomeIcons()) {
+    themed_art::Attach(plate, themed_art::ForPlugin(plugin.id, plugin.entry, plugin.category));
+  } else {
+    auto *art = AppIconPlate(plate, icon, accent, 122, retroarch_icon, false,
                            plugin.entry == "browser");
-  lv_obj_center(art);
+    lv_obj_center(art);
+  }
   MakeDecorationPassThrough(plate);
 
   auto *title = Label(card, plugin.name.c_str(),
@@ -379,6 +394,14 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
       const int row = index / 4;
       const int x = 64 + column * (kWidth + kGap);
       const int y = 356 + row * 378;
+      auto artwork = action == Action::kFiles ? themed_art::Kind::Files
+          : action == Action::kPlugins ? themed_art::Kind::Packages : themed_art::Kind::Tools;
+      for (const auto &plugin : installed) {
+        if (plugin.id == plugin_id) {
+          artwork = themed_art::ForPlugin(plugin.id, plugin.entry, plugin.category);
+          break;
+        }
+      }
       auto *card = AppCard(screen, x, y, kWidth, icon, name, description,
                            accent, [=] {
                              if (!plugin_id.empty())
@@ -386,7 +409,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
                              callback(action, context);
                            },
                            retro_icon, action == Action::kTerminal,
-                           webkit_icon);
+                           webkit_icon, artwork);
       if (update_available) MarkUpdateAvailable(card);
       AnimateEnter(card, 20 + index * 22, 12);
       ++index;
@@ -454,13 +477,15 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   lv_obj_set_pos(apps, 80, 426);
   auto *files = AppCard(screen, 64, 484, 636, LV_SYMBOL_DIRECTORY, "Files",
                         "Browse storage, preview images and install ZIPs.",
-                        kAccent, [=] { callback(Action::kFiles, context); });
+                        kAccent, [=] { callback(Action::kFiles, context); },
+                        false, false, false, themed_art::Kind::Files);
   const std::string store_summary = updates.empty()
       ? "Discover signed apps and install them to storage or RAM."
       : i18n::Format("%zu updates available", updates.size());
   auto *store = AppCard(screen, 740, 484, 636, LV_SYMBOL_DOWNLOAD,
                         "Plugin Manager", store_summary.c_str(),
-                        kAccent, [=] { callback(Action::kPlugins, context); });
+                        kAccent, [=] { callback(Action::kPlugins, context); },
+                        false, false, false, themed_art::Kind::Packages);
   auto *terminal = AppCard(screen, 64, 884, 1312, LV_SYMBOL_EDIT, "Terminal",
                            "Run recovery commands in the built-in AERA shell.",
                            kAccent, [=] { callback(Action::kTerminal, context); },

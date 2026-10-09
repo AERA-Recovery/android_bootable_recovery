@@ -1195,6 +1195,13 @@ bool RecoveryTintedIconBackgrounds() {
   LoadAeraPreferencesIfAvailable();
   return DataManager::GetIntValue("aera_tinted_icon_backgrounds") != 0;
 }
+bool RecoveryThemedHomeIcons() {
+  LoadAeraPreferencesIfAvailable();
+  return DataManager::GetIntValue("aera_themed_home_icons") != 0;
+}
+bool RecoverySetThemedHomeIcons(bool enabled) {
+  return DataManager::SetValue("aera_themed_home_icons", enabled ? 1 : 0, 1) == 0;
+}
 bool RecoverySetTintedIconBackgrounds(bool enabled) {
   return DataManager::SetValue("aera_tinted_icon_backgrounds",
                                enabled ? 1 : 0, 1) == 0;
@@ -1419,6 +1426,7 @@ struct EarlyUiPreferences {
   std::string theme;
   int surface_style;
   int tinted_icon_backgrounds;
+  int themed_home_icons;
   int interface_size;
   std::string language;
   std::string keyboard_layout;
@@ -1484,6 +1492,7 @@ EarlyUiPreferences DefaultEarlyUiPreferences() {
   preferences.theme = "graphite";
   preferences.surface_style = 0;
   preferences.tinted_icon_backgrounds = 0;
+  preferences.themed_home_icons = 0;
   preferences.interface_size = 1;
   preferences.language = AERA_DEFAULT_LANGUAGE;
   preferences.keyboard_layout = "qwerty";
@@ -1531,6 +1540,8 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   }
   preferences.tinted_icon_backgrounds =
       DataManager::GetIntValue("aera_tinted_icon_backgrounds") != 0 ? 1 : 0;
+  preferences.themed_home_icons =
+      DataManager::GetIntValue("aera_themed_home_icons") != 0 ? 1 : 0;
   const std::string interface_size = DataManager::GetStrValue("aera_interface_size");
   preferences.interface_size =
       interface_size.empty() ? 1 : std::clamp(atoi(interface_size.c_str()), 0, 3);
@@ -1591,6 +1602,7 @@ bool ResetAeraSettings(bool theme) {
     set("aera_wallpaper_path", std::string());
     set("aera_surface_style", defaults.surface_style);
     set("aera_tinted_icon_backgrounds", defaults.tinted_icon_backgrounds);
+    set("aera_themed_home_icons", defaults.themed_home_icons);
     set("aera_interface_size", defaults.interface_size);
     set("aera_keyboard_layout", defaults.keyboard_layout);
     set("aera_home_grid_columns", defaults.home_grid_columns);
@@ -1646,6 +1658,9 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "tinted_icon_backgrounds") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->tinted_icon_backgrounds = parsed;
+  } else if (key == "themed_home_icons") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->themed_home_icons = parsed;
   } else if (key == "interface_size") {
     if (!ParseInteger(value, 0, 3, &parsed)) return false;
     preferences->interface_size = parsed;
@@ -1710,6 +1725,7 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
                                                        : preferences.surface_style);
   DataManager::SetValue("aera_tinted_icon_backgrounds",
                         preferences.tinted_icon_backgrounds);
+  DataManager::SetValue("aera_themed_home_icons", preferences.themed_home_icons);
   DataManager::SetValue("aera_interface_size", preferences.interface_size);
   DataManager::SetValue("tw_language", preferences.language);
   DataManager::SetValue("aera_keyboard_layout", preferences.keyboard_layout);
@@ -1780,6 +1796,7 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "surface_style=" << preferences.surface_style << '\n'
          << "tinted_icon_backgrounds="
          << preferences.tinted_icon_backgrounds << '\n'
+         << "themed_home_icons=" << preferences.themed_home_icons << '\n'
          << "interface_size=" << preferences.interface_size << '\n'
          << "language=" << preferences.language << '\n'
          << "keyboard_layout=" << preferences.keyboard_layout << '\n'
@@ -1942,6 +1959,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "surface_style=" << static_cast<int>(RecoverySurfaceStyle()) << '\n'
          << "tinted_icon_backgrounds="
          << (RecoveryTintedIconBackgrounds() ? 1 : 0) << '\n'
+         << "themed_home_icons=" << (RecoveryThemedHomeIcons() ? 1 : 0) << '\n'
          << "interface_size=" << static_cast<int>(RecoveryInterfaceSize()) << '\n'
          << "keyboard_layout="
          << (RecoveryKeyboardLayout() == KeyboardLayout::kQwertz
