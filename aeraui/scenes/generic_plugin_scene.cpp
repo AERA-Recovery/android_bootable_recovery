@@ -55,6 +55,8 @@ struct GenericScene {
   lv_obj_t *content = nullptr;
   lv_obj_t *status = nullptr;
   lv_obj_t *progress = nullptr;
+  lv_obj_t *mirror_tabs[2] = {nullptr, nullptr};
+  uint32_t mirror_selection = 0;
   plugins::Plugin plugin;
   web::Preparation preparation;
   plugin_api::Process process;
@@ -103,6 +105,10 @@ void SetBackAction(GenericScene *scene, uint32_t action) {
 
 void RequestPage(GenericScene *scene, uint32_t action) {
   if (!action || !scene->session.Connected()) return;
+  // Mirror Host API 2 actions 1/2 select the Wi-Fi/USB guide; they do not
+  // start the server. Start actions still use the host approval sheet.
+  if (scene->plugin.id == "mirror" && (action == 1 || action == 2))
+    scene->mirror_selection = action;
   SetBackAction(scene, 0);
   SetStatus(scene, "Working...");
   if (scene->progress) {
@@ -110,6 +116,30 @@ void RequestPage(GenericScene *scene, uint32_t action) {
     lv_bar_set_value(scene->progress, 72, LV_ANIM_ON);
   }
   scene->session.Send(plugin_api::Kind::kAction, action);
+}
+
+void MirrorModeCard(GenericScene *scene, int index, int x, int y, int width) {
+  auto *card = lv_button_create(scene->screen);
+  scene->mirror_tabs[index] = card;
+  Panel(card, 34, kMainPanel);
+  Interactive(card, kMainSelected);
+  lv_obj_set_pos(card, x, y);
+  lv_obj_set_size(card, width, 220);
+  auto *symbol = Label(card, index == 0 ? LV_SYMBOL_WIFI : LV_SYMBOL_USB,
+                        &lv_font_montserrat_48, kAccent);
+  lv_obj_set_pos(symbol, 34, 30);
+  auto *heading = Label(card, index == 0 ? "Wi-Fi Mirror" : "USB Mirror",
+                         &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(heading, 112, 28);
+  SingleLineLabel(heading, width - 176, &lv_font_montserrat_32);
+  auto *copy = Label(card, index == 0
+      ? "Connect from a browser on your Wi-Fi network."
+      : "Connect through ADB and the desktop launcher.",
+      &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(copy, 34, 112);
+  FitLabelToLines(copy, width - 68, 2,
+      {&lv_font_montserrat_24, &lv_font_montserrat_20, &lv_font_montserrat_18});
+  OnClick(card, [scene, index] { RequestPage(scene, index + 1); });
 }
 
 bool ModalVisible(lv_obj_t *screen) {
@@ -288,6 +318,17 @@ void RenderPage(GenericScene *scene) {
   lv_obj_update_layout(scene->content);
   const int content_width = lv_obj_get_width(scene->content);
   const bool mirror = scene->plugin.id == "mirror";
+  if (mirror) {
+    for (int index = 0; index < 2; ++index) {
+      auto *tab = scene->mirror_tabs[index];
+      if (!tab) continue;
+      const bool selected = scene->mirror_selection == static_cast<uint32_t>(index + 1);
+      lv_obj_set_style_border_width(tab, selected ? 3 :
+          RecoverySurfaceStyle() == SurfaceStyle::kOutline ? 2 : 1, 0);
+      lv_obj_set_style_border_color(tab, selected ? kAccent : kMainLine, 0);
+      lv_obj_set_style_border_opa(tab, selected ? LV_OPA_COVER : LV_OPA_50, 0);
+    }
+  }
   auto *title = Label(scene->content,
                       scene->page_title.empty() ? scene->plugin.name.c_str()
                                                 : scene->page_title.c_str(),
@@ -361,7 +402,10 @@ void RenderPage(GenericScene *scene) {
   size_t visible_index = 0;
   for (size_t index = 0; index < scene->buttons.size(); ++index) {
     const auto &model = scene->buttons[index];
-    if (mirror && model.title.rfind("Stop", 0) == 0) {
+    // The persistent mode cards replace Mirror's guide/home navigation.
+    if (mirror && (model.id == 1 || model.id == 2 || model.id == 6))
+      continue;
+    if (mirror && model.id == 3) {
       if (plugin_api::ActiveMirrorMode() != plugin_api::MirrorMode::kOff)
         stop_button = &model;
       continue;
@@ -531,6 +575,17 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
         break;
       }
       scene->page_pending = false;
+      if (scene->plugin.id == "mirror" &&
+          std::any_of(scene->buttons.begin(), scene->buttons.end(),
+                      [](const ButtonModel &button) { return button.id == 1; }) &&
+          std::any_of(scene->buttons.begin(), scene->buttons.end(),
+                      [](const ButtonModel &button) { return button.id == 2; })) {
+        // Open the selected guide directly, including after Stop. Selecting
+        // a mode never starts sharing; the guide retains its Start action.
+        RequestPage(scene, scene->mirror_selection ? scene->mirror_selection :
+            plugin_api::ActiveMirrorMode() == plugin_api::MirrorMode::kUsb ? 2 : 1);
+        break;
+      }
       SetBackAction(scene, scene->pending_back_action);
       RenderPage(scene);
       if (scene->progress)
@@ -586,9 +641,17 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
   Header(screen, scene->plugin.name.c_str(),
          scene->plugin.description.c_str(), callback, context);
   const bool landscape = Landscape(screen);
+  const bool mirror = scene->plugin.id == "mirror";
   const int card_width = landscape ? lv_obj_get_width(screen) - 128 : 1312;
-  const int card_height = lv_obj_get_height(screen) -
-      (landscape ? 320 : 430) - 36;
+  const int top = landscape ? 320 : 430;
+  if (mirror) {
+    const int left_width = landscape ? (card_width - 20) / 2 : 630;
+    MirrorModeCard(scene, 0, 64, top, left_width);
+    MirrorModeCard(scene, 1, 64 + left_width + 20, top,
+                   card_width - left_width - 20);
+  }
+  const int card_y = top + (mirror ? 260 : 0);
+  const int card_height = lv_obj_get_height(screen) - card_y - 36;
   scene->card = lv_obj_create(screen);
   Panel(scene->card, 42, kMainPanel);
   lv_obj_add_event_cb(scene->card, [](lv_event_t *event) {
@@ -596,7 +659,7 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
     auto *scene = static_cast<GenericScene *>(lv_event_get_user_data(event));
     RequestPage(scene, scene->page_back_action);
   }, LV_EVENT_CANCEL, scene);
-  lv_obj_set_pos(scene->card, 64, landscape ? 320 : 430);
+  lv_obj_set_pos(scene->card, 64, card_y);
   lv_obj_set_size(scene->card, card_width, card_height);
   scene->content = lv_obj_create(scene->card);
   Clear(scene->content);
