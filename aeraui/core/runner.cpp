@@ -352,6 +352,9 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
     if (event.code == KEY_BACK && event.value == 0 && !hardware.screen_off) {
         engine.NavigateBack();
     }
+    if (event.code == KEY_HOME && event.value == 0 && !hardware.screen_off) {
+        engine.NavigateHome();
+    }
     return false;
 }
 

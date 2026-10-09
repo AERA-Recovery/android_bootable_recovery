@@ -66,7 +66,7 @@ bool Open(Device* device) {
     close(descriptor);
     return false;
   }
-  for (int key : {KEY_BACK, KEY_HOMEPAGE, KEY_MENU, KEY_POWER, KEY_VOLUMEUP,
+  for (int key : {KEY_BACK, KEY_HOME, KEY_MENU, KEY_POWER, KEY_VOLUMEUP,
                   KEY_VOLUMEDOWN, KEY_ENTER, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT})
     ioctl(descriptor, UI_SET_KEYBIT, key);
   for (int axis : {ABS_MT_SLOT, ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
@@ -103,7 +103,7 @@ bool Open(Device* device) {
 
 int KeyCode(const std::string& name) {
   if (name == "back") return KEY_BACK;
-  if (name == "home") return KEY_HOMEPAGE;
+  if (name == "home") return KEY_HOME;
   if (name == "menu") return KEY_MENU;
   if (name == "power") return KEY_POWER;
   if (name == "volume_up") return KEY_VOLUMEUP;
