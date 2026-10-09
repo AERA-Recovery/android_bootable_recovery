@@ -77,11 +77,21 @@ bool StableDeviceKeyEnabled() {
   return Property("ro.aera.stable_secret_key") == "1";
 }
 
-std::array<unsigned char, SHA256_DIGEST_LENGTH> DeviceKey(bool stable) {
+std::string DeviceSerial() {
+  std::string serial = Property("ro.serialno");
+  if (serial.empty()) serial = Property("ro.boot.serialno");
+  return serial;
+}
+
+std::array<unsigned char, SHA256_DIGEST_LENGTH> DeviceKey(int version) {
   const std::string serial = Property("ro.serialno");
   std::string stable_serial = serial;
   if (stable_serial.empty()) stable_serial = Property("ro.boot.serialno");
-  const std::string material = stable
+  // Version 4 intentionally excludes firmware and product/build identities.
+  // A serial is public: this is device-bound obfuscation, not a secret key.
+  const std::string material = version == 4
+      ? "AERA-Credential-Store-v4\n" + DeviceSerial()
+      : version == 3
       ? "AERA-Credential-Store-v3\n" + stable_serial + "\n" +
           Property("ro.product.device") + "\n" + Property("ro.product.name")
       : "AERA-Credential-Store-v2\n" + serial + "\n" +
@@ -93,13 +103,14 @@ std::array<unsigned char, SHA256_DIGEST_LENGTH> DeviceKey(bool stable) {
   return key;
 }
 
-bool Seal(const std::string& plain, Json::Value* value) {
+bool Seal(const std::string& plain, Json::Value* value, bool serial_only = false) {
+  if (serial_only && DeviceSerial().empty()) return false;
   std::array<unsigned char, 12> nonce {};
   std::array<unsigned char, 16> tag {};
   if (RAND_bytes(nonce.data(), nonce.size()) != 1) return false;
 
   std::array<unsigned char, SHA256_DIGEST_LENGTH> key =
-      DeviceKey(StableDeviceKeyEnabled());
+      DeviceKey(serial_only ? 4 : StableDeviceKeyEnabled() ? 3 : 2);
   EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
   std::vector<unsigned char> cipher(plain.size() + 16);
   int amount = 0;
@@ -127,13 +138,15 @@ bool Seal(const std::string& plain, Json::Value* value) {
 
   cipher.resize(static_cast<size_t>(total));
   *value = Json::Value(Json::objectValue);
+  if (serial_only) (*value)["key_version"] = 4;
   (*value)["nonce"] = Hex(nonce.data(), nonce.size());
   (*value)["data"] = Hex(cipher.data(), cipher.size());
   (*value)["tag"] = Hex(tag.data(), tag.size());
   return true;
 }
 
-bool OpenWithKey(const Json::Value& value, std::string* plain, bool stable) {
+bool OpenWithKey(const Json::Value& value, std::string* plain, int version) {
+  if (version == 4 && DeviceSerial().empty()) return false;
   if (!value.isObject() || !value["nonce"].isString() ||
       !value["data"].isString() || !value["tag"].isString())
     return false;
@@ -145,7 +158,7 @@ bool OpenWithKey(const Json::Value& value, std::string* plain, bool stable) {
       !Unhex(value["tag"].asString(), &tag) || tag.size() != 16)
     return false;
 
-  std::array<unsigned char, SHA256_DIGEST_LENGTH> key = DeviceKey(stable);
+  std::array<unsigned char, SHA256_DIGEST_LENGTH> key = DeviceKey(version);
   EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
   std::vector<unsigned char> output(cipher.size() + 16);
   int amount = 0;
@@ -176,11 +189,23 @@ bool OpenWithKey(const Json::Value& value, std::string* plain, bool stable) {
 }
 
 bool Open(const Json::Value& value, std::string* plain,
-          bool* used_legacy = nullptr) {
+          bool* used_legacy = nullptr, bool serial_only = false) {
   if (used_legacy) *used_legacy = false;
-  if (!StableDeviceKeyEnabled()) return OpenWithKey(value, plain, false);
-  if (OpenWithKey(value, plain, true)) return true;
-  if (!OpenWithKey(value, plain, false)) return false;
+  if (serial_only) {
+    if (!value.isObject()) return false;
+    if (value.isMember("key_version")) {
+      if (!value["key_version"].isInt() || value["key_version"].asInt() != 4)
+        return false;
+      return OpenWithKey(value, plain, 4);
+    }
+    if (!OpenWithKey(value, plain, 3) && !OpenWithKey(value, plain, 2))
+      return false;
+    if (used_legacy) *used_legacy = true;
+    return true;
+  }
+  if (!StableDeviceKeyEnabled()) return OpenWithKey(value, plain, 2);
+  if (OpenWithKey(value, plain, 3)) return true;
+  if (!OpenWithKey(value, plain, 2)) return false;
   if (used_legacy) *used_legacy = true;
   return true;
 }
@@ -290,7 +315,7 @@ bool AeraSecrets::SetWlanNetwork(const std::string& ssid,
   Json::Value root = ReadDocument(kWifiPath);
   Json::Value network(Json::objectValue);
   network["security"] = security.empty() ? "WPA2" : security;
-  if (!Seal(password, &network["password"])) return false;
+  if (!Seal(password, &network["password"], true)) return false;
   root["networks"][ssid] = std::move(network);
   return WriteDocument(kWifiPath, std::move(root));
 }
@@ -307,8 +332,8 @@ bool AeraSecrets::GetWlanNetwork(const std::string& ssid,
   if (!network.isObject()) return false;
   security = network.get("security", "WPA2").asString();
   bool used_legacy = false;
-  if (!Open(network["password"], &password, &used_legacy)) return false;
-  if (used_legacy && Seal(password, &network["password"]))
+  if (!Open(network["password"], &password, &used_legacy, true)) return false;
+  if (used_legacy && Seal(password, &network["password"], true))
     WriteDocument(kWifiPath, std::move(root));
   return true;
 }
