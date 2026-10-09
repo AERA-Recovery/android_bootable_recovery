@@ -554,16 +554,21 @@ public:
         else
           RefreshPluginSurfaces();
       } else if (completed == PluginTask::kAutomaticInstall) {
+        if (current_scene_ == Action::kPlugins)
+          CompletePluginOperation(plugin_scene_, success, message.c_str());
         StartNextAutomaticPluginUpdate();
       }
     }
-    if (plugin_running_ && plugin_task_ == PluginTask::kInteractive &&
+    if (plugin_running_ && (plugin_task_ == PluginTask::kInteractive ||
+        plugin_task_ == PluginTask::kAutomaticInstall) &&
         current_scene_ == Action::kPlugins &&
         MonotonicMilliseconds() - last_plugin_update_ >= 120) {
       last_plugin_update_ = MonotonicMilliseconds();
       UpdatePluginProgress(plugin_scene_, plugin_progress_.value.load(),
                            plugin_progress_.downloaded_bytes.load(),
-                           plugin_progress_.total_bytes.load());
+                           plugin_progress_.total_bytes.load(),
+                           plugin_progress_.completed_plugins.load(),
+                           plugin_progress_.total_plugins.load());
     }
     if (update_complete_.exchange(false, std::memory_order_acq_rel)) {
       if (update_thread_.joinable()) update_thread_.join();
@@ -659,6 +664,7 @@ public:
       return;
     }
     if (current_scene_ == Action::kFiles && NavigateFileBack()) return;
+    if (current_scene_ == Action::kPlugins && NavigatePluginBack(plugin_scene_)) return;
     if (on_home_) return;
 
     Action target = Action::kBackHome;
@@ -2815,12 +2821,15 @@ private:
                    PluginTask task = PluginTask::kInteractive) {
     if (plugin_running_ || operation_running_ || wifi_running_ || nas_running_)
       return;
-    if (task == PluginTask::kInteractive)
+    if (task == PluginTask::kInteractive ||
+        (task == PluginTask::kAutomaticInstall && current_scene_ == Action::kPlugins))
       SetPluginBusy(plugin_scene_, request);
     plugin_progress_.value.store(0);
     plugin_progress_.downloaded_bytes.store(0);
     plugin_progress_.total_bytes.store(0);
     plugin_progress_.cancel.store(false);
+    plugin_progress_.completed_plugins.store(0);
+    plugin_progress_.total_plugins.store(0);
     plugin_progress_.status.clear();
     plugin_progress_.error.clear();
     plugin_running_ = true;

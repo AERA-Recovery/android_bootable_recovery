@@ -151,3 +151,17 @@ add_test(NAME native_catalog_round_trip COMMAND catalog_test
   "${CMAKE_CURRENT_SOURCE_DIR}/../localization/catalog/catalog.json")
 add_test(NAME native_catalog_english_only COMMAND catalog_english_test
   "${CMAKE_CURRENT_SOURCE_DIR}/../localization/catalog/catalog.json")
+
+add_executable(plugin_store_test plugin_store_test.cpp ../scenes/plugin_scene.cpp
+  ../features/plugins/store_metadata.cpp ../components/retroarch_icon.cpp
+  ../components/text_edit.cpp ../localization/fonts/aera_fallback.cpp
+  ../localization/i18n.cpp ../localization/catalog/catalog.cpp
+  ../localization/catalog/catalog_generated.cpp)
+target_include_directories(plugin_store_test PRIVATE .. ../include ../components
+  ../features ../assets ../localization ../localization/fonts ../scenes)
+target_compile_definitions(plugin_store_test PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES
+  AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets"
+  AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets")
+target_compile_options(plugin_store_test PRIVATE -UNDEBUG)
+target_link_libraries(plugin_store_test PRIVATE lvgl PNG::PNG Threads::Threads jsoncpp_static ZLIB::ZLIB)
+add_test(NAME plugin_store_views_and_layout COMMAND plugin_store_test)

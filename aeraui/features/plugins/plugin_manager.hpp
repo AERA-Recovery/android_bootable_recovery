@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -31,6 +32,8 @@ enum class Job {
   kInstallLocalStorage,
   kInstallLocalMemory,
   kRemove,
+  kUpdateAll,
+  kScreenshot,
 };
 
 struct Plugin {
@@ -38,6 +41,10 @@ struct Plugin {
   std::string name;
   std::string version;
   std::string description;
+  std::string category = "tools";
+  std::string details;
+  std::string author;
+  std::vector<std::string> screenshots;
   std::string type;
   std::string entry;
   std::string manifest_url;
@@ -72,6 +79,7 @@ struct Request {
   std::string id;
   std::string path;
   bool allow_unofficial = false;
+  size_t screenshot_index = 0;
 };
 
 struct Progress {
@@ -79,6 +87,8 @@ struct Progress {
   std::atomic<uint64_t> downloaded_bytes{0};
   std::atomic<uint64_t> total_bytes{0};
   std::atomic<bool> cancel{false};
+  std::atomic<unsigned> completed_plugins{0};
+  std::atomic<unsigned> total_plugins{0};
   std::string status;
   std::string error;
 };

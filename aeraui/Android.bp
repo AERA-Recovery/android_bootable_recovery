@@ -70,6 +70,7 @@ cc_library_static {
         "features/plugin_api/launcher.cpp",
         "features/plugin_api/session.cpp",
         "features/plugins/plugin_manager.cpp",
+        "features/plugins/store_metadata.cpp",
         "features/update/payload_inspector.cpp",
         "features/update/payload_arb.cpp",
         "features/recorder/service.cpp",

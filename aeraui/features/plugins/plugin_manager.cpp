@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "plugin_manager.hpp"
+#include "store_metadata.hpp"
 
 #include <aeraui/i18n.hpp>
 
@@ -36,6 +37,7 @@ constexpr char kCatalogSignatureUrl[] =
     "https://raw.githubusercontent.com/AERA-Plugins/registry/main/catalog.json.sig";
 constexpr char kCacheRoot[] = "/tmp/aera-plugin-store";
 constexpr char kStorageRoot[] = "/sdcard/AERA/plugins";
+constexpr char kPersistentCacheRoot[] = "/sdcard/AERA/plugins/.store";
 constexpr char kMemoryRoot[] = "/tmp/aera/plugins";
 constexpr uint64_t kMaxCatalog = 1024 * 1024;
 constexpr uint64_t kMaxManifest = 64 * 1024;
@@ -51,6 +53,8 @@ constexpr std::array<uint8_t, 32> kSigningKey{{
 
 std::mutex gCatalogMutex;
 std::vector<Plugin> gCatalog;
+std::string gCatalogSource;
+std::string gCatalogLanguage;
 
 bool ParseVersion(const std::string &version, std::vector<uint64_t> &parts,
                   std::string &prerelease) {
@@ -239,6 +243,7 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
   plugin.version = root["version"].asString();
   plugin.description = root["description"].asString();
   ApplyLocalizedMetadata(root, plugin);
+  ApplyStoreMetadata(root, plugin, i18n::CurrentLanguage());
   plugin.type = root["type"].asString();
   plugin.entry = root["entry"].asString();
   plugin.payload_url = root["payload_url"].asString();
@@ -366,6 +371,7 @@ bool ParseCatalog(const std::string &text, std::vector<Plugin> &plugins,
     plugin.version = item["version"].asString();
     plugin.description = item["description"].asString();
     ApplyLocalizedMetadata(item, plugin);
+    ApplyStoreMetadata(item, plugin, i18n::CurrentLanguage());
     plugin.manifest_url = item["manifest_url"].asString();
     plugin.signature_url = item["signature_url"].asString();
     plugin.package_url = item.get("package_url", "").asString();
@@ -812,9 +818,20 @@ bool Refresh(Progress &progress) {
   progress.value.store(92);
   rename(manifest.c_str(), (std::string(kCacheRoot) + "/catalog.json").c_str());
   rename(signature.c_str(), (std::string(kCacheRoot) + "/catalog.json.sig").c_str());
+  // Best effort: a locked or unavailable storage volume must not fail Refresh.
+  if (EnsureDirectory(kPersistentCacheRoot) &&
+      WriteFile(std::string(kPersistentCacheRoot) + "/catalog.json.new", content) &&
+      WriteFile(std::string(kPersistentCacheRoot) + "/catalog.json.sig.new", signature_text)) {
+    rename((std::string(kPersistentCacheRoot) + "/catalog.json.new").c_str(),
+           (std::string(kPersistentCacheRoot) + "/catalog.json").c_str());
+    rename((std::string(kPersistentCacheRoot) + "/catalog.json.sig.new").c_str(),
+           (std::string(kPersistentCacheRoot) + "/catalog.json.sig").c_str());
+  }
   {
     std::lock_guard<std::mutex> lock(gCatalogMutex);
     gCatalog = std::move(parsed);
+    gCatalogSource = content;
+    gCatalogLanguage = i18n::CurrentLanguage();
   }
   progress.status = "Store catalog updated"; progress.value.store(100); return true;
 }
@@ -931,15 +948,28 @@ bool Remove(const std::string &id, Progress &progress) {
 std::vector<Plugin> Catalog() {
   {
     std::lock_guard<std::mutex> lock(gCatalogMutex);
+    if (!gCatalogSource.empty() && gCatalogLanguage != i18n::CurrentLanguage()) {
+      std::vector<Plugin> translated;
+      std::string error;
+      if (ParseCatalog(gCatalogSource, translated, error)) {
+        gCatalog = std::move(translated);
+        gCatalogLanguage = i18n::CurrentLanguage();
+      }
+    }
     if (!gCatalog.empty()) return gCatalog;
   }
   std::string content, signature, error;
   std::vector<Plugin> parsed;
-  if (ReadBounded(std::string(kCacheRoot) + "/catalog.json", kMaxCatalog, content) &&
-      ReadBounded(std::string(kCacheRoot) + "/catalog.json.sig", kMaxSignature, signature) &&
+  for (const char *cache : {kCacheRoot, kPersistentCacheRoot}) {
+  if (ReadBounded(std::string(cache) + "/catalog.json", kMaxCatalog, content) &&
+      ReadBounded(std::string(cache) + "/catalog.json.sig", kMaxSignature, signature) &&
       Verify(content, signature) && ParseCatalog(content, parsed, error)) {
     std::lock_guard<std::mutex> lock(gCatalogMutex);
-    gCatalog = parsed; return parsed;
+    gCatalog = parsed;
+    gCatalogSource = content;
+    gCatalogLanguage = i18n::CurrentLanguage();
+    return parsed;
+  }
   }
   return {};
 }
@@ -1009,6 +1039,8 @@ bool InspectLocalPackage(const std::string &path, Plugin &plugin,
 
 bool Run(const Request &request, Progress &progress) {
   progress.value.store(0); progress.error.clear(); progress.status.clear();
+  progress.completed_plugins.store(0);
+  progress.total_plugins.store(0);
   switch (request.job) {
     case Job::kRefresh: return Refresh(progress);
     case Job::kInstallStorage:
@@ -1020,6 +1052,60 @@ bool Run(const Request &request, Progress &progress) {
     case Job::kInstallLocalMemory:
       return InstallLocal(request, Location::kMemory, progress);
     case Job::kRemove: return Remove(request.id, progress);
+    case Job::kUpdateAll: {
+      const auto updates = AvailableUpdates();
+      progress.total_plugins.store(updates.size());
+      unsigned failed = 0;
+      for (size_t i = 0; i < updates.size(); ++i) {
+        const auto &update = updates[i];
+        progress.value.store(0);
+        progress.completed_plugins.store(i);
+        progress.downloaded_bytes.store(0);
+        progress.total_bytes.store(0);
+        if (progress.cancel.load()) return false;
+        if (!Install(update.available.id, update.installed.location, progress)) ++failed;
+      }
+      progress.completed_plugins.store(updates.size());
+      progress.value.store(100);
+      if (failed) {
+        progress.error = i18n::Format("%u plugin updates failed.", failed);
+        return false;
+      }
+      progress.status = "All plugins are up to date.";
+      return true;
+    }
+    case Job::kScreenshot: {
+      const Plugin plugin = CatalogEntry(request.id);
+      if (request.screenshot_index >= plugin.screenshots.size()) {
+        progress.error = "Screenshot unavailable.";
+        return false;
+      }
+      const std::string url = plugin.screenshots[request.screenshot_index];
+      // The URL identifies the cache entry, including changed screenshots.
+      uint64_t hash = UINT64_C(14695981039346656037);
+      for (unsigned char c : url) { hash ^= c; hash *= UINT64_C(1099511628211); }
+      const std::string name = plugin.id + "-" + std::to_string(hash) + ScreenshotExtension(url);
+      std::string cache = std::string(kPersistentCacheRoot) + "/screenshots";
+      if (!EnsureDirectory(cache)) cache = std::string(kCacheRoot) + "/screenshots";
+      if (!EnsureDirectory(cache)) {
+        progress.error = "Screenshot unavailable.";
+        return false;
+      }
+      const std::string path = cache + "/" + name;
+      std::string cached;
+      constexpr uint64_t limit = 4 * 1024 * 1024;
+      if (!ReadBounded(path, limit, cached) || cached.empty()) {
+        if (!Download(url, path + ".new", limit, &progress, 5, 95) ||
+            rename((path + ".new").c_str(), path.c_str()) != 0) {
+          unlink((path + ".new").c_str());
+          progress.error = "Screenshot unavailable.";
+          return false;
+        }
+      }
+      progress.value.store(100);
+      progress.status = path;
+      return true;
+    }
   }
   progress.error = "Unsupported plugin operation."; return false;
 }
