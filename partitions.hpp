@@ -433,6 +433,9 @@ public:
 	void Remove_Partition_By_Path(string Path);                               // Removes / erases a partition entry from the partition list
 
 	bool Flash_Image(string& path, string& filename);                         // Flashes an image to a selected partition from the partition list
+	bool Flash_Image_To_Block(const std::string& path, const std::string& filename,
+	                          const std::string& block, const std::string& name,
+	                          bool validate_only = false);
 	bool Flash_Repacked_Image(string& path, string& filename, bool recovery); // Reflash repacked image...
 	
 	bool Restore_Partition(struct PartitionSettings *part_settings);          // Restore the partitions based on type

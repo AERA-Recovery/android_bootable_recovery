@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "aera_remote.hpp"
+#include "pc_connection.hpp"
 
 #include "frame_broker.hpp"
 #include "input.hpp"
@@ -268,7 +269,17 @@ void Handle(int descriptor) {
     Reply(descriptor, "204 No Content", "text/plain", "");
     return;
   }
-  if (request.method == "GET" && (request.path == "/" || request.path == "/index.html")) {
+  if (request.method == "GET" && Port() == 80 &&
+      request.path == "/pc") {
+    const std::string location = aera::pc::HttpRedirectLocation(Header(request, "host"));
+    if (!location.empty()) {
+      SendAll(descriptor, "HTTP/1.1 302 Found\r\nLocation: " + location +
+          "\r\nContent-Length: 0\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+      return;
+    }
+  }
+  if (request.method == "GET" && (request.path == "/" || request.path == "/index.html" ||
+                                 request.path == "/remote" || request.path == "/remote/")) {
     const std::string client = LoadClient();
     if (client.empty())
       Reply(descriptor, "503 Service Unavailable", "text/plain; charset=utf-8",
@@ -370,6 +381,7 @@ std::string GenerateCode() {
 
 bool Start(int port) {
   if (port < 1 || port > 65535) return false;
+  if (port == 80) aera::pc::ReleaseHttpRedirect();
   std::lock_guard<std::mutex> guard(g_lifecycle_lock);
   if (g_running.load(std::memory_order_acquire)) return g_port == port;
 

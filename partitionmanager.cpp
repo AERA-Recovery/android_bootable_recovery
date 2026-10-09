@@ -25,6 +25,8 @@
 #include <limits.h>
 #include <sys/stat.h>
 #include <sys/vfs.h>
+#include <sys/ioctl.h>
+#include <mntent.h>
 #include <unistd.h>
 #include <algorithm>
 #include <chrono>
@@ -3789,6 +3791,74 @@ bool AeraGrowLogicalPartition(TWPartitionManager* manager, TWPartition* twrp_par
 }
 
 }  // namespace
+
+bool TWPartitionManager::Flash_Image_To_Block(const std::string& path,
+        const std::string& filename, const std::string& block, const std::string& name,
+        bool validate_only) {
+    char canonical[PATH_MAX]{};
+    struct stat target{};
+    uint64_t capacity = 0, expanded = 0;
+    int read_only = 1;
+    if (!realpath(block.c_str(), canonical) || strncmp(canonical, "/dev/block/", 11) != 0 ||
+        stat(canonical, &target) || !S_ISBLK(target.st_mode)) return false;
+    const int fd = open(canonical, O_RDONLY | O_CLOEXEC);
+    const bool available = fd >= 0 && ioctl(fd, BLKGETSIZE64, &capacity) == 0 &&
+        ioctl(fd, BLKROGET, &read_only) == 0 && !read_only;
+    if (fd >= 0) close(fd);
+    const auto source = path + "/" + filename;
+    if (!available || !AeraExpandedImageSize(source, &expanded) || !expanded || expanded > capacity) {
+        gui_err("Image target is read-only or smaller than the selected image.");
+        return false;
+    }
+    if (validate_only) return true;
+    struct RestoreMounts {
+        std::vector<TWPartition*> mounted;
+        ~RestoreMounts() { for (auto* part : mounted) part->Mount(false); }
+    } restore;
+    for (auto* part : Partitions) {
+        struct stat device{};
+        if (stat(part->Actual_Block_Device.c_str(), &device) || !S_ISBLK(device.st_mode) ||
+            device.st_rdev != target.st_rdev || !part->Is_Mounted()) continue;
+        const auto mount = part->Get_Mount_Point();
+        if (source == mount || (source.size() > mount.size() &&
+            source.compare(0, mount.size(), mount) == 0 && source[mount.size()] == '/')) {
+            gui_err("The source image is stored on the selected target partition.");
+            return false;
+        }
+        if (!part->UnMount(true)) return false;
+        restore.mounted.push_back(part);
+    }
+    FILE* mounts = setmntent("/proc/mounts", "r");
+    if (!mounts) return false;
+    bool still_mounted = false;
+    while (auto* mount = getmntent(mounts)) {
+        struct stat device{};
+        if (stat(mount->mnt_fsname, &device) == 0 && S_ISBLK(device.st_mode) &&
+            device.st_rdev == target.st_rdev) { still_mounted = true; break; }
+    }
+    endmntent(mounts);
+    if (still_mounted) {
+        gui_err("The image target is still mounted. Unmount it before flashing.");
+        return false;
+    }
+    // Reuse the existing raw/sparse writer with an operation-local emmc entry;
+    // do not mutate fstab entries or the active-slot selection.
+    TWPartition partition;
+    const auto entry = std::string("/aera-image-target emmc ") + canonical + " flags=flashimg=1;display=" + name;
+    if (!partition.Process_Fstab_Line(entry.c_str(), true, nullptr)) return false;
+    partition.Backup_Display_Name = name;
+    partition.Set_Backup_FileName(filename);
+    ProgressTracking progress(expanded);
+    PartitionSettings settings{};
+    settings.Part = &partition; settings.Backup_Folder = path;
+    settings.total_restore_size = expanded; settings.progress = &progress;
+    settings.PM_Method = PM_RESTORE;
+    DataManager::SetProgress(0.0);
+    gui_print("Flashing image to %s (%s)\n", name.c_str(), canonical);
+    const bool flashed = partition.Flash_Image(&settings);
+    if (flashed) DataManager::SetProgress(1.0);
+    return flashed;
+}
 
 bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 	twrpRepacker repacker;

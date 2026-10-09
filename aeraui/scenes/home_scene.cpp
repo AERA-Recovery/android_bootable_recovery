@@ -656,7 +656,7 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
       request.title = "Flash Image";
       request.path = entry.path;
       request.partitions = {target.path};
-      request.both_slots = *both_slots && !target.logical;
+      request.both_slots = *both_slots && target.slot_select && !target.logical;
       const std::string slot_destination = request.both_slots
           ? i18n::Translate("Both slots A + B")
           : target.logical

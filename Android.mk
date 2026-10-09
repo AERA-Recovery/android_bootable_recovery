@@ -57,6 +57,7 @@ LOCAL_SRC_FILES := \
     aera_rpc/aera_engine.cpp \
     aera_rpc/aera_protocol.cpp \
     aera_remote/aera_remote.cpp \
+    aera_remote/pc_connection.cpp \
     aera_remote/frame_broker.cpp \
     aera_remote/input.cpp \
     aeraui/features/plugin_api/operations.cpp \

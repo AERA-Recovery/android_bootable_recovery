@@ -17,7 +17,8 @@ enum class Job {
   kMount,
   kUnmount,
   kFormatData,
-  kClearSnapshotCow
+  kClearSnapshotCow,
+  kRootOperation
 };
 struct Volume {
   std::string name;
@@ -44,6 +45,10 @@ struct JobRequest {
   bool both_slots = false;
   std::string confirmation;
   bool present_before_run = false;
+  bool show_on_device = true;
+  std::string root_action;
+  std::string root_provider;
+  std::string root_slot;
 };
 inline bool FormatDataAuthorized(const JobRequest &request) {
   return request.job == Job::kFormatData && request.path == "/data" &&
@@ -62,6 +67,7 @@ std::string RecoveryBackupRoot();
 bool RecoveryDeleteBackup(const std::string &folder);
 bool RecoveryBackupCanUpload(const std::string &folder);
 std::string RecoverySlot();
+std::string RecoveryBootSlot();
 std::string RecoveryVersion();
 std::string RecoveryBuildType();
 std::string RecoveryBuildStatus();
@@ -225,6 +231,8 @@ bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy policy);
 bool RecoverySavePreferences();
 // Autosave reports failure if either the full or enabled early cache cannot be written.
 bool RecoveryAutoSavePreferences();
+bool RecoveryPcAutoEnable();
+bool RecoverySetPcAutoEnable(bool enabled);
 // Reset the in-memory group; the UI then applies it and autosaves once.
 bool RecoveryResetThemeSettings();
 bool RecoveryResetPreferences();

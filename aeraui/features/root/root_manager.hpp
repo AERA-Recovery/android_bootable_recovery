@@ -22,6 +22,7 @@ enum class Job {
   kUpdateModule,
   kInstallManager,
   kUninstallManager,
+  kInspectTarget,
 };
 
 struct Status {
@@ -89,6 +90,7 @@ struct Request {
   Provider provider = Provider::kKernelSU;
   std::string slot;
   std::string module_id;
+  bool verify_target_kernel = false;
 };
 
 struct Progress {
@@ -102,6 +104,7 @@ struct Progress {
 };
 
 Status Probe();
+Status ProbeSlot(const std::string &slot);
 PatchInfo InspectSlot(const std::string &slot);
 Release BundledRelease(Provider provider, const std::string &kmi);
 Release CachedRelease(Provider provider);

@@ -6,6 +6,7 @@
  * Copyright Syed Insaf, Apache-2.0.
  */
 #include "payload_arb.hpp"
+#include "update_engine/update_metadata.pb.h"
 #include <algorithm>
 #include <cerrno>
 #include <cstring>

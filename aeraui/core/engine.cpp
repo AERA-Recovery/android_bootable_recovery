@@ -39,6 +39,8 @@
 #include "draw/opengles/lv_draw_opengles.h"
 #include "../../aera_rpc/aera_channel.hpp"
 #include "../../aera_remote/aera_remote.hpp"
+#include "../../aera_remote/pc_connection.hpp"
+#include "../../aera_rpc/aera_dispatcher.hpp"
 
 extern "C" int aeraui_install_package(const char *path);
 extern "C" int aeraui_decrypt_data(const char *credential, int user_id);
@@ -366,6 +368,7 @@ public:
   }
 
   void Shutdown() {
+    aera::pc::SetEnabled(false, 443, false);
     plugin_progress_.cancel.store(true);
     update::Cancel();
     if (operation_running_ && operation_scene_.job == Job::kSideload)
@@ -450,6 +453,11 @@ public:
     power_overlay_ = nullptr;
     volume_overlay_ = nullptr;
     notice_overlay_ = nullptr;
+    pc_overlay_ = nullptr;
+    pc_connection_id_.clear();
+    pc_job_id_.clear();
+    last_pc_poll_ = last_pc_platform_refresh_ = 0;
+    last_pc_start_attempt_ = 0;
     suspended_ = false;
     interactive_ready_ = false;
     initialized_ = false;
@@ -480,23 +488,31 @@ public:
       if (operation_thread_.joinable())
         operation_thread_.join();
       const bool success = operation_result_.load(std::memory_order_acquire) == 0;
+      if (!pc_job_id_.empty()) {
+        aera::pc::UpdateInstallerPresentation(RecoveryInstallerPresentation());
+        aera::pc::UpdateInstall(RecoveryProgress(), RecoveryOperationDetail(), widgets::ReadLog());
+        aera::pc::CompleteInstall(pc_job_id_, operation_result_.load(std::memory_order_acquire));
+        pc_job_id_.clear();
+      }
       if (update_installing_) {
         if (success) update::MarkInstalled();
         update_installing_ = false;
       }
-      const bool sideload_cancelled =
-          operation_scene_.job == Job::kSideload &&
-          RecoverySideloadStatus().cancel_requested;
-      CompleteOperationScene(
-          operation_scene_, success,
-          sideload_cancelled
-              ? "ADB sideload was cancelled. Normal ADB has been restored."
-              : success
-                    ? "The requested operation completed. Review its output below."
-                    : "The backend reported an error. Review the recovery log below.");
+      if (operation_visible_) {
+        const bool sideload_cancelled =
+            operation_scene_.job == Job::kSideload &&
+            RecoverySideloadStatus().cancel_requested;
+        CompleteOperationScene(
+            operation_scene_, success,
+            sideload_cancelled
+                ? "ADB sideload was cancelled. Normal ADB has been restored."
+                : success
+                      ? "The requested operation completed. Review its output below."
+                      : "The backend reported an error. Review the recovery log below.");
+      }
       operation_running_ = false;
     }
-    if (operation_running_ && MonotonicMilliseconds() - last_operation_update_ >= 500) {
+    if (operation_running_ && operation_visible_ && MonotonicMilliseconds() - last_operation_update_ >= 500) {
       last_operation_update_ = MonotonicMilliseconds();
       RefreshOperationScene(operation_scene_);
     }
@@ -603,6 +619,7 @@ public:
       RefreshUpdateScene(update_scene_);
     }
     PollAutomaticUpdates();
+    PollPcConnection();
     PollRecentsHold();
     const uint32_t next = lv_timer_handler();
 #ifndef TW_OEM_BUILD
@@ -2766,15 +2783,174 @@ private:
     StartJob(request);
   }
 
+  bool PcBlockedByModal() const {
+    auto *screen = lv_screen_active();
+    if (recents_overlay_) return true;
+    // Enabling PC connection opens this sheet; it must not block its own approval.
+    if (current_scene_ == Action::kWifi) return false;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(screen); ++i) {
+      auto *child = lv_obj_get_child(screen, i);
+      const auto marker = lv_obj_get_user_data(child);
+      if (!lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN) &&
+          (marker == &widgets::kModalMarker || marker == &widgets::kPersistentModalMarker)) return true;
+    }
+    return false;
+  }
+
+  void PollPcConnection() {
+    const uint32_t now = MonotonicMilliseconds();
+    if (now - last_pc_poll_ < 250) return;
+    last_pc_poll_ = now;
+    auto status = aera::pc::GetStatus();
+    const bool wifi_connected = RecoveryWifiConnection().connected;
+    if (status.enabled && !wifi_connected) {
+      aera::pc::SetEnabled(false, 443, false);
+      status = aera::pc::GetStatus();
+    }
+    if (!status.enabled && !status.manually_disabled && interactive_ready_ &&
+        !decryption_active_ && !decrypt_running_ && !wifi_running_ && !fastboot_mode_ &&
+        (last_pc_start_attempt_ == 0 || now - last_pc_start_attempt_ >= 5000)) {
+      if (RecoveryPcAutoEnable() && wifi_connected) {
+        last_pc_start_attempt_ = now;
+        aera::pc::SetEnabled(true, 443, false);
+        status = aera::pc::GetStatus();
+      }
+    }
+    if (pc_overlay_ && status.pending_connection != pc_connection_id_) {
+      lv_obj_delete(pc_overlay_);
+      pc_overlay_ = nullptr; pc_connection_id_.clear();
+    }
+    if (!pc_job_id_.empty() && operation_running_) {
+      aera::pc::UpdateInstallerPresentation(RecoveryInstallerPresentation());
+      aera::pc::UpdateInstall(RecoveryProgress(), RecoveryOperationDetail(), widgets::ReadLog());
+      const auto prompt = RecoveryInstallerPrompt();
+      aera::pc::UpdateInstallerPrompt(prompt);
+      std::string id; bool accepted = false;
+      if (aera::pc::TakePromptAnswer(&id, &accepted) && prompt.active && prompt.id == id)
+        RecoveryAnswerInstallerPrompt(accepted);
+    }
+    bool pc_busy = !interactive_ready_ || decryption_active_ || decrypt_running_ ||
+        operation_running_ || wifi_running_ || nas_running_ || plugin_running_ ||
+        update_running_ || fastboot_mode_ || power_overlay_ ||
+        current_scene_ == Action::kRootManager;
+#ifndef TW_OEM_BUILD
+    pc_busy = pc_busy || aera::rpc::Dispatcher::Active();
+#endif
+    aera::pc::SetRecoveryBusy(pc_busy);
+    if (pc_busy) return;
+    if (status.enabled && now - last_pc_platform_refresh_ >= 2000) {
+      last_pc_platform_refresh_ = now;
+      aera::pc::RestoreHttpRedirect();
+      aera::pc::RefreshPlatformInfo();
+    }
+    aera::pc::ConnectionRequest connection;
+    if (!pc_overlay_ && !lock_overlay_ && !PcBlockedByModal() &&
+        aera::pc::TakeConnectionRequest(&connection)) {
+      ShowPcApproval(connection);
+      return;
+    }
+    aera::pc::InstallRequest install;
+    std::string reboot;
+    if (!pc_overlay_ && !PcBlockedByModal() && aera::pc::TakeRebootRequest(&reboot)) {
+      const Action action = reboot == "system" ? Action::kRebootSystem :
+          reboot == "recovery" ? Action::kRebootRecovery :
+          reboot == "bootloader" ? Action::kRebootBootloader :
+          reboot == "fastbootd" ? Action::kRebootFastbootd : Action::kPowerOff;
+      HandleSceneAction(action, this);
+      return;
+    }
+    if (!pc_overlay_ && !PcBlockedByModal() &&
+        aera::pc::TakeInstallRequest(&install) && aera::pc::BeginInstall(install.id)) {
+      // A browser-confirmed job replaces the idle swipe lock, never decryption.
+      if (lock_overlay_ && install.job.show_on_device) {
+        auto *lock = lock_overlay_; lock_overlay_ = nullptr;
+        lv_obj_delete(lock);
+      }
+      pc_job_id_ = install.id;
+      SetJobRequest(install.job);
+      HandleSceneAction(Action::kRunOperation, this);
+    }
+  }
+
+  void ShowPcApproval(const aera::pc::ConnectionRequest &request) {
+    using namespace design;
+    using namespace widgets;
+    auto *screen = lv_screen_active();
+    auto *overlay = lv_obj_create(screen);
+    Clear(overlay); lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_user_data(overlay, &kModalMarker);
+    lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_50, 0);
+    pc_overlay_ = overlay; pc_connection_id_ = request.id;
+    lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
+      auto *self = static_cast<Impl *>(lv_event_get_user_data(event));
+      if (self->pc_overlay_ == lv_event_get_target_obj(event)) {
+        aera::pc::ResolveConnection(self->pc_connection_id_, false, false);
+        self->pc_overlay_ = nullptr; self->pc_connection_id_.clear();
+      }
+    }, LV_EVENT_DELETE, this);
+    auto *panel = lv_obj_create(overlay); Panel(panel, 36, kMainSheet);
+    lv_obj_set_size(panel, std::min(1280, static_cast<int>(lv_obj_get_width(screen)) - 80), 820);
+    lv_obj_center(panel);
+    auto *title = Label(panel, "Allow this computer?", &lv_font_montserrat_40, kText);
+    lv_obj_set_pos(title, 40, 34); lv_obj_set_width(title, 1160);
+    FitLabelToLines(title, 1160, 2, {&lv_font_montserrat_40, &lv_font_montserrat_36});
+    auto *name = Label(panel, request.name.c_str(), &lv_font_montserrat_36, kAccent);
+    lv_obj_set_pos(name, 40, 158); lv_obj_set_width(name, 1160);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    std::string fingerprint;
+    for (size_t i = 0; i < request.fingerprint.size(); i += 4) {
+      if (!fingerprint.empty()) fingerprint += ' ';
+      fingerprint += request.fingerprint.substr(i, 4);
+    }
+    auto *key = Label(panel, fingerprint.c_str(), &lv_font_montserrat_24, kMuted);
+    lv_obj_set_pos(key, 40, 240); lv_obj_set_width(key, 1160);
+    auto *description = Label(panel, "Transfer and install ZIPs and images from your computer",
+                             &lv_font_montserrat_28, kText);
+    lv_obj_set_pos(description, 40, 352);
+    FitLabelToLines(description, 1160, 2, {&lv_font_montserrat_28, &lv_font_montserrat_24});
+    auto *remember = lv_checkbox_create(panel);
+    lv_checkbox_set_text(remember, i18n::Translate("Remember this computer"));
+    lv_obj_set_style_text_font(remember, UiFont(&lv_font_montserrat_36), 0);
+    lv_obj_set_style_text_color(remember, kText, 0);
+    lv_obj_set_pos(remember, 40, 488); lv_obj_set_size(remember, 1160, 124);
+    lv_obj_set_style_pad_all(remember, 24, 0);
+    lv_obj_set_style_pad_column(remember, 24, 0);
+    lv_obj_set_style_bg_opa(remember, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(remember, kMainPanel, 0);
+    lv_obj_set_style_radius(remember, 20, 0);
+    lv_obj_set_style_border_width(remember, 2, LV_PART_INDICATOR);
+    lv_obj_set_style_border_color(remember, kMuted, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(remember, 8, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(remember, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(remember, kMainCanvas, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(remember, kAccent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_border_color(remember, kAccent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_text_color(remember, lv_color_black(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_text_font(remember, UiFont(&lv_font_montserrat_36), LV_PART_INDICATOR);
+    if (!request.remember_available) lv_obj_add_state(remember, LV_STATE_DISABLED);
+    auto *deny = Button(panel, "Deny", [request, overlay] {
+      aera::pc::ResolveConnection(request.id, false, false); lv_obj_delete_async(overlay);
+    });
+    lv_obj_set_pos(deny, 40, 658); lv_obj_set_size(deny, 570, 110);
+    auto *allow = Button(panel, "Allow", [request, remember, overlay] {
+      aera::pc::ResolveConnection(request.id, true, lv_obj_has_state(remember, LV_STATE_CHECKED));
+      lv_obj_delete_async(overlay);
+    }, true);
+    lv_obj_set_pos(allow, 630, 658); lv_obj_set_size(allow, 570, 110);
+  }
+
   void StartJob(const JobRequest &request) {
     if (operation_running_ || wifi_running_ || nas_running_ || plugin_running_)
       return;
-    current_tool_ = Action::kNone;
-    on_home_ = false;
-    lv_obj_t *screen = lv_obj_create(nullptr);
-    operation_scene_ = BuildJobScene(screen, request,
-                                           HandleSceneAction, this);
-    lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+    operation_visible_ = request.show_on_device;
+    if (operation_visible_) {
+      current_tool_ = Action::kNone;
+      on_home_ = false;
+      lv_obj_t *screen = lv_obj_create(nullptr);
+      operation_scene_ = BuildJobScene(screen, request, HandleSceneAction, this);
+      lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+    }
 
     operation_running_ = true;
     operation_result_.store(-1, std::memory_order_release);
@@ -3400,6 +3576,10 @@ private:
   lv_obj_t *volume_fill_ = nullptr;
   lv_timer_t *volume_hide_timer_ = nullptr;
   lv_obj_t *notice_overlay_ = nullptr;
+  lv_obj_t *pc_overlay_ = nullptr;
+  std::string pc_connection_id_, pc_job_id_;
+  uint32_t last_pc_poll_ = 0, last_pc_platform_refresh_ = 0;
+  uint32_t last_pc_start_attempt_ = 0;
   PointerEvent pointer_{};
   OperationScene operation_scene_{};
   DecryptScene decrypt_scene_{};
@@ -3475,6 +3655,7 @@ private:
   bool backend_ready_ = false;
   bool boot_animation_complete_ = false;
   bool operation_running_ = false;
+  bool operation_visible_ = true;
   int credential_type_ = 0;
   int crypto_user_id_ = 0;
   bool decrypt_running_ = false;

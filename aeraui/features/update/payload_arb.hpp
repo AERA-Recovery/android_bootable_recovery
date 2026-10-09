@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "update_engine/update_metadata.pb.h"
+namespace chromeos_update_engine { class DeltaArchiveManifest; }
 namespace aeraui::payload {
 struct Arb {
   bool available = false;

@@ -27,6 +27,7 @@
 #include "aeraui/engine.hpp"
 #include "aeraui/backend.hpp"
 #include "aeraui/platform/aera_screen_timer.hpp"
+#include "../../aera_remote/pc_connection.hpp"
 #include "aeraui/status_bar.hpp"
 #include "../components/power_transition.hpp"
 
@@ -487,6 +488,11 @@ RunResult RunLoop(bool fastboot_mode = false,
                                     "CLI requested live transition to %s",
                                     toward_fastboot ? "fastboot" : "recovery");
             }
+        }
+        if (hardware.screen_off && aera::pc::NeedsUiAttention()) {
+            engine.SetSuspended(false);
+            aeraScreenTimer.Wake();
+            hardware.screen_off = false;
         }
         const int wait_ms = static_cast<int>(engine.RunFrame());
         // The display backend may still own/import the current GPU buffer

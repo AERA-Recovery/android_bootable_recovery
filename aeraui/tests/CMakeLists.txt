@@ -62,6 +62,7 @@ add_test(NAME file_timestamp_layout COMMAND ui_check --file-dates)
 add_test(NAME settings_autosave_and_reset COMMAND ui_check --settings)
 add_test(NAME themed_home_artwork COMMAND ui_check --art)
 add_test(NAME themed_home_layout COMMAND ui_check --home-art)
+add_test(NAME pc_connection_settings_layout COMMAND ui_check --pc-settings)
 add_executable(display_transform_test display_transform_test.cpp)
 target_include_directories(display_transform_test PRIVATE ../include)
 add_test(NAME adaptive_display_transform COMMAND display_transform_test)
@@ -100,6 +101,27 @@ target_compile_options(smb_browser_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_options(smb_browser_test PRIVATE -Wl,--wrap=posix_spawn)
 target_link_libraries(smb_browser_test PRIVATE jsoncpp_static Threads::Threads)
 add_test(NAME smb_browse_paths_and_cancellation COMMAND smb_browser_test)
+
+find_package(OpenSSL REQUIRED)
+add_executable(kernel_kmi_test kernel_kmi_test.cpp)
+target_compile_options(kernel_kmi_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME target_slot_kernel_kmi COMMAND kernel_kmi_test)
+add_executable(image_targets_test image_targets_test.cpp)
+target_include_directories(image_targets_test PRIVATE ../include)
+target_compile_options(image_targets_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME physical_firmware_image_targets COMMAND image_targets_test)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_executable(pc_connection_host pc_connection_host.cpp ../../aera_remote/pc_connection.cpp)
+target_include_directories(pc_connection_host PRIVATE ../include)
+target_compile_definitions(pc_connection_host PRIVATE OF_ENABLE_WLAN=1 AERA_PC_HOST_TEST=1
+  AERA_PC_PRIVATE_DIRECTORY="${CMAKE_CURRENT_BINARY_DIR}/pc-private"
+  AERA_PC_CLIENT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../../aera_remote/client/pc/index.html")
+target_compile_options(pc_connection_host PRIVATE -Wall -Wextra -Wno-deprecated-declarations)
+target_link_libraries(pc_connection_host PRIVATE jsoncpp_static OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+add_test(NAME pc_connection_approval_transfer_and_install
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/pc_connection_test.py"
+  "$<TARGET_FILE:pc_connection_host>" "${CMAKE_CURRENT_BINARY_DIR}")
+set_tests_properties(pc_connection_approval_transfer_and_install PROPERTIES RUN_SERIAL TRUE TIMEOUT 45)
 
 add_executable(nas_ui_test nas_ui_test.cpp ../scenes/nas_scene.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp

@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <thread>
 #include <cctype>
 #include <cerrno>
 #include <cstring>
@@ -19,6 +21,8 @@
 #include <strings.h>
 #include <vector>
 #include <sys/mount.h>
+#include <sys/ioctl.h>
+#include <linux/fs.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -27,11 +31,13 @@
 
 #include "data.hpp"
 #include "aera_secrets/aera_secrets.hpp"
+#include "aeraui/features/root/root_manager.hpp"
 #include "partitions.hpp"
 #include "twrp-functions.hpp"
 #include "variables.h"
 #include <set_metadata.h>
 #include "aeraui/platform/aera_ui_host.hpp"
+#include "aeraui/platform/image_targets.hpp"
 #include <twinstall.h>
 #include <twinstall/adb_install.h>
 
@@ -326,21 +332,53 @@ std::vector<Volume> RecoveryVolumes(const std::string &kind) {
   return result;
 }
 
+static std::map<std::string, images::Block> NamedImageBlocks() {
+  std::map<std::string, images::Block> blocks;
+  for (const char *root : {"/dev/block/by-name", "/dev/block/bootdevice/by-name"}) {
+    DIR *directory = opendir(root);
+    if (!directory) continue;
+    while (const auto *entry = readdir(directory)) {
+      const std::string name = entry->d_name;
+      if (!images::ValidName(name) || blocks.count(name)) continue;
+      char canonical[PATH_MAX]{};
+      const auto path = std::string(root) + "/" + name;
+      struct stat info{};
+      if (!realpath(path.c_str(), canonical) || stat(canonical, &info) || !S_ISBLK(info.st_mode)) continue;
+      const int fd = open(canonical, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+      uint64_t bytes = 0;
+      if (fd >= 0 && ioctl(fd, BLKGETSIZE64, &bytes) == 0 && bytes)
+        blocks.emplace(name, images::Block{canonical, bytes});
+      if (fd >= 0) close(fd);
+    }
+    closedir(directory);
+  }
+  return blocks;
+}
+
 std::vector<Volume> RecoveryImageVolumes() {
-  static const std::vector<std::string> allowed = {
-      "/boot", "/init_boot", "/vendor_boot", "/recovery", "/dtbo", "/abl"};
   const auto flashable = RecoveryVolumes("aera_flashimg");
+  const auto blocks = NamedImageBlocks();
+  std::set<std::string> represented;
   std::vector<Volume> result;
   for (auto volume : flashable) {
     TWPartition *partition = PartitionManager.Find_Partition_By_Path(volume.path);
     if (!partition) continue;
     volume.slot_select = partition->Is_SlotSelect();
     volume.logical = partition->Get_Super_Status();
-    const bool allowed_physical =
-        std::find(allowed.begin(), allowed.end(), volume.path) != allowed.end();
-    if (volume.logical || (allowed_physical && volume.slot_select))
-      result.push_back(std::move(volume));
+    if (!volume.logical && partition->Current_File_System != "emmc" &&
+        partition->Current_File_System != "mtd" && partition->Current_File_System != "bml") continue;
+    if (!volume.logical) {
+      represented.insert(images::BaseName(volume.path.substr(volume.path.find_last_of('/')+1)));
+      for (const auto &[name, block] : blocks) {
+        char actual[PATH_MAX]{};
+        if (realpath(partition->Actual_Block_Device.c_str(), actual) && block.path == actual)
+          represented.insert(images::BaseName(name));
+      }
+    }
+    result.push_back(std::move(volume));
   }
+  auto physical = images::PhysicalTargets(blocks, represented);
+  result.insert(result.end(), physical.begin(), physical.end());
   std::stable_sort(result.begin(), result.end(),
                    [](const Volume &left, const Volume &right) {
                      if (left.logical != right.logical) return !left.logical;
@@ -379,6 +417,12 @@ bool RecoveryBackupCanUpload(const std::string &folder) {
 }
 
 std::string RecoverySlot() { return PartitionManager.Get_Active_Slot_Display(); }
+std::string RecoveryBootSlot() {
+  const auto suffix = android::base::GetProperty("ro.boot.slot_suffix", "");
+  if (suffix == "_a" || suffix == "_b") return suffix.substr(1);
+  const auto slot = android::base::GetProperty("ro.boot.slot", "");
+  return slot == "a" || slot == "b" ? slot : "";
+}
 std::string RecoveryVersion() { return DataManager::GetStrValue(TW_VERSION_VAR); }
 std::string RecoveryBuildType() {
   return DataManager::GetStrValue(BUILD_TYPE_STR);
@@ -734,6 +778,45 @@ int RecoveryRunJob(const JobRequest &request) {
     return removed ? 0 : 1;
   }
   if (request.job == Job::kInstall) return aeraui_install_package(request.path.c_str());
+  if (request.job == Job::kRootOperation) {
+    root::Request operation;
+    if (request.root_slot != "a" && request.root_slot != "b") return 1;
+    operation.slot = request.root_slot;
+    operation.verify_target_kernel = true;
+    if (request.root_provider == "kernelsu") operation.provider = root::Provider::kKernelSU;
+    else if (request.root_provider == "next") operation.provider = root::Provider::kKernelSUNext;
+    else if (request.root_provider == "sukisu") operation.provider = root::Provider::kSukiSU;
+    else return 1;
+    if (request.root_action == "inspect") operation.job = root::Job::kInspectTarget;
+    else if (request.root_action == "refresh") operation.job = root::Job::kRefreshRelease;
+    else if (request.root_action == "patch") operation.job = root::Job::kPatch;
+    else if (request.root_action == "rollback") operation.job = root::Job::kRollback;
+    else if (request.root_action == "manager") operation.job = root::Job::kInstallManager;
+    else return 1;
+    root::Progress progress;
+    std::atomic<bool> done{false};
+    bool success = false;
+    std::thread worker([&] {
+      success = root::Run(operation, progress);
+      done.store(true, std::memory_order_release);
+    });
+    std::string previous;
+    do {
+      std::string text;
+      {
+        std::lock_guard<std::mutex> lock(progress.text_mutex);
+        text = progress.status;
+        if (!progress.detail.empty()) text += "\n" + progress.detail;
+      }
+      DataManager::SetProgress(progress.value.load() / 100.0f);
+      DataManager::SetValue("tw_file_progress", text);
+      if (text != previous) { gui_print("%s\n", text.c_str()); previous = text; }
+      if (done.load(std::memory_order_acquire)) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    } while (true);
+    worker.join();
+    return success ? 0 : 1;
+  }
   if (request.job == Job::kSideload) return RecoveryRunSideload();
   if (request.job == Job::kUploadBackup) {
 #ifdef OF_ENABLE_WLAN
@@ -816,10 +899,37 @@ int RecoveryRunJob(const JobRequest &request) {
     if (slash == std::string::npos || slash + 1 >= request.path.size()) return 1;
     std::string directory = slash == 0 ? "/" : request.path.substr(0, slash);
     std::string filename = request.path.substr(slash + 1);
+    const auto volume = std::find_if(targets.begin(), targets.end(),
+        [&](const Volume &item) { return item.path == target; });
+    if (request.both_slots && (volume->logical || !volume->slot_select)) return 1;
+    if (target.rfind("/block/", 0) == 0) {
+      const auto name = target.substr(7);
+      std::vector<std::string> names{name};
+      if (volume->slot_select) {
+        const auto slot = PartitionManager.Get_Active_Slot_Suffix();
+        if (slot != "_a" && slot != "_b") return 1;
+        names = request.both_slots ? std::vector<std::string>{name+slot, name+(slot == "_a" ? "_b" : "_a")} :
+                                   std::vector<std::string>{name+slot};
+      }
+      const auto blocks = NamedImageBlocks();
+      for (const auto &part : names) if (!blocks.count(part)) return 1;
+      for (const auto &part : names)
+        if (!PartitionManager.Flash_Image_To_Block(directory, filename, blocks.at(part).path, part, true)) return 1;
+      DataManager::SetValue("tw_partition", name);
+      TWFunc::SetPerformanceMode(true);
+      bool success = true;
+      for (const auto &part : names) {
+        if (!PartitionManager.Flash_Image_To_Block(directory, filename, blocks.at(part).path, part)) {
+          success = false; break;
+        }
+      }
+      TWFunc::SetPerformanceMode(false);
+      PartitionManager.Update_System_Details();
+      return success ? 0 : 1;
+    }
     TWPartition *flash_partition = PartitionManager.Find_Partition_By_Path(target);
     const bool logical = flash_partition && flash_partition->Get_Super_Status();
-    if (!flash_partition || (!logical && !flash_partition->Is_SlotSelect()) ||
-        (logical && request.both_slots)) return 1;
+    if (!flash_partition || (request.both_slots && (logical || !flash_partition->Is_SlotSelect()))) return 1;
     DataManager::SetValue("tw_flash_partition", target + ";");
     DataManager::SetValue("tw_flash_both_slots", request.both_slots ? 1 : 0);
     DataManager::SetValue("tw_partition", target);
@@ -1344,6 +1454,17 @@ bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy policy) {
 }
 bool RecoverySavePreferences() { return SaveAeraPreferences(); }
 bool RecoveryAutoSavePreferences() { return SaveAeraPreferences(true); }
+bool RecoveryPcAutoEnable() {
+  LoadAeraPreferencesIfAvailable();
+  return DataManager::GetIntValue("aera_pc_auto_enable") == 1;
+}
+bool RecoverySetPcAutoEnable(bool enabled) {
+  const int previous = DataManager::GetIntValue("aera_pc_auto_enable");
+  if (DataManager::SetValue("aera_pc_auto_enable", enabled ? 1 : 0, 1) != 0) return false;
+  if (SaveAeraPreferences()) return true;
+  DataManager::SetValue("aera_pc_auto_enable", previous, 1);
+  return false;
+}
 bool RecoveryResetThemeSettings() { return ResetAeraSettings(true); }
 bool RecoveryResetPreferences() { return ResetAeraSettings(false); }
 int RecoveryDefaultHapticDuration(Haptic haptic) {
@@ -1914,6 +2035,7 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "preserve_abl")
       DataManager::SetValue(AERA_PRESERVE_ABL_VAR, value);
     else if (key == "plugin_auto_update") DataManager::SetValue("aera_plugin_auto_update", value);
+    else if (key == "pc_auto_enable") DataManager::SetValue("aera_pc_auto_enable", value);
     else if (key == "update_nightly")
       DataManager::SetValue("aera_update_nightly", value);
     else if (key == "browser_homepage") DataManager::SetValue("aera_browser_homepage", value);
@@ -1946,6 +2068,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "preserve_recovery=" << DataManager::GetIntValue(AERA_PRESERVE_RECOVERY_VAR) << '\n'
          << "preserve_abl=" << DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) << '\n'
          << "plugin_auto_update=" << DataManager::GetIntValue("aera_plugin_auto_update") << '\n'
+         << "pc_auto_enable=" << DataManager::GetIntValue("aera_pc_auto_enable") << '\n'
          << "update_nightly=" << DataManager::GetIntValue("aera_update_nightly") << '\n'
          << "recents=" << DataManager::GetIntValue("aera_recents_enabled") << '\n'
          << "timezone=" << DataManager::GetStrValue(TW_TIME_ZONE_VAR) << '\n'

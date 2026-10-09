@@ -10,6 +10,7 @@
 
 #include "ui_components.hpp"
 #include "phone_keyboard.hpp"
+#include "../../aera_remote/pc_connection.hpp"
 
 namespace aeraui {
 namespace {
@@ -59,6 +60,10 @@ struct WifiUi {
   int list_width = 1312;
   lv_obj_t *settings_page = nullptr;
   lv_obj_t *settings_message = nullptr;
+  lv_obj_t *pc_switch = nullptr;
+  lv_obj_t *pc_address = nullptr;
+  lv_obj_t *pc_certificate = nullptr;
+  lv_obj_t *pc_section = nullptr;
   lv_obj_t *adb_switch = nullptr;
   lv_obj_t *adb_toggle = nullptr;
   lv_obj_t *adb_status = nullptr;
@@ -147,9 +152,13 @@ lv_obj_t *SettingsRow(lv_obj_t *parent, int y, const char *title,
   lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
   auto *name = Label(row, title, &lv_font_montserrat_32, kText);
   lv_obj_set_pos(name, 32, 24);
+  FitLabelToLines(name, width - 250, 1,
+                  {&lv_font_montserrat_32, &lv_font_montserrat_28, &lv_font_montserrat_24});
   auto *copy = Label(row, detail, &lv_font_montserrat_20, kMuted);
   lv_obj_set_pos(copy, 32, 88);
   lv_obj_set_width(copy, width - 250);
+  FitLabelToLines(copy, width - 250, 2,
+                  {&lv_font_montserrat_20, &lv_font_montserrat_18});
   auto *toggle = lv_switch_create(row);
   StyleSwitch(toggle, enabled);
   lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -32, 0);
@@ -162,7 +171,7 @@ lv_obj_t *SettingsRow(lv_obj_t *parent, int y, const char *title,
       lv_obj_set_style_text_color(message, kGreen, 0);
     } else {
       i18n::BindLabel(message,
-          "Could not change this setting. Connect Wi-Fi before enabling wireless ADB.");
+          "This setting could not be changed.");
       lv_obj_set_style_text_color(message, kRed, 0);
     }
   });
@@ -264,6 +273,14 @@ void RefreshWifiSettings(WifiUi *state) {
   if (!state || !state->settings_page || !lv_obj_is_valid(state->settings_page))
     return;
   const AdbWifiStatus adb = RecoveryAdbWifiStatus();
+  const auto pc = aera::pc::GetStatus();
+  if (state->pc_switch) StyleSwitch(state->pc_switch, pc.enabled);
+  if (state->pc_address) {
+    const std::string address = pc.enabled ? pc.address + "\n" + pc.ip_address : i18n::Translate("Off");
+    lv_label_set_text(state->pc_address, address.c_str());
+  }
+  if (state->pc_certificate)
+    lv_label_set_text(state->pc_certificate, pc.enabled ? pc.certificate.c_str() : "");
   const bool visual_enabled = state->adb_busy ? state->adb_desired : adb.enabled;
   if (visual_enabled) lv_obj_add_state(state->adb_switch, LV_STATE_CHECKED);
   else lv_obj_remove_state(state->adb_switch, LV_STATE_CHECKED);
@@ -373,6 +390,11 @@ void RefreshWifiSettings(WifiUi *state) {
   lv_obj_set_height(state->fastboot_card, fastboot_card_height);
   lv_obj_set_y(state->security_note,
                fastboot_card_top + fastboot_card_height + 28);
+  if (state->pc_section) {
+    lv_obj_update_layout(state->security_note);
+    lv_obj_set_y(state->pc_section, fastboot_card_top + fastboot_card_height + 28 +
+        lv_obj_get_height(state->security_note) + 52);
+  }
   if (state->last_pairing && !adb.pairing)
     RefreshPairedComputers(state, true);
   state->last_pairing = adb.pairing;
@@ -391,6 +413,10 @@ void ShowWifiSettings(WifiUi *state) {
     auto *s = static_cast<WifiUi *>(lv_event_get_user_data(event));
     s->settings_page = nullptr;
     s->settings_message = nullptr;
+    s->pc_switch = nullptr;
+    s->pc_address = nullptr;
+    s->pc_certificate = nullptr;
+    s->pc_section = nullptr;
     s->adb_switch = nullptr;
     s->adb_toggle = nullptr;
     s->adb_status = nullptr;
@@ -428,10 +454,13 @@ void ShowWifiSettings(WifiUi *state) {
   const int top = landscape ? 350 : 440;
   const int available = lv_obj_get_height(lv_obj_get_screen(page)) - top -
       NavigationHeight(page) - 24;
-  auto *content = Scroll(page, top, std::max(640, available));
-  lv_obj_set_style_pad_bottom(content, 72, 0);
-  lv_obj_update_layout(content);
-  const int width = std::max(320, static_cast<int>(lv_obj_get_width(content)));
+  auto *scroll = Scroll(page, top, std::max(640, available));
+  lv_obj_set_style_pad_bottom(scroll, 72, 0);
+  lv_obj_update_layout(scroll);
+  const int width = std::max(320, static_cast<int>(lv_obj_get_width(scroll)));
+  auto *content = lv_obj_create(scroll);
+  Clear(content); lv_obj_set_pos(content, 0, 0);
+  lv_obj_set_width(content, width); lv_obj_set_height(content, LV_SIZE_CONTENT);
 
   SectionCaption(content, 0, "STARTUP");
   auto *message = Label(content, "Changes apply immediately",
@@ -651,6 +680,31 @@ void ShowWifiSettings(WifiUi *state) {
   state->security_note = security;
   lv_obj_set_pos(security, 16, 1674);
   lv_obj_set_width(security, width - 32);
+
+  auto *pc_section = lv_obj_create(content);
+  state->pc_section = pc_section;
+  Clear(pc_section); lv_obj_set_width(pc_section, width);
+  lv_obj_set_height(pc_section, 632);
+  auto *pc_row = SettingsRow(pc_section, 0, "PC connection",
+      "Transfer and install ZIPs and images from your computer", aera::pc::GetStatus().enabled,
+      [](bool enabled) { return aera::pc::SetEnabled(enabled); }, message);
+  state->pc_switch = lv_obj_get_child(pc_row, 2);
+  SettingsRow(pc_section, 180, "Auto-enable PC connection",
+      "Start when Wi-Fi connects after unlocking", RecoveryPcAutoEnable(),
+      [](bool enabled) { return RecoverySetPcAutoEnable(enabled); }, message);
+  state->pc_address = Label(pc_section, "", &lv_font_montserrat_28, kAccent);
+  lv_obj_set_pos(state->pc_address, 24, 364); lv_obj_set_width(state->pc_address, width - 48);
+  state->pc_certificate = Label(pc_section, "", &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(state->pc_certificate, 24, 468); lv_obj_set_width(state->pc_certificate, width - 48);
+  auto *forget = Button(pc_section, "Forget remembered computers", [state] {
+    Sheet(state->settings_page, "Forget remembered computers",
+          "Remove all saved PC connection approvals?",
+          [state] {
+            if (!aera::pc::ForgetComputers())
+              Sheet(state->settings_page, "Setting unavailable", "This setting could not be changed.");
+          });
+  });
+  lv_obj_set_pos(forget, 0, 526); lv_obj_set_size(forget, width, 100);
 
   Navigation(page, Action::kSettings, state->callback, state->context);
   AnimateEnter(content, 12, 16);
@@ -986,6 +1040,8 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
   lv_obj_add_event_cb(screen, [](lv_event_t *event) {
     auto *s = static_cast<WifiUi *>(lv_event_get_user_data(event));
     if (s->timer) lv_timer_delete(s->timer);
+    // Child delete callbacks clear fields in WifiUi, so close the sheet first.
+    if (s->settings_page) lv_obj_delete(s->settings_page);
     delete s;
   }, LV_EVENT_DELETE, state);
 

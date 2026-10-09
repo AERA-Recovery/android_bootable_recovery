@@ -121,6 +121,7 @@ const char *InitialTitle(Job job) {
     case Job::kClearSnapshotCow: return "Preparing snapshot cleanup";
     case Job::kMount: return "Mounting storage";
     case Job::kUnmount: return "Unmounting storage";
+    case Job::kRootOperation: return "Root Manager";
     default: return "Preparing installation";
   }
 }
@@ -137,6 +138,7 @@ const char *OperationSymbol(Job job) {
     case Job::kClearSnapshotCow: return LV_SYMBOL_TRASH;
     case Job::kMount:
     case Job::kUnmount: return LV_SYMBOL_DRIVE;
+    case Job::kRootOperation: return LV_SYMBOL_SETTINGS;
     default: return LV_SYMBOL_DOWNLOAD;
   }
 }

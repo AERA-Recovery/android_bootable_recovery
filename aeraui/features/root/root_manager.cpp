@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include "root_manager.hpp"
+#include "kernel_kmi.hpp"
 
 #include <algorithm>
 #include <array>
@@ -55,6 +56,7 @@ constexpr uint64_t kMaxManagerApk = 64 * 1024 * 1024;
 constexpr uint64_t kMaxModuleZip = 256 * 1024 * 1024;
 
 std::mutex gMutex;
+std::mutex gOperationMutex;
 std::map<Provider, Release> gReleases;
 std::vector<Module> gModules;
 
@@ -1148,7 +1150,7 @@ bool ExtractSuki(const std::string &archive, const std::string &kmi,
 }
 
 bool Patch(const Request &request, Progress &progress) {
-  const Status device = Probe();
+  const Status device = request.verify_target_kernel ? ProbeSlot(request.slot) : Probe();
   if (!device.ksud_available || !device.kmi_supported || !device.init_boot_available) {
     SetText(progress, "Kernel unsupported", device.error); return false;
   }
@@ -1219,7 +1221,7 @@ bool Patch(const Request &request, Progress &progress) {
   std::string patch_log;
   const bool patched = RunCapture(
       {kKsud, "boot-patch", "-b", backup, "-m", module,
-       "--magiskboot", kMagiskboot, "--partition", "init_boot",
+       "--magiskboot", kMagiskboot, "--partition", "init_boot", "--kmi", device.kmi,
        "-o", kWork, "--out-name", "patched.img"}, &patch_log);
   const std::string image = std::string(kWork) + "/patched.img";
   if (!patched || FileSize(image) != partition_size) {
@@ -1507,6 +1509,67 @@ Status Probe() {
   return status;
 }
 
+Status ProbeSlot(const std::string &slot) {
+  Status device = Probe();
+  device.kmi_supported = false;
+  device.kmi.clear();
+  if (slot != "a" && slot != "b") {
+    device.error = "Select slot A or B.";
+    return device;
+  }
+  device.slot = slot;
+  device.init_boot_available = access(BlockForSlot(slot).c_str(), R_OK | W_OK) == 0;
+  const std::string boot = "/dev/block/by-name/boot_" + slot;
+  const std::string work = std::string(kWork) + "/target-" + slot;
+  const uint64_t bytes = FileSize(boot);
+  if (!device.ksud_available || bytes < 1024 * 1024 || bytes > 256 * 1024 * 1024 ||
+      !EnsureDirectory(kWork) || !EnsureDirectory(work)) {
+    device.error = "The target slot kernel cannot be inspected on this device.";
+    return device;
+  }
+  // magiskboot extracts and decompresses the target kernel, without writing a partition.
+  const std::string kernel = work + "/kernel";
+  struct Cleanup {
+    std::string directory;
+    ~Cleanup() {
+      for (const char *file : {"kernel", "ramdisk.cpio", "init_boot.cpio", "dtb", "kernel_dtb",
+                               "header", "bootconfig", "second", "extra", "recovery_dtbo"})
+        unlink((directory + "/" + file).c_str());
+      rmdir(directory.c_str());
+    }
+  } cleanup{work};
+  unlink(kernel.c_str());
+  std::string output;
+  if (!RunCapture({kMagiskboot, "unpack", boot}, &output, -1, work.c_str())) {
+    device.error = "Could not unpack the target boot image. No partition was changed.";
+    return device;
+  }
+  const int fd = open(kernel.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  std::string tail;
+  std::array<char, 65536> buffer{};
+  uint64_t read_bytes = 0;
+  if (fd >= 0) {
+    while (read_bytes < 256 * 1024 * 1024) {
+      const ssize_t count = read(fd, buffer.data(), buffer.size());
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) break;
+      read_bytes += static_cast<uint64_t>(count);
+      tail.append(buffer.data(), static_cast<size_t>(count));
+      device.kmi = KernelKmiFromBanner(tail);
+      if (!device.kmi.empty()) break;
+      if (tail.size() > 256) tail.erase(0, tail.size() - 256);
+    }
+    close(fd);
+  }
+  const auto supported = Lines(CaptureKsud({"boot-info", "supported-kmis"}));
+  device.kmi_supported = !device.kmi.empty() &&
+      std::find(supported.begin(), supported.end(), device.kmi) != supported.end();
+  device.error = !device.kmi_supported ? "The target kernel KMI could not be verified or is unsupported." :
+      !device.init_boot_available ? "The target slot has no writable init_boot." :
+      !device.storage_ready ? "Unlock internal storage for the rollback backup." : "";
+  return device;
+}
+
 PatchInfo InspectSlot(const std::string &requested_slot) {
   PatchInfo info;
   const std::string slot = requested_slot == "b" ? "b" : "a";
@@ -1678,17 +1741,35 @@ ManagerStatus InspectManager(Provider provider) {
 }
 
 bool Run(const Request &request, Progress &progress) {
+  std::unique_lock<std::mutex> operation(gOperationMutex, std::try_to_lock);
+  if (!operation.owns_lock()) {
+    SetText(progress, "Root operation already running");
+    return false;
+  }
   progress.value.store(0); progress.downloaded.store(0); progress.total.store(0);
   switch (request.job) {
     case Job::kRefreshRelease: {
       Release release;
-      const bool ok = FetchRelease(request.provider, Probe(), progress, release);
+      const bool ok = FetchRelease(request.provider,
+          request.verify_target_kernel ? ProbeSlot(request.slot) : Probe(), progress, release);
       if (!ok) SetText(progress, "No compatible release", release.error);
       else { progress.value.store(100); SetText(progress, "Ready to patch",
           i18n::Format("%s %s • online release • %s",
               ProviderName(request.provider), release.version.c_str(),
               release.asset_name.c_str())); }
       return ok;
+    }
+    case Job::kInspectTarget: {
+      const Status device = ProbeSlot(request.slot);
+      if (!device.error.empty()) { SetText(progress, "Target unavailable", device.error); return false; }
+      const Release release = BundledRelease(request.provider, device.kmi);
+      const PatchInfo patch = InspectSlot(request.slot);
+      SetText(progress, "Target inspected", "init_boot_" + request.slot + " / " + device.kmi +
+          "\n" + patch.detail + "\n" + (release.available ?
+          std::string(ProviderName(request.provider)) + " " + release.version + " (offline module available)" :
+          "No matching offline module. Check the online release before patching."));
+      progress.value.store(100);
+      return true;
     }
     case Job::kPatch: return Patch(request, progress);
     case Job::kRollback: return Rollback(request, progress);

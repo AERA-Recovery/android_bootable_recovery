@@ -17,6 +17,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 using namespace aeraui;
+#include "../../aera_remote/pc_connection.hpp"
+namespace aera::pc {
+static Status pc_status;
+bool SetEnabled(bool enabled, int, bool) { pc_status.enabled = enabled; return true; }
+Status GetStatus() { return pc_status; }
+bool ForgetComputers() { return true; }
+}
 static std::string backup_root;
 static std::string file_root;
 static bool preferences[10] = {true, false, true, true, false, false, false, true,
@@ -118,6 +125,8 @@ BrowserCookiePolicy RecoveryBrowserCookiePolicy() {
 }
 bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy) { return true; }
 bool RecoverySavePreferences() { return save_succeeds; }
+bool RecoveryPcAutoEnable() { return false; }
+bool RecoverySetPcAutoEnable(bool) { return true; }
 bool RecoveryAutoSavePreferences() {
   ++autosave_count;
   return save_succeeds && early_save_succeeds;
@@ -600,6 +609,52 @@ int main(int argc,char **argv) {
     puts("Settings autosave, deferred sliders, per-haptic resets, reset confirmation and save failures passed");
     return 0;
   }
+  if (!strcmp(argv[1], "--pc-settings")) {
+    aera::pc::SetEnabled(true, 443, false);
+    aera::pc::pc_status.address = "https://aera.local";
+    aera::pc::pc_status.ip_address = "https://192.168.1.42";
+    aera::pc::pc_status.certificate = std::string(64, 'a');
+    for (const char *language : {"en", "de_DE", "fr_FR", "sv_SE", "zh_CN", "ar_SA"})
+      for (bool landscape : {false, true})
+        for (auto size : {InterfaceSize::kSmall, InterfaceSize::kNormal,
+                          InterfaceSize::kLarge, InterfaceSize::kSpacious}) {
+          assert(i18n::SetLanguage(language));
+          interface_size = size;
+          lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                    landscape ? 1440 : 3168);
+          auto *wifi = lv_obj_create(nullptr);
+          BuildWifiScene(wifi, RecordAction, nullptr);
+          lv_screen_load(wifi); Tick(2);
+          auto *settings = FindLabelContaining(wifi, i18n::Translate("Wi-Fi settings"));
+          assert(settings);
+          lv_obj_send_event(lv_obj_get_parent(settings), LV_EVENT_CLICKED, nullptr); Tick(2);
+          for (const char *tag : {"PC connection", "Auto-enable PC connection"}) {
+            auto *expected = lv_label_create(wifi);
+            lv_label_set_text(expected, i18n::Translate(tag));
+            const std::string displayed = lv_label_get_text(expected);
+            lv_obj_delete(expected);
+            auto *label = FindLabel(wifi, displayed.c_str());
+            if (!label) fprintf(stderr, "Missing PC label %s in %s, size %d, landscape %d\n",
+                                tag, language, static_cast<int>(size), landscape);
+            assert(label);
+            auto *row = lv_obj_get_parent(label);
+            AssertContained(label, row);
+            auto *copy = lv_obj_get_child(row, 1);
+            AssertContained(copy, row);
+            assert(!Overlaps(label, copy));
+            auto *toggle = lv_obj_get_child(row, 2);
+            assert(!Overlaps(label, toggle));
+            assert(!Overlaps(copy, toggle));
+          }
+          if (!landscape && size == InterfaceSize::kLarge && !strcmp(language, "de_DE"))
+            save("/tmp/aera-pc-settings-host.png");
+          lv_screen_load(screen); lv_obj_delete(wifi); Tick(1);
+        }
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("PC settings fit six languages, four sizes and both orientations");
+    return 0;
+  }
   if (!strcmp(argv[1], "--file-dates")) {
     for (bool landscape : {false, true}) for (bool clock24 : {false, true})
       for (auto size : {InterfaceSize::kSmall, InterfaceSize::kNormal,
@@ -659,8 +714,9 @@ int main(int argc,char **argv) {
   assert(last_action==Action::kRunWifiOperation);
   assert(GetWifiRequest().ssid=="AERA Lab");
   assert(GetWifiRequest().password=="correct horse battery staple");
-  auto *wifi_settings = Find(wifi,"Wi-Fi settings");
-  assert(wifi_settings);
+  auto *wifi_settings_label = FindLabelContaining(wifi,"Wi-Fi settings");
+  assert(wifi_settings_label);
+  auto *wifi_settings = lv_obj_get_parent(wifi_settings_label);
   lv_obj_send_event(wifi_settings,LV_EVENT_CLICKED,nullptr); Tick();
   assert(Find(wifi,"Automation & wireless debugging"));
   assert(Find(wifi,"Wireless ADB is off"));
@@ -676,18 +732,16 @@ int main(int argc,char **argv) {
   auto *web_input = FindType(web, &lv_textarea_class); assert(web_input);
   AssertVisibleCaret(web_input);
   auto *web_keyboard = FindType(web, &lv_keyboard_class); assert(web_keyboard);
-  auto *web_navigation = lv_obj_get_parent(Find(web, "Menu"));
+  // Browser surfaces are gesture-first and no longer contain the recovery dock.
+  assert(!Find(web, "Menu"));
   assert(lv_obj_has_flag(web_keyboard, LV_OBJ_FLAG_HIDDEN));
-  assert(!lv_obj_has_flag(web_navigation, LV_OBJ_FLAG_HIDDEN));
   lv_obj_send_event(web_input, LV_EVENT_CLICKED, nullptr);
   assert(!lv_obj_has_flag(web_keyboard, LV_OBJ_FLAG_HIDDEN));
-  assert(lv_obj_has_flag(web_navigation, LV_OBJ_FLAG_HIDDEN));
   Tick(); save("/tmp/aera-browser-keyboard-host.png");
   lv_textarea_set_text(web_input, "example.org");
   const int before_browser_go = callback_count;
   lv_obj_send_event(web_keyboard, LV_EVENT_READY, nullptr);
   assert(lv_obj_has_flag(web_keyboard, LV_OBJ_FLAG_HIDDEN));
-  assert(!lv_obj_has_flag(web_navigation, LV_OBJ_FLAG_HIDDEN));
   assert(!strcmp(lv_textarea_get_text(web_input), "https://example.org"));
   assert(Find(web, "Browsing unavailable"));
   assert(callback_count == before_browser_go); // Never starts a recovery job.
@@ -723,14 +777,11 @@ int main(int argc,char **argv) {
   assert(send(browser_channels[1], &keyboard_message, sizeof(keyboard_message), 0) == sizeof(keyboard_message));
   Tick();
   web_keyboard = FindType(web, &lv_keyboard_class); assert(web_keyboard);
-  web_navigation = lv_obj_get_parent(Find(web, "Menu"));
   assert(!lv_obj_has_flag(web_keyboard, LV_OBJ_FLAG_HIDDEN));
-  assert(lv_obj_has_flag(web_navigation, LV_OBJ_FLAG_HIDDEN));
   keyboard_message = web::Message{}; keyboard_message.kind = web::Kind::kKeyboardHide;
   assert(send(browser_channels[1], &keyboard_message, sizeof(keyboard_message), 0) == sizeof(keyboard_message));
   Tick();
   assert(lv_obj_has_flag(web_keyboard, LV_OBJ_FLAG_HIDDEN));
-  assert(!lv_obj_has_flag(web_navigation, LV_OBJ_FLAG_HIDDEN));
   web_input = FindType(web, &lv_textarea_class);
   lv_textarea_set_text(web_input, "example.org");
   lv_obj_send_event(Find(web, "Go"), LV_EVENT_CLICKED, nullptr);
