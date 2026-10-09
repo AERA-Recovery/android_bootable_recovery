@@ -5,6 +5,7 @@
 #include <aeraui/i18n.hpp>
 
 #include "fonts/aera_fallback.hpp"
+#include "catalog/catalog.hpp"
 
 #include <algorithm>
 #include <cstdarg>
@@ -18,10 +19,6 @@
 #endif
 
 namespace aeraui::i18n {
-
-extern const char *const kCatalogLanguages[];
-extern const char *const kCatalogTags[];
-extern const char *const kCatalogTranslations[];
 
 namespace {
 
@@ -93,8 +90,9 @@ const Language *FindLanguage(const std::string &requested) {
 
 void Initialize(const std::string &requested_language) {
   if (!initialized) {
-    lv_translation_add_static(kCatalogLanguages, kCatalogTags,
-                              kCatalogTranslations);
+    if (!RegisterCatalog()) {
+      std::fprintf(stderr, "AERA: could not load the built-in translation catalog\n");
+    }
     initialized = true;
   }
   SetLanguage(requested_language);

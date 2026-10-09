@@ -12,6 +12,7 @@ set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LVGL_DIR}" lvgl)
 find_package(Freetype REQUIRED)
 find_package(PNG REQUIRED)
+find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
 add_executable(ui_check ui_check.cpp
@@ -131,3 +132,22 @@ target_compile_definitions(text_edit_test PRIVATE AERA_DEFAULT_LANGUAGE="en" AER
 target_compile_options(text_edit_test PRIVATE -UNDEBUG)
 target_link_libraries(text_edit_test PRIVATE lvgl PNG::PNG)
 add_test(NAME text_edit_selection_and_clipboard COMMAND text_edit_test)
+
+foreach(target ui_check sideload_ui_test nas_ui_test text_edit_test)
+  target_sources(${target} PRIVATE ../localization/catalog/catalog.cpp)
+  target_link_libraries(${target} PRIVATE ZLIB::ZLIB)
+endforeach()
+
+foreach(target catalog_test catalog_english_test)
+  add_executable(${target} catalog_test.cpp ../localization/i18n.cpp
+    ../localization/catalog/catalog.cpp ../localization/catalog/catalog_generated.cpp)
+  target_include_directories(${target} PRIVATE ../include ..)
+  target_compile_definitions(${target} PRIVATE AERA_DEFAULT_LANGUAGE="en")
+  target_compile_options(${target} PRIVATE -UNDEBUG)
+  target_link_libraries(${target} PRIVATE lvgl jsoncpp_static ZLIB::ZLIB)
+endforeach()
+target_compile_definitions(catalog_test PRIVATE AERA_EXTRA_LANGUAGES)
+add_test(NAME native_catalog_round_trip COMMAND catalog_test
+  "${CMAKE_CURRENT_SOURCE_DIR}/../localization/catalog/catalog.json")
+add_test(NAME native_catalog_english_only COMMAND catalog_english_test
+  "${CMAKE_CURRENT_SOURCE_DIR}/../localization/catalog/catalog.json")

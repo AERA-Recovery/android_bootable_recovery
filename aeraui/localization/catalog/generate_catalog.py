@@ -6,6 +6,8 @@ import ast
 import json
 import pathlib
 import re
+import struct
+import zlib
 
 
 LOCALES = [
@@ -39,8 +41,41 @@ def source_literals(aeraui):
     return values
 
 
-def quote(value):
-    return json.dumps(value, ensure_ascii=False)
+def pack_catalog(rows, keys, locales):
+    pool = bytearray()
+    offsets = {}
+
+    def intern(value):
+        if "\0" in value:
+            raise ValueError("catalog strings must not contain embedded NUL bytes")
+        if value not in offsets:
+            offsets[value] = len(pool)
+            pool.extend(value.encode("utf-8") + b"\0")
+        return offsets[value]
+
+    languages = [intern(locale) for locale in locales]
+    tags = [intern(key) for key in keys]
+    # Group the pool by language for compression; LVGL's table stays row-major.
+    translations = {
+        locale: [intern(key if locale == "en" else rows[key].get(locale, key) or key)
+                 for key in keys]
+        for locale in locales
+    }
+    table = languages + tags + [
+        translations[locale][i] for i in range(len(keys)) for locale in locales
+    ]
+    header = b"AERACAT1" + struct.pack("<III", len(locales), len(keys), len(pool))
+    raw = header + struct.pack(f"<{len(table)}I", *table) + pool
+    return zlib.compress(raw, 9), len(raw)
+
+
+def emit_catalog(rows, keys, locales):
+    data, expanded_size = pack_catalog(rows, keys, locales)
+    lines = ["constexpr unsigned char kData[] = {"]
+    for i in range(0, len(data), 20):
+        lines.append("    " + ",".join(f"0x{byte:02x}" for byte in data[i:i + 20]) + ",")
+    lines.extend(["};", f"constexpr size_t kExpandedSize = {expanded_size};"])
+    return lines, len(data)
 
 
 def main():
@@ -63,48 +98,36 @@ def main():
     # strings intentionally have no literal in this repository.
     keys = sorted(rows)
 
+    multilingual, multilingual_size = emit_catalog(rows, keys, LOCALES)
+    english, english_size = emit_catalog(rows, keys, ["en"])
     lines = [
         "/*",
-        " * Generated from aeraui/i18n/catalog.json.",
-        " * Do not edit manually; run aeraui/i18n/generate_catalog.py.",
+        " * Generated from aeraui/localization/catalog/catalog.json.",
+        " * Do not edit manually; run localization/catalog/generate_catalog.py.",
         " */",
-        "#include <cstddef>",
+        '#include "catalog.hpp"',
         "",
         "namespace aeraui::i18n {",
-        "",
-        "extern const char *const kCatalogLanguages[] = {",
-        '    "en",',
+        "namespace {",
         "#ifdef AERA_EXTRA_LANGUAGES",
     ]
-    lines.extend(f"    {quote(locale)}," for locale in LOCALES[1:])
+    lines.extend(multilingual)
+    lines.append("#else")
+    lines.extend(english)
     lines.extend([
         "#endif",
-        "    nullptr,",
-        "};",
+        "}  // namespace",
         "",
-        "extern const char *const kCatalogTags[] = {",
-    ])
-    lines.extend(f"    {quote(key)}," for key in keys)
-    lines.extend([
-        "    nullptr,",
-        "};",
-        "",
-        "extern const char *const kCatalogTranslations[] = {",
-    ])
-    for key in keys:
-        lines.append(f"    {quote(key)},")
-        lines.append("#ifdef AERA_EXTRA_LANGUAGES")
-        for locale in LOCALES[1:]:
-            lines.append(f"    {quote(rows[key].get(locale, key) or key)},")
-        lines.append("#endif")
-    lines.extend([
-        "};",
+        "PackedCatalog GetPackedCatalog() {",
+        "  return {kData, sizeof(kData), kExpandedSize};",
+        "}",
         "",
         "}  // namespace aeraui::i18n",
         "",
     ])
     args.output.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Generated {len(keys)} translated AERA source strings.")
+    print(f"Generated {len(keys)} tags: {multilingual_size} packed bytes for "
+          f"{len(LOCALES)} languages; {english_size} bytes for English-only builds.")
 
 
 if __name__ == "__main__":
