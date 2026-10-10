@@ -6,6 +6,7 @@
 #include "ui_components.hpp"
 #include "partition_layout.hpp"
 #include "wallpaper.hpp"
+#include "../../aera_remote/pc_connection.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <cmath>
 #include <cstring>
@@ -32,6 +33,10 @@ struct Tools {
   std::string restore_folder;
   bool compression = true;
   lv_obj_t *format_input = nullptr, *format_submit = nullptr;
+  lv_timer_t *pc_timer = nullptr;
+  lv_obj_t *pc_switch = nullptr, *pc_address = nullptr;
+  lv_obj_t *pc_certificate = nullptr, *pc_details = nullptr, *pc_forget = nullptr;
+  std::string pc_signature;
 };
 
 lv_obj_t *WorkflowModeCard(lv_obj_t *parent, int x, int y, int width,
@@ -2230,10 +2235,19 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_x(state->list, 884);
     lv_obj_set_width(state->list, 1400);
   }
-  PreferenceSection(state, 0, "Display & time");
+  std::string language_name = i18n::CurrentLanguage();
+  for (const auto &language : i18n::AvailableLanguages())
+    if (language_name == language.code) {
+      language_name = language.native_name;
+      break;
+    }
+  Row(state->list, 0, LV_SYMBOL_KEYBOARD, "Language", language_name,
+      [state] { Open(state, Action::kLanguage); });
+  constexpr int kContentTop = 210;
+  PreferenceSection(state, kContentTop, "Display & time");
   auto *brightness = lv_obj_create(state->list);
   Panel(brightness, 36, kMainPanel);
-  lv_obj_set_pos(brightness, 16, 76);
+  lv_obj_set_pos(brightness, 16, kContentTop + 76);
   lv_obj_set_size(brightness, 1280, 246);
   auto *brightness_icon = Label(brightness, LV_SYMBOL_EYE_OPEN,
                                 &lv_font_montserrat_32, kAccent);
@@ -2273,9 +2287,9 @@ void BuildPreferences(Tools *state) {
     AutoSaveSettings(static_cast<Tools *>(lv_event_get_user_data(event)));
   }, LV_EVENT_RELEASED, state);
 
-  PreferenceToggle(state, 340, "24-hour clock", "Off uses 12-hour time with AM / PM", Preference::kClock24);
+  PreferenceToggle(state, kContentTop + 340, "24-hour clock", "Off uses 12-hour time with AM / PM", Preference::kClock24);
   auto *zone = Label(state->list, "", &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(zone, 116, 562);
+  lv_obj_set_pos(zone, 116, kContentTop + 562);
   auto refresh_zone = [zone] {
     const int offset = RecoveryUtcOffset(), magnitude = std::abs(offset);
     char text[64];
@@ -2284,7 +2298,7 @@ void BuildPreferences(Tools *state) {
   };
   refresh_zone();
   auto *zone_hint = Label(state->list, "Fixed offset, 15-minute steps; no automatic DST.", &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(zone_hint, 116, 636);
+  lv_obj_set_pos(zone_hint, 116, kContentTop + 636);
   for (int direction : {-1, 1}) {
     auto *button = Button(state->list, direction < 0 ? LV_SYMBOL_MINUS : LV_SYMBOL_PLUS,
         [state, direction, refresh_zone] {
@@ -2296,20 +2310,20 @@ void BuildPreferences(Tools *state) {
       refresh_zone();
       AutoSaveSettings(state);
     });
-    lv_obj_set_pos(button, direction < 0 ? 996 : 1156, 534);
+    lv_obj_set_pos(button, direction < 0 ? 996 : 1156, kContentTop + 534);
     lv_obj_set_size(button, 132, 112);
   }
-  PreferenceSection(state, 780, "Recents");
-  PreferenceToggle(state, 860, "Gesture navigation",
+  PreferenceSection(state, kContentTop + 780, "Recents");
+  PreferenceToggle(state, kContentTop + 860, "Gesture navigation",
                    "Swipe up for Home; swipe up and hold for Recents",
                    Preference::kRecents);
-  PreferenceSection(state, 1100, "Files & installation");
-  PreferenceToggle(state, 1180, "Show hidden files", "Include dot-prefixed files and folders", Preference::kHiddenFiles);
-  PreferenceToggle(state, 1370, "Verify ZIP signatures", "Only install packages signed by a trusted recovery key", Preference::kVerifyZip);
-  PreferenceToggle(state, 1560, "Keep AERA installed",
+  PreferenceSection(state, kContentTop + 1100, "Files & installation");
+  PreferenceToggle(state, kContentTop + 1180, "Show hidden files", "Include dot-prefixed files and folders", Preference::kHiddenFiles);
+  PreferenceToggle(state, kContentTop + 1370, "Verify ZIP signatures", "Only install packages signed by a trusted recovery key", Preference::kVerifyZip);
+  PreferenceToggle(state, kContentTop + 1560, "Keep AERA installed",
                    "Restore the running AERA recovery to both slots after ZIP installs",
                    Preference::kPreserveRecovery);
-  int installation_offset = 190;
+  int installation_offset = kContentTop + 190;
   if (RecoveryAblPreservationSupported()) {
     PreferenceToggle(state, 1560 + installation_offset, "Keep current ABL",
                      "Restore the active-slot ABL to both slots after ZIP installs",
@@ -2371,6 +2385,81 @@ void BuildPreferences(Tools *state) {
   lv_obj_set_size(reset, 1248, 124);
 }
 
+void RefreshPcConnection(Tools *state) {
+  const auto pc = aera::pc::GetStatus();
+  const std::string signature = std::to_string(pc.enabled) + "|" + pc.address +
+      "|" + pc.ip_address + "|" + pc.certificate;
+  if (signature == state->pc_signature) return;
+  state->pc_signature = signature;
+  StyleSwitch(state->pc_switch, pc.enabled);
+  const std::string address = !pc.enabled ? i18n::Translate("Off") :
+      pc.ip_address.empty() ? i18n::Translate("Not connected") :
+      pc.address == pc.ip_address ? pc.address : pc.address + "\n" + pc.ip_address;
+  lv_label_set_text(state->pc_address, address.c_str());
+  lv_label_set_text(state->pc_certificate, pc.enabled ? pc.certificate.c_str() : "");
+  lv_obj_update_layout(state->pc_details);
+  lv_obj_set_y(state->pc_forget,
+      lv_obj_get_y(state->pc_details) + lv_obj_get_height(state->pc_details) + 32);
+}
+
+void BuildPcConnection(Tools *state) {
+  Header(state->screen, "PC connection",
+         "Transfer and install ZIPs and images from your computer",
+         state->callback, state->context);
+  const int top = Landscape(state->screen) ? 340 : 480;
+  state->list = Scroll(state->screen, top,
+      std::max(1, static_cast<int>(lv_obj_get_height(state->screen)) - top -
+          NavigationHeight(state->screen) - 28));
+  lv_obj_set_style_pad_bottom(state->list, 24, 0);
+  auto *message = Label(state->list, "Changes apply immediately",
+                        &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(message, 24, 364);
+  lv_obj_set_width(message, LV_PCT(95));
+  auto *row = SettingsRow(state->list, 0, "PC connection",
+      "Transfer and install ZIPs and images from your computer",
+      aera::pc::GetStatus().enabled,
+      [state](bool enabled) {
+        const bool ok = aera::pc::SetEnabled(enabled);
+        RefreshPcConnection(state);
+        return ok;
+      }, message);
+  state->pc_switch = lv_obj_get_child(row, 2);
+  SettingsRow(state->list, 180, "Auto-enable PC connection", "Start after unlocking",
+      RecoveryPcAutoEnable(), [](bool enabled) { return RecoverySetPcAutoEnable(enabled); },
+      message);
+  state->pc_details = lv_obj_create(state->list);
+  Clear(state->pc_details);
+  lv_obj_set_pos(state->pc_details, 24, 432);
+  lv_obj_set_size(state->pc_details, lv_obj_get_width(state->list) - 48, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(state->pc_details, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(state->pc_details, 18, 0);
+  auto detail = [state](const char *text, const lv_font_t *font, lv_color_t color) {
+    auto *label = Label(state->pc_details, text, font, color);
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    return label;
+  };
+  detail("USB", &lv_font_montserrat_28, kMuted);
+  detail("adb -d forward tcp:8443 tcp:443", &lv_font_montserrat_36, kText);
+  detail("https://localhost:8443", &lv_font_montserrat_36, kAccent);
+  detail("Wi-Fi", &lv_font_montserrat_28, kMuted);
+  state->pc_address = detail("", &lv_font_montserrat_36, kAccent);
+  detail("SHA-256", &lv_font_montserrat_28, kMuted);
+  state->pc_certificate = detail("", &lv_font_montserrat_24, kMuted);
+  state->pc_forget = Button(state->list, "Forget remembered computers", [state] {
+    Sheet(state->screen, "Forget remembered computers", "Remove all saved PC connection approvals?",
+        [state] {
+          if (!aera::pc::ForgetComputers())
+            Sheet(state->screen, "Setting unavailable", "This setting could not be changed.");
+        });
+  });
+  lv_obj_set_size(state->pc_forget, lv_obj_get_width(state->list), 124);
+  RefreshPcConnection(state);
+  state->pc_timer = lv_timer_create([](lv_timer_t *timer) {
+    RefreshPcConnection(static_cast<Tools *>(lv_timer_get_user_data(timer)));
+  }, 500, state);
+}
+
 void BuildLogs(Tools *state) {
   Header(state->screen, "Recovery log", "Latest output from this recovery session.", state->callback, state->context);
   const bool landscape = Landscape(state->screen);
@@ -2391,17 +2480,15 @@ void BuildLanguage(Tools *state) {
          "Mostly machine-translated. Please report mistakes.",
          state->callback, state->context);
   const bool landscape = Landscape(state->screen);
-  state->list = Scroll(state->screen, landscape ? 340 : 452,
-                       landscape ? 930 : 2290);
+  const int top = landscape ? 340 : 452;
+  state->list = Scroll(state->screen, top,
+      std::max(1, static_cast<int>(lv_obj_get_height(state->screen)) - top -
+          NavigationHeight(state->screen) - 28));
   lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_ON);
   lv_obj_set_style_width(state->list, 14, LV_PART_SCROLLBAR);
   lv_obj_set_style_bg_opa(state->list, LV_OPA_COVER, LV_PART_SCROLLBAR);
   lv_obj_set_style_radius(state->list, LV_RADIUS_CIRCLE,
                           LV_PART_SCROLLBAR);
-  if (landscape) {
-    lv_obj_set_x(state->list, 884);
-    lv_obj_set_width(state->list, 1400);
-  }
   lv_obj_update_layout(state->list);
   const int row_width =
       std::max(600, static_cast<int>(lv_obj_get_width(state->list)) - 28);
@@ -2519,7 +2606,7 @@ void BuildMenu(Tools *state) {
     {LV_SYMBOL_KEYBOARD, "Android Users", "Unlock additional users on demand", Action::kUsers},
     {LV_SYMBOL_TINT, "Theme Engine", "Global accent colors and interface appearance", Action::kTheme},
     {LV_SYMBOL_SETTINGS, "Preferences", "Display, files, backups, time and USB", Action::kPreferences},
-    {"A", "Language", "Choose the recovery interface language", Action::kLanguage},
+    {LV_SYMBOL_USB, "PC connection", "Transfer and install ZIPs and images from your computer", Action::kPcConnection},
     {"A", "About AERA", "Project identity, contributors and build information", Action::kAbout},
     {LV_SYMBOL_POWER, "Reboot", "Android, recovery, bootloader or power off", Action::kOpenReboot}}};
   for (size_t i = 0; i < items.size(); ++i) {
@@ -2604,7 +2691,9 @@ void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void
   state->callback = callback;
   state->context = context;
   lv_obj_add_event_cb(screen, [](lv_event_t *event) {
-    delete static_cast<Tools *>(lv_event_get_user_data(event));
+    auto *state = static_cast<Tools *>(lv_event_get_user_data(event));
+    if (state->pc_timer) lv_timer_delete(state->pc_timer);
+    delete state;
   }, LV_EVENT_DELETE, state);
   if (tool == Action::kBackup || tool == Action::kWipe || tool == Action::kRestore)
     BuildPartitions(state);
@@ -2612,6 +2701,7 @@ void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void
   else if (tool == Action::kMounts) BuildMounts(state);
   else if (tool == Action::kPreferences) BuildPreferences(state);
   else if (tool == Action::kLanguage) BuildLanguage(state);
+  else if (tool == Action::kPcConnection) BuildPcConnection(state);
   else if (tool == Action::kTheme) BuildTheme(state);
   else if (tool == Action::kLogs) BuildLogs(state);
   else if (tool == Action::kUsers) BuildUsers(state);

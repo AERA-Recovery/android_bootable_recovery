@@ -4,6 +4,7 @@
 #include "package_review.hpp"
 #include "update/payload_inspector.hpp"
 #include "update/payload_arb.hpp"
+#include "update/payload_full_flash.hpp"
 #include "picture_viewer.hpp"
 #include "browser/runtime.hpp"
 #include "browser/protocol.hpp"
@@ -35,10 +36,14 @@ static int utc_offset = 120;
 static uint32_t accent_color = design::kDefaultAccentRgb;
 static bool light_mode = false;
 static bool save_succeeds = true;
+static bool preservation_supported = true;
+static bool abl_preservation_supported = true;
+static bool haptics_available = true;
 static bool early_save_succeeds = true;
 static int autosave_count = 0;
 static int haptic_durations[] = {40, 40, 160};
 static InterfaceSize interface_size = InterfaceSize::kNormal;
+static DockLayout dock_layout = DockLayout::kGlass;
 static std::string active_slot = "A";
 static bool wifi_auto_enable = false;
 static bool wifi_auto_connect = false;
@@ -71,8 +76,8 @@ std::string LaunchBlockReason() { return "Sandbox unavailable in this test."; }
 namespace aeraui {
 bool RecoveryPreference(Preference p) { return preferences[static_cast<int>(p)]; }
 bool RecoverySetPreference(Preference p, bool enabled) { preferences[static_cast<int>(p)] = enabled; return true; }
-bool RecoveryPreservationSupported() { return true; }
-bool RecoveryAblPreservationSupported() { return true; }
+bool RecoveryPreservationSupported() { return preservation_supported; }
+bool RecoveryAblPreservationSupported() { return abl_preservation_supported; }
 bool RecoverySha256Available() { return true; }
 int RecoveryUtcOffset() { return utc_offset; }
 bool RecoverySetUtcOffset(int minutes) { utc_offset = minutes; return true; }
@@ -115,8 +120,8 @@ int RecoveryHomeGridColumns() { return 3; }
 bool RecoverySetHomeGridColumns(int columns) {
   return columns >= 2 && columns <= 5;
 }
-DockLayout RecoveryDockLayout() { return DockLayout::kGlass; }
-bool RecoverySetDockLayout(DockLayout) { return true; }
+DockLayout RecoveryDockLayout() { return dock_layout; }
+bool RecoverySetDockLayout(DockLayout layout) { dock_layout = layout; return true; }
 int RecoveryDockTransparency() { return 60; }
 bool RecoverySetDockTransparency(int) { return true; }
 int RecoveryDockBlur() { return 24; }
@@ -157,7 +162,7 @@ bool RecoveryResetPreferences() {
   haptic_durations[2] = 160;
   return true;
 }
-bool RecoveryHapticsAvailable() { return true; }
+bool RecoveryHapticsAvailable() { return haptics_available; }
 int RecoveryHapticDuration(Haptic haptic) {
   return haptic_durations[static_cast<int>(haptic)];
 }
@@ -232,8 +237,9 @@ int recovery_progress = 38;
 std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names) {
   std::vector<PayloadFlashTarget> targets;
   for (const auto &name : names) {
-    if (name == "boot" || name == "system") targets.push_back({name, "/" + name});
+    if (name == "boot" || name == "system" || name == "recovery") targets.push_back({name, "/" + name});
     else if (name == "modem") targets.push_back({name, "/dev/block/fake_modem_a", 128ULL << 20, true, 1, {}});
+    else if (name == "abl") targets.push_back({name, "/dev/block/fake_abl_a", 8ULL << 20, true, 2, {}});
     else targets.push_back({name, {}, 0, false, 0, "No verified A/B firmware target on this device"});
   }
   return targets;
@@ -468,6 +474,8 @@ int main(int argc,char **argv) {
   };
   auto *screen=lv_screen_active();
   if (!strcmp(argv[1], "--payload-review")) {
+    preferences[static_cast<int>(Preference::kPreserveAbl)] = true;
+    preferences[static_cast<int>(Preference::kPreserveRecovery)] = true;
     const std::string wallpaper_path = backup_root + "/wallpaper.png";
     png_image wallpaper_image{};
     wallpaper_image.version = PNG_IMAGE_VERSION;
@@ -486,7 +494,9 @@ int main(int argc,char **argv) {
     review_info.partitions = {{"boot", 64ULL << 20, 2, true, ""},
                              {"system", 4ULL << 30, 42, true, ""},
                              {"modem", 64ULL << 20, 8, true, ""},
-                             {"unsupported", 1ULL << 20, 1, false, "Requires source image"}};
+                             {"unsupported", 1ULL << 20, 1, false, "Requires source image"},
+                             {"abl", 1ULL << 20, 1, true, ""},
+                             {"recovery", 64ULL << 20, 1, true, ""}};
     for (bool incremental : {false, true}) {
       review_info.incremental = incremental;
       ReviewPackage(screen, "/test.zip", RecordAction, nullptr);
@@ -508,6 +518,16 @@ int main(int argc,char **argv) {
         auto *all = Find(screen, "Select all"); assert(all);
         lv_obj_send_event(all, LV_EVENT_CLICKED, nullptr); Tick();
         assert(Find(screen, "Deselect all"));
+        assert(FindLabelContaining(screen, "3 selected /"));
+        auto *abl = Find(screen, "abl"); assert(abl);
+        assert(!lv_obj_has_state(abl, LV_STATE_DISABLED));
+        lv_obj_send_event(abl, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(FindLabelContaining(screen, "4 selected /"));
+        lv_obj_send_event(flash_review, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(FindLabelContaining(screen, "Manually selected protected partitions will be overwritten."));
+        auto *override_slider = Find(screen, "Swipe to flash selected"); assert(override_slider);
+        lv_obj_send_event(Find(lv_obj_get_parent(override_slider), "Cancel"), LV_EVENT_CLICKED, nullptr); Tick();
+        lv_obj_send_event(abl, LV_EVENT_CLICKED, nullptr); Tick();
         assert(FindLabelContaining(screen, "3 selected /"));
         assert(!lv_obj_has_state(flash_review, LV_STATE_DISABLED));
         lv_obj_send_event(all, LV_EVENT_CLICKED, nullptr); Tick();
@@ -553,11 +573,11 @@ int main(int argc,char **argv) {
         AssertInside(extract_all, 1440, 3168);
         lv_obj_send_event(extract_all, LV_EVENT_CLICKED, nullptr); Tick();
         assert(Find(screen, "Deselect all"));
-        assert(FindLabelContaining(screen, "3 selected /"));
+        assert(FindLabelContaining(screen, "5 selected /"));
         // A manual deselection updates the bulk button and the total.
         lv_obj_send_event(boot, LV_EVENT_CLICKED, nullptr); Tick();
         assert(Find(screen, "Select all"));
-        assert(FindLabelContaining(screen, "2 selected /"));
+        assert(FindLabelContaining(screen, "4 selected /"));
         lv_obj_send_event(extract_all, LV_EVENT_CLICKED, nullptr); Tick();
         assert(Find(screen, "Deselect all"));
         lv_obj_send_event(extract_all, LV_EVENT_CLICKED, nullptr); Tick();
@@ -771,20 +791,25 @@ int main(int argc,char **argv) {
                           InterfaceSize::kLarge, InterfaceSize::kSpacious}) {
           assert(i18n::SetLanguage(language));
           interface_size = size;
+          design::ApplyInterfaceSize(static_cast<int>(size));
           lv_display_set_resolution(display, landscape ? 3168 : 1440,
                                     landscape ? 1440 : 3168);
           auto *wifi = lv_obj_create(nullptr);
-          BuildWifiScene(wifi, RecordAction, nullptr);
+          BuildToolScene(wifi, Action::kPcConnection, RecordAction, nullptr);
           lv_screen_load(wifi); Tick(2);
-          auto *settings = FindLabelContaining(wifi, i18n::Translate("Wi-Fi settings"));
-          assert(settings);
-          lv_obj_send_event(lv_obj_get_parent(settings), LV_EVENT_CLICKED, nullptr); Tick(2);
           for (const char *tag : {"PC connection", "Auto-enable PC connection"}) {
             auto *expected = lv_label_create(wifi);
             lv_label_set_text(expected, i18n::Translate(tag));
             const std::string displayed = lv_label_get_text(expected);
             lv_obj_delete(expected);
             auto *label = FindLabel(wifi, displayed.c_str());
+            if (label && lv_obj_get_parent(label) == wifi) {
+              label = nullptr;
+              for (uint32_t i = 0; i < lv_obj_get_child_count(wifi); ++i) {
+                auto *candidate = FindLabel(lv_obj_get_child(wifi, i), displayed.c_str());
+                if (candidate && lv_obj_get_parent(candidate) != wifi) { label = candidate; break; }
+              }
+            }
             if (!label) fprintf(stderr, "Missing PC label %s in %s, size %d, landscape %d\n",
                                 tag, language, static_cast<int>(size), landscape);
             assert(label);
@@ -803,7 +828,157 @@ int main(int argc,char **argv) {
         }
     lv_display_delete(display); lv_deinit();
     std::filesystem::remove_all(backup_root);
-    puts("PC settings fit six languages, four sizes and both orientations");
+    puts("Menu PC settings fit six languages, four sizes and both orientations");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--payload-protection")) {
+    const bool old_abl = preferences[static_cast<int>(Preference::kPreserveAbl)];
+    const bool old_recovery = preferences[static_cast<int>(Preference::kPreserveRecovery)];
+    payload::Info info;
+    info.valid = info.is_payload = true;
+    info.partitions = {{"boot", 4096, 1, true, {}, std::string(32, 'b')},
+                       {"abl", 4096, 1, true, {}, std::string(32, 'a')},
+                       {"recovery", 4096, 1, true, {}, std::string(32, 'r')}};
+    const std::vector<PayloadFlashTarget> targets = {{"boot", "/boot", 8192, false, 0, {}}};
+    for (bool abl : {false, true}) for (bool recovery : {false, true}) {
+      preferences[static_cast<int>(Preference::kPreserveAbl)] = abl;
+      preferences[static_cast<int>(Preference::kPreserveRecovery)] = recovery;
+      const auto protect = payload::ProtectedPartitions();
+      assert(bool(protect.count("abl")) == abl);
+      assert(bool(protect.count("recovery")) == recovery);
+      std::vector<std::string> names;
+      std::string error;
+      const bool ok = payload::PlanFullFlash(info, targets, names, error, protect);
+      assert(ok == (abl && recovery));
+      if (ok) assert(names == std::vector<std::string>{"boot"});
+      else assert(names.empty());
+    }
+    info.partitions.erase(info.partitions.begin());
+    std::vector<std::string> names;
+    std::string error;
+    assert(!payload::PlanFullFlash(info, targets, names, error, {"abl", "recovery"}));
+    preferences[static_cast<int>(Preference::kPreserveAbl)] = old_abl;
+    preferences[static_cast<int>(Preference::kPreserveRecovery)] = old_recovery;
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("ABL/recovery protection and full-payload planning passed; no partitions written");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--preferences-layout")) {
+    assert(i18n::SetLanguage("en"));
+    for (bool landscape : {false, true})
+      for (auto size : {InterfaceSize::kSmall, InterfaceSize::kNormal,
+                        InterfaceSize::kLarge, InterfaceSize::kSpacious})
+        for (bool abl : {false, true})
+          for (bool haptics : {false, true}) {
+            abl_preservation_supported = abl;
+            haptics_available = haptics;
+            interface_size = size;
+            design::ApplyInterfaceSize(static_cast<int>(size));
+            lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                      landscape ? 1440 : 3168);
+            auto *prefs = lv_obj_create(nullptr);
+            BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
+            lv_screen_load(prefs); Tick(1);
+            std::vector<const char *> titles{
+                "Language", "Brightness", "24-hour clock", "Gesture navigation",
+                "Show hidden files", "Verify ZIP signatures", "Keep AERA installed"};
+            if (abl) titles.push_back("Keep current ABL");
+            titles.push_back("Compress backups by default");
+            titles.push_back("SHA-256 backup checksums");
+            titles.push_back("USB file transfer: off");
+            if (haptics) {
+              titles.push_back("Touch feedback");
+              titles.push_back("Keyboard feedback");
+              titles.push_back("Operation feedback");
+              titles.push_back("Test operation vibration");
+            }
+            titles.push_back("Reset preferences");
+            lv_obj_t *previous = nullptr;
+            for (const char *title : titles) {
+              auto *item = Find(prefs, title); assert(item);
+              if (previous) {
+                assert(Bounds(previous).y2 < Bounds(item).y1);
+                assert(!Overlaps(previous, item));
+              }
+              previous = item;
+            }
+            auto *reset = Find(prefs, "Reset preferences");
+            auto *list = lv_obj_get_parent(reset);
+            lv_obj_scroll_to_view(reset, LV_ANIM_OFF); Tick(1);
+            AssertContained(reset, list);
+            if (!landscape && abl && haptics && size == InterfaceSize::kNormal)
+              save("/tmp/aera-preferences-bottom-host.png");
+            lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF); Tick(1);
+            if (!landscape && abl && haptics && size == InterfaceSize::kNormal)
+              save("/tmp/aera-preferences-top-host.png");
+            lv_screen_load(screen); lv_obj_delete(prefs);
+          }
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Preferences layout: ordered rows, separate sliders and reachable bottom reset passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--settings-navigation")) {
+    assert(i18n::SetLanguage("en"));
+    for (bool supported : {false, true}) {
+      preservation_supported = supported;
+      abl_preservation_supported = false;
+      auto *independent = lv_obj_create(nullptr);
+      BuildToolScene(independent, Action::kPreferences, RecordAction, nullptr);
+      auto *keep_aera = Find(independent, "Keep AERA installed");
+      assert(keep_aera && !Find(independent, "Keep current ABL"));
+      const bool previous = RecoveryPreference(Preference::kPreserveRecovery);
+      lv_obj_send_event(keep_aera, LV_EVENT_CLICKED, nullptr);
+      assert(RecoveryPreference(Preference::kPreserveRecovery) != previous);
+      lv_obj_send_event(keep_aera, LV_EVENT_CLICKED, nullptr);
+      assert(RecoveryPreference(Preference::kPreserveRecovery) == previous);
+      lv_obj_delete(independent);
+    }
+    preservation_supported = true;
+    abl_preservation_supported = true;
+    auto *menu = lv_obj_create(nullptr);
+    BuildToolScene(menu, Action::kSettings, RecordAction, nullptr);
+    assert(Find(menu, "PC connection"));
+    assert(!Find(menu, "Language"));
+    lv_obj_send_event(Find(menu, "PC connection"), LV_EVENT_CLICKED, nullptr);
+    assert(last_action == Action::kPcConnection);
+    lv_obj_delete(menu);
+    auto *prefs = lv_obj_create(nullptr);
+    BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
+    assert(Find(prefs, "Language"));
+    lv_obj_send_event(Find(prefs, "Language"), LV_EVENT_CLICKED, nullptr);
+    assert(last_action == Action::kLanguage);
+    lv_obj_delete(prefs);
+    for (int layout = 0; layout <= kDockLayoutMax; ++layout)
+      for (bool landscape : {false, true})
+        for (auto size : {InterfaceSize::kSmall, InterfaceSize::kNormal,
+                          InterfaceSize::kLarge, InterfaceSize::kSpacious}) {
+          dock_layout = static_cast<DockLayout>(layout);
+          interface_size = size;
+          design::ApplyInterfaceSize(static_cast<int>(size));
+          lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                    landscape ? 1440 : 3168);
+          auto *language = lv_obj_create(nullptr);
+          BuildToolScene(language, Action::kLanguage, RecordAction, nullptr);
+          lv_screen_load(language); Tick(1);
+          lv_obj_t *list = nullptr;
+          for (uint32_t i = 0; i < lv_obj_get_child_count(language); ++i) {
+            auto *child = lv_obj_get_child(language, i);
+            if (lv_obj_get_scrollbar_mode(child) == LV_SCROLLBAR_MODE_ON) list = child;
+          }
+          assert(list);
+          assert(lv_obj_get_y(list) + lv_obj_get_height(list) ==
+              lv_obj_get_height(language) - widgets::NavigationHeight(language) - 28);
+          assert(lv_obj_get_width(list) == (landscape ? 3040 : 1312));
+          assert(lv_obj_get_scroll_bottom(list) > 0);
+          if (landscape && layout == 0 && size == InterfaceSize::kNormal)
+            save("/tmp/aera-language-landscape-host.png");
+          lv_screen_load(screen); lv_obj_delete(language);
+        }
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Settings destinations and language viewport match all five docks and four sizes");
     return 0;
   }
   if (!strcmp(argv[1], "--file-dates")) {

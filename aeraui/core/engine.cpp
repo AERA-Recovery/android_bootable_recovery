@@ -2658,7 +2658,8 @@ private:
         action == Action::kMounts || action == Action::kLogs ||
         action == Action::kPreferences || action == Action::kLanguage ||
         action == Action::kTheme ||
-        action == Action::kWifi || action == Action::kUsers;
+        action == Action::kWifi || action == Action::kUsers ||
+        action == Action::kPcConnection;
     if (action == Action::kOpenReboot || action == Action::kBackHome ||
         action == Action::kInstall || opens_tool) {
       self->TrackScene(action == Action::kInstall ? Action::kBackHome : action);
@@ -2786,8 +2787,6 @@ private:
   bool PcBlockedByModal() const {
     auto *screen = lv_screen_active();
     if (recents_overlay_) return true;
-    // Enabling PC connection opens this sheet; it must not block its own approval.
-    if (current_scene_ == Action::kWifi) return false;
     for (uint32_t i = 0; i < lv_obj_get_child_count(screen); ++i) {
       auto *child = lv_obj_get_child(screen, i);
       const auto marker = lv_obj_get_user_data(child);

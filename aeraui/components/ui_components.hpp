@@ -404,6 +404,67 @@ inline lv_obj_t *Navigation(lv_obj_t *screen, Action active,
   return bar;
 }
 
+inline void StyleSwitch(lv_obj_t *toggle, bool enabled) {
+  lv_obj_set_size(toggle, 108, 60);
+  lv_obj_remove_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(toggle, kMainLine, LV_PART_MAIN);
+  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER,
+                          LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(toggle, kAccent,
+                            LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(toggle, kText, LV_PART_KNOB);
+  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_KNOB);
+  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+  lv_obj_set_style_pad_all(toggle, -8, LV_PART_KNOB);
+  if (enabled) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+  else lv_obj_remove_state(toggle, LV_STATE_CHECKED);
+}
+
+inline lv_obj_t *SettingsRow(lv_obj_t *parent, int y, const char *title,
+                      const char *detail, bool enabled,
+                      std::function<bool(bool)> setter,
+                      lv_obj_t *message) {
+  auto *row = lv_button_create(parent);
+  Panel(row, 30, kMainPanel);
+  Interactive(row, kMainSelected);
+  lv_obj_set_pos(row, 0, y);
+  lv_obj_update_layout(parent);
+  const int width = std::max(320, static_cast<int>(lv_obj_get_width(parent)));
+  lv_obj_set_size(row, width, 160);
+  lv_obj_set_style_border_width(row, 1, 0);
+  lv_obj_set_style_border_color(row, kMainLine, 0);
+  lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
+  auto *name = Label(row, title, &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(name, 32, 24);
+  FitLabelToLines(name, width - 250, 1,
+                  {&lv_font_montserrat_32, &lv_font_montserrat_28, &lv_font_montserrat_24});
+  auto *copy = Label(row, detail, &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(copy, 32, 88);
+  lv_obj_set_width(copy, width - 250);
+  FitLabelToLines(copy, width - 250, 2,
+                  {&lv_font_montserrat_20, &lv_font_montserrat_18});
+  auto *toggle = lv_switch_create(row);
+  StyleSwitch(toggle, enabled);
+  lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -32, 0);
+  OnClick(row, [toggle, setter = std::move(setter), message] {
+    const bool desired = !lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    if (setter(desired)) {
+      if (desired) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+      else lv_obj_remove_state(toggle, LV_STATE_CHECKED);
+      i18n::BindLabel(message, "Settings saved");
+      lv_obj_set_style_text_color(message, kGreen, 0);
+    } else {
+      i18n::BindLabel(message,
+          "This setting could not be changed.");
+      lv_obj_set_style_text_color(message, kRed, 0);
+    }
+  });
+  return row;
+}
+
 inline lv_obj_t *Scroll(lv_obj_t *parent, int y, int height) {
   auto *list = lv_obj_create(parent);
   Clear(list);
