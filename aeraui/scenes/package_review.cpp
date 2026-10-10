@@ -267,6 +267,7 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
                    ActionCallback callback, void *context, bool direct = false) {
   auto *page = AdvancedPage(parent, direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images");
   const std::string slot = RecoverySlot();
+  const auto protected_partitions = flash ? payload::ProtectedPartitions() : std::set<std::string>{};
   Explanation(page, flash ? "Choose images to write to slot " + slot + ". The active slot will not change."
       : "Save verified .img files under AERA/Extracted on the selected storage. No partitions are written.");
   auto *list = lv_obj_create(page);
@@ -281,7 +282,7 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
   auto *summary = Label(page, "No partitions selected", &lv_font_montserrat_28, kMuted);
   lv_obj_set_width(summary, LV_PCT(100));
   auto *review = Button(page, flash ? "Review selected flash" : "Review extraction",
-      [page, info, path, gate, flash, direct, callback, context, slot, selected] {
+      [page, info, path, gate, flash, direct, callback, context, slot, selected, protected_partitions] {
     if (selected->empty()) return;
     if (flash && (!gate || !gate->AllowsInstall())) {
       Sheet(page, "Package checks", "Wait for the ARB check and acknowledge any upgrade warning on the package review.");
@@ -291,6 +292,8 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
     request.job = flash ? Job::kFlashPayload : Job::kExtractPayload;
     request.title = direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images";
     request.payload_direct = direct;
+    request.payload_override_protection = flash && std::any_of(selected->begin(), selected->end(),
+        [&](const auto &name) { return protected_partitions.count(name); });
     request.path = path;
     request.partitions.assign(selected->begin(), selected->end());
     request.payload_manifest_hash = info.manifest_hash;
@@ -303,12 +306,14 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
       names += partition.name;
       bytes += partition.bytes;
     }
-    const std::string detail = direct ? names + "\n\nWrites directly to current slot " + slot +
+    std::string detail = direct ? names + "\n\nWrites directly to current slot " + slot +
         ". No temporary images are saved. The written images are read back and SHA-256 checked before success. A damaged package or interrupted operation may leave the selected partitions incomplete. Do not reboot after a failure: reflash known-good images. This is not a normal OTA; no snapshot rollback, postinstall or slot activation is performed." :
         names + "\n\nRequired storage: " + Size(bytes) +
         (flash ? "\n\nWrites to current slot " + slot +
             ". All selected images are extracted and hash-verified before flashing. Mixing firmware versions can prevent booting. This is a partial image flash, not a normal OTA installation. No postinstall or slot activation is performed."
             : "\n\nDestination: " + RecoveryStorage() + "/AERA/Extracted\nA new folder will be created; existing files are never overwritten.");
+    if (request.payload_override_protection)
+      detail += "\n\n" + std::string(i18n::Translate("Manually selected protected partitions will be overwritten."));
     Sheet(page, request.title, detail, [request, callback, context] {
       SetJobRequest(request);
       callback(Action::kRunOperation, context);
@@ -350,6 +355,7 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
     lv_obj_t *row;
     lv_obj_t *check;
     lv_obj_t *mark;
+    bool protected_partition;
   };
   auto rows = std::make_shared<std::vector<SelectionRow>>();
   const auto refresh_selection = [selected, rows, summary, review, select_all_label] {
@@ -364,18 +370,24 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
       else lv_obj_add_flag(entry.mark, LV_OBJ_FLAG_HIDDEN);
     }
     i18n::BindLabel(summary, (std::to_string(selected->size()) + " selected / " + Size(bytes)).c_str());
-    i18n::BindLabel(select_all_label, !rows->empty() && selected->size() == rows->size()
+    const bool all = std::any_of(rows->begin(), rows->end(), [](const auto &row) { return !row.protected_partition; }) &&
+        std::all_of(rows->begin(), rows->end(), [&](const auto &row) {
+          return row.protected_partition || selected->count(row.name); });
+    i18n::BindLabel(select_all_label, all
         ? "Deselect all" : "Select all");
     if (selected->empty()) lv_obj_add_state(review, LV_STATE_DISABLED);
     else lv_obj_remove_state(review, LV_STATE_DISABLED);
   };
   OnClick(select_all, [selected, rows, refresh_selection] {
     if (rows->empty()) return;
-    if (selected->size() == rows->size()) selected->clear();
-    else for (const auto &entry : *rows) selected->insert(entry.name);
+    const bool all = std::all_of(rows->begin(), rows->end(), [&](const auto &row) {
+      return row.protected_partition || selected->count(row.name); });
+    if (all) selected->clear();
+    else for (const auto &entry : *rows) if (!entry.protected_partition) selected->insert(entry.name);
     refresh_selection();
   });
   for (const auto &partition : info.partitions) {
+    const bool protected_partition = protected_partitions.count(partition.name);
     if (!selectable(partition)) continue;
     auto *row = lv_button_create(list);
     Panel(row, 24, kMainPanel);
@@ -404,13 +416,18 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
     if (flash && target != targets.end() && target->raw)
       Label(row, "Firmware", &lv_font_montserrat_28, kMuted);
     Label(row, Size(partition.bytes).c_str(), &lv_font_montserrat_28, kMuted);
-    rows->push_back({partition.name, partition.bytes, row, check, mark});
+    if (protected_partition) {
+      Label(row, partition.name == "abl" ? "Keep current ABL" : "Keep AERA installed",
+            &lv_font_montserrat_24, kMuted);
+    }
+    rows->push_back({partition.name, partition.bytes, row, check, mark, protected_partition});
     OnClick(row, [selected, name = partition.name, refresh_selection] {
       if (!selected->erase(name)) selected->insert(name);
       refresh_selection();
     });
   }
-  if (!rows->empty()) lv_obj_remove_state(select_all, LV_STATE_DISABLED);
+  if (std::any_of(rows->begin(), rows->end(), [](const auto &row) { return !row.protected_partition; }))
+    lv_obj_remove_state(select_all, LV_STATE_DISABLED);
   const auto unavailable_count = std::count_if(info.partitions.begin(), info.partitions.end(),
       [&](const auto &p) { return !selectable(p); });
   if (unavailable_count) {
@@ -492,7 +509,7 @@ void ReviewFastFlash(const payload::Info &info, const std::string &path,
   std::string error;
   const auto slot = RecoverySlot();
   if ((slot != "A" && slot != "B") ||
-      !payload::PlanFullFlash(info, RecoveryPayloadTargets(names), required, error)) {
+      !payload::PlanFullFlash(info, RecoveryPayloadTargets(names), required, error, payload::ProtectedPartitions())) {
     Sheet(gate->overlay, "Fast flash unavailable", error.empty() ? "The current slot could not be identified." : error);
     return;
   }
@@ -510,10 +527,13 @@ void ReviewFastFlash(const payload::Info &info, const std::string &path,
     if (!gate->AllowsInstall()) return;
     SetJobRequest(request);
     callback(Action::kRunOperation, context);
-  }, 1400, false, SheetPresentation::kStandard, "Swipe to fast flash", [info, slot](lv_obj_t *area) {
+  }, 1400, false, SheetPresentation::kStandard, "Swipe to fast flash", [info, slot, request](lv_obj_t *area) {
     Layout(area);
     Row(area, "Target", "Current slot " + slot + " (unchanged)");
-    Row(area, "Images", std::to_string(info.partitions.size()) + " — all payload images");
+    Row(area, "Images", std::to_string(request.partitions.size()));
+    for (const auto &partition : info.partitions)
+      if (std::find(request.partitions.begin(), request.partitions.end(), partition.name) == request.partitions.end())
+        Row(area, partition.name == "abl" ? "Keep current ABL" : "Keep AERA installed", partition.name);
     Row(area, "Expanded size", Size(info.expanded_bytes));
     Explanation(area, "Streams images directly with otaripper, without temporary extraction. Each written image is read back and SHA-256 verified.");
     Explanation(area, "Use only firmware intended for this device. This bypasses the normal OTA installer and its compatibility checks, snapshot rollback and postinstall. An interruption may leave the current slot unbootable. Do not reboot after a failure; reflash known-good firmware.");

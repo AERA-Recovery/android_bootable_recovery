@@ -91,6 +91,25 @@ TEST(PayloadFullFlash, RejectsTooSmallPhysicalTargetAndAliasedDevices) {
   targets[1].path = targets[0].path;
   EXPECT_FALSE(PlanFullFlash(info, targets, names, error));
 }
+TEST(PayloadFullFlash, SkipsOnlyExplicitlyProtectedImages) {
+  Info info;
+  info.valid = info.is_payload = true;
+  info.partitions = {{"boot", 4096, 1, true, {}, std::string(32, 'b')},
+                     {"abl", 4096, 1, true, {}, std::string(32, 'a')},
+                     {"recovery", 4096, 1, true, {}, std::string(32, 'r')}};
+  std::vector<aeraui::PayloadFlashTarget> targets = {{"boot", "/boot", 8192, false, 0, {}}};
+  std::vector<std::string> names;
+  std::string error;
+  ASSERT_TRUE(PlanFullFlash(info, targets, names, error, {"abl", "recovery"})) << error;
+  EXPECT_EQ(names, (std::vector<std::string>{"boot"}));
+  EXPECT_FALSE(PlanFullFlash(info, targets, names, error));
+  EXPECT_TRUE(names.empty());
+  EXPECT_FALSE(PlanFullFlash(info, targets, names, error, {"abl"}));
+  EXPECT_TRUE(names.empty());
+  info.partitions.erase(info.partitions.begin());
+  EXPECT_FALSE(PlanFullFlash(info, targets, names, error, {"abl", "recovery"}));
+  EXPECT_TRUE(names.empty());
+}
 TEST(PayloadMounts, FindsPhysicalAliasesAndChildrenWithoutTouchingOtherSlots) {
   std::vector<aera::FlashMount> all, selected;
   ASSERT_TRUE(aera::ParseFlashMounts(

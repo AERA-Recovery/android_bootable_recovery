@@ -818,12 +818,16 @@ int RecoveryRunJob(const JobRequest &request) {
     auto info = payload::InspectZip(request.path, flash);
     if (!info.valid || info.incremental || info.manifest_hash != request.payload_manifest_hash)
       return fail("Package changed or is not a supported full payload; review it again");
+    const auto protected_partitions = flash ? payload::ProtectedPartitions() : std::set<std::string>{};
+    for (const auto &name : request.partitions)
+      if (protected_partitions.count(name) && (request.payload_full || !request.payload_override_protection))
+        return fail("Partition protection changed; review the package again without " + name);
     const auto targets = RecoveryPayloadTargets(request.partitions);
     if (request.payload_full) {
       std::vector<std::string> required;
       std::string error;
       if (!flash || !request.payload_direct ||
-          !payload::PlanFullFlash(info, targets, required, error))
+          !payload::PlanFullFlash(info, targets, required, error, protected_partitions))
         return fail(error.empty() ? "Invalid full-payload flash request" : error);
       if (required != request.partitions)
         return fail("Full-payload selection changed; review the package again");
