@@ -4,6 +4,7 @@
  */
 
 #include "aeraui/runner.hpp"
+#include "operation_affinity.hpp"
 
 #include <linux/input.h>
 #include <errno.h>
@@ -82,6 +83,7 @@ class InteractionBoost final {
     InteractionBoost() {
         affinity_valid_ = sched_getaffinity(0, sizeof(original_affinity_),
                                             &original_affinity_) == 0;
+        if (affinity_valid_) operation_affinity::Remember(original_affinity_);
         CPU_ZERO(&prime_affinity_);
         const long cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
         if (cpu_count >= 2) {

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "launcher.hpp"
+#include "../../core/operation_affinity.hpp"
 #include "protocol.hpp"
 #include "audio/bridge.hpp"
 #include <cerrno>
@@ -51,7 +52,7 @@ bool Process::Start(const std::string &runtime, int &frame_fd,
     error = "Could not protect Doom display descriptors.";
     return false;
   }
-  const pid_t child = fork();
+  const pid_t child = aeraui::operation_affinity::ForkWorker();
   if (!child) {
     if (dup2(child_frame, 3) < 0 || dup2(child_control, 4) < 0) _exit(78);
     close(child_frame); close(child_control);

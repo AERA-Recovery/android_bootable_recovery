@@ -6,6 +6,7 @@
 #include "aeraui/engine.hpp"
 #include "aeraui/display_transform.hpp"
 #include "aeraui/i18n.hpp"
+#include "operation_affinity.hpp"
 
 #include <algorithm>
 #include <array>
@@ -2766,6 +2767,7 @@ private:
     decrypt_result_.store(-1, std::memory_order_release);
     decrypt_complete_.store(false, std::memory_order_release);
     decrypt_thread_ = std::thread([this, credential]() {
+      operation_affinity::RestoreForWorker();
       const int result =
           aeraui_decrypt_data(credential.c_str(), crypto_user_id_);
       decrypt_result_.store(result, std::memory_order_release);
@@ -2951,6 +2953,13 @@ private:
     operation_result_.store(-1, std::memory_order_release);
     operation_complete_.store(false, std::memory_order_release);
     operation_thread_ = std::thread([this, request]() {
+      const int affinity_error = operation_affinity::RestoreForWorker();
+      cpu_set_t effective{};
+      const int allowed = sched_getaffinity(0, sizeof(effective), &effective) == 0
+          ? CPU_COUNT(&effective) : -1;
+      __android_log_print(affinity_error ? ANDROID_LOG_WARN : ANDROID_LOG_INFO,
+          kLogTag, "Operation worker affinity: %d CPUs, restore status=%d",
+          allowed, affinity_error);
       if (request.present_before_run)
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
       const int result = RecoveryRunJob(request);
@@ -2968,6 +2977,7 @@ private:
     wifi_result_.store(-1, std::memory_order_release);
     wifi_complete_.store(false, std::memory_order_release);
     wifi_thread_ = std::thread([this, request]() {
+      operation_affinity::RestoreForWorker();
       const int result = RecoveryRunWifi(request);
       wifi_result_.store(result, std::memory_order_release);
       wifi_complete_.store(true, std::memory_order_release);
@@ -2982,6 +2992,7 @@ private:
     nas_result_.store(-1, std::memory_order_release);
     nas_complete_.store(false, std::memory_order_release);
     nas_thread_ = std::thread([this, request]() {
+      operation_affinity::RestoreForWorker();
       const int result = RecoveryRunNas(request);
       nas_result_.store(result, std::memory_order_release);
       nas_complete_.store(true, std::memory_order_release);
@@ -3009,6 +3020,7 @@ private:
     plugin_result_.store(-1, std::memory_order_release);
     plugin_complete_.store(false, std::memory_order_release);
     plugin_thread_ = std::thread([this, request]() {
+      operation_affinity::RestoreForWorker();
       const bool result = plugins::Run(request, plugin_progress_);
       plugin_result_.store(result ? 0 : -1, std::memory_order_release);
       plugin_complete_.store(true, std::memory_order_release);
@@ -3070,6 +3082,7 @@ private:
     if (current_scene_ == Action::kUpdates)
       RefreshUpdateScene(update_scene_);
     update_thread_ = std::thread([this] {
+      operation_affinity::RestoreForWorker();
       const bool success = update::Check();
       update_result_.store(success ? 0 : -1, std::memory_order_release);
       update_complete_.store(true, std::memory_order_release);
@@ -3096,6 +3109,7 @@ private:
     update_complete_.store(false, std::memory_order_release);
     RefreshUpdateScene(update_scene_);
     update_thread_ = std::thread([this] {
+      operation_affinity::RestoreForWorker();
       const bool success = update::Download();
       update_result_.store(success ? 0 : -1, std::memory_order_release);
       update_complete_.store(true, std::memory_order_release);

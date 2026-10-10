@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "service.hpp"
+#include "../../core/operation_affinity.hpp"
 
 #include "protocol.hpp"
 #include "../browser/runtime.hpp"
@@ -102,7 +103,7 @@ class Process {
       error = "Could not protect the recorder descriptors.";
       return false;
     }
-    const pid_t child = fork();
+    const pid_t child = aeraui::operation_affinity::ForkWorker();
     if (!child) {
       if (dup2(child_frame, 3) < 0 || dup2(child_control, 4) < 0) _exit(78);
       close(child_frame); close(child_control);
@@ -192,6 +193,7 @@ class Service {
     preparation_.directory.clear();
     preparation_.error.clear();
     preparation_thread_ = std::thread([this] {
+      operation_affinity::RestoreForWorker();
       web::PreparePluginRuntime(preparation_, "recorder", "app-runtime",
                                 "recorder");
     });

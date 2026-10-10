@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "scene.hpp"
+#include "../../core/operation_affinity.hpp"
 #include "ui_components.hpp"
 #include "protocol.hpp"
 #include "launcher.hpp"
@@ -592,7 +593,10 @@ void Prepare(WebScene *s) {
   i18n::BindLabel(s->title, "Preparing WebKit");
   i18n::BindLabel(s->detail,
       "Verifying and expanding the engine in RAM. Preparation continues if you leave this page.");
-  s->worker = std::thread([s] { web::PrepareRuntime(s->state); });
+  s->worker = std::thread([s] {
+    operation_affinity::RestoreForWorker();
+    web::PrepareRuntime(s->state);
+  });
 }
 }  // namespace
 
