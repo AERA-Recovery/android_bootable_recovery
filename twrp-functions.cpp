@@ -52,6 +52,7 @@
 #include <private/android_filesystem_config.h>
 
 #include "twrp-functions.hpp"
+#include "aera_log_history.hpp"
 #include "aera_core.hpp"
 #include "abx-functions.hpp"
 #include "twcommon.h"
@@ -357,6 +358,13 @@ void TWFunc::Run_Before_Reboot(void)
 	  TWFunc::Create_Dir_Recursive(Aera_Logs_Dir, 0777, AID_MEDIA_RW, AID_MEDIA_RW);
     }
 
+    // Trim existing excess even when historic log creation is disabled.
+    const auto prune_logs = [&Logs_Dir] {
+      const int error = aera::PruneRecoveryLogArchives(Logs_Dir);
+      if (error) LOGINFO("AERA log history cleanup failed: %s\n", strerror(error));
+    };
+    prune_logs();
+
     //[f/d] release info json for app
     TWFunc::write_to_file(Logs_Dir + "/releaseinfo.json",
 "{\"json_ver\":\"2\",\"codename\":\"" + DataManager::GetStrValue(AERA_COMPATIBILITY_DEVICE) +
@@ -421,6 +429,8 @@ void TWFunc::Run_Before_Reboot(void)
         Exec_Cmd (cmd);
         TWFunc::set_media_rw_permissions(log_file + ".zip");
      }
+   // Include the newly compressed archive in the newest-three selection.
+   prune_logs();
 }
 
 /* Execute a command */

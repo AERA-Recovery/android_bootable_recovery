@@ -42,6 +42,9 @@ target_compile_definitions(ui_check PRIVATE
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
+add_executable(aera_log_history_test aera_log_history_test.cpp)
+target_compile_options(aera_log_history_test PRIVATE -UNDEBUG)
+add_test(NAME recovery_log_retention COMMAND aera_log_history_test)
 add_executable(navigation_dock_test navigation_dock_test.cpp)
 target_include_directories(navigation_dock_test PRIVATE .. ../include
   ../components ../localization ../scenes ../features)
