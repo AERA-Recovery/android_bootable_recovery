@@ -5,6 +5,8 @@
 
 #include "payload_inspector.hpp"
 #include "payload_arb.hpp"
+#include "payload_extract.hpp"
+#include <openssl/sha.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -244,6 +246,9 @@ Info InspectZip(const std::string &path, bool read_arb) {
   }
 
   DeltaArchiveManifest manifest;
+  unsigned char manifest_digest[SHA256_DIGEST_LENGTH];
+  SHA256(reinterpret_cast<const uint8_t *>(manifest_data.data()), manifest_data.size(), manifest_digest);
+  info.manifest_hash.assign(reinterpret_cast<const char *>(manifest_digest), sizeof(manifest_digest));
   if (!manifest.ParseFromArray(manifest_data.data(),
                                static_cast<int>(manifest_data.size()))) {
     info.error = "The payload manifest is malformed or uses an unsupported "
@@ -340,6 +345,10 @@ Info InspectZip(const std::string &path, bool read_arb) {
                       ? partition.new_partition_info().size()
                       : 0;
     entry.operations = static_cast<uint64_t>(partition.operations_size());
+    entry.sha256 = partition.new_partition_info().hash();
+    entry.extraction_error = ExtractionError(partition, manifest.block_size(),
+        payload_entry.uncompressed_length - header_bytes - manifest_bytes - signature_bytes);
+    entry.extractable = entry.extraction_error.empty();
     if (entry.bytes > std::numeric_limits<uint64_t>::max() - info.expanded_bytes) {
       info.error = "The manifest partition sizes overflow.";
       CloseArchive(archive);

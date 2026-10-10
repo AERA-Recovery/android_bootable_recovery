@@ -3078,7 +3078,10 @@ bool TWPartition::Raw_Read_Write(PartitionSettings *part_settings) {
 	}
 	if (part_settings->progress)
 		part_settings->progress->UpdateDisplayDetails(true);
-	fsync(dest_fd);
+	if (fsync(dest_fd) != 0) {
+		LOGERR("Unable to flush '%s': %s\n", destfn.c_str(), strerror(errno));
+		goto exit;
+	}
 
 	if (!part_settings->adbbackup && part_settings->PM_Method == PM_BACKUP) {
 		tw_set_default_metadata(destfn.c_str());

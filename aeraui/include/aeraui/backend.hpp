@@ -10,6 +10,8 @@ enum class Job {
   kInstall,
   kSideload,
   kFlashImage,
+  kExtractPayload,
+  kFlashPayload,
   kBackup,
   kUploadBackup,
   kRestore,
@@ -49,7 +51,17 @@ struct JobRequest {
   std::string root_action;
   std::string root_provider;
   std::string root_slot;
+  std::string payload_manifest_hash;
+  std::string payload_slot;
+  bool payload_arb_acknowledged = false;
+  std::string expected_image_sha256; // Only set for verified selected OTA images.
+  uint64_t expected_image_bytes = 0;
+  bool payload_direct = false;
+  bool payload_full = false; // Whole payload: every manifest image is mandatory.
 };
+inline bool PayloadTargetMatches(const std::string &name, const std::string &path) {
+  return path == "/" + name || (name == "system" && path == "/system_root");
+}
 inline bool FormatDataAuthorized(const JobRequest &request) {
   return request.job == Job::kFormatData && request.path == "/data" &&
          request.confirmation == "yes" && request.partitions.empty();
@@ -61,6 +73,15 @@ inline bool SnapshotCowCleanupAuthorized(const JobRequest &request) {
 // Implemented beside the stock GUI bridge, using the same recovery backend.
 std::vector<Volume> RecoveryVolumes(const std::string &kind);
 std::vector<Volume> RecoveryImageVolumes();
+struct PayloadFlashTarget {
+  std::string name;
+  std::string path;
+  uint64_t bytes = 0;
+  bool raw = false;
+  uint64_t device = 0;
+  std::string reason;
+};
+std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names);
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder);
 std::string RecoveryStorage();
 std::string RecoveryBackupRoot();

@@ -1,6 +1,9 @@
 #include "scene.hpp"
 #include "ui_components.hpp"
 #include "themed_app_art.hpp"
+#include "package_review.hpp"
+#include "update/payload_inspector.hpp"
+#include "update/payload_arb.hpp"
 #include "picture_viewer.hpp"
 #include "browser/runtime.hpp"
 #include "browser/protocol.hpp"
@@ -42,6 +45,16 @@ static bool wifi_auto_connect = false;
 static bool adb_over_wifi = false;
 static bool adb_pairing = false;
 static std::vector<plugins::Plugin> home_plugins;
+static payload::Info review_info;
+namespace aeraui::payload {
+Info InspectZip(const std::string &, bool) { return review_info; }
+std::string Summary(const Info &) { return "Installer ZIP"; }
+DeviceArb ReadDeviceArb() { return {}; }
+ArbDecision CompareArb(bool, const Arb &, const DeviceArb &) { return ArbDecision::Unknown; }
+bool ArbAllowsInstall(ArbDecision decision, bool acknowledged) {
+  return decision != ArbDecision::Downgrade && (decision != ArbDecision::Upgrade || acknowledged);
+}
+}
 static WifiRequest wifi_request;
 static SideloadStatus sideload_status;
 static int callback_count = 0;
@@ -216,6 +229,15 @@ std::vector<Volume> RecoveryImageVolumes() {
           {"Boot", "/boot", 100663296}};
 }
 int recovery_progress = 38;
+std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names) {
+  std::vector<PayloadFlashTarget> targets;
+  for (const auto &name : names) {
+    if (name == "boot" || name == "system") targets.push_back({name, "/" + name});
+    else if (name == "modem") targets.push_back({name, "/dev/block/fake_modem_a", 128ULL << 20, true, 1, {}});
+    else targets.push_back({name, {}, 0, false, 0, "No verified A/B firmware target on this device"});
+  }
+  return targets;
+}
 std::string installer_status;
 int RecoveryProgress() { return recovery_progress; }
 std::string RecoveryOperationDetail() { return "Backing up / Boot\n38MB of 100MB (38%)"; }
@@ -291,9 +313,6 @@ std::vector<AdbPairedDevice> RecoveryAdbPairedDevices() {
 bool RecoveryForgetAdbDevice(const std::string &) { return true; }
 void SetPluginRequest(const plugins::Request &) {}
 void SetSelectedPluginId(const std::string &) {}
-void ReviewPackage(lv_obj_t *, const std::string &, ActionCallback, void *) {
-  assert(false && "Package installation is not part of this UI test");
-}
 }
 namespace aeraui::plugins {
 std::vector<Plugin> Installed() { return home_plugins; }
@@ -448,6 +467,138 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--payload-review")) {
+    const std::string wallpaper_path = backup_root + "/wallpaper.png";
+    png_image wallpaper_image{};
+    wallpaper_image.version = PNG_IMAGE_VERSION;
+    wallpaper_image.width = wallpaper_image.height = 2;
+    wallpaper_image.format = PNG_FORMAT_RGBA;
+    const unsigned char pixels[] = {20,30,40,255, 25,35,45,255,
+                                   30,40,50,255, 35,45,55,255};
+    assert(png_image_write_to_file(&wallpaper_image, wallpaper_path.c_str(), 0, pixels, 0, nullptr));
+    for (bool custom_wallpaper : {false, true}) {
+    if (custom_wallpaper) assert(wallpaper::Load(wallpaper_path));
+    else wallpaper::Clear();
+    review_info.is_payload = review_info.valid = true;
+    review_info.partial = true; // OEM full-image OTAs may cover only some partitions.
+    review_info.target_build = "Test full OTA";
+    review_info.manifest_hash.assign(32, 'a');
+    review_info.partitions = {{"boot", 64ULL << 20, 2, true, ""},
+                             {"system", 4ULL << 30, 42, true, ""},
+                             {"modem", 64ULL << 20, 8, true, ""},
+                             {"unsupported", 1ULL << 20, 1, false, "Requires source image"}};
+    for (bool incremental : {false, true}) {
+      review_info.incremental = incremental;
+      ReviewPackage(screen, "/test.zip", RecordAction, nullptr);
+      for (int i = 0; i < 50 && !Find(screen, "Advanced  " LV_SYMBOL_RIGHT); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10)); Tick();
+      }
+      auto *advanced = Find(screen, "Advanced  " LV_SYMBOL_RIGHT); assert(advanced);
+      assert(bool(Find(screen, "Fast flash (experimental)")) == !incremental);
+      lv_obj_send_event(advanced, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(Find(screen, "Advanced ZIP options"));
+      AssertInside(Find(screen, "Advanced ZIP options"), 1440, 3168);
+      if (incremental) {
+        assert(!Find(screen, "Extract selected images"));
+      } else {
+        auto *flash = Find(screen, "Flash selected partitions"); assert(flash);
+        lv_obj_send_event(flash, LV_EVENT_CLICKED, nullptr); Tick();
+        auto *flash_review = Find(screen, "Review selected flash"); assert(flash_review);
+        assert(lv_obj_has_state(flash_review, LV_STATE_DISABLED));
+        auto *all = Find(screen, "Select all"); assert(all);
+        lv_obj_send_event(all, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(Find(screen, "Deselect all"));
+        assert(FindLabelContaining(screen, "3 selected /"));
+        assert(!lv_obj_has_state(flash_review, LV_STATE_DISABLED));
+        lv_obj_send_event(all, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(Find(screen, "Select all"));
+        assert(lv_obj_has_state(flash_review, LV_STATE_DISABLED));
+        auto *modem = Find(screen, "modem"); assert(modem);
+        assert(Find(screen, "Firmware"));
+        lv_obj_send_event(modem, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(!lv_obj_has_state(flash_review, LV_STATE_DISABLED));
+        assert(callback_count == 0);
+        lv_obj_send_event(flash_review, LV_EVENT_CLICKED, nullptr); Tick();
+        auto *flash_slider = Find(screen, "Swipe to flash selected"); assert(flash_slider);
+        AssertInside(flash_slider, 1440, 3168);
+        auto *flash_cancel = Find(lv_obj_get_parent(flash_slider), "Cancel"); assert(flash_cancel);
+        AssertInside(flash_cancel, 1440, 3168);
+        lv_obj_send_event(flash_cancel, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(callback_count == 0);
+        auto *back = Find(lv_obj_get_parent(flash_review), LV_SYMBOL_LEFT "  Back"); assert(back);
+        lv_obj_send_event(back, LV_EVENT_CLICKED, nullptr); Tick();
+        auto *extract = Find(screen, "Extract selected images"); assert(extract);
+        auto *direct = Find(screen, "Direct flash selected partitions"); assert(direct);
+        AssertInside(direct, 1440, 3168);
+        lv_obj_send_event(direct, LV_EVENT_CLICKED, nullptr); Tick();
+        auto *direct_all = Find(screen, "Select all"); assert(direct_all);
+        lv_obj_send_event(direct_all, LV_EVENT_CLICKED, nullptr); Tick();
+        auto *direct_review = Find(screen, "Review selected flash"); assert(direct_review);
+        lv_obj_send_event(direct_review, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(FindLabelContaining(screen, "No temporary images are saved"));
+        auto *direct_slider = Find(screen, "Swipe to flash selected"); assert(direct_slider);
+        AssertInside(direct_slider, 1440, 3168);
+        save("/tmp/aera-direct-flash-confirmation.png");
+        auto *direct_cancel = Find(lv_obj_get_parent(direct_slider), "Cancel"); assert(direct_cancel);
+        lv_obj_send_event(direct_cancel, LV_EVENT_CLICKED, nullptr); Tick();
+        auto *direct_back = Find(lv_obj_get_parent(direct_review), LV_SYMBOL_LEFT "  Back"); assert(direct_back);
+        lv_obj_send_event(direct_back, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(callback_count == 0);
+        AssertInside(extract, 1440, 3168);
+        lv_obj_send_event(extract, LV_EVENT_CLICKED, nullptr); Tick();
+        auto *review = Find(screen, "Review extraction"); assert(review);
+        assert(lv_obj_has_state(review, LV_STATE_DISABLED));
+        auto *boot = Find(screen, "boot"); assert(boot);
+        auto *extract_all = Find(screen, "Select all"); assert(extract_all);
+        AssertInside(extract_all, 1440, 3168);
+        lv_obj_send_event(extract_all, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(Find(screen, "Deselect all"));
+        assert(FindLabelContaining(screen, "3 selected /"));
+        // A manual deselection updates the bulk button and the total.
+        lv_obj_send_event(boot, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(Find(screen, "Select all"));
+        assert(FindLabelContaining(screen, "2 selected /"));
+        lv_obj_send_event(extract_all, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(Find(screen, "Deselect all"));
+        lv_obj_send_event(extract_all, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(lv_obj_has_state(review, LV_STATE_DISABLED));
+        lv_obj_send_event(boot, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(!lv_obj_has_state(review, LV_STATE_DISABLED));
+        AssertInside(review, 1440, 3168);
+        assert(Find(screen, "Requires source image"));
+        auto *unavailable = Find(screen, "Unavailable images (1)  " LV_SYMBOL_DOWN);
+        assert(unavailable);
+        lv_obj_send_event(unavailable, LV_EVENT_CLICKED, nullptr); Tick();
+        save("/tmp/aera-advanced-partitions.png");
+        const auto review_bounds = Bounds(review);
+        lv_obj_send_event(review, LV_EVENT_CLICKED, nullptr); Tick();
+        auto *extract_slider = Find(screen, "Swipe to extract"); assert(extract_slider);
+        AssertInside(extract_slider, 1440, 3168);
+        auto *extract_sheet = lv_obj_get_parent(extract_slider);
+        auto *cancel = Find(extract_sheet, "Cancel"); assert(cancel);
+        AssertInside(cancel, 1440, 3168);
+        const auto after_review_bounds = Bounds(review);
+        assert(review_bounds.y1 == after_review_bounds.y1);
+        assert(review_bounds.y2 == after_review_bounds.y2);
+        save("/tmp/aera-extraction-confirmation.png");
+        assert(callback_count == 0); // Reviewing never starts a write.
+      }
+      lv_obj_clean(screen); Tick();
+    }
+    }
+    wallpaper::Clear();
+    review_info = {};
+    ReviewPackage(screen, "/installer.zip", RecordAction, nullptr);
+    for (int i = 0; i < 50 && !Find(screen, "Advanced  " LV_SYMBOL_RIGHT); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10)); Tick();
+    }
+    assert(Find(screen, "Install this package?"));
+    assert(Find(screen, "Advanced  " LV_SYMBOL_RIGHT));
+    lv_obj_clean(screen); Tick();
+    lv_deinit(); std::filesystem::remove_all(backup_root);
+    puts("Advanced payload review: selection, incremental blocking, normal ZIP fallback and no implicit flash passed.");
+    return 0;
+  }
   if (!strcmp(argv[1], "--home-art")) {
     for (const char *entry : {"retroarch", "browser", "telegram", "gallery", "media",
                              "recorder", "streams", "doom", "appvault", "main"}) {

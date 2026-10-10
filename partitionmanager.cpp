@@ -20,6 +20,8 @@
 */
 
 #include <stdio.h>
+#include "aera_image_flash_batch.hpp"
+#include "aera_image_flash_mounts.hpp"
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
@@ -267,11 +269,77 @@ bool DynamicPartitionMounts(std::vector<std::string>* mounts) {
 	return true;
 }
 
-bool QuiesceDynamicPartitionUsers() {
+bool StopDynamicService(const std::string& name) {
+	LOGINFO("Stopping init service %s before unmapping dynamic partitions\n", name.c_str());
+	if (property_set("ctl.stop", name.c_str()) != 0) {
+		DataManager::SetValue("tw_size_progress", "Cannot stop service " + name);
+		return false;
+	}
+	// Remember even a timed-out stop, so failure cleanup can restore it.
+	gQuiescedDynamicServices.push_back(name);
+	for (int attempt = 0; attempt < 50; ++attempt) {
+		if (android::base::GetProperty("init.svc." + name, "") == "stopped") return true;
+		usleep(100000);
+	}
+	LOGERR("Init service %s did not stop; refusing to force-remove dynamic partitions\n", name.c_str());
+	DataManager::SetValue("tw_size_progress", "Service did not stop: " + name);
+	return false;
+}
+
+bool QuiesceDynamicPartitionUsers(bool stop_bootstrap = false,
+        const std::set<dev_t>& physical_devices = {},
+        std::vector<aera::FlashMount>* physical_mounts = nullptr) {
 	gQuiescedDynamicServices.clear();
+	// The AERA bootstrap can mount vendor dependencies and start consumers even
+	// before its own process maps a vendor library. Stop this producer before
+	// taking the mount/process snapshot. Absent services require no device flag.
+	if (stop_bootstrap) {
+		const auto state = android::base::GetProperty("init.svc.aera-audio-bootstrap", "");
+		if ((state == "running" || state == "restarting") && !StopDynamicService("aera-audio-bootstrap"))
+			return false;
+	}
 	std::vector<std::string> mounts;
 	if (!DynamicPartitionMounts(&mounts))
 		return false;
+	if (physical_mounts) {
+		std::string text, error;
+		std::vector<aera::FlashMount> all;
+		std::set<dev_t> devices = physical_devices;
+		std::map<dev_t, std::string> stable_mapper_paths;
+		for (const auto& block : DynamicMapperDevices()) {
+			if (block.compare(0, 18, "/dev/block/mapper/") != 0) continue;
+			struct stat st = {};
+			if (!stat(block.c_str(), &st) && S_ISBLK(st.st_mode)) {
+				devices.insert(st.st_rdev);
+				stable_mapper_paths[st.st_rdev] = block;
+			}
+		}
+		// Also journal logical parents and their binds. Restoring DSP below
+		// /vendor before /vendor itself would hide it behind the later mount.
+		if (!android::base::ReadFileToString("/proc/self/mountinfo", &text) ||
+			!aera::ParseFlashMounts(text, all) ||
+			!aera::PlanFlashMounts(all, devices, *physical_mounts, error)) {
+			DataManager::SetValue("tw_size_progress", error.empty() ? "Cannot inspect selected partition mounts" : error);
+			return false;
+		}
+		mounts.clear(); // The mountinfo plan includes dynamic mounts and selected firmware.
+		for (auto& mount : *physical_mounts) {
+			const auto mapper = stable_mapper_paths.find(mount.device);
+			if (mapper != stable_mapper_paths.end()) mount.source = mapper->second;
+			struct stat st = {};
+			// Do not dismantle tmpfs/overlay children: their contents cannot be
+			// reconstructed from the block image after flashing.
+			if (stat(mount.source.c_str(), &st) || !S_ISBLK(st.st_mode) || st.st_rdev != mount.device) {
+				DataManager::SetValue("tw_size_progress", "Cannot safely restore mount " + mount.target);
+				return false;
+			}
+			mounts.push_back(mount.target);
+		}
+		std::sort(mounts.begin(), mounts.end(), [](const auto& a, const auto& b) {
+			return a.size() == b.size() ? a < b : a.size() > b.size();
+		});
+		mounts.erase(std::unique(mounts.begin(), mounts.end()), mounts.end());
+	}
 	LOGINFO("Found %zu dynamic-partition-backed mounts before Super unmap\n", mounts.size());
 	if (mounts.empty())
 		return true;
@@ -281,33 +349,51 @@ bool QuiesceDynamicPartitionUsers() {
 	for (const auto& service : services) {
 		if (service.name == "recovery" || !ProcessUsesMount(service.pid, mounts))
 			continue;
-		LOGINFO("Stopping init service %s before unmapping dynamic partitions\n",
-			service.name.c_str());
-		property_set("ctl.stop", service.name.c_str());
-		bool stopped = false;
-		for (int attempt = 0; attempt < 50; ++attempt) {
-			if (android::base::GetProperty("init.svc." + service.name, "") == "stopped") {
-				stopped = true;
-				break;
-			}
-			usleep(100000);
-		}
-		if (!stopped) {
-			LOGERR("Init service %s did not stop; refusing to force-remove dynamic partitions\n",
-				service.name.c_str());
-			return false;
-		}
-		gQuiescedDynamicServices.push_back(service.name);
+		if (!StopDynamicService(service.name)) return false;
 	}
 
 	for (const auto& mount : mounts) {
-		LOGINFO("Unmounting dynamic-partition dependency: %s\n", mount.c_str());
+		LOGINFO("Unmounting image-flash dependency: %s\n", mount.c_str());
 		if (umount2(mount.c_str(), 0) != 0 && errno != EINVAL && errno != ENOENT) {
 			LOGERR("Unable to unmount %s: %s\n", mount.c_str(), strerror(errno));
+			DataManager::SetValue("tw_size_progress", "Unable to unmount " + mount + ": " + strerror(errno));
 			return false;
 		}
+		if (physical_mounts) for (auto& saved : *physical_mounts)
+			if (saved.target == mount) saved.removed = true;
 	}
 	return true;
+}
+
+bool RestoreFlashMount(const aera::FlashMount& saved) {
+	const auto flags = aera::FlashMountFlags(saved.options + "," + saved.super_options);
+	const auto options = aera::FlashFilesystemOptions(saved.super_options);
+	if (saved.root == "/") {
+		if (mount(saved.source.c_str(), saved.target.c_str(), saved.type.c_str(), flags, options.c_str())) return false;
+	} else {
+		// A mountinfo root other than / represents a directory/file bind. Mount
+		// the filesystem privately, recreate the bind, then remove the staging
+		// mount. No descriptors are retained while the partition is flashed.
+		char temporary[] = "/tmp/aera-flash-mount-XXXXXX";
+		if (!mkdtemp(temporary)) return false;
+		if (mount(saved.source.c_str(), temporary, saved.type.c_str(), flags, options.c_str())) {
+			const int error = errno; rmdir(temporary); errno = error; return false;
+		}
+		bool ok = mount(nullptr, temporary, nullptr, MS_PRIVATE, nullptr) == 0;
+		const std::string source = std::string(temporary) + saved.root;
+		if (ok) ok = mount(source.c_str(), saved.target.c_str(), nullptr, MS_BIND, nullptr) == 0;
+		if (ok && mount(nullptr, saved.target.c_str(), nullptr, MS_BIND | MS_REMOUNT | flags, nullptr)) {
+			const int error = errno; umount2(saved.target.c_str(), 0); errno = error; ok = false;
+		}
+		const int error = errno;
+		if (umount2(temporary, 0)) {
+			LOGERR("Unable to remove staging mount %s: %s\n", temporary, strerror(errno));
+			return false;
+		}
+		rmdir(temporary);
+		if (!ok) { errno = error; return false; }
+	}
+	return mount(nullptr, saved.target.c_str(), nullptr, saved.propagation, nullptr) == 0;
 }
 
 }  // namespace
@@ -3860,7 +3946,56 @@ bool TWPartitionManager::Flash_Image_To_Block(const std::string& path,
     return flashed;
 }
 
-bool TWPartitionManager::Flash_Image(string& path, string& filename) {
+bool TWPartitionManager::Run_Image_Flash_Batch(const std::vector<std::string>& targets,
+        const std::function<bool()>& operation) {
+	if (image_flash_batch_ || !operation) return false;
+	std::set<dev_t> physical_devices;
+	for (const auto& target : targets) {
+		std::string block = target;
+		if (target.compare(0, 11, "/dev/block/") != 0) {
+			auto* part = Find_Partition_By_Path(target);
+			if (!part) return false;
+			if (part->Get_Super_Status()) continue;
+			part->Find_Actual_Block_Device();
+			block = part->Actual_Block_Device;
+		}
+		struct stat st = {};
+		if (stat(block.c_str(), &st) || !S_ISBLK(st.st_mode)) {
+			DataManager::SetValue("tw_size_progress", "Cannot resolve selected block target " + target);
+			return false;
+		}
+		physical_devices.insert(st.st_rdev);
+	}
+	std::vector<aera::FlashMount> physical_mounts;
+	const bool replay = android::base::GetBoolProperty("post.decrypt.modules", false);
+	return aera::RunImageFlashBatch(image_flash_batch_, [&] {
+		LOGINFO("Payload batch: releasing logical and selected physical dependencies once\n");
+		return QuiesceDynamicPartitionUsers(true, physical_devices, &physical_mounts);
+	}, operation, [&] {
+		// No per-image remount, property replay or service restart in this scope.
+		// The operation's exclusive block handles have already been destroyed.
+		// Restore parents before children, including on a partial preparation failure.
+		for (auto it = physical_mounts.rbegin(); it != physical_mounts.rend(); ++it) {
+			if (!it->removed) continue;
+			if (!RestoreFlashMount(*it)) {
+				LOGERR("Could not restore %s after payload batch: %s\n", it->target.c_str(), strerror(errno));
+				gui_msg(Msg(msg::kError, "Could not restore {1}; reboot recovery before using its services.")(it->target));
+			} else LOGINFO("Restored image-flash mount: %s\n", it->target.c_str());
+		}
+		LOGINFO("Payload batch: restoring dynamic dependencies once after the batch\n");
+		if (replay) {
+			property_set("post.decrypt.modules", "false");
+			usleep(100000);
+			property_set("post.decrypt.modules", "true");
+		}
+		Restart_Quiesced_Dynamic_Services();
+	});
+}
+
+bool TWPartitionManager::Flash_Image(string& path, string& filename,
+        const std::function<bool(const string&, uint64_t)>& verify,
+        uint64_t stream_bytes, const std::function<bool(const string&)>& stream) {
+	if (stream && (!stream_bytes || stream_bytes > INT64_MAX)) return false;
 	twrpRepacker repacker;
 	int partition_count = 0;
 	TWPartition* flash_part = NULL;
@@ -3872,7 +4007,7 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 	gui_msg("image_flash_start=[IMAGE FLASH STARTED]");
 	gui_msg(Msg("img_to_flash=Image to flash: '{1}'")(full_filename));
 
-	if (!TWFunc::Path_Exists(full_filename)) {
+	if (!stream && !TWFunc::Path_Exists(full_filename)) {
 		if (!Mount_By_Path(full_filename, true)) {
 			return false;
 		}
@@ -3890,6 +4025,7 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 		repack = REPLACE_KERNEL;
 	}
 	if (repack != REPLACE_NONE) {
+		if (stream) return false;
 		Repack_Options_struct Repack_Options;
 		Repack_Options.Type = repack;
 		Repack_Options.Disable_Verity = false;
@@ -3899,7 +4035,7 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 	}
 	PartitionSettings part_settings;
 	part_settings.Backup_Folder = path;
-	unsigned long long total_bytes = TWFunc::Get_File_Size(full_filename);
+	unsigned long long total_bytes = stream ? stream_bytes : TWFunc::Get_File_Size(full_filename);
 	ProgressTracking progress(total_bytes);
 	part_settings.progress = &progress;
 	part_settings.adbbackup = false;
@@ -3933,7 +4069,9 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 	DataManager::SetProgress(0.0);
 	if (flash_part) {
 		const bool logical = flash_part->Get_Super_Status();
-		const bool remount = logical && flash_part->Is_Mounted();
+		if (stream && !logical && (!flash_part->Can_Flash_Img ||
+			flash_part->Backup_Method != BM_DD || !flash_part->Is_SlotSelect())) return false;
+		const bool remount = logical && !image_flash_batch_ && flash_part->Is_Mounted();
 		const bool replay_post_decrypt = logical &&
 			android::base::GetBoolProperty("post.decrypt.modules", false);
 		bool dependencies_quiesced = false;
@@ -3948,7 +4086,7 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 			Restart_Quiesced_Dynamic_Services();
 			dependencies_quiesced = false;
 		};
-		if (logical) {
+		if (logical && !image_flash_batch_) {
 			dependencies_quiesced = true;
 			if (!QuiesceDynamicPartitionUsers()) {
 				restore_dynamic_dependencies();
@@ -3961,8 +4099,8 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 			gui_err("Unable to unmount the logical partition before flashing.");
 			return false;
 		}
-		uint64_t expanded_size = 0;
-		if (!AeraExpandedImageSize(full_filename, &expanded_size)) {
+		uint64_t expanded_size = stream_bytes;
+		if (!stream && !AeraExpandedImageSize(full_filename, &expanded_size)) {
 			gui_err("Unable to determine the image size.");
 			if (remount)
 				flash_part->Mount(false);
@@ -3976,8 +4114,11 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename) {
 			return false;
 		}
 		flash_part->Backup_FileName = filename;
-		const bool flashed = flash_part->Flash_Image(&part_settings);
-		if (remount && !flash_part->Mount(false))
+		flash_part->Find_Actual_Block_Device();
+		bool flashed = stream ? stream(flash_part->Actual_Block_Device) : flash_part->Flash_Image(&part_settings);
+		if (flashed && verify)
+			flashed = verify(flash_part->Actual_Block_Device, expanded_size);
+		if (remount && ((!verify && !stream) || flashed) && !flash_part->Mount(false))
 			LOGINFO("Unable to remount logical partition '%s' after image flash\n",
 				flash_part->Get_Mount_Point().c_str());
 		restore_dynamic_dependencies();

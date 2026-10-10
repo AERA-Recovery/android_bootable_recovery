@@ -1,6 +1,12 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include <aeraui/backend.hpp>
+#include "aeraui/features/update/payload_inspector.hpp"
+#include "aeraui/features/update/payload_arb.hpp"
+#include "aeraui/features/update/payload_targets.hpp"
+#include "aeraui/features/update/payload_full_flash.hpp"
+#include "aeraui/features/update/payload_otaripper.hpp"
+#include <android-base/unique_fd.h>
 
 #include <algorithm>
 #include <atomic>
@@ -8,6 +14,7 @@
 #include <thread>
 #include <cctype>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <cstdlib>
 #include <ctime>
@@ -387,6 +394,20 @@ std::vector<Volume> RecoveryImageVolumes() {
   return result;
 }
 
+std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names) {
+  const auto volumes = RecoveryImageVolumes();
+  std::vector<PayloadFlashTarget> targets;
+  const auto slot = RecoverySlot();
+  for (const auto &name : names) {
+    auto volume = std::find_if(volumes.begin(), volumes.end(),
+        [&](const auto &v) { return PayloadTargetMatches(name, v.path); });
+    if (volume != volumes.end())
+      targets.push_back({name, volume->path, volume->bytes, false, 0, {}});
+    else targets.push_back(payload::DiscoverRawTarget(name, slot));
+  }
+  return targets;
+}
+
 std::string RecoveryStorage() { return DataManager::GetCurrentStoragePath(); }
 std::string RecoveryBackupRoot() { return DataManager::GetStrValue(TW_BACKUPS_FOLDER_VAR); }
 bool RecoveryDeleteBackup(const std::string &folder) {
@@ -724,6 +745,13 @@ int RecoveryRunSideload() {
   return result == 0 ? 0 : 1;
 }
 
+namespace {
+std::atomic<int> gPayloadFlashStep{-1};
+std::atomic<int> gPayloadFlashCount{1};
+// Logical images reserve the last fifth of the write stage for readback.
+std::atomic<int> gPayloadVerifyStage{0}; // 0: combined raw writer, 1: write, 2: readback
+std::atomic<int> gPayloadVerifyProgress{0};
+}
 int RecoveryRunJob(const JobRequest &request) {
   if (request.job == Job::kFormatData && !FormatDataAuthorized(request)) return 1;
   if (request.job == Job::kClearSnapshotCow &&
@@ -776,6 +804,263 @@ int RecoveryRunJob(const JobRequest &request) {
     const bool removed = PartitionManager.Remove_Snapshot_Cow_Partitions();
     if (removed) DataManager::SetProgress(1.0f);
     return removed ? 0 : 1;
+  }
+  if (request.job == Job::kExtractPayload || request.job == Job::kFlashPayload) {
+    const bool flash = request.job == Job::kFlashPayload;
+    auto fail = [](const std::string &message) {
+      LOGERR("Advanced payload: %s\n", message.c_str());
+      DataManager::SetValue("tw_size_progress", message);
+      DataManager::SetValue("tw_file_progress", message);
+      return 1;
+    };
+    if (request.partitions.empty() || request.payload_manifest_hash.size() != 32)
+      return fail("Missing payload selection or reviewed manifest");
+    auto info = payload::InspectZip(request.path, flash);
+    if (!info.valid || info.incremental || info.manifest_hash != request.payload_manifest_hash)
+      return fail("Package changed or is not a supported full payload; review it again");
+    const auto targets = RecoveryPayloadTargets(request.partitions);
+    if (request.payload_full) {
+      std::vector<std::string> required;
+      std::string error;
+      if (!flash || !request.payload_direct ||
+          !payload::PlanFullFlash(info, targets, required, error))
+        return fail(error.empty() ? "Invalid full-payload flash request" : error);
+      if (required != request.partitions)
+        return fail("Full-payload selection changed; review the package again");
+      const auto snapshots = RecoverySnapshotCowStatus();
+      if (snapshots.supported && (!snapshots.metadata_readable || !snapshots.safe_to_remove))
+        return fail("Fast flash blocked: OTA snapshots are active or their state cannot be verified. No images written.");
+    }
+    std::vector<uint64_t> image_sizes;
+    std::vector<std::string> image_hashes;
+    std::set<std::string> unique_names;
+    std::set<std::string> unique_paths;
+    for (const auto &name : request.partitions) {
+      auto found = std::find_if(info.partitions.begin(), info.partitions.end(),
+          [&](const auto &p) { return p.name == name && p.extractable; });
+      if (found == info.partitions.end() || !unique_names.insert(name).second)
+        return fail("Unsupported or duplicate selected partition: " + name);
+      image_sizes.push_back(found->bytes);
+      if (found->sha256.size() != 32) return fail("Missing final image SHA-256: " + name);
+      image_hashes.push_back(found->sha256);
+      if (flash) {
+        auto target = std::find_if(targets.begin(), targets.end(),
+            [&](const auto &v) { return v.name == name; });
+        if (target == targets.end() || target->path.empty()) return fail("No verified flash target for " + name);
+        if (!unique_paths.insert(target->path).second) return fail("Duplicate selected flash target: " + name);
+        if (target->raw && found->bytes > target->bytes) return fail("Image exceeds partition capacity: " + name);
+      }
+    }
+    auto arb_allowed = [&] {
+      const bool firmware = std::any_of(info.partitions.begin(), info.partitions.end(),
+          [](const auto &p) { return p.name == "xbl_config"; });
+      return payload::ArbAllowsInstall(payload::CompareArb(firmware,
+          {info.arb_available, info.arb_index, info.arb_detail}, payload::ReadDeviceArb()),
+          request.payload_arb_acknowledged);
+    };
+    if (flash && (request.payload_slot != RecoverySlot() || !arb_allowed()))
+      return fail("Slot or anti-rollback state changed; review the package again");
+    std::vector<std::string> batch_targets;
+    for (const auto &target : targets) batch_targets.push_back(target.path);
+    if (flash && request.payload_direct) {
+      if (access(payload::OtaripperExecutable(), X_OK)) return fail("Direct flashing requires the bundled otaripper engine");
+      struct DirectPerformance {
+        DirectPerformance() { TWFunc::SetPerformanceMode(true); }
+        ~DirectPerformance() { TWFunc::SetPerformanceMode(false); }
+      } performance;
+      DataManager::SetProgress(0.0f);
+      DataManager::SetValue("tw_size_progress", "");
+      std::string error;
+      size_t verified_count = 0;
+      bool writer_started = false;
+      std::string current_partition;
+      const bool ok = payload::WithValidatedPayload(request.path, request.payload_manifest_hash,
+          request.partitions, error, [&](int package_fd, std::string &error) {
+        const auto fresh = RecoveryPayloadTargets(request.partitions);
+        if (fresh.size() != targets.size()) { error = "Targets changed"; return false; }
+        std::set<uint64_t> devices;
+        for (size_t i = 0; i < targets.size(); ++i) {
+          const auto &t = targets[i];
+          if (t.path != fresh[i].path || t.raw != fresh[i].raw || t.device != fresh[i].device ||
+              (t.raw && t.bytes != fresh[i].bytes)) { error = "Flash target changed"; return false; }
+          if (t.raw) {
+            if (!devices.insert(t.device).second) { error = "Duplicate block target"; return false; }
+          }
+        }
+        auto run_images = [&]() -> bool {
+        // Claim only after the batch has released mounted firmware. Keep every
+        // claim inside this scope so cleanup can remount it after we return.
+        std::vector<android::base::unique_fd> held(targets.size());
+        for (size_t i = 0; i < targets.size(); ++i) if (targets[i].raw) {
+          held[i].reset(payload::OpenRawTarget(targets[i], image_sizes[i], error));
+          if (held[i].get() < 0) return false;
+        }
+        for (size_t i = 0; i < targets.size(); ++i) {
+          current_partition = request.partitions[i];
+          writer_started = false;
+          if (request.payload_slot != RecoverySlot() || !arb_allowed()) {
+            error = "Slot or ARB state changed during direct flash"; return false;
+          }
+          auto progress = [&](double part) {
+            DataManager::SetProgress(float((i + std::clamp(part, 0.0, 1.0)) / targets.size()));
+          };
+          auto write = [&](const std::string &block) {
+            android::base::unique_fd local;
+            if (!targets[i].raw) local.reset(payload::OpenDirectBlock(block, image_sizes[i], error));
+            const int fd = targets[i].raw ? held[i].get() : local.get();
+            if (fd < 0) return false;
+            DataManager::SetValue("tw_file_progress", "Direct flashing " + request.partitions[i]);
+            const auto start = std::chrono::steady_clock::now();
+            writer_started = true;
+            if (!payload::RunOtaripper(package_fd, {request.partitions[i]}, "/tmp", image_sizes[i],
+                [&](const std::string &, uint64_t done, uint64_t total) {
+                  progress(total ? double(done) / total * 1.6 : 0.0);
+                }, error, fd, request.payload_manifest_hash)) return false;
+            DataManager::SetValue("tw_file_progress", "Verifying written image: " + request.partitions[i]);
+            if (!payload::VerifyWrittenFd(fd, image_sizes[i], image_hashes[i], error,
+                [&](uint64_t done, uint64_t total) { progress(0.8 + 0.2 * double(done) / total); })) return false;
+            LOGINFO("Direct payload write and readback verified: %s, %llu bytes, %.3f seconds\n",
+                request.partitions[i].c_str(), static_cast<unsigned long long>(image_sizes[i]),
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+            return true;
+          };
+          bool written;
+          if (targets[i].raw) written = write(targets[i].path);
+          else {
+            auto *part = PartitionManager.Find_Partition_By_Path(targets[i].path);
+            if (!part || (!part->Get_Super_Status() && !part->Is_SlotSelect())) {
+              error = "Invalid selected image target"; return false;
+            }
+            DataManager::SetValue("tw_flash_partition", targets[i].path + ";");
+            DataManager::SetValue("tw_flash_both_slots", 0);
+            std::string path = "/tmp", name = request.partitions[i] + ".img";
+            written = PartitionManager.Flash_Image(path, name, {}, image_sizes[i], write);
+          }
+          if (!written) return false;
+          ++verified_count;
+          writer_started = false;
+        }
+        return true;
+        };
+        return PartitionManager.Run_Image_Flash_Batch(batch_targets, run_images);
+      });
+      if (!ok) {
+        if (error.empty()) error = DataManager::GetStrValue("tw_size_progress");
+        if (error.empty()) error = "Could not prepare the selected partition for flashing";
+        std::string detail = "Direct flash stopped" + (current_partition.empty() ? std::string() : " at " + current_partition) + ": " + error;
+        if (writer_started) detail += ". The current target may be incomplete. Do not reboot; reflash a known-good image.";
+        else if (!verified_count) detail += ". Stopped before writing image data.";
+        else detail += ". Stopped before writing this image; " + std::to_string(verified_count) +
+            " earlier images were flashed and verified. Remaining images were not flashed.";
+        return fail(detail);
+      }
+      DataManager::SetValue("tw_file_progress", request.payload_full ?
+          "Full payload flashed and verified; active slot unchanged" :
+          "Selected images flashed and verified; active slot unchanged");
+      DataManager::SetProgress(1.0f);
+      return 0;
+    }
+    const auto root = RecoveryStorage() + "/AERA/Extracted";
+    if (!TWFunc::Create_Dir_Recursive(root, 0700)) return fail("Cannot create extraction directory");
+    std::string pattern = root + "/payload-XXXXXX";
+    std::vector<char> folder(pattern.begin(), pattern.end()); folder.push_back('\0');
+    if (!mkdtemp(folder.data())) return fail("Cannot create a new extraction folder");
+    const std::string directory(folder.data());
+    struct Performance {
+      Performance() { TWFunc::SetPerformanceMode(true); }
+      ~Performance() {
+        gPayloadFlashStep.store(-1);
+        gPayloadVerifyStage.store(0);
+        gPayloadVerifyProgress.store(0);
+        TWFunc::SetPerformanceMode(false);
+      }
+    } performance;
+    DataManager::SetProgress(0.0f);
+    std::string error;
+    if (!payload::ExtractImages(request.path, request.payload_manifest_hash, request.partitions,
+        directory, error, [flash](const std::string &stage, uint64_t done, uint64_t total) {
+          DataManager::SetValue("tw_file_progress", stage);
+          DataManager::SetProgress(total ? float(double(done) / total * (flash ? 0.7 : 1.0)) : 0.0f);
+        })) {
+      rmdir(directory.c_str());
+      return fail(error);
+    }
+    if (!flash) {
+      LOGINFO("Advanced payload images saved to %s\n", directory.c_str());
+      DataManager::SetValue("tw_file_progress", "Images saved to " + directory);
+      DataManager::SetValue("tw_size_progress", directory);
+      DataManager::SetProgress(1.0f);
+      return 0;
+    }
+    // Every selected image is on disk and hash-verified before the first write.
+    // No slot switch and no normal OTA postinstall/activation are performed.
+    if (request.payload_slot != RecoverySlot() || !arb_allowed())
+      return fail("Slot or anti-rollback state changed; verified images kept in " + directory);
+    // Resolve again after extraction and claim ALL additional block devices
+    // before any write. O_EXCL rejects mounted partitions / mapped holders.
+    const auto fresh_targets = RecoveryPayloadTargets(request.partitions);
+    if (fresh_targets.size() != targets.size()) return fail("Flash targets changed");
+    std::set<uint64_t> raw_devices;
+    for (size_t i = 0; i < targets.size(); ++i) {
+      const auto &target = targets[i];
+      const auto &fresh = fresh_targets[i];
+      if (target.path != fresh.path || target.raw != fresh.raw || target.device != fresh.device ||
+          (target.raw && target.bytes != fresh.bytes)) return fail("Flash target changed: " + target.name);
+      if (!target.raw) continue;
+      if (!raw_devices.insert(target.device).second) return fail("Duplicate block target");
+    }
+    gPayloadFlashCount.store(request.partitions.size());
+    DataManager::SetValue("tw_size_progress", "");
+    bool normal_write_attempted = false;
+    auto run_images = [&]() -> bool {
+    std::vector<android::base::unique_fd> raw_handles(targets.size());
+    for (size_t i = 0; i < targets.size(); ++i) if (targets[i].raw) {
+      raw_handles[i].reset(payload::OpenRawTarget(targets[i], image_sizes[i], error));
+      if (raw_handles[i].get() < 0) return false;
+    }
+    for (size_t i = 0; i < request.partitions.size(); ++i) {
+      if (request.payload_slot != RecoverySlot()) { error = "Active slot changed; stopping partial flash"; return false; }
+      JobRequest image;
+      image.job = Job::kFlashImage;
+      image.title = "Flash selected partitions";
+      image.path = directory + "/" + request.partitions[i] + ".img";
+      image.partitions = {targets[i].path};
+      image.expected_image_sha256 = image_hashes[i];
+      image.expected_image_bytes = image_sizes[i];
+      DataManager::SetValue("tw_file_progress", "Flashing " + request.partitions[i]);
+      DataManager::SetValue("ui_progress", 0);
+      gPayloadVerifyStage.store(targets[i].raw ? 0 : 1);
+      gPayloadVerifyProgress.store(0);
+      gPayloadFlashStep.store(i);
+      normal_write_attempted = true;
+      const int result = targets[i].raw ? (payload::WriteRawImage(raw_handles[i].get(), targets[i],
+          image.path, image_sizes[i], image_hashes[i], error, [&](uint64_t done, uint64_t total) {
+            if (done >= total / 2)
+              DataManager::SetValue("tw_file_progress", "Verifying written image: " + request.partitions[i]);
+            DataManager::SetValue("ui_progress", total ? int(100.0 * done / total) : 0);
+          }) ? 0 : 1) : RecoveryRunJob(image);
+      if (result) {
+        if (error.empty()) error = DataManager::GetStrValue("tw_size_progress");
+        error = "Stopped flashing " + request.partitions[i] + ": " + error;
+        return false;
+      }
+    }
+    return true;
+    };
+    if (!PartitionManager.Run_Image_Flash_Batch(batch_targets, run_images)) {
+      if (error.empty()) error = DataManager::GetStrValue("tw_size_progress");
+      return fail(error + (normal_write_attempted ? ". Do not reboot; selected flashing did not complete." :
+          ". Stopped before writing image data.") + " Verified images kept in " + directory);
+    }
+    PartitionManager.Update_System_Details();
+    DataManager::SetValue("ui_progress", 100);
+    gPayloadFlashStep.store(-1);
+    // Remove only the exact temporary images this operation created.
+    for (const auto &name : request.partitions) unlink((directory + "/" + name + ".img").c_str());
+    rmdir(directory.c_str());
+    DataManager::SetValue("tw_file_progress", "Selected images flashed; active slot unchanged");
+    DataManager::SetProgress(1.0f);
+    return 0;
   }
   if (request.job == Job::kInstall) return aeraui_install_package(request.path.c_str());
   if (request.job == Job::kRootOperation) {
@@ -880,6 +1165,9 @@ int RecoveryRunJob(const JobRequest &request) {
     struct stat image_info {};
     if (stat(request.path.c_str(), &image_info) != 0 ||
         !S_ISREG(image_info.st_mode) || image_info.st_size <= 0) return 1;
+    if (!request.expected_image_sha256.empty() &&
+        (request.expected_image_sha256.size() != 32 || !request.expected_image_bytes ||
+         uint64_t(image_info.st_size) != request.expected_image_bytes)) return 1;
     std::string lower_path = request.path;
     std::transform(lower_path.begin(), lower_path.end(), lower_path.begin(),
                    [](unsigned char value) {
@@ -935,21 +1223,47 @@ int RecoveryRunJob(const JobRequest &request) {
     DataManager::SetValue("tw_partition", target);
     TWFunc::SetPerformanceMode(true);
     int result = 1;
+    std::function<bool(const std::string &, uint64_t)> verify;
+    if (!request.expected_image_sha256.empty()) {
+      DataManager::SetValue("tw_size_progress", "");
+      verify = [&](const std::string &block, uint64_t expanded_bytes) {
+        gPayloadVerifyProgress.store(0);
+        gPayloadVerifyStage.store(2);
+        DataManager::SetValue("tw_file_progress", "Verifying written image: " + target);
+        const auto started = std::chrono::steady_clock::now();
+        std::string error;
+        const bool ok = expanded_bytes == request.expected_image_bytes &&
+            payload::VerifyWrittenBlock(block, request.expected_image_bytes, request.expected_image_sha256,
+                error, [](uint64_t done, uint64_t total) {
+                  gPayloadVerifyProgress.store(total ? int(100.0 * done / total) : 0);
+                });
+        if (!ok) {
+          if (error.empty()) error = "Written image size changed";
+          LOGERR("Payload readback verification failed for %s: %s\n", block.c_str(), error.c_str());
+          DataManager::SetValue("tw_size_progress", error);
+          return false;
+        }
+        LOGINFO("Payload readback SHA-256 verified: %s, %llu bytes, %.3f seconds\n", block.c_str(),
+            static_cast<unsigned long long>(request.expected_image_bytes),
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count());
+        return true;
+      };
+    }
     if (request.both_slots) {
       const std::string original_slot = PartitionManager.Get_Active_Slot_Display();
-      const bool first_slot_ok = PartitionManager.Flash_Image(directory, filename);
+      const bool first_slot_ok = PartitionManager.Flash_Image(directory, filename, verify);
       bool second_slot_ok = false;
       if (first_slot_ok) {
         PartitionManager.Override_Active_Slot(original_slot == "A" ? "B" : "A");
-        second_slot_ok = PartitionManager.Flash_Image(directory, filename);
+        second_slot_ok = PartitionManager.Flash_Image(directory, filename, verify);
       }
       PartitionManager.Override_Active_Slot(original_slot);
       result = first_slot_ok && second_slot_ok ? 0 : 1;
     } else {
-      result = PartitionManager.Flash_Image(directory, filename) ? 0 : 1;
+      result = PartitionManager.Flash_Image(directory, filename, verify) ? 0 : 1;
     }
     DataManager::SetValue("tw_flash_both_slots", 0);
-    PartitionManager.Update_System_Details();
+    if (!PartitionManager.Is_Image_Flash_Batch()) PartitionManager.Update_System_Details();
     TWFunc::SetPerformanceMode(false);
     return result;
   }
@@ -1036,7 +1350,15 @@ int RecoveryRunJob(const JobRequest &request) {
 }
 
 int RecoveryProgress() {
-  return std::max(0, std::min(100, atoi(DataManager::GetStrValue("ui_progress").c_str())));
+  int raw = std::clamp(atoi(DataManager::GetStrValue("ui_progress").c_str()), 0, 100);
+  const int step = gPayloadFlashStep.load();
+  if (step >= 0) {
+    const int phase = gPayloadVerifyStage.load();
+    if (phase == 1) raw = raw * 80 / 100;
+    else if (phase == 2) raw = 80 + std::clamp(gPayloadVerifyProgress.load(), 0, 100) * 20 / 100;
+    return 70 + (30 * step + 30 * raw / 100) / std::max(1, gPayloadFlashCount.load());
+  }
+  return raw;
 }
 std::string RecoveryOperationDetail() {
   std::string text = DataManager::GetStrValue("tw_operation");

@@ -24,6 +24,7 @@
 
 #include <map>
 #include <cstdint>
+#include <functional>
 #include <vector>
 #include <string>
 #include <sys/poll.h>
@@ -432,10 +433,14 @@ public:
 	bool Decrypt_Adopted();                                                   // Attempt to identy and decrypt any adopted storage partitions
 	void Remove_Partition_By_Path(string Path);                               // Removes / erases a partition entry from the partition list
 
-	bool Flash_Image(string& path, string& filename);                         // Flashes an image to a selected partition from the partition list
 	bool Flash_Image_To_Block(const std::string& path, const std::string& filename,
 	                          const std::string& block, const std::string& name,
 	                          bool validate_only = false);
+	// Optional verification runs on the exact written block device before remount/service restart.
+	bool Flash_Image(string& path, string& filename,
+		const std::function<bool(const string&, uint64_t)>& verify = {},
+		uint64_t stream_bytes = 0,
+		const std::function<bool(const string&)>& stream = {});
 	bool Flash_Repacked_Image(string& path, string& filename, bool recovery); // Reflash repacked image...
 	
 	bool Restore_Partition(struct PartitionSettings *part_settings);          // Restore the partitions based on type
@@ -462,6 +467,8 @@ public:
 	void Unlock_Block_Partitions();                                           // Unlock all block devices after update_engine runs
 	bool Unmap_Super_Devices(bool preserve_partitions = false);              // Unmap super devices in TWRP
 	void Restart_Quiesced_Dynamic_Services();                                // Restore services stopped for live fastbootd
+	bool Run_Image_Flash_Batch(const std::vector<std::string>& targets, const std::function<bool()>& operation); // Release selected physical and logical dependencies once
+	bool Is_Image_Flash_Batch() const { return image_flash_batch_; }
 	bool Check_Pending_Merges();                                              // Check and run pending merges on data for VAB devices
 	bool Disable_AVB2(bool Display_Info);                                     // Disable AVB2.0 in vbmeta/vbmeta_system
 	void Check_UsbOtg_Status();						  // Checks if usb_otg is connected
@@ -495,6 +502,7 @@ private:
 
 private:
 	std::vector<TWPartition*> Partitions;                                     // Vector list of all partitions
+	bool image_flash_batch_ = false;
 	string Active_Slot_Display;                                               // Current Active Slot (A or B) for display purposes
 	std::vector<users_struct> Users_List;                                     // List of FBE users
 	std::vector<std::string> Super_Partition_List;                            // Display value for super partitions

@@ -17,6 +17,7 @@ find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
 add_executable(ui_check ui_check.cpp
+  ../scenes/package_review.cpp
   ../scenes/launcher_scene.cpp ../components/retroarch_icon.cpp
   ../components/webkit_icon.cpp
   ../scenes/about_scene.cpp ../components/aera_logo.cpp
@@ -66,6 +67,7 @@ add_test(NAME settings_autosave_and_reset COMMAND ui_check --settings)
 add_test(NAME themed_home_artwork COMMAND ui_check --art)
 add_test(NAME themed_home_layout COMMAND ui_check --home-art)
 add_test(NAME pc_connection_settings_layout COMMAND ui_check --pc-settings)
+add_test(NAME advanced_payload_review COMMAND ui_check --payload-review)
 add_executable(display_transform_test display_transform_test.cpp)
 target_include_directories(display_transform_test PRIVATE ../include)
 add_test(NAME adaptive_display_transform COMMAND display_transform_test)

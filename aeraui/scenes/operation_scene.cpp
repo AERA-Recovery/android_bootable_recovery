@@ -113,6 +113,8 @@ const char *InitialTitle(Job job) {
   switch (job) {
     case Job::kSideload: return "Waiting for package";
     case Job::kFlashImage: return "Preparing image flash";
+    case Job::kExtractPayload: return "Extracting selected images";
+    case Job::kFlashPayload: return "Preparing selected partitions";
     case Job::kBackup: return "Preparing your backup";
     case Job::kUploadBackup: return "Preparing network upload";
     case Job::kRestore: return "Preparing to restore";
@@ -130,6 +132,8 @@ const char *OperationSymbol(Job job) {
   switch (job) {
     case Job::kSideload: return LV_SYMBOL_USB;
     case Job::kFlashImage: return LV_SYMBOL_UPLOAD;
+    case Job::kFlashPayload: return LV_SYMBOL_UPLOAD;
+    case Job::kExtractPayload: return LV_SYMBOL_SAVE;
     case Job::kBackup: return LV_SYMBOL_SAVE;
     case Job::kUploadBackup: return LV_SYMBOL_UPLOAD;
     case Job::kRestore: return LV_SYMBOL_REFRESH;
@@ -302,6 +306,12 @@ FriendlyProgress Explain(const std::string &raw, Job job, int progress) {
     value.explanation = "AERA is clearing the selected partition safely.";
     value.activity = i18n::Format(
         "Cleaning %s and preparing it for use.", subject.c_str());
+    value.step = progress > 1 ? 1 : 0;
+  } else if (job == Job::kExtractPayload || job == Job::kFlashPayload) {
+    value.title = job == Job::kFlashPayload ? "Preparing and flashing selected images" : "Extracting selected images";
+    value.explanation = "Selected images are reconstructed and verified against the payload hashes.";
+    value.activity = job == Job::kFlashPayload ? "Only selected partitions will be written. The active slot will not change."
+                                             : "Images are saved under AERA/Extracted on the selected storage.";
     value.step = progress > 1 ? 1 : 0;
   } else if (job == Job::kFlashImage) {
     value.title = progress > 1 ? "Flashing partition image" :

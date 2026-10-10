@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,9 @@ struct Partition {
   std::string name;
   uint64_t bytes = 0;
   uint64_t operations = 0;
+  bool extractable = false;
+  std::string extraction_error;
+  std::string sha256; // Raw 32-byte final image digest from the payload manifest.
 };
 
 struct Info {
@@ -43,6 +47,7 @@ struct Info {
   std::string security_patch;
   std::string operation_types;
   std::string error;
+  std::string manifest_hash;
   std::vector<Partition> partitions;
 };
 
@@ -50,7 +55,19 @@ struct Info {
 // inspection also reconstructs bounded xbl_config data in RAM. No device writes.
 Info InspectZip(const std::string &path, bool read_arb = false);
 
+// Writes only new regular files into an existing directory. Never opens a
+// device partition. All selected images must pass SHA-256 or they are removed.
+bool ExtractImages(const std::string &zip, const std::string &manifest_hash,
+                   const std::vector<std::string> &names, const std::string &directory,
+                   std::string &error,
+                   const std::function<void(const std::string &, uint64_t, uint64_t)> &progress = {});
+
 // Compact, display-ready preflight summary for the install confirmation.
+// Runs only after complete selected-image preflight; callback borrows the exact ZIP fd.
+bool WithValidatedPayload(const std::string &zip, const std::string &manifest_hash,
+                          const std::vector<std::string> &names, std::string &error,
+                          const std::function<bool(int, std::string &)> &write);
+
 std::string Summary(const Info &info);
 
 }  // namespace aeraui::payload

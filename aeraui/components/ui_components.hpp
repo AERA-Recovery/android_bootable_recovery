@@ -599,7 +599,14 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   auto *overlay = lv_obj_create(screen);
   lv_obj_set_user_data(overlay, &kModalMarker);
   Clear(overlay);
-  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  // A modal must cover its owner, including when the owner uses flex layout
+  // or padding. Otherwise it consumes layout space and its actions fall below
+  // the visible page (Advanced payload review is one such owner).
+  lv_obj_add_flag(overlay, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_add_flag(overlay, LV_OBJ_FLAG_FLOATING);
+  lv_obj_set_size(overlay, lv_obj_get_width(screen), lv_obj_get_height(screen));
+  lv_obj_set_pos(overlay, -lv_obj_get_style_pad_left(screen, LV_PART_MAIN),
+                          -lv_obj_get_style_pad_top(screen, LV_PART_MAIN));
   lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
   lv_obj_set_style_bg_opa(overlay, LV_OPA_30, 0);
   if (dismiss_on_backdrop) {

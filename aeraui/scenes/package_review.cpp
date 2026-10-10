@@ -4,11 +4,13 @@
 #include "ui_components.hpp"
 #include "update/payload_inspector.hpp"
 #include "update/payload_arb.hpp"
+#include "update/payload_full_flash.hpp"
 #include <algorithm>
 #include <atomic>
 #include <memory>
 #include <thread>
 #include <cstdio>
+#include <set>
 
 namespace aeraui {
 namespace {
@@ -21,7 +23,8 @@ struct ArbProgress {
 std::string Size(uint64_t bytes) {
   char value[48];
   if (bytes >= (1ULL << 30)) snprintf(value, sizeof(value), "%.2f GiB", bytes / double(1ULL << 30));
-  else snprintf(value, sizeof(value), "%.1f MiB", bytes / double(1ULL << 20));
+  else if (bytes >= (1ULL << 20)) snprintf(value, sizeof(value), "%.1f MiB", bytes / double(1ULL << 20));
+  else snprintf(value, sizeof(value), "%.1f KiB", bytes / 1024.0);
   return value;
 }
 void Layout(lv_obj_t *area) {
@@ -84,6 +87,8 @@ struct InstallGate {
   lv_obj_t *overlay = nullptr;
   lv_obj_t *body = nullptr;
   lv_obj_t *details = nullptr;
+  lv_obj_t *advanced = nullptr;
+  lv_obj_t *fast_flash = nullptr;
   lv_obj_t *slider = nullptr;
   payload::ArbDecision Decision() const {
     if (!progress->done.load(std::memory_order_acquire)) return payload::ArbDecision::Unknown;
@@ -162,8 +167,11 @@ void UpdateGate(const std::shared_ptr<InstallGate> &shared) {
   if (!gate.progress->done.load(std::memory_order_acquire)) return;
   using D = payload::ArbDecision;
   const auto decision = gate.Decision();
-  if (decision == D::Downgrade)
+  if (decision == D::Downgrade) {
     lv_obj_add_flag(gate.details, LV_OBJ_FLAG_HIDDEN);
+    if (gate.advanced) lv_obj_add_flag(gate.advanced, LV_OBJ_FLAG_HIDDEN);
+    if (gate.fast_flash) lv_obj_add_flag(gate.fast_flash, LV_OBJ_FLAG_HIDDEN);
+  }
   if (gate.AllowsInstall()) lv_obj_remove_flag(gate.slider, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_add_flag(gate.slider, LV_OBJ_FLAG_HIDDEN);
   FitReview(gate);
@@ -215,6 +223,302 @@ struct Result {
   std::atomic<bool> done{false};
   std::shared_ptr<ArbProgress> arb = std::make_shared<ArbProgress>();
 };
+
+lv_obj_t *AdvancedPage(lv_obj_t *screen, const char *title) {
+  auto *page = lv_obj_create(screen);
+  Clear(page);
+  lv_obj_set_user_data(page, &kModalMarker);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_add_flag(page, LV_OBJ_FLAG_FLOATING);
+  lv_obj_set_size(page, lv_obj_get_width(screen), lv_obj_get_height(screen));
+  lv_obj_set_pos(page, -lv_obj_get_style_pad_left(screen, LV_PART_MAIN),
+                       -lv_obj_get_style_pad_top(screen, LV_PART_MAIN));
+  lv_obj_set_style_bg_color(page, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(page, 64, 0);
+  lv_obj_set_style_pad_top(page, 96, 0);
+  lv_obj_set_style_pad_row(page, 32, 0);
+  lv_obj_set_flex_flow(page, LV_FLEX_FLOW_COLUMN);
+  // Wallpaper images are real child objects. Keep them out of the content
+  // flex layout, otherwise a full-height image pushes every control offscreen.
+  auto *background = lv_obj_create(page);
+  Clear(background);
+  lv_obj_add_flag(background, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_add_flag(background, LV_OBJ_FLAG_FLOATING);
+  lv_obj_remove_flag(background, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(background, lv_obj_get_width(screen), lv_obj_get_height(screen));
+  lv_obj_set_pos(background, -64, -96);
+  MainBackground(background);
+  lv_obj_move_background(background);
+  auto *back = Button(page, LV_SYMBOL_LEFT "  Back", [page] { lv_obj_delete_async(page); });
+  lv_obj_set_size(back, 240, 90);
+  lv_obj_set_style_radius(back, 24, 0);
+  auto *heading = Label(page, title, &lv_font_montserrat_48, kText);
+  lv_obj_set_width(heading, LV_PCT(100));
+  return page;
+}
+void Explanation(lv_obj_t *parent, const std::string &text) {
+  auto *label = Label(parent, text.c_str(), &lv_font_montserrat_28, kMuted);
+  lv_obj_set_width(label, LV_PCT(100));
+  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+}
+void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::string &path,
+                   const std::shared_ptr<InstallGate> &gate, bool flash,
+                   ActionCallback callback, void *context, bool direct = false) {
+  auto *page = AdvancedPage(parent, direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images");
+  const std::string slot = RecoverySlot();
+  Explanation(page, flash ? "Choose images to write to slot " + slot + ". The active slot will not change."
+      : "Save verified .img files under AERA/Extracted on the selected storage. No partitions are written.");
+  auto *list = lv_obj_create(page);
+  Clear(list);
+  lv_obj_set_width(list, LV_PCT(100));
+  lv_obj_set_flex_grow(list, 1);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(list, 16, 0);
+  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  auto selected = std::make_shared<std::set<std::string>>();
+  auto *summary = Label(page, "No partitions selected", &lv_font_montserrat_28, kMuted);
+  lv_obj_set_width(summary, LV_PCT(100));
+  auto *review = Button(page, flash ? "Review selected flash" : "Review extraction",
+      [page, info, path, gate, flash, direct, callback, context, slot, selected] {
+    if (selected->empty()) return;
+    if (flash && (!gate || !gate->AllowsInstall())) {
+      Sheet(page, "Package checks", "Wait for the ARB check and acknowledge any upgrade warning on the package review.");
+      return;
+    }
+    JobRequest request;
+    request.job = flash ? Job::kFlashPayload : Job::kExtractPayload;
+    request.title = direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images";
+    request.payload_direct = direct;
+    request.path = path;
+    request.partitions.assign(selected->begin(), selected->end());
+    request.payload_manifest_hash = info.manifest_hash;
+    request.payload_slot = slot;
+    request.payload_arb_acknowledged = gate && gate->acknowledged;
+    uint64_t bytes = 0;
+    std::string names;
+    for (const auto &partition : info.partitions) if (selected->count(partition.name)) {
+      if (!names.empty()) names += ", ";
+      names += partition.name;
+      bytes += partition.bytes;
+    }
+    const std::string detail = direct ? names + "\n\nWrites directly to current slot " + slot +
+        ". No temporary images are saved. The written images are read back and SHA-256 checked before success. A damaged package or interrupted operation may leave the selected partitions incomplete. Do not reboot after a failure: reflash known-good images. This is not a normal OTA; no snapshot rollback, postinstall or slot activation is performed." :
+        names + "\n\nRequired storage: " + Size(bytes) +
+        (flash ? "\n\nWrites to current slot " + slot +
+            ". All selected images are extracted and hash-verified before flashing. Mixing firmware versions can prevent booting. This is a partial image flash, not a normal OTA installation. No postinstall or slot activation is performed."
+            : "\n\nDestination: " + RecoveryStorage() + "/AERA/Extracted\nA new folder will be created; existing files are never overwritten.");
+    Sheet(page, request.title, detail, [request, callback, context] {
+      SetJobRequest(request);
+      callback(Action::kRunOperation, context);
+    }, 1700, false, SheetPresentation::kStandard, flash ? "Swipe to flash selected" : "Swipe to extract");
+  });
+  lv_obj_set_size(review, LV_PCT(100), 110);
+  lv_obj_set_style_radius(review, 24, 0);
+  lv_obj_set_style_text_align(lv_obj_get_child(review, 0), LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_add_state(review, LV_STATE_DISABLED);
+  std::vector<std::string> names;
+  for (const auto &p : info.partitions) names.push_back(p.name);
+  const auto targets = flash ? RecoveryPayloadTargets(names) : std::vector<PayloadFlashTarget>{};
+  const auto target_for = [&](const auto &partition) {
+    return std::find_if(targets.begin(), targets.end(),
+        [&](const auto &v) { return v.name == partition.name; });
+  };
+  const auto selectable = [&](const auto &partition) {
+    const auto target = target_for(partition);
+    const bool target_exists = target != targets.end() && !target->path.empty() &&
+        (!target->raw || partition.bytes <= target->bytes);
+    return partition.extractable && (!flash || target_exists);
+  };
+  auto *selection_header = lv_obj_create(list);
+  Clear(selection_header);
+  lv_obj_set_size(selection_header, LV_PCT(100), 96);
+  lv_obj_set_flex_flow(selection_header, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(selection_header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  auto *caption = Label(selection_header, "SELECT PARTITIONS", &lv_font_montserrat_28, kMuted);
+  lv_obj_set_flex_grow(caption, 1);
+  auto *select_all = Button(selection_header, "Select all", [] {});
+  lv_obj_set_size(select_all, 280, 88);
+  lv_obj_set_style_radius(select_all, 24, 0);
+  lv_obj_add_state(select_all, LV_STATE_DISABLED);
+  auto *select_all_label = lv_obj_get_child(select_all, 0);
+  lv_obj_set_style_text_align(select_all_label, LV_TEXT_ALIGN_CENTER, 0);
+  struct SelectionRow {
+    std::string name;
+    uint64_t bytes;
+    lv_obj_t *row;
+    lv_obj_t *check;
+    lv_obj_t *mark;
+  };
+  auto rows = std::make_shared<std::vector<SelectionRow>>();
+  const auto refresh_selection = [selected, rows, summary, review, select_all_label] {
+    uint64_t bytes = 0;
+    for (const auto &entry : *rows) {
+      const bool active = selected->count(entry.name);
+      if (active) bytes += entry.bytes;
+      lv_obj_set_style_border_width(entry.row, active ? 3 : 1, 0);
+      lv_obj_set_style_border_color(entry.row, active ? kAccent : kMainLine, 0);
+      lv_obj_set_style_border_color(entry.check, active ? kAccent : kMuted, 0);
+      if (active) lv_obj_remove_flag(entry.mark, LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(entry.mark, LV_OBJ_FLAG_HIDDEN);
+    }
+    i18n::BindLabel(summary, (std::to_string(selected->size()) + " selected / " + Size(bytes)).c_str());
+    i18n::BindLabel(select_all_label, !rows->empty() && selected->size() == rows->size()
+        ? "Deselect all" : "Select all");
+    if (selected->empty()) lv_obj_add_state(review, LV_STATE_DISABLED);
+    else lv_obj_remove_state(review, LV_STATE_DISABLED);
+  };
+  OnClick(select_all, [selected, rows, refresh_selection] {
+    if (rows->empty()) return;
+    if (selected->size() == rows->size()) selected->clear();
+    else for (const auto &entry : *rows) selected->insert(entry.name);
+    refresh_selection();
+  });
+  for (const auto &partition : info.partitions) {
+    if (!selectable(partition)) continue;
+    auto *row = lv_button_create(list);
+    Panel(row, 24, kMainPanel);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(row, 28, 0);
+    lv_obj_set_style_min_height(row, 116, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, kMainLine, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 24, 0);
+    auto *check = lv_obj_create(row);
+    Clear(check);
+    lv_obj_set_size(check, 40, 40);
+    lv_obj_set_style_radius(check, 10, 0);
+    lv_obj_set_style_border_width(check, 2, 0);
+    lv_obj_set_style_border_color(check, kMuted, 0);
+    auto *mark = Label(check, LV_SYMBOL_OK, &lv_font_montserrat_28, kAccent);
+    lv_obj_center(mark);
+    lv_obj_add_flag(mark, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE);
+    auto *name = Label(row, partition.name.c_str(), &lv_font_montserrat_32, kText);
+    lv_obj_set_flex_grow(name, 1);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    const auto target = target_for(partition);
+    if (flash && target != targets.end() && target->raw)
+      Label(row, "Firmware", &lv_font_montserrat_28, kMuted);
+    Label(row, Size(partition.bytes).c_str(), &lv_font_montserrat_28, kMuted);
+    rows->push_back({partition.name, partition.bytes, row, check, mark});
+    OnClick(row, [selected, name = partition.name, refresh_selection] {
+      if (!selected->erase(name)) selected->insert(name);
+      refresh_selection();
+    });
+  }
+  if (!rows->empty()) lv_obj_remove_state(select_all, LV_STATE_DISABLED);
+  const auto unavailable_count = std::count_if(info.partitions.begin(), info.partitions.end(),
+      [&](const auto &p) { return !selectable(p); });
+  if (unavailable_count) {
+    auto *toggle = Button(list, (std::string(flash ? "Extraction only / unavailable" : "Unavailable images") +
+        " (" + std::to_string(unavailable_count) + ")  " LV_SYMBOL_DOWN).c_str(), [] {});
+    lv_obj_set_size(toggle, LV_PCT(100), 104);
+    lv_obj_set_style_radius(toggle, 24, 0);
+    auto *details = lv_obj_create(list);
+    Clear(details);
+    lv_obj_set_size(details, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(details, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(details, 24, 0);
+    if (flash) Explanation(details, "These images have no verified flash target, exceed its capacity, or cannot be extracted. Shared data partitions are excluded. Use extraction or normal installation where appropriate.");
+    for (const auto &p : info.partitions) {
+      if (selectable(p)) continue;
+      Row(details, p.name.c_str(), Size(p.bytes));
+      if (!p.extractable) Explanation(details, p.extraction_error);
+      else if (flash) {
+        const auto target = target_for(p);
+        Explanation(details, target == targets.end() ? "No verified target" :
+            target->path.empty() ? target->reason : "Image exceeds physical partition capacity");
+      }
+    }
+    lv_obj_add_flag(details, LV_OBJ_FLAG_HIDDEN);
+    OnClick(toggle, [details] {
+      if (lv_obj_has_flag(details, LV_OBJ_FLAG_HIDDEN)) lv_obj_remove_flag(details, LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(details, LV_OBJ_FLAG_HIDDEN);
+    });
+  }
+}
+void AdvancedZip(lv_obj_t *screen, const payload::Info &info, const std::string &path,
+                 const std::shared_ptr<InstallGate> &gate, ActionCallback callback, void *context) {
+  auto *page = AdvancedPage(screen, "Advanced ZIP options");
+  if (!info.is_payload || !info.valid || info.incremental) {
+    Explanation(page, info.incremental ? "This incremental payload depends on existing partition data. Use normal installation."
+        : "This ZIP uses its own installer. Individual payload partition extraction is not available.");
+    return;
+  }
+  Explanation(page, "Choose how to use the images in this full OTA.");
+  auto *package = lv_obj_create(page);
+  Panel(package, 28, kMainPanel);
+  lv_obj_set_size(package, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_all(package, 32, 0);
+  lv_obj_set_flex_flow(package, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(package, 20, 0);
+  Section(package, "SELECTED PACKAGE");
+  Explanation(package, info.target_build.empty() ? path.substr(path.find_last_of('/') + 1) : info.target_build);
+  Row(package, "Images", std::to_string(info.partitions.size()));
+  Row(package, "Expanded size", Size(info.expanded_bytes));
+  for (int mode : {0, 1, 2}) {
+    const bool flash = mode != 2, direct = mode == 1;
+    auto *button = Button(page, direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images",
+        [page, info, path, gate, flash, direct, callback, context] {
+      SelectPayload(page, info, path, gate, flash, callback, context, direct);
+    });
+    lv_obj_set_size(button, LV_PCT(100), 180);
+    lv_obj_set_style_radius(button, 28, 0);
+    lv_obj_set_style_border_width(button, 1, 0);
+    lv_obj_set_style_border_color(button, kMainLine, 0);
+    auto *title = lv_obj_get_child(button, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 12);
+    auto *subtitle = Label(button, direct ? "Experimental: no temporary images; verified readback" : flash ? "Extract and verify all images before writing" : "Save images to storage without flashing",
+        &lv_font_montserrat_28, kMuted);
+    lv_obj_set_width(subtitle, LV_PCT(85));
+    lv_obj_align(subtitle, LV_ALIGN_BOTTOM_LEFT, 16, -12);
+    auto *arrow = Label(button, LV_SYMBOL_RIGHT, &lv_font_montserrat_32, kMuted);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -12, 0);
+  }
+  Explanation(page, "Extraction temporarily needs enough space for all selected expanded images. Partial flashing does not run the package installer or its device-compatibility checks: use only firmware intended for this device.");
+}
+void ReviewFastFlash(const payload::Info &info, const std::string &path,
+                     const std::shared_ptr<InstallGate> &gate, ActionCallback callback, void *context) {
+  if (!gate->AllowsInstall()) {
+    Sheet(gate->overlay, "Package checks", "Wait for the ARB check and acknowledge any upgrade warning first.");
+    return;
+  }
+  std::vector<std::string> names, required;
+  for (const auto &p : info.partitions) names.push_back(p.name);
+  std::string error;
+  const auto slot = RecoverySlot();
+  if ((slot != "A" && slot != "B") ||
+      !payload::PlanFullFlash(info, RecoveryPayloadTargets(names), required, error)) {
+    Sheet(gate->overlay, "Fast flash unavailable", error.empty() ? "The current slot could not be identified." : error);
+    return;
+  }
+  JobRequest request;
+  request.job = Job::kFlashPayload;
+  request.title = "Fast flash (experimental)";
+  request.path = path;
+  request.partitions = std::move(required);
+  request.payload_manifest_hash = info.manifest_hash;
+  request.payload_slot = slot;
+  request.payload_direct = true;
+  request.payload_full = true;
+  request.payload_arb_acknowledged = gate->acknowledged;
+  Sheet(gate->overlay, request.title, "", [request, gate, callback, context] {
+    if (!gate->AllowsInstall()) return;
+    SetJobRequest(request);
+    callback(Action::kRunOperation, context);
+  }, 1400, false, SheetPresentation::kStandard, "Swipe to fast flash", [info, slot](lv_obj_t *area) {
+    Layout(area);
+    Row(area, "Target", "Current slot " + slot + " (unchanged)");
+    Row(area, "Images", std::to_string(info.partitions.size()) + " — all payload images");
+    Row(area, "Expanded size", Size(info.expanded_bytes));
+    Explanation(area, "Streams images directly with otaripper, without temporary extraction. Each written image is read back and SHA-256 verified.");
+    Explanation(area, "Use only firmware intended for this device. This bypasses the normal OTA installer and its compatibility checks, snapshot rollback and postinstall. An interruption may leave the current slot unbootable. Do not reboot after a failure; reflash known-good firmware.");
+  });
+}
 struct Review {
   lv_obj_t *screen;
   lv_obj_t *overlay;
@@ -248,7 +552,14 @@ void Ready(lv_timer_t *timer) {
         callback(Action::kRunOperation, context);
       };
   if (!info.is_payload) {
-    Sheet(screen, "Install this package?", detail, install);
+    Sheet(screen, "Install this package?", detail, install, 1500, false,
+        SheetPresentation::kStandard, "Swipe to install", [screen, info, path, detail, callback, context](lv_obj_t *area) {
+      Layout(area);
+      Explanation(area, detail);
+      auto *advanced = Button(area, "Advanced  " LV_SYMBOL_RIGHT,
+          [screen, info, path, callback, context] { AdvancedZip(screen, info, path, {}, callback, context); });
+      lv_obj_set_size(advanced, LV_PCT(100), 96);
+    });
     return;
   }
   auto gate = std::make_shared<InstallGate>();
@@ -258,7 +569,7 @@ void Ready(lv_timer_t *timer) {
   Sheet(screen, "Review Android update", "", [gate, install] {
     if (gate->AllowsInstall()) install();
   }, 1900, false,
-        SheetPresentation::kStandard, "Swipe to install", [info, path, arb, gate](lv_obj_t *area) {
+        SheetPresentation::kStandard, "Swipe to install", [info, path, arb, gate, callback, context](lv_obj_t *area) {
     Layout(area);
     gate->body = area;
     if (info.name_from_filename) Section(area, "PACKAGE NAME");
@@ -278,6 +589,24 @@ void Ready(lv_timer_t *timer) {
     lv_obj_set_style_border_width(details, 1, 0);
     lv_obj_set_style_border_color(details, kMainLine, 0);
     gate->details = details;
+    if (!info.incremental) {
+      auto *fast = Button(area, "Fast flash (experimental)",
+          [info, path, gate, callback, context] { ReviewFastFlash(info, path, gate, callback, context); });
+      lv_obj_set_size(fast, LV_PCT(100), 96);
+      lv_obj_set_style_radius(fast, 24, 0);
+      lv_obj_set_style_border_width(fast, 1, 0);
+      lv_obj_set_style_border_color(fast, kMainLine, 0);
+      gate->fast_flash = fast;
+    }
+    auto *advanced = Button(area, "Advanced  " LV_SYMBOL_RIGHT,
+        [info, path, gate, callback, context] {
+      AdvancedZip(gate->overlay, info, path, gate, callback, context);
+    });
+    lv_obj_set_size(advanced, LV_PCT(100), 96);
+    lv_obj_set_style_radius(advanced, 24, 0);
+    lv_obj_set_style_border_width(advanced, 1, 0);
+    lv_obj_set_style_border_color(advanced, kMainLine, 0);
+    gate->advanced = advanced;
   }, [gate](lv_obj_t *slider, lv_obj_t *close) {
     gate->slider = slider;
     gate->overlay = lv_obj_get_parent(lv_obj_get_parent(slider));
