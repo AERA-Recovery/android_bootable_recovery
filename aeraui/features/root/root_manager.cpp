@@ -1587,6 +1587,7 @@ PatchInfo InspectSlot(const std::string &requested_slot) {
     const std::string expected = receipt["patched_sha256"].asString();
     std::string actual;
     if (expected.size() == 64 && HashFile(block, size, expected, &actual)) {
+      info.inspected = true;
       info.patched = true;
       info.aera_verified = true;
       info.provider = receipt["provider"].asString();
@@ -1622,8 +1623,12 @@ PatchInfo InspectSlot(const std::string &requested_slot) {
   }
   std::string listing;
   if (!RunCapture({kMagiskboot, "cpio", "ramdisk.cpio", "ls"}, &listing, -1,
-                  directory.c_str()) ||
-      listing.find("kernelsu.ko") == std::string::npos) {
+                  directory.c_str())) {
+    info.detail = i18n::Format("Could not inspect init_boot_%s.", slot.c_str());
+    return info;
+  }
+  info.inspected = true;
+  if (listing.find("kernelsu.ko") == std::string::npos) {
     info.detail = "Stock / no KernelSU LKM detected";
     return info;
   }
@@ -1764,6 +1769,10 @@ bool Run(const Request &request, Progress &progress) {
       if (!device.error.empty()) { SetText(progress, "Target unavailable", device.error); return false; }
       const Release release = BundledRelease(request.provider, device.kmi);
       const PatchInfo patch = InspectSlot(request.slot);
+      progress.has_inspection = true;
+      progress.inspected_target = device;
+      progress.inspected_patch = patch;
+      progress.inspected_offline = release;
       SetText(progress, "Target inspected", "init_boot_" + request.slot + " / " + device.kmi +
           "\n" + patch.detail + "\n" + (release.available ?
           std::string(ProviderName(request.provider)) + " " + release.version + " (offline module available)" :

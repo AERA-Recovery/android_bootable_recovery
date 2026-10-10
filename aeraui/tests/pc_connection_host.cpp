@@ -2,6 +2,7 @@
 #include "../../aera_remote/pc_connection.hpp"
 #include "../features/update/payload_inspector.hpp"
 #include "../features/update/payload_arb.hpp"
+#include "../features/root/root_manager.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -14,6 +15,8 @@
 namespace {
 std::string storage;
 bool locked = false;
+bool wifi_connected = false;
+std::string wifi_address = "127.0.0.2";
 }
 namespace aeraui {
 std::string RecoveryDevice() { return "test-device"; }
@@ -21,8 +24,17 @@ std::string RecoveryVersion() { return "PC connection test"; }
 std::string RecoverySlot() { return "A"; }
 std::string RecoveryBootSlot() { return "a"; }
 bool RecoveryDataLocked() { return locked; }
+bool RecoveryPreservationSupported() { return true; }
+bool RecoveryAblPreservationSupported() { return true; }
+bool RecoveryPreference(Preference) { return true; }
+SnapshotCowStatus RecoverySnapshotCowStatus() { return {}; }
+std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names) {
+  std::vector<PayloadFlashTarget> targets;
+  for (const auto &name : names) targets.push_back({name, "/fixture/" + name});
+  return targets;
+}
 std::string RecoveryStorage() { return storage; }
-WifiConnection RecoveryWifiConnection() { return {true, "Test network"}; }
+WifiConnection RecoveryWifiConnection() { return {wifi_connected, "Test network"}; }
 std::vector<Volume> RecoveryVolumes(const std::string &) {
   return {{"USB storage", storage + "/usb"}};
 }
@@ -30,11 +42,15 @@ std::vector<Volume> RecoveryImageVolumes() {
   return {{"Boot", "/boot", 67108864, false, true, false},
           {"System", "/system", 1073741824, false, false, true},
           {"Modem", "/block/modem", 536870912, false, true, false},
-          {"Splash", "/block/splash", 16777216, false, false, false}};
+          {"Splash", "/block/splash", 16777216, false, false, false},
+          {"Vendor", "/vendor", 67108864, false, false, true},
+          {"XBL config", "/block/xbl_config", 4096, false, true, false},
+          {"ABL", "/block/abl", 4096, false, true, false},
+          {"Recovery", "/recovery", 4096, false, true, false}};
 }
 }
 namespace aera::remote {
-std::string Address() { return "127.0.0.1"; }
+std::string Address() { return wifi_connected ? wifi_address : ""; }
 bool Running() { return false; }
 }
 // Package parsing is covered by payload_inspector_test. This fixture supplies
@@ -55,6 +71,17 @@ Info InspectZip(const std::string &path, bool) {
   info.format_version = 2; info.dynamic_partitions = true;
   info.operations = 3; info.operation_types = "raw, zero";
   info.partitions = {{"system", 192ULL * 1024 * 1024, 1}, {"vendor", 64ULL * 1024 * 1024, 1}, {"xbl_config", 4096, 1}};
+  info.manifest_hash = std::string(32, 'm');
+  if (marker.find("protected") != std::string::npos) {
+    info.partitions.push_back({"abl", 4096, 1});
+    info.partitions.push_back({"recovery", 4096, 1});
+  }
+  for (auto &partition : info.partitions) {
+    partition.extractable = true;
+    partition.sha256 = std::string(32, 'h');
+  }
+  info.incremental = marker.find("incremental") != std::string::npos;
+  if (marker.find("unsupported") != std::string::npos) info.partitions.back().extractable = false;
   info.arb_available = true; info.arb_index = marker.find("upgrade") != std::string::npos ? 3 :
       marker.find("downgrade") != std::string::npos ? 1 : 2;
   info.arb_detail = "Simulated firmware metadata";
@@ -73,6 +100,8 @@ ArbDecision CompareArb(bool includes_firmware, const Arb &package, const DeviceA
 
 int main(int argc, char **argv) {
   if (argc < 3) return 2;
+  // Only availability is checked; this fixture never executes a flash engine.
+  setenv("AERA_TEST_OTARIPPER", "/bin/true", 1);
   storage = argv[1];
   std::filesystem::create_directories(storage + "/usb");
   const int port = std::stoi(argv[2]);
@@ -94,6 +123,11 @@ int main(int argc, char **argv) {
       } else if (command == "run") run = true;
       else if (command == "hold") run = false;
       else if (command == "busy" || command == "idle") aera::pc::SetRecoveryBusy(command == "busy");
+      else if (command == "wifi-on" || command == "wifi-off" || command == "wifi-change") {
+        wifi_connected = command != "wifi-off";
+        if (command == "wifi-change") wifi_address = "127.0.0.3";
+        aera::pc::RefreshNetwork();
+      }
       else if (command == "reboot") {
         std::string target;
         if (aera::pc::TakeRebootRequest(&target)) std::cout << "REBOOT " << target << std::endl;
@@ -150,7 +184,23 @@ int main(int argc, char **argv) {
         std::cout << "ANSWER " << id << ' ' << accepted << std::endl;
         aera::pc::UpdateInstallerPrompt({});
       }
-      if (ms >= (demo ? 10000 : 3000)) { aera::pc::CompleteInstall(install.id, 0); install = {}; }
+      if (ms >= (demo ? 10000 : 3000)) {
+        if (install.job.root_action == "inspect") {
+          aeraui::root::Progress result;
+          result.has_inspection = true;
+          result.inspected_target.slot = install.job.root_slot;
+          result.inspected_target.kmi = "android16-6.12";
+          result.inspected_patch.inspected = true;
+          result.inspected_patch.patched = true;
+          result.inspected_patch.aera_verified = true;
+          result.inspected_patch.provider = "KernelSU Next";
+          result.inspected_patch.version = "v3.4.0";
+          result.inspected_offline.available = true;
+          result.inspected_offline.version = "v3.3.0";
+          aera::pc::UpdateRootInspection(result);
+        }
+        aera::pc::CompleteInstall(install.id, 0); install = {};
+      }
     }
   }
   aera::pc::SetEnabled(false, port);

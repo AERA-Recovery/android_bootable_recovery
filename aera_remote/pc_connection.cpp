@@ -44,6 +44,9 @@
 #include "aera_remote.hpp"
 #include "../aeraui/features/update/payload_inspector.hpp"
 #include "../aeraui/features/update/payload_arb.hpp"
+#include "../aeraui/features/update/payload_full_flash.hpp"
+#include "../aeraui/features/update/payload_otaripper.hpp"
+#include "../aeraui/features/root/root_manager.hpp"
 #include "third_party/mdns/mdns.h"
 
 #ifndef AERA_PC_PRIVATE_DIRECTORY
@@ -77,12 +80,21 @@ struct Transfer {
   bool existing_file = false;
   struct stat source{};
   Json::Value package_info{Json::objectValue};
+  Json::Value root_inspection{Json::objectValue};
   aeraui::JobRequest request;
+  aeraui::JobRequest fast_request;
+  aeraui::JobRequest payload_request;
 };
 std::mutex g_lock, g_lifecycle;
 std::mutex g_diagnostic_lock;
 std::atomic<bool> g_running{false};
 std::atomic<unsigned> g_generation{0};
+std::atomic<unsigned> g_network_generation{0};
+int g_port = 443;
+std::string g_network_ip;
+TlsContext g_tls_context;
+std::shared_ptr<EVP_PKEY> g_authority_key;
+std::shared_ptr<X509> g_authority_certificate;
 int g_listener = -1, g_http_listener = -1;
 std::thread g_accept_thread, g_http_thread, g_mdns_thread;
 std::set<int> g_connections;
@@ -209,17 +221,18 @@ bool SaveTrusted() {
       AtomicFile(std::string(AERA_PC_PRIVATE_DIRECTORY) + "/computers.json", JsonText(g_trusted));
 }
 
-TlsContext MakeTlsContext(bool persistent, std::string *fingerprint, std::string *public_certificate) {
+TlsContext MakeTlsContext(bool persistent, const std::string &ip,
+    std::string *fingerprint, std::string *public_certificate) {
   TlsContext context(SSL_CTX_new(TLS_server_method()), SSL_CTX_free);
   if (!context || SSL_CTX_set_min_proto_version(context.get(), TLS1_2_VERSION) != 1) return {};
   const std::string path = std::string(AERA_PC_PRIVATE_DIRECTORY) + "/authority.pem";
-  std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key(nullptr, EVP_PKEY_free);
-  std::unique_ptr<X509, decltype(&X509_free)> certificate(nullptr, X509_free);
-  if (persistent) {
+  auto key = g_authority_key;
+  auto certificate = g_authority_certificate;
+  if (!key && !certificate && persistent) {
     FILE *file = fopen(path.c_str(), "r");
     if (file) {
-      key.reset(PEM_read_PrivateKey(file, nullptr, nullptr, nullptr));
-      certificate.reset(PEM_read_X509(file, nullptr, nullptr, nullptr));
+      key.reset(PEM_read_PrivateKey(file, nullptr, nullptr, nullptr), EVP_PKEY_free);
+      certificate.reset(PEM_read_X509(file, nullptr, nullptr, nullptr), X509_free);
       fclose(file);
     }
   }
@@ -231,8 +244,8 @@ TlsContext MakeTlsContext(bool persistent, std::string *fingerprint, std::string
     if (!generator || EVP_PKEY_keygen_init(generator.get()) != 1 ||
         EVP_PKEY_CTX_set_ec_paramgen_curve_nid(generator.get(), NID_X9_62_prime256v1) != 1 ||
         EVP_PKEY_keygen(generator.get(), &generated) != 1) return {};
-    key.reset(generated);
-    certificate.reset(X509_new());
+    key.reset(generated, EVP_PKEY_free);
+    certificate.reset(X509_new(), X509_free);
     if (!certificate) return {};
     X509_set_version(certificate.get(), 2);
     ASN1_INTEGER_set(X509_get_serialNumber(certificate.get()), 1);
@@ -264,6 +277,8 @@ TlsContext MakeTlsContext(bool persistent, std::string *fingerprint, std::string
       if (size <= 0 || !AtomicFile(path, std::string(bytes, static_cast<size_t>(size)))) return {};
     }
   }
+  g_authority_key = key;
+  g_authority_certificate = certificate;
   std::unique_ptr<BIO, decltype(&BIO_free)> public_pem(BIO_new(BIO_s_mem()), BIO_free);
   if (!public_pem || PEM_write_bio_X509(public_pem.get(), certificate.get()) != 1) return {};
   char *public_bytes = nullptr;
@@ -295,11 +310,13 @@ TlsContext MakeTlsContext(bool persistent, std::string *fingerprint, std::string
   X509V3_set_ctx(&server_context, certificate.get(), server.get(), nullptr, nullptr, 0);
   std::string device;
   { std::lock_guard<std::mutex> guard(g_lock); device = g_platform["device"].asString(); }
-  const std::string ip = remote::Address();
-  std::string alternatives = "DNS:aera.local,IP:" + ip;
-  const auto suffix = MdnsSuffix(device, ip);
-  for (unsigned conflict = 1; conflict <= 8; ++conflict)
-    alternatives += ",DNS:aera-" + suffix + (conflict == 1 ? "" : "-" + std::to_string(conflict)) + ".local";
+  std::string alternatives = "DNS:localhost,DNS:aera.local,IP:127.0.0.1,IP:::1";
+  if (!ip.empty() && ip != "127.0.0.1") {
+    alternatives += ",IP:" + ip;
+    const auto suffix = MdnsSuffix(device, ip);
+    for (unsigned conflict = 1; conflict <= 8; ++conflict)
+      alternatives += ",DNS:aera-" + suffix + (conflict == 1 ? "" : "-" + std::to_string(conflict)) + ".local";
+  }
   const std::pair<int, std::string> extensions[] = {
     {NID_subject_alt_name, alternatives}, {NID_basic_constraints, "critical,CA:FALSE"},
     {NID_key_usage, "critical,digitalSignature"}, {NID_ext_key_usage, "serverAuth"},
@@ -477,7 +494,17 @@ Json::Value TransferStatus() {
   state["received"] = Json::UInt64(g_transfer.received);
   state["progress"] = g_transfer.progress; state["result"] = g_transfer.result;
   state["log"] = g_transfer.log; state["computer"] = g_transfer.computer;
-  state["partition"] = g_transfer.request.partitions.empty() ? "" : g_transfer.request.partitions.front();
+  state["partition"] = g_transfer.request.job != aeraui::Job::kFlashImage ||
+      g_transfer.request.partitions.empty() ? "" : g_transfer.request.partitions.front();
+  state["install_method"] = g_transfer.request.payload_full ? "fast" :
+      g_transfer.request.job == aeraui::Job::kExtractPayload ? "extract" :
+      g_transfer.request.job == aeraui::Job::kFlashPayload ?
+          (g_transfer.request.payload_direct ? "direct" : "selected") : "normal";
+  state["manual_protection_override"] = g_transfer.request.payload_override_protection;
+  if (g_transfer.request.job == aeraui::Job::kFlashPayload || g_transfer.request.job == aeraui::Job::kExtractPayload) {
+    state["payload_partitions"] = Json::Value(Json::arrayValue);
+    for (const auto &name : g_transfer.request.partitions) state["payload_partitions"].append(name);
+  }
   state["both_slots"] = g_transfer.request.both_slots;
   state["prompt"] = g_prompt;
   state["presentation"] = g_presentation;
@@ -487,6 +514,7 @@ Json::Value TransferStatus() {
   state["root_action"] = g_transfer.request.root_action;
   state["root_provider"] = g_transfer.request.root_provider;
   state["root_slot"] = g_transfer.request.root_slot;
+  state["root_inspection"] = g_transfer.root_inspection;
   return state;
 }
 bool TerminalPhase(const std::string &phase) {
@@ -532,7 +560,7 @@ struct FileAccess {
   }
   ~FileAccess() { if (acquired) { std::lock_guard<std::mutex> guard(g_lock); g_file_busy = false; } }
 };
-Json::Value InspectPackage(const Transfer &transfer);
+Json::Value InspectPackage(Transfer &transfer);
 const char *ConfigureImageTarget(const Json::Value &body, aeraui::JobRequest *request) {
   if (!body["partition"].isString() || !body["both_slots"].isBool())
     return "Select an image partition and slot mode.";
@@ -587,6 +615,8 @@ void FileCommand(SSL *tls, const std::string &command, const Json::Value &body, 
         Error(tls, 409, "Package selection was cancelled."); return;
       }
       g_transfer.package_info = std::move(next.package_info);
+      g_transfer.fast_request = std::move(next.fast_request);
+      g_transfer.payload_request = std::move(next.payload_request);
       g_transfer.phase = "ready"; g_transfer.detail = "Existing file ready for review.";
       result = TransferStatus();
     }
@@ -822,7 +852,9 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
   }
   Reply(tls, 200, JsonText(result));
 }
-Json::Value InspectPackage(const Transfer &transfer) {
+Json::Value InspectPackage(Transfer &transfer) {
+  Json::Value platform;
+  { std::lock_guard<std::mutex> guard(g_lock); platform = g_platform; }
   auto info = aeraui::payload::InspectZip(transfer.path, true);
   if (info.name_from_filename) {
     info.target_build = transfer.name;
@@ -846,11 +878,27 @@ Json::Value InspectPackage(const Transfer &transfer) {
   result["arb_available"] = info.arb_available; result["arb_index"] = info.arb_index;
   result["arb_detail"] = info.arb_detail;
   bool includes_firmware = false;
+  std::vector<std::string> names;
+  for (const auto &partition : info.partitions) names.push_back(partition.name);
+  std::vector<aeraui::PayloadFlashTarget> targets;
+  for (const auto &target : platform["payload_targets"])
+    targets.push_back({target["name"].asString(), target["path"].asString(), target["bytes"].asUInt64(),
+        target["raw"].asBool(), target["device"].asUInt64(), {}});
+  std::set<std::string> protected_partitions;
+  if (platform.get("preserve_abl", false).asBool()) protected_partitions.insert("abl");
+  if (platform.get("preserve_recovery", false).asBool()) protected_partitions.insert("recovery");
   result["partitions"] = Json::Value(Json::arrayValue);
   for (const auto &partition : info.partitions) {
     Json::Value entry;
     entry["name"] = partition.name; entry["bytes"] = Json::UInt64(partition.bytes);
     entry["operations"] = Json::UInt64(partition.operations);
+    const auto target = std::find_if(targets.begin(), targets.end(),
+        [&](const auto &candidate) { return candidate.name == partition.name; });
+    entry["extractable"] = partition.extractable;
+    entry["extraction_error"] = partition.extraction_error;
+    entry["protected"] = protected_partitions.count(partition.name) != 0;
+    entry["flash_available"] = partition.extractable &&
+        target != targets.end() && !target->path.empty() && (!target->raw || partition.bytes <= target->bytes);
     result["partitions"].append(entry);
     includes_firmware |= partition.name == "xbl_config";
   }
@@ -863,6 +911,43 @@ Json::Value InspectPackage(const Transfer &transfer) {
   result["arb_decision"] = decision == Decision::Downgrade ? "downgrade" :
       decision == Decision::Upgrade ? "upgrade" : decision == Decision::Same ? "same" :
       decision == Decision::Unknown ? "unknown" : "not_applicable";
+  if (info.is_payload) {
+    std::vector<std::string> required;
+    std::string error;
+    const auto slot = platform.get("slot", "").asString();
+    bool available = (slot == "A" || slot == "B") && info.manifest_hash.size() == 32 &&
+        aeraui::payload::PlanFullFlash(info, targets, required, error, protected_partitions);
+    if (!available && error.empty()) error = "The active slot or payload manifest could not be verified.";
+    if (available && access(aeraui::payload::OtaripperExecutable(), X_OK) != 0) {
+      available = false; error = "The bundled otaripper engine is unavailable.";
+    }
+    if (available && !platform.get("snapshots_safe", false).asBool()) {
+      available = false; error = "OTA snapshots are active or their state cannot be verified.";
+    }
+    result["fast_available"] = available;
+    result["fast_reason"] = error;
+    result["fast_slot"] = slot;
+    result["advanced_available"] = info.valid && !info.incremental && info.manifest_hash.size() == 32;
+    result["direct_available"] = access(aeraui::payload::OtaripperExecutable(), X_OK) == 0;
+    if (result["advanced_available"].asBool()) {
+      transfer.payload_request = transfer.request;
+      transfer.payload_request.payload_manifest_hash = info.manifest_hash;
+      transfer.payload_request.payload_slot = slot;
+    }
+    result["fast_protected"] = Json::Value(Json::arrayValue);
+    for (const auto &partition : info.partitions)
+      if (protected_partitions.count(partition.name)) result["fast_protected"].append(partition.name);
+    if (available) {
+      transfer.fast_request = transfer.request;
+      transfer.fast_request.job = aeraui::Job::kFlashPayload;
+      transfer.fast_request.title = "Fast flash (experimental)";
+      transfer.fast_request.partitions = std::move(required);
+      transfer.fast_request.payload_manifest_hash = info.manifest_hash;
+      transfer.fast_request.payload_slot = slot;
+      transfer.fast_request.payload_direct = true;
+      transfer.fast_request.payload_full = true;
+    }
+  }
   return result;
 }
 void Upload(SSL *tls, const HttpRequest &request, const std::string &owner, unsigned generation) {
@@ -926,6 +1011,8 @@ void Upload(SSL *tls, const HttpRequest &request, const std::string &owner, unsi
     if (g_transfer.id != transfer.id || g_transfer.phase != "uploading" ||
         g_generation.load() != generation || !g_running.load()) return;
     g_transfer.package_info = std::move(package_info);
+    g_transfer.fast_request = std::move(transfer.fast_request);
+    g_transfer.payload_request = std::move(transfer.payload_request);
     g_transfer.phase = failure.empty() ? "ready" : "failed";
     g_transfer.detail = failure;
     if (!failure.empty()) RemoveTransferFiles(transfer);
@@ -997,7 +1084,8 @@ void Handle(SSL *tls, unsigned generation) {
     { std::lock_guard<std::mutex> guard(g_lock);
       state["busy"] = g_recovery_busy || g_file_busy || !g_reboot_target.empty();
       state["certificate"] = g_status.certificate; state["persistent_certificate"] = g_status.remember_available;
-      state["address"] = g_status.address; state["ip_address"] = g_status.ip_address; }
+      state["address"] = g_status.address; state["ip_address"] = g_status.ip_address;
+      state["usb_address"] = g_status.usb_address; }
     Reply(tls, 200, JsonText(state)); return;
   }
   if (request.method == "PUT" && request.path.compare(0, 12, "/api/upload/") == 0) {
@@ -1088,11 +1176,65 @@ void Handle(SSL *tls, unsigned generation) {
         Error(tls, 409, g_transfer.package_info["error"].asString()); return;
       }
       const std::string arb = g_transfer.package_info.get("arb_decision", "").asString();
-      if (arb == "downgrade") {
+      if (body.isMember("install_method") && !body["install_method"].isString()) {
+        Error(tls, 400, "Invalid installation method."); return;
+      }
+      const std::string method = body.get("install_method", "normal").asString();
+      if (method != "normal" && method != "fast" && method != "selected" && method != "direct" && method != "extract") {
+        Error(tls, 400, "Select a supported installation or extraction method."); return;
+      }
+      if (method != "extract" && arb == "downgrade") {
         Error(tls, 409, "Installation blocked: this package lowers the firmware ARB index and can brick the device."); return;
       }
-      if (arb == "upgrade" && body.get("arb_acknowledged", false) != true) {
+      if (method != "extract" && arb == "upgrade" && body.get("arb_acknowledged", false) != true) {
         Error(tls, 409, "Acknowledge the firmware anti-rollback upgrade before installing."); return;
+      }
+      if (method == "fast") {
+        if (!g_transfer.package_info.get("fast_available", false).asBool() ||
+            g_transfer.fast_request.job != aeraui::Job::kFlashPayload) {
+          Error(tls, 409, "Experimental fast flash is unavailable for this package."); return;
+        }
+        if (body.get("fast_acknowledged", false) != true) {
+          Error(tls, 409, "Acknowledge the experimental current-slot flash before continuing."); return;
+        }
+        g_transfer.request = g_transfer.fast_request;
+        g_transfer.request.payload_arb_acknowledged = body.get("arb_acknowledged", false).asBool();
+      }
+      if (method == "selected" || method == "direct" || method == "extract") {
+        const bool flash = method != "extract";
+        if (!g_transfer.package_info.get("advanced_available", false).asBool() ||
+            !body["partitions"].isArray() || body["partitions"].empty() ||
+            body["partitions"].size() > g_transfer.package_info["partitions"].size()) {
+          Error(tls, 409, "Select supported images from a full standalone payload."); return;
+        }
+        if (flash && body.get("fast_acknowledged", false) != true) {
+          Error(tls, 409, "Acknowledge the selected current-slot flash before continuing."); return;
+        }
+        if (method == "direct" && !g_transfer.package_info.get("direct_available", false).asBool()) {
+          Error(tls, 409, "The bundled otaripper engine is unavailable."); return;
+        }
+        std::set<std::string> selected;
+        for (const auto &name : body["partitions"]) {
+          if (!name.isString() || !selected.insert(name.asString()).second) {
+            Error(tls, 400, "Invalid or duplicate partition selection."); return;
+          }
+          bool available = false;
+          for (const auto &partition : g_transfer.package_info["partitions"])
+            if (partition["name"] == name)
+              available = partition.get(flash ? "flash_available" : "extractable", false).asBool();
+          if (!available) { Error(tls, 409, "Selected image is protected or unavailable for this operation."); return; }
+        }
+        g_transfer.request = g_transfer.payload_request;
+        g_transfer.request.job = flash ? aeraui::Job::kFlashPayload : aeraui::Job::kExtractPayload;
+        g_transfer.request.title = method == "direct" ? "Direct flash selected partitions" :
+            flash ? "Flash selected partitions" : "Extract selected images";
+        g_transfer.request.partitions.assign(selected.begin(), selected.end());
+        g_transfer.request.payload_direct = method == "direct";
+        g_transfer.request.payload_override_protection = flash && std::any_of(
+            g_transfer.package_info["partitions"].begin(), g_transfer.package_info["partitions"].end(),
+            [&](const auto &partition) { return partition.get("protected", false).asBool() &&
+                selected.count(partition["name"].asString()); });
+        g_transfer.request.payload_arb_acknowledged = body.get("arb_acknowledged", false).asBool();
       }
       g_transfer.phase = "queued"; g_transfer.shown = false;
       g_transfer.detail = "Waiting for recovery to finish its current operation.";
@@ -1125,13 +1267,25 @@ int Listener(int port, const std::string &ip) {
   }
   return fd;
 }
-void Serve(int listener, TlsContext context, unsigned generation) {
+void Serve(int listener, unsigned generation) {
   while (g_running.load() && g_generation.load() == generation) {
     const int fd = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
     if (fd < 0) { if (errno == EINTR) continue; break; }
+    TlsContext context;
     {
       std::lock_guard<std::mutex> guard(g_lock);
       if (g_connections.size() >= 8 || !g_running.load()) { close(fd); continue; }
+      sockaddr_in destination{}; socklen_t length = sizeof(destination);
+      if (getsockname(fd, reinterpret_cast<sockaddr *>(&destination), &length) != 0) {
+        close(fd); continue;
+      }
+      char address[INET_ADDRSTRLEN]{};
+      inet_ntop(AF_INET, &destination.sin_addr, address, sizeof(address));
+      // Only loopback (ADB forwarding) and the current connected WLAN address.
+      if ((ntohl(destination.sin_addr.s_addr) >> 24) != 127 && g_network_ip != address) {
+        close(fd); continue;
+      }
+      context = g_tls_context;
       g_connections.insert(fd);
     }
     std::thread([fd, context, generation] {
@@ -1215,7 +1369,10 @@ int MdnsRecord(int socket, const sockaddr *from, size_t address_size,
   else mdns_query_answer_multicast(socket, response, sizeof(response), answer, nullptr, 0, nullptr, 0);
   return 0;
 }
-[[maybe_unused]] void Mdns(unsigned generation, const std::string &ip, const std::string &device, int port) {
+[[maybe_unused]] void Mdns(unsigned generation, unsigned network_generation,
+    const std::string &ip, const std::string &device, int port) {
+  const auto active = [&] { return g_running.load() && g_generation.load() == generation &&
+      g_network_generation.load() == network_generation; };
   MdnsState state; state.address.sin_family = AF_INET;
   if (inet_pton(AF_INET, ip.c_str(), &state.address.sin_addr) != 1) return;
   sockaddr_in bind_address{}; bind_address.sin_family = AF_INET;
@@ -1242,15 +1399,16 @@ int MdnsRecord(int socket, const sockaddr *from, size_t address_size,
     if (goodbye) mdns_goodbye_multicast(fd, buffer.data(), buffer.size(), answer, nullptr, 0, nullptr, 0);
     else mdns_announce_multicast(fd, buffer.data(), buffer.size(), answer, nullptr, 0, nullptr, 0);
   };
-  while (g_running.load() && g_generation.load() == generation) {
+  while (active()) {
     if (state.probing) {
       state.conflict = false;
-      for (int i = 0; i < 3 && g_running.load(); ++i) {
+      for (int i = 0; i < 3 && active(); ++i) {
         mdns_query_send(fd, MDNS_RECORDTYPE_A, state.name.data(), state.name.size(),
                         buffer.data(), buffer.size(), 0);
         const auto until = Clock::now() + std::chrono::milliseconds(300);
-        while (Clock::now() < until && !state.conflict && g_running.load()) receive(50);
+        while (Clock::now() < until && !state.conflict && active()) receive(50);
       }
+      if (!active()) break;
       if (state.conflict) { next_name(); continue; }
       state.probing = false;
       {
@@ -1266,17 +1424,64 @@ int MdnsRecord(int socket, const sockaddr *from, size_t address_size,
   announce(true); mdns_socket_close(fd);
 }
 
+void StopNetwork() {
+  g_network_generation.fetch_add(1);
+  if (g_http_listener >= 0) {
+    shutdown(g_http_listener, SHUT_RDWR); close(g_http_listener); g_http_listener = -1;
+  }
+  if (g_http_thread.joinable()) g_http_thread.join();
+  if (g_mdns_thread.joinable()) g_mdns_thread.join();
+}
+void RefreshNetworkLocked() {
+  if (!g_running.load()) return;
+  const std::string ip = aeraui::RecoveryWifiConnection().connected ? remote::Address() : "";
+  bool persistent;
+  std::string device;
+  {
+    std::lock_guard<std::mutex> guard(g_lock);
+    if (ip == g_network_ip) return;
+    persistent = g_status.remember_available;
+    device = g_platform["device"].asString();
+  }
+  TlsContext context;
+  if (!ip.empty()) {
+    std::string fingerprint, public_certificate;
+    context = MakeTlsContext(persistent, ip, &fingerprint, &public_certificate);
+    if (!context) return;
+  }
+  StopNetwork();
+  {
+    std::lock_guard<std::mutex> guard(g_lock);
+    g_network_ip = ip;
+    if (context) g_tls_context = context;
+    g_status.ip_address = ip.empty() ? "" : "https://" + ip + (g_port == 443 ? "" : ":" + std::to_string(g_port));
+    g_status.address = ip.empty() ? g_status.usb_address : g_status.ip_address;
+    g_hostname = ip.empty() ? "localhost" : ip;
+  }
+  if (ip.empty()) return;
+  const unsigned generation = g_generation.load();
+  if (g_port == 443 && !remote::Running()) {
+    g_http_listener = Listener(80, ip);
+    if (g_http_listener >= 0) g_http_thread = std::thread(RedirectHttp, g_http_listener, generation);
+  }
+#ifndef AERA_PC_HOST_TEST
+  g_mdns_thread = std::thread(Mdns, generation, g_network_generation.load(), ip, device, g_port);
+#endif
+}
+
 }  // namespace
 
+void RefreshNetwork() {
+  std::lock_guard<std::mutex> lifecycle(g_lifecycle);
+  RefreshNetworkLocked();
+}
 bool SetEnabled(bool enabled, int port, bool manual) {
   std::lock_guard<std::mutex> lifecycle(g_lifecycle);
   if (manual) { std::lock_guard<std::mutex> guard(g_lock); g_status.manually_disabled = !enabled; }
   if (enabled) {
     if (g_running.load()) return true;
-    if (port < 1 || port > 65535 || !aeraui::RecoveryWifiConnection().connected) return false;
+    if (port < 1 || port > 65535) return false;
     RefreshPlatformInfo();
-    const std::string ip = remote::Address();
-    if (ip.empty()) return false;
     bool persistent = false;
 #ifdef AERA_PC_HOST_TEST
     persistent = MakeDirectories(AERA_PC_PRIVATE_DIRECTORY);
@@ -1287,11 +1492,11 @@ bool SetEnabled(bool enabled, int port, bool manual) {
         MakeDirectories(AERA_PC_PRIVATE_DIRECTORY);
 #endif
     std::string certificate, public_certificate;
-    auto context = MakeTlsContext(persistent, &certificate, &public_certificate);
+    g_authority_key.reset(); g_authority_certificate.reset();
+    auto context = MakeTlsContext(persistent, "", &certificate, &public_certificate);
     if (!context) return false;
-    const int listener = Listener(port, ip);
+    const int listener = Listener(port, "0.0.0.0");
     if (listener < 0) return false;
-    std::string device;
     {
       std::lock_guard<std::mutex> guard(g_lock);
       g_trusted = Json::Value(Json::objectValue);
@@ -1307,25 +1512,23 @@ bool SetEnabled(bool enabled, int port, bool manual) {
       g_status.enabled = true; g_status.remember_available = persistent;
       g_status.certificate = certificate;
       g_certificate_pem = public_certificate;
-      g_status.ip_address = "https://" + ip + (port == 443 ? "" : ":" + std::to_string(port));
-      g_status.address = g_status.ip_address;
-      g_hostname = ip; g_pair = Pair{}; g_sessions.clear();
+      g_status.usb_address = "https://localhost:" + std::to_string(port == 443 ? 8443 : port);
+      g_status.address = g_status.usb_address;
+      g_hostname = "localhost"; g_network_ip.clear();
+      g_tls_context = context; g_pair = Pair{}; g_sessions.clear();
       g_downloads.clear(); g_reboot_target.clear();
-      device = g_platform["device"].asString();
     }
     g_listener = listener;
+    g_port = port;
     g_running.store(true);
     const unsigned generation = g_generation.fetch_add(1) + 1;
-    g_accept_thread = std::thread(Serve, listener, context, generation);
-    g_http_listener = port == 443 ? Listener(80, ip) : -1;
-    if (g_http_listener >= 0) g_http_thread = std::thread(RedirectHttp, g_http_listener, generation);
-#ifndef AERA_PC_HOST_TEST
-    g_mdns_thread = std::thread(Mdns, generation, ip, device, port);
-#endif
+    g_accept_thread = std::thread(Serve, listener, generation);
+    RefreshNetworkLocked();
     return true;
   }
   if (!g_running.exchange(false)) return true;
   g_generation.fetch_add(1);
+  StopNetwork();
   for (int *listener : {&g_listener, &g_http_listener}) {
     if (*listener >= 0) { shutdown(*listener, SHUT_RDWR); close(*listener); *listener = -1; }
   }
@@ -1336,6 +1539,7 @@ bool SetEnabled(bool enabled, int port, bool manual) {
     std::lock_guard<std::mutex> guard(g_lock);
     for (int connection : g_connections) shutdown(connection, SHUT_RDWR);
     g_status.enabled = false; g_pair = Pair{}; g_sessions.clear();
+    g_network_ip.clear(); g_tls_context.reset();
     g_downloads.clear(); g_reboot_target.clear();
     if (g_transfer.phase != "installing" && g_transfer.phase != "queued") {
       RemoveTransferFiles(g_transfer);
@@ -1392,6 +1596,11 @@ void RefreshPlatformInfo() {
   info["device"] = aeraui::RecoveryDevice(); info["version"] = aeraui::RecoveryVersion();
   info["slot"] = aeraui::RecoverySlot(); info["locked"] = aeraui::RecoveryDataLocked();
   info["boot_slot"] = aeraui::RecoveryBootSlot();
+  info["extraction_root"] = aeraui::RecoveryStorage() + "/AERA/Extracted";
+  info["preserve_abl"] = aeraui::RecoveryAblPreservationSupported() &&
+      aeraui::RecoveryPreference(aeraui::Preference::kPreserveAbl);
+  info["preserve_recovery"] = aeraui::RecoveryPreservationSupported() &&
+      aeraui::RecoveryPreference(aeraui::Preference::kPreserveRecovery);
   utsname kernel{};
   if (uname(&kernel) == 0) { info["kernel"] = kernel.release; info["architecture"] = kernel.machine; }
   info["memory"] = ReadFile("/proc/meminfo", 8192);
@@ -1422,12 +1631,26 @@ void RefreshPlatformInfo() {
     add_storage(volume.name, volume.path);
   }
   info["partitions"] = Json::Value(Json::arrayValue);
+  std::vector<std::string> payload_names;
   for (const auto &volume : aeraui::RecoveryImageVolumes()) {
     Json::Value partition; partition["name"] = volume.name; partition["path"] = volume.path;
     partition["logical"] = volume.logical; partition["bytes"] = Json::UInt64(volume.bytes);
     partition["slot_select"] = volume.slot_select;
     info["partitions"].append(partition);
+    const auto name = volume.path.substr(volume.path.find_last_of('/') + 1);
+    payload_names.push_back(name == "system_root" ? "system" : name);
   }
+  // PartitionManager snapshots belong to the UI thread, never HTTP workers.
+  info["payload_targets"] = Json::Value(Json::arrayValue);
+  for (const auto &target : aeraui::RecoveryPayloadTargets(payload_names)) {
+    Json::Value value;
+    value["name"] = target.name; value["path"] = target.path;
+    value["bytes"] = Json::UInt64(target.bytes); value["raw"] = target.raw;
+    value["device"] = Json::UInt64(target.device);
+    info["payload_targets"].append(value);
+  }
+  const auto snapshots = aeraui::RecoverySnapshotCowStatus();
+  info["snapshots_safe"] = !snapshots.supported || (snapshots.metadata_readable && snapshots.safe_to_remove);
   std::lock_guard<std::mutex> guard(g_lock); g_platform = std::move(info);
 }
 bool TakeConnectionRequest(ConnectionRequest *request) {
@@ -1487,6 +1710,23 @@ void UpdateInstall(int percent, const std::string &detail, const std::string &lo
   g_transfer.progress = std::clamp(percent, 0, 100);
   g_transfer.detail = detail;
   g_transfer.log = log.size() > 16384 ? log.substr(log.size() - 16384) : log;
+}
+void UpdateRootInspection(const aeraui::root::Progress &progress) {
+  std::lock_guard<std::mutex> guard(g_lock);
+  if (g_transfer.phase != "installing" || g_transfer.request.root_action != "inspect" ||
+      !progress.has_inspection) return;
+  auto &inspection = g_transfer.root_inspection;
+  inspection["target"] = "init_boot_" + progress.inspected_target.slot;
+  inspection["kernel"] = progress.inspected_target.kmi;
+  inspection["inspected"] = progress.inspected_patch.inspected;
+  inspection["patched"] = progress.inspected_patch.patched;
+  inspection["verified"] = progress.inspected_patch.aera_verified;
+  inspection["provider"] = progress.inspected_patch.provider;
+  inspection["version"] = progress.inspected_patch.version;
+  inspection["detail"] = progress.inspected_patch.detail;
+  inspection["offline_available"] = progress.inspected_offline.available;
+  inspection["offline_provider"] = g_transfer.request.root_provider;
+  inspection["offline_version"] = progress.inspected_offline.version;
 }
 void CompleteInstall(const std::string &id, int result) {
   std::lock_guard<std::mutex> guard(g_lock);
@@ -1552,6 +1792,7 @@ bool TakeRebootRequest(std::string *target) {
 #else
 namespace aera::pc {
 bool SetEnabled(bool enabled, int, bool) { return !enabled; }
+void RefreshNetwork() {}
 void ReleaseHttpRedirect() {}
 void RestoreHttpRedirect() {}
 std::string HttpRedirectLocation(const std::string &) { return {}; }
@@ -1567,6 +1808,7 @@ bool BeginInstall(const std::string &) { return false; }
 void RejectInstall(const std::string &) {}
 void UpdateInstall(int, const std::string &, const std::string &) {}
 void CompleteInstall(const std::string &, int) {}
+void UpdateRootInspection(const aeraui::root::Progress &) {}
 void UpdateInstallerPrompt(const aeraui::InstallerPrompt &) {}
 void UpdateInstallerPresentation(const aeraui::InstallerPresentation &) {}
 bool TakePromptAnswer(std::string *, bool *) { return false; }

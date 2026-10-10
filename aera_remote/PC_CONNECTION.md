@@ -1,13 +1,37 @@
 # AERA PC Connection
 
-The Wi-Fi settings sheet enables a browser workspace at `https://aera.local`.
-The sheet also shows an IP address when multicast DNS is unavailable. Another
+Menu > PC connection enables a browser workspace at `https://aera.local`.
+The page also shows an IP address when multicast DNS is unavailable. Another
 recovery using that hostname causes a device-specific `.local` name instead.
 PC connection is off by default. Auto-enable is saved with the ordinary recovery
-preferences and runs after unlock and Wi-Fi connection, not before decryption.
+preferences and runs after unlock, even without Wi-Fi, not before decryption.
 
 This feature does not require a PC application, wireless ADB or a new device-tree
 flag. It uses the existing WLAN build option, OpenSSL and JSON dependencies.
+
+## USB Access
+
+Enable Menu > PC connection, connect the USB cable, then run:
+
+```sh
+adb -d forward tcp:8443 tcp:443
+```
+
+Open `https://localhost:8443` on the computer and approve the browser on the phone.
+The command and URL are displayed in recovery. `adb -d` selects the USB device;
+if several USB devices are connected, use `adb -s SERIAL forward ...` instead.
+If port 8443 is already used, choose another local port and use it in the URL.
+Remove the forwarding rule afterward with `adb -d forward --remove tcp:8443`.
+USB access does not require Wi-Fi or changes to the computer's DNS/hosts file.
+USB and Wi-Fi share the same approvals, API, files and jobs; a Wi-Fi disconnect
+or IP change does not stop the USB service or cancel installation. Browser
+approval is origin-specific, so the first USB visit can require separate approval
+from a browser previously used through `aera.local`.
+
+The shared listener accepts connections only through loopback and the currently
+connected Wi-Fi address. Multicast DNS and HTTP-to-HTTPS redirection run only on
+the network side. Sideload and fastbootd replace the USB ADB transport; forwarding
+may need to be set up again after reconnecting to recovery.
 
 ## Connection And Installation
 
@@ -16,7 +40,9 @@ flag. It uses the existing WLAN build option, OpenSSL and JSON dependencies.
   displayed in recovery. The Device tab exports only the public authority, not
   a private key. Certificate import is manual: browsers cannot install trusted
   certificates themselves. The device authority remains stable across service
-  and recovery restarts; server certificates include the current IP and `aera.local`.
+  and recovery restarts; server certificates include the current Wi-Fi IP,
+  `aera.local`, `localhost` and loopback addresses. Network changes replace only
+  the server certificate, never the device authority or browser sessions.
   Without persistent writable data the authority is temporary. A data wipe
   requires approving a new authority.
 - A new browser requests approval on the device. Remembering a browser stores
@@ -29,12 +55,31 @@ flag. It uses the existing WLAN build option, OpenSSL and JSON dependencies.
 - A complete ZIP or IMG is written to the selected mounted storage under
   `AERA/PCTransfers/<random-id>/`. It is not streamed into an installer or partition.
 - Size and SHA-256 must match before the browser can confirm installation.
+  Transfer & install (or Transfer & flash for an IMG) opens the review directly
+  after verification. Flashing still requires confirmation; file-browser uploads
+  remain save-only operations.
+  Cancelling the installation review discards its transfer and clears the selected
+  file. An existing on-device source file is preserved. Cancellation is not offered
+  after installation has been submitted.
   Verified ZIPs are inspected with the same payload/OTA inspector as the native
   install review. Version, device, Android, patch level, payload layout and full
   partition details are available before confirmation. Firmware ARB downgrade
   blocks and explicit upgrade acknowledgement follow the native review rules.
-  Installation then uses the existing recovery ZIP or image backend, including
-  recovery/ABL preservation and the backend's image partition/slot rules.
+  Normal installation uses the existing ZIP installer, including recovery/ABL
+  preservation. Full standalone payloads additionally offer Fast flash
+  (experimental), which uses the same otaripper backend as the native package
+  review and requires a separate explicit acknowledgement. It writes to the
+  reviewed current slot without changing slots, running postinstall or using
+  normal OTA rollback. Runtime slot, manifest, image hash, target and snapshot
+  checks remain in the common backend.
+  With Keep current ABL or Keep AERA installed enabled, the corresponding images
+  are excluded from payload flashing instead of backed up and rewritten. The
+  native and browser Advanced selections keep these images unchecked by default;
+  Select all does not include them. Explicit manual selection remains possible
+  and the confirmation warns when protected images will be overwritten. Pure
+  extraction and explicit manual IMG flashing are also allowed. Fast flash never
+  overrides protection. The browser displays its
+  selected method, target slot and protection settings before confirmation.
 - The first device approval is physical. Subsequent installation confirmations
   and structured AERA installer questions are handled in the authorized browser.
   This does not automate arbitrary third-party installers' hardware-key prompts.
@@ -69,6 +114,9 @@ recognized advertised hostname, rather than changing the browser's remembered or
   Devices without the init_boot/ksud backend show an unavailable state.
   The active slot is selected initially. Browser root jobs retain operation guards
   but do not replace the phone's current page with an operation/completion screen.
+  Target inspections display the target, kernel, detected root provider/version
+  and patch verification separately from the available offline module. Inspection
+  results are attached to their target slot, not whichever slot is selected later.
 - Confirmed power actions use the native UI-thread reboot path. Android, recovery,
   bootloader, fastbootd and power-off are blocked while a critical operation is active.
   The HTTP acknowledgement is sent before a reboot can be consumed by the UI.
@@ -134,6 +182,13 @@ existing critical-operation guards allow it.
 Root operations share a serialization lock with native Root Manager actions;
 new PC jobs also wait while the native Root Manager page is open. The file tool
 does not expose shell execution or block-device writes.
+
+`POST /api/install` accepts `install_method`: `normal` (default), `fast`,
+`selected`, `direct` or `extract`. Advanced methods take an explicit `partitions`
+array of manifest names. Flash methods require `fast_acknowledged`; firmware
+upgrades still require `arb_acknowledged`. Extraction does not write partitions
+and therefore does not require firmware ARB acknowledgement. The same verified
+manifest, selected-image and current-slot backend is used on the phone and PC.
 
 ## Dependencies And Tests
 

@@ -44,6 +44,7 @@
 #include "variables.h"
 #include <set_metadata.h>
 #include "aeraui/platform/aera_ui_host.hpp"
+#include "aera_remote/pc_connection.hpp"
 #include "aeraui/platform/image_targets.hpp"
 #include <twinstall.h>
 #include <twinstall/adb_install.h>
@@ -1104,6 +1105,7 @@ int RecoveryRunJob(const JobRequest &request) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     } while (true);
     worker.join();
+    if (success && progress.has_inspection) aera::pc::UpdateRootInspection(progress);
     return success ? 0 : 1;
   }
   if (request.job == Job::kSideload) return RecoveryRunSideload();

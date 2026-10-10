@@ -37,6 +37,7 @@ struct Status {
 };
 
 struct PatchInfo {
+  bool inspected = false;
   bool patched = false;
   bool aera_verified = false;
   std::string provider;
@@ -101,6 +102,10 @@ struct Progress {
   std::mutex text_mutex;
   std::string status;
   std::string detail;
+  bool has_inspection = false;
+  Status inspected_target;
+  PatchInfo inspected_patch;
+  Release inspected_offline;
 };
 
 Status Probe();

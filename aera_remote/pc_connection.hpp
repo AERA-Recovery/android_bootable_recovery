@@ -4,6 +4,8 @@
 #include <string>
 #include <aeraui/backend.hpp>
 
+namespace aeraui::root { struct Progress; }
+
 namespace aera::pc {
 struct Status {
   bool enabled = false;
@@ -11,6 +13,7 @@ struct Status {
   bool manually_disabled = false;
   std::string address;
   std::string ip_address;
+  std::string usb_address;
   std::string certificate;
   std::string error;
   std::string pending_connection;
@@ -29,6 +32,7 @@ struct InstallRequest {
   aeraui::JobRequest job;
 };
 bool SetEnabled(bool enabled, int port = 443, bool manual = true);
+void RefreshNetwork();
 // AERA Remote takes priority on port 80; the PC workspace remains on HTTPS.
 void ReleaseHttpRedirect();
 void RestoreHttpRedirect();
@@ -46,6 +50,8 @@ bool BeginInstall(const std::string &id);
 void RejectInstall(const std::string &id);
 void UpdateInstall(int percent, const std::string &detail, const std::string &log);
 void CompleteInstall(const std::string &id, int result);
+// Called by the root job worker after its inspection has finished.
+void UpdateRootInspection(const aeraui::root::Progress &progress);
 void UpdateInstallerPrompt(const aeraui::InstallerPrompt &prompt);
 void UpdateInstallerPresentation(const aeraui::InstallerPresentation &presentation);
 bool TakePromptAnswer(std::string *id, bool *accepted);

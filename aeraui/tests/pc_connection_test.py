@@ -96,6 +96,29 @@ class PcConnectionTest(unittest.TestCase):
         type(self).token = approved["token"]
         self.assertTrue(self.request("/api/status")[1]["remembered"])
 
+    def test_01a_usb_survives_wifi_and_address_changes(self):
+        status, initial = self.request("/api/status")
+        self.assertEqual(status, 200)
+        self.assertEqual(initial["ip_address"], "")
+        self.assertEqual(initial["usb_address"], f"https://localhost:{self.port}")
+        _, certificate = self.request("/api/certificate", raw=True)
+        trusted = ssl.create_default_context(cadata=certificate.decode())
+        for command, address in (("wifi-on", "127.0.0.2"), ("wifi-change", "127.0.0.3"), ("wifi-off", "")):
+            self.command(command)
+            status, current = self.request("/api/status")
+            self.assertEqual(status, 200)  # The original USB session is still authorized.
+            self.assertEqual(current["certificate"], initial["certificate"])
+            self.assertEqual(current["ip_address"], f"https://{address}:{self.port}" if address else "")
+            if address:
+                connection = http.client.HTTPSConnection(address, self.port, context=trusted, timeout=8)
+                connection.request("GET", "/api/hello")
+                self.assertEqual(connection.getresponse().status, 200)
+                connection.close()
+        connection = http.client.HTTPSConnection("localhost", self.port, context=trusted, timeout=8)
+        connection.request("GET", "/api/hello")
+        self.assertEqual(connection.getresponse().status, 200)
+        connection.close()
+
     def test_02_partial_or_bad_upload_cannot_install(self):
         data = b"fixture-data" * 8192
         status, job = self.prepare(data, sha256="0" * 64)
@@ -130,6 +153,9 @@ class PcConnectionTest(unittest.TestCase):
         self.assertEqual(self.request("/api/install", {"id": job["id"], "confirm": True})[0], 200)
         self.command("run")
         self.wait_phase("installing")
+        self.command("wifi-on")
+        self.command("wifi-off")
+        self.assertEqual(self.request("/api/status")[1]["job"]["phase"], "installing")
         self.assertEqual(self.request("/api/cancel", {"id": job["id"]})[0], 409)
         self.command("presentation")
         presentation = self.request("/api/status")[1]["job"]["presentation"]
@@ -250,7 +276,12 @@ class PcConnectionTest(unittest.TestCase):
         self.assertEqual(self.request("/api/root", {"action": "patch", "provider": "next", "slot": "bad", "confirm": True})[0], 400)
         status, job = self.request("/api/root", {"action": "inspect", "provider": "next", "slot": "b", "confirm": True})
         self.assertEqual((status, job["root_action"], job["root_slot"]), (200, "inspect", "b"))
-        self.wait_phase("completed")
+        result = self.wait_phase("completed")["root_inspection"]
+        self.assertEqual((result["target"], result["kernel"]), ("init_boot_b", "android16-6.12"))
+        self.assertTrue(result["inspected"] and result["patched"] and result["verified"])
+        self.assertEqual((result["provider"], result["version"]), ("KernelSU Next", "v3.4.0"))
+        self.assertTrue(result["offline_available"])
+        self.assertEqual((result["offline_provider"], result["offline_version"]), ("next", "v3.3.0"))
         self.assertEqual(self.request("/api/reboot", {"target": "system"})[0], 400)
         self.assertEqual(self.request("/api/reboot", {"target": "bad", "confirm": True})[0], 400)
         self.assertEqual(self.request("/api/reboot", {"target": "recovery", "confirm": True})[0], 200)
@@ -281,6 +312,81 @@ class PcConnectionTest(unittest.TestCase):
                 body["arb_acknowledged"] = True
                 self.assertEqual(self.request("/api/install", body)[0], 200 if mode == "upgrade" else 409)
             self.assertEqual(self.request("/api/cancel", {"id": job["id"]})[0], 200)
+
+    def test_05da_explicit_fast_flash_selection(self):
+        self.command("hold")
+        for mode in ("same", "protected", "upgrade", "incremental", "unsupported", "downgrade"):
+            data = ("AERA-test-OTA\n" + mode + "\n").encode()
+            status, prepared = self.prepare(data)
+            self.assertEqual(status, 200)
+            _, job = self.request("/api/upload/" + prepared["id"], data, "PUT")
+            info = job["package_info"]
+            self.assertEqual(info["fast_available"], mode not in ("incremental", "unsupported"))
+            self.assertEqual(info["fast_slot"], "A")
+            self.assertEqual(info["fast_protected"], ["abl", "recovery"] if mode == "protected" else [])
+            self.assertEqual(job["install_method"], "normal")
+            body = {"id": job["id"], "confirm": True, "install_method": "fast"}
+            self.assertEqual(self.request("/api/install", body)[0], 409)
+            body["fast_acknowledged"] = True
+            status, result = self.request("/api/install", body)
+            if mode == "upgrade":
+                self.assertEqual(status, 409)
+                body["arb_acknowledged"] = True
+                status, result = self.request("/api/install", body)
+            self.assertEqual(status, 200 if mode in ("same", "protected", "upgrade") else 409)
+            if status == 200:
+                self.assertEqual(result["install_method"], "fast")
+                self.assertEqual(result["partition"], "")
+                self.assertEqual(result["payload_partitions"], ["system", "vendor", "xbl_config"])
+            self.assertEqual(self.request("/api/cancel", {"id": job["id"]})[0], 200)
+        status, prepared = self.prepare(b"not a payload")
+        self.assertEqual(status, 200)
+        self.request("/api/upload/" + prepared["id"], b"not a payload", "PUT")
+        self.assertEqual(self.request("/api/install", {
+            "id": prepared["id"], "confirm": True, "install_method": "fast", "fast_acknowledged": True})[0], 409)
+        self.assertEqual(self.request("/api/install", {
+            "id": prepared["id"], "confirm": True, "install_method": "unknown"})[0], 400)
+        self.request("/api/cancel", {"id": prepared["id"]})
+
+    def test_05db_advanced_selection_and_manual_protection_override(self):
+        self.command("hold")
+        for method in ("selected", "direct", "extract"):
+            data = b"AERA-test-OTA\nprotected\n"
+            _, prepared = self.prepare(data)
+            _, job = self.request("/api/upload/" + prepared["id"], data, "PUT")
+            abl = next(p for p in job["package_info"]["partitions"] if p["name"] == "abl")
+            self.assertTrue(abl["protected"])
+            self.assertTrue(abl["flash_available"])
+            body = {"id": job["id"], "confirm": True, "install_method": method, "partitions": ["abl"]}
+            if method != "extract":
+                self.assertEqual(self.request("/api/install", body)[0], 409)
+                body["fast_acknowledged"] = True
+            status, result = self.request("/api/install", body)
+            self.assertEqual(status, 200)
+            self.assertEqual(result["install_method"], method)
+            self.assertEqual(result["payload_partitions"], ["abl"])
+            self.assertEqual(result["manual_protection_override"], method != "extract")
+            self.request("/api/cancel", {"id": job["id"]})
+        data = b"AERA-test-OTA\ndowngrade\n"
+        _, prepared = self.prepare(data)
+        _, job = self.request("/api/upload/" + prepared["id"], data, "PUT")
+        self.assertEqual(self.request("/api/install", {
+            "id": job["id"], "confirm": True, "install_method": "extract", "partitions": ["system"]})[0], 200)
+        self.request("/api/cancel", {"id": job["id"]})
+        data = b"AERA-test-OTA\nsame\n"
+        package = self.root / "advanced-existing.zip"
+        package.write_bytes(data)
+        _, job = self.request("/api/files/prepare", {"path": str(package)})
+        for selected in ([], ["../abl"], ["system", "system"]):
+            self.assertNotEqual(self.request("/api/install", {"id": job["id"], "confirm": True,
+                "install_method": "direct", "partitions": selected, "fast_acknowledged": True})[0], 200)
+        status, result = self.request("/api/install", {"id": job["id"], "confirm": True,
+            "install_method": "fast", "fast_acknowledged": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["install_method"], "fast")
+        self.assertFalse(result["manual_protection_override"])
+        self.request("/api/cancel", {"id": job["id"]})
+        self.assertEqual(package.read_bytes(), data)
 
     def test_05e_existing_packages_preserve_original_files(self):
         self.command("hold")

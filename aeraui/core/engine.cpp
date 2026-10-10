@@ -2801,16 +2801,12 @@ private:
     const uint32_t now = MonotonicMilliseconds();
     if (now - last_pc_poll_ < 250) return;
     last_pc_poll_ = now;
+    aera::pc::RefreshNetwork();
     auto status = aera::pc::GetStatus();
-    const bool wifi_connected = RecoveryWifiConnection().connected;
-    if (status.enabled && !wifi_connected) {
-      aera::pc::SetEnabled(false, 443, false);
-      status = aera::pc::GetStatus();
-    }
     if (!status.enabled && !status.manually_disabled && interactive_ready_ &&
         !decryption_active_ && !decrypt_running_ && !wifi_running_ && !fastboot_mode_ &&
         (last_pc_start_attempt_ == 0 || now - last_pc_start_attempt_ >= 5000)) {
-      if (RecoveryPcAutoEnable() && wifi_connected) {
+      if (RecoveryPcAutoEnable()) {
         last_pc_start_attempt_ = now;
         aera::pc::SetEnabled(true, 443, false);
         status = aera::pc::GetStatus();
