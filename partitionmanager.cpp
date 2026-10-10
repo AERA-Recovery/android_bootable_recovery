@@ -3992,6 +3992,21 @@ bool TWPartitionManager::Run_Image_Flash_Batch(const std::vector<std::string>& t
 	});
 }
 
+bool TWPartitionManager::Prepare_Image_Flash_Target(const std::string& target,
+        uint64_t bytes, std::string* block) {
+	if (!image_flash_batch_ || !block || !bytes || bytes > INT64_MAX) return false;
+	auto* part = Find_Partition_By_Path(target);
+	if (!part) return false;
+	if (part->Get_Super_Status()) {
+		if (!part->UnMount(true) || !AeraGrowLogicalPartition(this, part, bytes)) return false;
+	} else if (!part->Can_Flash_Img || part->Backup_Method != BM_DD || !part->Is_SlotSelect()) {
+		return false;
+	}
+	part->Find_Actual_Block_Device();
+	*block = part->Actual_Block_Device;
+	return !block->empty();
+}
+
 bool TWPartitionManager::Flash_Image(string& path, string& filename,
         const std::function<bool(const string&, uint64_t)>& verify,
         uint64_t stream_bytes, const std::function<bool(const string&)>& stream) {

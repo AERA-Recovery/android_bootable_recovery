@@ -5,6 +5,11 @@
 #include "features/update/payload_targets.hpp"
 #include "features/update/payload_otaripper.hpp"
 #include "features/update/payload_full_flash.hpp"
+#include "features/update/payload_parallel.hpp"
+#include "features/update/payload_otaripper_batch.hpp"
+#include <atomic>
+#include <thread>
+#include <chrono>
 #include "../../aera_image_flash_batch.hpp"
 #include "../../aera_image_flash_mounts.hpp"
 #include <fcntl.h>
@@ -23,6 +28,142 @@
 
 using namespace aeraui::payload;
 using chromeos_update_engine::DeltaArchiveManifest;
+TEST(PayloadSharedPool, ProgressIsBoundToTargetsAndMonotonic) {
+  std::vector<DirectTarget> targets = {{"system", 3, 100}, {"vendor", 4, 200}};
+  std::vector<uint64_t> previous(2);
+  std::vector<aeraui::PayloadPhase> phases(2, aeraui::PayloadPhase::Queued);
+  unsigned calls = 0;
+  DirectProgress callback = [&](size_t, aeraui::PayloadPhase, uint64_t) { ++calls; };
+  EXPECT_TRUE(ParseDirectProgress("AERA_PARTITION system writing 50 100", targets, previous, phases, callback));
+  for (const auto* bad : {"AERA_PARTITION other writing 50 100", "AERA_PARTITION system writing 49 100",
+      "AERA_PARTITION system written 50 100", "AERA_PARTITION vendor writing 500 200",
+      "AERA_PARTITION vendor writing 50 100", "AERA_PARTITION vendor writing 50 200 extra"})
+    EXPECT_FALSE(ParseDirectProgress(bad, targets, previous, phases, callback));
+  EXPECT_EQ(calls, 1u);
+  EXPECT_TRUE(ParseDirectProgress("AERA_PARTITION system written 100 100", targets, previous, phases, callback));
+  EXPECT_FALSE(ParseDirectProgress("AERA_PARTITION system writing 100 100", targets, previous, phases, callback));
+  EXPECT_TRUE(ParseDirectProgress("AERA_PARTITION vendor failed 50 200", targets, previous, phases, callback));
+  EXPECT_FALSE(ParseDirectProgress("AERA_PARTITION vendor writing 100 200", targets, previous, phases, callback));
+}
+TEST(PayloadSharedPool, InvalidMappingDoesNotLaunchWriter) {
+  bool launched = true;
+  std::string error;
+  EXPECT_FALSE(RunOtaripperBatch(-1, {}, std::string(32, 'h'), 16, {}, error, launched));
+  EXPECT_FALSE(launched);
+  std::vector<DirectTarget> duplicate = {{"system", 3, 100}, {"vendor", 3, 100}};
+  EXPECT_FALSE(RunOtaripperBatch(-1, duplicate, std::string(32, 'h'), 16, {}, error, launched));
+  EXPECT_FALSE(launched);
+}
+TEST(PayloadSharedPool, OneChildReceivesAllDescriptorsAndProgress) {
+  TemporaryFile executable, package, a, b;
+  const std::string script = R"SH(#!/bin/sh
+fds=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --threads) shift; [ "$1" = 16 ] || exit 10 ;;
+    --aera-active) exit 11 ;;
+    --partitions) shift; [ "$1" = system,vendor ] || exit 12 ;;
+    --aera-block-fd) shift; [ -r "/proc/self/fd/$1" ] || exit 13; fds=$((fds+1)) ;;
+    /proc/self/fd/*) [ -r "$1" ] || exit 14 ;;
+  esac
+  shift
+done
+[ "$fds" = 2 ] || exit 15
+printf 'AERA_PARTITION system writing 50 100\n'
+printf 'AERA_PARTITION vendor written 200 200\n'
+printf 'AERA_PARTITION system written 100 100\n'
+)SH";
+  ASSERT_TRUE(android::base::WriteStringToFile(script, executable.path));
+  ASSERT_EQ(chmod(executable.path, 0700), 0);
+  // Close the script's writable fd before exec to avoid ETXTBSY.
+  close(executable.fd); executable.fd = -1;
+  const char* setting = getenv("AERA_TEST_OTARIPPER");
+  const bool had_setting = setting != nullptr;
+  const std::string saved = setting ? setting : "";
+  setenv("AERA_TEST_OTARIPPER", executable.path, 1);
+  bool launched = false;
+  std::string error;
+  std::vector<aeraui::PayloadPhase> states(2, aeraui::PayloadPhase::Queued);
+  const bool ok = RunOtaripperBatch(package.fd, {{"system", a.fd, 100}, {"vendor", b.fd, 200}},
+      std::string(32, 'h'), 16, [&](size_t i, aeraui::PayloadPhase phase, uint64_t) { states[i] = phase; }, error, launched);
+  if (had_setting) setenv("AERA_TEST_OTARIPPER", saved.c_str(), 1);
+  else unsetenv("AERA_TEST_OTARIPPER");
+  EXPECT_TRUE(ok) << error;
+  EXPECT_TRUE(launched);
+  EXPECT_EQ(states[0], aeraui::PayloadPhase::Written);
+  EXPECT_EQ(states[1], aeraui::PayloadPhase::Written);
+  EXPECT_GE(fcntl(a.fd, F_GETFD), 0);
+  EXPECT_GE(fcntl(b.fd, F_GETFD), 0);
+}
+TEST(PayloadParallel, ResourceLimits) {
+  EXPECT_EQ(WorkerBudget(12ULL << 30, 8ULL << 30, 8), 16u);
+  EXPECT_EQ(WorkerBudget(12ULL << 30, 8ULL << 30, 4), 8u);
+  EXPECT_EQ(WorkerBudget(12ULL << 30, 8ULL << 30, 2), 4u);
+  EXPECT_EQ(WorkerBudget(12ULL << 30, 8ULL << 30, 1), 2u);
+  EXPECT_EQ(WorkerBudget(16ULL << 30, 12ULL << 30, 16), 16u);
+  EXPECT_EQ(WorkerBudget(16ULL << 30, 12ULL << 30, 32), 16u);
+  EXPECT_EQ(WorkerBudget(8ULL << 30, 1ULL << 30, 8), 2u);
+  EXPECT_EQ(WorkerBudget(0, 0, 0), 1u);
+}
+TEST(PayloadParallel, BoundedWorkersJoinAndExecuteOnce) {
+  std::atomic<int> active{0}, peak{0}, completed{0};
+  std::atomic<int> seen[8]{};
+  EXPECT_TRUE(RunParallelImages(8, 2, [&](size_t i) {
+    int n = ++active;
+    int old = peak.load();
+    while (old < n && !peak.compare_exchange_weak(old, n)) {}
+    ++seen[i];
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    --active; ++completed;
+    return true;
+  }));
+  EXPECT_EQ(active.load(), 0);
+  EXPECT_EQ(completed.load(), 8);
+  EXPECT_LE(peak.load(), 2);
+  for (auto& n : seen) EXPECT_EQ(n.load(), 1);
+}
+TEST(PayloadParallel, FailureStopsQueueAndJoins) {
+  std::atomic<int> calls{0};
+  EXPECT_FALSE(RunParallelImages(8, 1, [&](size_t) { ++calls; return false; }));
+  EXPECT_EQ(calls.load(), 1);
+  EXPECT_FALSE(RunParallelImages(0, 2, [](size_t) { return true; }));
+}
+TEST(PayloadParallel, EightWorkersOverlapAndFailureJoinsAll) {
+  std::mutex mutex;
+  std::condition_variable ready;
+  unsigned entered = 0;
+  std::atomic<unsigned> active{0};
+  EXPECT_FALSE(RunParallelImages(12, 8, [&](size_t) {
+    ++active;
+    {
+      std::unique_lock<std::mutex> lock(mutex);
+      ++entered;
+      ready.notify_all();
+      EXPECT_TRUE(ready.wait_for(lock, std::chrono::seconds(2), [&] { return entered == 8; }));
+    }
+    --active;
+    return false;
+  }));
+  EXPECT_EQ(entered, 8u);
+  EXPECT_EQ(active.load(), 0u);
+}
+TEST(PayloadParallel, IndependentWeightedProgressRequiresVerification) {
+  FlashProgressStore store;
+  store.Begin({"system", "vendor"}, {300, 100}, 2);
+  store.Set(0, aeraui::PayloadPhase::Writing, 300);
+  store.Set(1, aeraui::PayloadPhase::Verifying, 50);
+  EXPECT_EQ(OverallProgress(store.Read()), 82);
+  store.Set(0, aeraui::PayloadPhase::Verified, 300);
+  store.Set(1, aeraui::PayloadPhase::Verifying, 100);
+  EXPECT_EQ(OverallProgress(store.Read()), 99);
+  store.Set(1, aeraui::PayloadPhase::Verified, 100);
+  EXPECT_EQ(OverallProgress(store.Read()), 100);
+  store.Reset(); EXPECT_FALSE(store.Read().available);
+  store.Begin({"boot", "vendor"}, {10, 10}, 2);
+  store.Set(0, aeraui::PayloadPhase::Failed);
+  store.Finish();
+  EXPECT_EQ(store.Read().partitions[1].phase, aeraui::PayloadPhase::NotFlashed);
+}
 TEST(PayloadFullFlash, RequiresEveryImageAndPreservesManifestOrder) {
   Info info;
   info.valid = info.is_payload = true;

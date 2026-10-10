@@ -382,7 +382,7 @@ pub fn run(no_json: bool, path: &Path) -> anyhow::Result<()> {
             let temp_dir = tempfile::tempdir()?;
             let cmd = Cmd {
                 aera: false,
-                aera_block_fd: None,
+                aera_block_fd: Vec::new(),
                 aera_manifest: None,
                 subcmd: None,
                 list: false,

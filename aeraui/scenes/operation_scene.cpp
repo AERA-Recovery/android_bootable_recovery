@@ -494,6 +494,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   Header(screen, request.title.c_str(), "Progress & activity", nullptr, nullptr);
   OperationScene result;
   result.job = request.job;
+  result.payload_parallel = request.job == Job::kFlashPayload && request.payload_direct;
   result.format_data = request.job == Job::kFormatData;
   const bool installer =
       request.job == Job::kInstall || request.job == Job::kSideload;
@@ -624,7 +625,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   const int activity_y = landscape ? 340 : 1230;
   const int activity_height = installer
       ? (landscape ? 850 : 1230)
-      : (landscape ? 850 : 600);
+      : (landscape ? 850 : result.payload_parallel ? 1120 : 600);
   auto *activity_card = lv_obj_create(screen);
   Panel(activity_card, 40, kMainSheet);
   lv_obj_set_pos(activity_card, landscape ? 1560 : 64, activity_y);
@@ -706,11 +707,58 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
     lv_obj_set_pos(result.notice, 48, 280);
     lv_obj_set_width(result.notice, landscape ? 1448 : 1216);
   }
+  if (result.payload_parallel) {
+    i18n::BindLabel(result.activity_title, "PARTITION PROGRESS");
+    lv_obj_set_pos(result.activity_summary, 48, 100);
+    lv_obj_set_height(result.activity_summary, landscape ? 40 : 70);
+    lv_obj_add_flag(result.notice, LV_OBJ_FLAG_HIDDEN);
+    result.payload_list = lv_obj_create(activity_card);
+    Clear(result.payload_list);
+    lv_obj_set_pos(result.payload_list, 48, landscape ? 150 : 190);
+    lv_obj_set_size(result.payload_list, landscape ? 1448 : 1216,
+                    activity_height - 240 - (landscape ? 150 : 190));
+    lv_obj_add_flag(result.payload_list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(result.payload_list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(result.payload_list, LV_SCROLLBAR_MODE_AUTO);
+    result.payload_cards.resize(request.partitions.size());
+    result.payload_names.resize(request.partitions.size());
+    result.payload_states.resize(request.partitions.size());
+    result.payload_bars.resize(request.partitions.size());
+    for (size_t i = 0; i < request.partitions.size(); ++i) {
+      auto *row = lv_obj_create(result.payload_list);
+      Clear(row);
+      lv_obj_set_pos(row, landscape ? (i % 2) * 748 : 0,
+                     landscape ? (i / 2) * 115 : i * 86);
+      lv_obj_set_size(row, landscape ? 700 : 1216, landscape ? 100 : 76);
+      lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+      result.payload_cards[i] = row;
+      result.payload_names[i] = Label(row, "Waiting", &lv_font_montserrat_32, kText);
+      lv_obj_set_width(result.payload_names[i], LV_PCT(48));
+      lv_label_set_long_mode(result.payload_names[i], LV_LABEL_LONG_DOT);
+      result.payload_states[i] = Label(row, "Queued", &lv_font_montserrat_24, kMutedStrong);
+      lv_obj_set_width(result.payload_states[i], LV_PCT(50));
+      lv_obj_align(result.payload_states[i], LV_ALIGN_TOP_RIGHT, 0, 6);
+      lv_obj_set_style_text_align(result.payload_states[i], LV_TEXT_ALIGN_RIGHT, 0);
+      auto *bar = lv_bar_create(row);
+      result.payload_bars[i] = bar;
+      lv_obj_set_pos(bar, 0, landscape ? 60 : 50);
+      lv_obj_set_size(bar, LV_PCT(100), 12);
+      lv_bar_set_range(bar, 0, 100);
+      lv_obj_set_style_radius(bar, 9, LV_PART_MAIN);
+      lv_obj_set_style_radius(bar, 9, LV_PART_INDICATOR);
+      lv_obj_set_style_bg_color(bar, kMainLine, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(bar, kAccent, LV_PART_INDICATOR);
+      lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+      lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
+      lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
   result.details = Button(activity_card, "View technical details", [screen] {
     ShowTechnicalLog(screen);
   });
   lv_obj_set_pos(result.details, 48,
-                 installer ? activity_height - 200 :
+                 installer || result.payload_parallel ? activity_height - 200 :
                      (landscape ? 650 : 400));
   lv_obj_set_size(result.details, landscape ? 1448 : 1216, 132);
 
@@ -792,6 +840,48 @@ void RefreshOperationScene(const OperationScene &scene) {
   i18n::BindLabel(scene.elapsed, elapsed.c_str());
 
   auto friendly = Explain(RecoveryOperationDetail(), scene.job, progress);
+  if (scene.payload_parallel) {
+    const auto state = RecoveryPayloadFlashProgress();
+    size_t active = 0, verified = 0, queued = 0, failed = 0;
+    for (size_t i = 0; i < state.partitions.size(); ++i) {
+      const auto phase = state.partitions[i].phase;
+      if (phase == PayloadPhase::Writing || phase == PayloadPhase::Verifying) ++active;
+      if (phase == PayloadPhase::Verified) ++verified;
+      if (phase == PayloadPhase::Failed) ++failed;
+      if (phase == PayloadPhase::Queued || phase == PayloadPhase::Preparing || phase == PayloadPhase::Written) ++queued;
+    }
+    // Stable rows prevent partitions jumping around while the user scrolls.
+    for (size_t row = 0; row < scene.payload_cards.size(); ++row) {
+      if (row >= state.partitions.size()) { lv_obj_add_flag(scene.payload_cards[row], LV_OBJ_FLAG_HIDDEN); continue; }
+      const auto& p = state.partitions[row];
+      const char *phase = "Queued";
+      int value = 0;
+      const int portion = p.bytes ? int(100.0 * p.done / p.bytes) : 0;
+      switch (p.phase) {
+        case PayloadPhase::Preparing: phase = "Preparing"; break;
+        case PayloadPhase::Writing: phase = "Writing"; value = portion; break;
+        case PayloadPhase::Written: phase = "Awaiting readback"; value = 100; break;
+        case PayloadPhase::Verifying: phase = "Verifying"; value = portion; break;
+        case PayloadPhase::Verified: phase = "Verified"; value = 100; break;
+        case PayloadPhase::Failed: phase = "Failed"; break;
+        case PayloadPhase::NotFlashed: phase = "Not flashed"; break;
+        default: break;
+      }
+      i18n::BindLabel(scene.payload_names[row], p.name.c_str());
+      const std::string detail = std::string(phase) +
+          (p.phase == PayloadPhase::Writing || p.phase == PayloadPhase::Verifying ?
+           "  " + std::to_string(portion) + "%" : "");
+      i18n::BindLabel(scene.payload_states[row], detail.c_str());
+      lv_bar_set_value(scene.payload_bars[row], value, LV_ANIM_OFF);
+      lv_obj_remove_flag(scene.payload_cards[row], LV_OBJ_FLAG_HIDDEN);
+    }
+    friendly.title = active ? "Flashing payload images" : verified == state.partitions.size() && verified ?
+        "Payload images verified" : "Preparing payload targets";
+    friendly.explanation = "Each partition is written and read back for SHA-256 verification. The active slot stays unchanged.";
+    friendly.files = std::to_string(verified) + " / " + std::to_string(state.partitions.size()) + " verified";
+    friendly.amount = state.available ? std::to_string(active) + " active / " + std::to_string(queued) + " queued" : "Preparing targets";
+    friendly.activity = failed ? std::to_string(failed) + " failed; no new writes will start. Finishing active workers." : friendly.amount;
+  }
   if (sideload) {
     const std::string history =
         CleanInstallerHistory(RecoveryInstallerStatus(),

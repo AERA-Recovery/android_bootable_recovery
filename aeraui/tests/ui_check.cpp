@@ -234,6 +234,8 @@ std::vector<Volume> RecoveryImageVolumes() {
           {"Boot", "/boot", 100663296}};
 }
 int recovery_progress = 38;
+PayloadFlashProgress payload_progress;
+PayloadFlashProgress RecoveryPayloadFlashProgress() { return payload_progress; }
 std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names) {
   std::vector<PayloadFlashTarget> targets;
   for (const auto &name : names) {
@@ -488,6 +490,59 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--payload-parallel") || !strcmp(argv[1], "--payload-parallel-landscape")) {
+    const bool landscape = !strcmp(argv[1], "--payload-parallel-landscape");
+    if (landscape) lv_display_set_resolution(display, 3168, 1440);
+    JobRequest request;
+    request.job = Job::kFlashPayload;
+    request.payload_direct = true;
+    request.title = "Flash payload images";
+    request.path = "/sdcard/update.zip";
+    payload_progress = {true, 8, {{"system", 1000, 500, PayloadPhase::Writing},
+        {"vendor", 1000, 250, PayloadPhase::Verifying},
+        {"product", 1000, 700, PayloadPhase::Writing},
+        {"system_ext", 1000, 400, PayloadPhase::Writing},
+        {"my_product", 1000, 300, PayloadPhase::Writing},
+        {"my_stock", 1000, 200, PayloadPhase::Writing},
+        {"vendor_dlkm", 1000, 600, PayloadPhase::Verifying},
+        {"odm", 1000, 900, PayloadPhase::Writing},
+        {"boot", 100, 0, PayloadPhase::Queued}}};
+    for (int i = 9; i < 32; ++i)
+      payload_progress.partitions.push_back({"test_" + std::to_string(i), 100, 0, PayloadPhase::Queued});
+    for (const auto& p : payload_progress.partitions) request.partitions.push_back(p.name);
+    auto operation = BuildJobScene(screen, request, RecordAction, nullptr);
+    assert(operation.payload_cards.size() == 32);
+    RefreshOperationScene(operation);
+    save(landscape ? "/tmp/aera-parallel-landscape.png" : "/tmp/aera-parallel-progress.png");
+    assert(!lv_obj_has_flag(operation.payload_cards[0], LV_OBJ_FLAG_HIDDEN));
+    assert(!lv_obj_has_flag(operation.payload_cards[1], LV_OBJ_FLAG_HIDDEN));
+    assert(!strcmp(lv_label_get_text(operation.payload_names[0]), "system"));
+    assert(!strcmp(lv_label_get_text(operation.payload_names[1]), "vendor"));
+    assert(lv_bar_get_value(operation.payload_bars[0]) == 50);
+    assert(lv_bar_get_value(operation.payload_bars[1]) == 25);
+    assert(lv_obj_get_style_bg_opa(operation.payload_bars[0], LV_PART_INDICATOR) == LV_OPA_COVER);
+    assert(!lv_obj_has_flag(operation.details, LV_OBJ_FLAG_HIDDEN));
+    lv_area_t row, details;
+    for (auto* card : operation.payload_cards) assert(!lv_obj_has_flag(card, LV_OBJ_FLAG_HIDDEN));
+    lv_obj_get_coords(operation.payload_list, &row);
+    lv_obj_get_coords(operation.details, &details);
+    assert(row.y2 < details.y1);
+    assert(details.y2 < lv_display_get_vertical_resolution(display));
+    lv_obj_scroll_to_view(operation.payload_cards.back(), LV_ANIM_OFF);
+    Tick();
+    lv_area_t last;
+    lv_obj_get_coords(operation.payload_cards.back(), &last);
+    assert(last.y2 <= row.y2 && last.y1 >= row.y1);
+    payload_progress.partitions[0].phase = PayloadPhase::Failed;
+    RefreshOperationScene(operation);
+    assert(!strcmp(lv_label_get_text(operation.payload_names[0]), "system"));
+    assert(!strcmp(lv_label_get_text(operation.payload_states[0]), "Failed"));
+    payload_progress.partitions[1].phase = PayloadPhase::Verified;
+    RefreshOperationScene(operation);
+    assert(!strcmp(lv_label_get_text(operation.payload_states[1]), "Verified"));
+    std::filesystem::remove_all(backup_root);
+    return 0;
+  }
   if (!strcmp(argv[1], "--payload-review")) {
     preferences[static_cast<int>(Preference::kPreserveAbl)] = true;
     preferences[static_cast<int>(Preference::kPreserveRecovery)] = true;

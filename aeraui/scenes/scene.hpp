@@ -27,6 +27,9 @@ struct OperationScene {
   lv_obj_t *activity_title = nullptr;
   lv_obj_t *activity_summary = nullptr;
   lv_obj_t *notice = nullptr;
+  lv_obj_t *payload_list = nullptr;
+  std::vector<lv_obj_t *> payload_cards, payload_names, payload_states, payload_bars;
+  bool payload_parallel = false;
   lv_obj_t *steps[4] = {};
   lv_obj_t *step_icons[4] = {};
   lv_obj_t *step_titles[4] = {};

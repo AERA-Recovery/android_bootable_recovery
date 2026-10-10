@@ -425,7 +425,7 @@ impl<'a> Extractor<'a> {
             );
         }
 
-        if self.cmd.aera_block_fd.is_some() {
+        if !self.cmd.aera_block_fd.is_empty() {
             return super::aera_direct::run(self.cmd, payload, &manifest, block_size);
         }
 

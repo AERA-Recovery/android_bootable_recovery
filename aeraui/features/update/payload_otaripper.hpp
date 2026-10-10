@@ -15,6 +15,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
+#include "payload_workers.hpp"
 
 extern char **environ;
 namespace aeraui::payload {
@@ -26,13 +27,13 @@ inline const char *OtaripperExecutable() {
   return "/system/bin/aera-otaripper";
 }
 
-// Only extracts to regular files. The caller has already validated the manifest,
+// Extracts to files or an exclusively claimed block fd. The caller validated the manifest,
 // names, extents, size limits and free space, and verifies all resulting hashes.
 inline bool RunOtaripper(int package_fd, const std::vector<std::string> &names,
                         const std::string &directory, uint64_t total,
                         const std::function<void(const std::string &, uint64_t, uint64_t)> &progress,
                         std::string &error, int target_fd = -1,
-                        const std::string &manifest_hash = {}) {
+                        const std::string &manifest_hash = {}, unsigned worker_limit = 0) {
   const bool direct = target_fd >= 0;
   if (direct && (names.size() != 1 || manifest_hash.size() != 32)) {
     error = "Invalid direct-flash request"; return false;
@@ -46,11 +47,8 @@ inline bool RunOtaripper(int package_fd, const std::vector<std::string> &names,
     if (!selected.empty()) selected += ',';
     selected += name;
   }
-  const long cpus = sysconf(_SC_NPROCESSORS_ONLN);
-  const long pages = sysconf(_SC_PHYS_PAGES), page_size = sysconf(_SC_PAGESIZE);
-  const uint64_t ram = pages > 0 && page_size > 0 ? uint64_t(pages) * page_size : 0;
-  const unsigned limit = ram >= 2ULL * 1024 * 1024 * 1024 ? 4 : ram >= 1024ULL * 1024 * 1024 ? 2 : 1;
-  const auto threads = std::to_string(std::min<unsigned>(cpus > 0 ? cpus : 1, limit));
+  const unsigned workers = AvailableWorkers();
+  const auto threads = std::to_string(worker_limit ? std::min(workers, worker_limit) : workers);
   // Give the child the exact already-open package, not a pathname that could be
   // replaced between validation and extraction. No shell interpretation.
   int source = fcntl(package_fd, F_DUPFD_CLOEXEC, 200);

@@ -82,6 +82,19 @@ struct PayloadFlashTarget {
   uint64_t device = 0;
   std::string reason;
 };
+enum class PayloadPhase { Queued, Preparing, Writing, Written, Verifying, Verified, Failed, NotFlashed };
+struct PayloadPartitionProgress {
+  std::string name;
+  uint64_t bytes = 0;
+  uint64_t done = 0;
+  PayloadPhase phase = PayloadPhase::Queued;
+};
+struct PayloadFlashProgress {
+  bool available = false;
+  unsigned lanes = 1;
+  std::vector<PayloadPartitionProgress> partitions;
+};
+PayloadFlashProgress RecoveryPayloadFlashProgress();
 std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names);
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder);
 std::string RecoveryStorage();

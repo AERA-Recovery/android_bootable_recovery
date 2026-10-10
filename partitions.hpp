@@ -468,6 +468,7 @@ public:
 	bool Unmap_Super_Devices(bool preserve_partitions = false);              // Unmap super devices in TWRP
 	void Restart_Quiesced_Dynamic_Services();                                // Restore services stopped for live fastbootd
 	bool Run_Image_Flash_Batch(const std::vector<std::string>& targets, const std::function<bool()>& operation); // Release selected physical and logical dependencies once
+	bool Prepare_Image_Flash_Target(const std::string& target, uint64_t bytes, std::string* block); // Serial preparation only, inside a batch; never writes image data
 	bool Is_Image_Flash_Batch() const { return image_flash_batch_; }
 	bool Check_Pending_Merges();                                              // Check and run pending merges on data for VAB devices
 	bool Disable_AVB2(bool Display_Info);                                     // Disable AVB2.0 in vbmeta/vbmeta_system

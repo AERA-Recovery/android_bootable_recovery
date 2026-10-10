@@ -54,9 +54,9 @@ pub struct Cmd {
            requires = "output_dir", requires = "partitions", conflicts_with = "list",
            conflicts_with = "no_verify")]
     pub(super) aera: bool,
-    /// Internal AERA write phase. Receives an already-claimed block descriptor.
+    /// Internal AERA write phase. One claimed block fd per selected partition, in order.
     #[clap(long, hide = true, requires = "aera", requires = "aera_manifest")]
-    pub(super) aera_block_fd: Option<i32>,
+    pub(super) aera_block_fd: Vec<i32>,
     #[clap(long, hide = true, requires = "aera_block_fd")]
     pub(super) aera_manifest: Option<String>,
     #[clap(subcommand)]

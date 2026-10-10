@@ -535,7 +535,7 @@ void ReviewFastFlash(const payload::Info &info, const std::string &path,
       if (std::find(request.partitions.begin(), request.partitions.end(), partition.name) == request.partitions.end())
         Row(area, partition.name == "abl" ? "Keep current ABL" : "Keep AERA installed", partition.name);
     Row(area, "Expanded size", Size(info.expanded_bytes));
-    Explanation(area, "Streams images directly with otaripper, without temporary extraction. Each written image is read back and SHA-256 verified.");
+    Explanation(area, "Otaripper schedules all selected partitions through one shared worker pool, without temporary extraction. Each image is read back and SHA-256 verified. Scroll the progress list to see every partition.");
     Explanation(area, "Use only firmware intended for this device. This bypasses the normal OTA installer and its compatibility checks, snapshot rollback and postinstall. An interruption may leave the current slot unbootable. Do not reboot after a failure; reflash known-good firmware.");
   });
 }

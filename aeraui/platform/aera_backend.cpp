@@ -6,6 +6,8 @@
 #include "aeraui/features/update/payload_targets.hpp"
 #include "aeraui/features/update/payload_full_flash.hpp"
 #include "aeraui/features/update/payload_otaripper.hpp"
+#include "aeraui/features/update/payload_parallel.hpp"
+#include "aeraui/features/update/payload_otaripper_batch.hpp"
 #include <android-base/unique_fd.h>
 
 #include <algorithm>
@@ -752,11 +754,14 @@ std::atomic<int> gPayloadFlashCount{1};
 // Logical images reserve the last fifth of the write stage for readback.
 std::atomic<int> gPayloadVerifyStage{0}; // 0: combined raw writer, 1: write, 2: readback
 std::atomic<int> gPayloadVerifyProgress{0};
+payload::FlashProgressStore gPayloadProgress;
 }
+PayloadFlashProgress RecoveryPayloadFlashProgress() { return gPayloadProgress.Read(); }
 int RecoveryRunJob(const JobRequest &request) {
   if (request.job == Job::kFormatData && !FormatDataAuthorized(request)) return 1;
   if (request.job == Job::kClearSnapshotCow &&
       !SnapshotCowCleanupAuthorized(request)) return 1;
+  gPayloadProgress.Reset();
   DataManager::SetValue("ui_progress", 0);
   DataManager::SetValue("ui_portion_start", 0.0f);
   DataManager::SetValue("ui_portion_size",
@@ -876,7 +881,7 @@ int RecoveryRunJob(const JobRequest &request) {
       DataManager::SetProgress(0.0f);
       DataManager::SetValue("tw_size_progress", "");
       std::string error;
-      size_t verified_count = 0;
+      std::atomic<size_t> verified_count{0};
       bool writer_started = false;
       std::string current_partition;
       const bool ok = payload::WithValidatedPayload(request.path, request.payload_manifest_hash,
@@ -893,70 +898,108 @@ int RecoveryRunJob(const JobRequest &request) {
           }
         }
         auto run_images = [&]() -> bool {
-        // Claim only after the batch has released mounted firmware. Keep every
-        // claim inside this scope so cleanup can remount it after we return.
-        std::vector<android::base::unique_fd> held(targets.size());
-        for (size_t i = 0; i < targets.size(); ++i) if (targets[i].raw) {
-          held[i].reset(payload::OpenRawTarget(targets[i], image_sizes[i], error));
-          if (held[i].get() < 0) return false;
-        }
+        const long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+        const unsigned budget = payload::AvailableWorkers();
+        gPayloadProgress.Begin(request.partitions, image_sizes, budget);
+        std::vector<std::string> blocks(targets.size());
+        // Metadata, mapper changes and mount handling are strictly serial.
+        // Complete every target's preparation before acquiring any writer fd.
         for (size_t i = 0; i < targets.size(); ++i) {
-          current_partition = request.partitions[i];
-          writer_started = false;
-          if (request.payload_slot != RecoverySlot() || !arb_allowed()) {
-            error = "Slot or ARB state changed during direct flash"; return false;
+          gPayloadProgress.Set(i, PayloadPhase::Preparing);
+          if (targets[i].raw) blocks[i] = targets[i].path;
+          else if (!PartitionManager.Prepare_Image_Flash_Target(targets[i].path, image_sizes[i], &blocks[i])) {
+            current_partition = request.partitions[i];
+            error = "Cannot prepare target " + current_partition;
+            gPayloadProgress.Set(i, PayloadPhase::Failed);
+            return false;
           }
-          auto progress = [&](double part) {
-            DataManager::SetProgress(float((i + std::clamp(part, 0.0, 1.0)) / targets.size()));
-          };
-          auto write = [&](const std::string &block) {
-            android::base::unique_fd local;
-            if (!targets[i].raw) local.reset(payload::OpenDirectBlock(block, image_sizes[i], error));
-            const int fd = targets[i].raw ? held[i].get() : local.get();
-            if (fd < 0) return false;
-            DataManager::SetValue("tw_file_progress", "Direct flashing " + request.partitions[i]);
-            const auto start = std::chrono::steady_clock::now();
-            writer_started = true;
-            if (!payload::RunOtaripper(package_fd, {request.partitions[i]}, "/tmp", image_sizes[i],
-                [&](const std::string &, uint64_t done, uint64_t total) {
-                  progress(total ? double(done) / total * 1.6 : 0.0);
-                }, error, fd, request.payload_manifest_hash)) return false;
-            DataManager::SetValue("tw_file_progress", "Verifying written image: " + request.partitions[i]);
-            if (!payload::VerifyWrittenFd(fd, image_sizes[i], image_hashes[i], error,
-                [&](uint64_t done, uint64_t total) { progress(0.8 + 0.2 * double(done) / total); })) return false;
-            LOGINFO("Direct payload write and readback verified: %s, %llu bytes, %.3f seconds\n",
+          gPayloadProgress.Set(i, PayloadPhase::Queued);
+        }
+        // All claims precede the first write and outlive all joined workers,
+        // but are destroyed before the outer batch restores mounts/services.
+        std::vector<android::base::unique_fd> held(targets.size());
+        std::set<uint64_t> claimed;
+        for (size_t i = 0; i < targets.size(); ++i) {
+          held[i].reset(targets[i].raw ? payload::OpenRawTarget(targets[i], image_sizes[i], error) :
+              payload::OpenDirectBlock(blocks[i], image_sizes[i], error));
+          struct stat st = {};
+          if (held[i].get() < 0 || fstat(held[i].get(), &st) || !claimed.insert(st.st_rdev).second) {
+            current_partition = request.partitions[i];
+            if (error.empty()) error = "Invalid or aliased block target";
+            gPayloadProgress.Set(i, PayloadPhase::Failed);
+            return false;
+          }
+        }
+        // Read firmware ARB before writing starts, never while another worker
+        // might be replacing the same firmware metadata being inspected.
+        if (request.payload_slot != RecoverySlot() || !arb_allowed()) {
+          error = "Slot or ARB state changed before direct flash"; return false;
+        }
+        std::vector<payload::DirectTarget> mapping;
+        for (size_t i = 0; i < targets.size(); ++i)
+          mapping.push_back({request.partitions[i], held[i].get(), image_sizes[i]});
+        DataManager::SetValue("tw_file_progress", "Flashing payload with one shared worker pool");
+        LOGINFO("Shared payload pool: %u online CPUs, %u total workers, all %zu targets, no partition windows, one process\n",
+            unsigned(cpus > 0 ? cpus : 1), budget, targets.size());
+        const auto write_start = std::chrono::steady_clock::now();
+        const bool written = payload::RunOtaripperBatch(package_fd, mapping, request.payload_manifest_hash,
+            budget, [&](size_t i, PayloadPhase phase, uint64_t done) {
+              gPayloadProgress.Set(i, phase, done);
+            }, error, writer_started);
+        LOGINFO("Shared payload write phase: %.3f seconds, result=%d\n",
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - write_start).count(), written);
+        // All writer threads have exited. Independently verify every flushed
+        // image, even if another image failed during the write phase.
+        const auto state = gPayloadProgress.Read();
+        std::vector<size_t> ready;
+        for (size_t i = 0; i < targets.size(); ++i) {
+          if (state.partitions[i].phase == PayloadPhase::Written) ready.push_back(i);
+          else if (state.partitions[i].phase == PayloadPhase::Writing)
+            gPayloadProgress.Set(i, PayloadPhase::Failed);
+        }
+        std::vector<std::string> errors(targets.size());
+        const auto verify_start = std::chrono::steady_clock::now();
+        const bool joined = ready.empty() || payload::RunParallelImages(ready.size(), budget, [&](size_t task) {
+          const size_t i = ready[task];
+          const auto start = std::chrono::steady_clock::now();
+          gPayloadProgress.Set(i, PayloadPhase::Verifying);
+          const bool verified = payload::VerifyWrittenFd(held[i].get(), image_sizes[i], image_hashes[i], errors[i],
+              [&](uint64_t done, uint64_t) { gPayloadProgress.Set(i, PayloadPhase::Verifying, done); });
+          if (verified) {
+            ++verified_count;
+            gPayloadProgress.Set(i, PayloadPhase::Verified, image_sizes[i]);
+            LOGINFO("Shared payload readback verified: %s, %llu bytes, %.3f seconds\n",
                 request.partitions[i].c_str(), static_cast<unsigned long long>(image_sizes[i]),
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
-            return true;
-          };
-          bool written;
-          if (targets[i].raw) written = write(targets[i].path);
-          else {
-            auto *part = PartitionManager.Find_Partition_By_Path(targets[i].path);
-            if (!part || (!part->Get_Super_Status() && !part->Is_SlotSelect())) {
-              error = "Invalid selected image target"; return false;
-            }
-            DataManager::SetValue("tw_flash_partition", targets[i].path + ";");
-            DataManager::SetValue("tw_flash_both_slots", 0);
-            std::string path = "/tmp", name = request.partitions[i] + ".img";
-            written = PartitionManager.Flash_Image(path, name, {}, image_sizes[i], write);
+          } else {
+            if (errors[i].empty()) errors[i] = "Partition verification failed";
+            gPayloadProgress.Set(i, PayloadPhase::Failed);
+            LOGERR("Shared payload failed: %s: %s\n", request.partitions[i].c_str(), errors[i].c_str());
           }
-          if (!written) return false;
-          ++verified_count;
-          writer_started = false;
+          return true; // Check other completed targets even after a mismatch.
+        });
+        LOGINFO("Shared payload readback phase: %.3f seconds, %zu/%zu verified\n",
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - verify_start).count(),
+            verified_count.load(), targets.size());
+        // Every worker is joined. It is now safe to release claims and restore.
+        for (size_t i = 0; i < errors.size(); ++i) if (!errors[i].empty()) {
+          if (!error.empty()) error += "; ";
+          error += request.partitions[i] + ": " + errors[i];
         }
-        return true;
+        if (!joined) error += " Could not start readback workers";
+        return written && joined && verified_count.load() == targets.size();
         };
         return PartitionManager.Run_Image_Flash_Batch(batch_targets, run_images);
       });
+      gPayloadProgress.Finish();
       if (!ok) {
         if (error.empty()) error = DataManager::GetStrValue("tw_size_progress");
         if (error.empty()) error = "Could not prepare the selected partition for flashing";
         std::string detail = "Direct flash stopped" + (current_partition.empty() ? std::string() : " at " + current_partition) + ": " + error;
-        if (writer_started) detail += ". The current target may be incomplete. Do not reboot; reflash a known-good image.";
-        else if (!verified_count) detail += ". Stopped before writing image data.";
-        else detail += ". Stopped before writing this image; " + std::to_string(verified_count) +
-            " earlier images were flashed and verified. Remaining images were not flashed.";
+        if (writer_started) detail += ". Failed targets may be incomplete. Do not reboot; reflash known-good images.";
+        else if (!verified_count.load()) detail += ". Stopped before writing image data.";
+        else detail += ". " + std::to_string(verified_count.load()) +
+            " images were flashed and verified. Remaining images were not flashed.";
         return fail(detail);
       }
       DataManager::SetValue("tw_file_progress", request.payload_full ?
@@ -1356,6 +1399,8 @@ int RecoveryRunJob(const JobRequest &request) {
 }
 
 int RecoveryProgress() {
+  const auto payload = gPayloadProgress.Read();
+  if (payload.available) return aeraui::payload::OverallProgress(payload);
   int raw = std::clamp(atoi(DataManager::GetStrValue("ui_progress").c_str()), 0, 100);
   const int step = gPayloadFlashStep.load();
   if (step >= 0) {
