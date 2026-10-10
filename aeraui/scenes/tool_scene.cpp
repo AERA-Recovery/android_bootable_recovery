@@ -1141,25 +1141,59 @@ void BuildMounts(Tools *state) {
   add_group("Not mounted", available, false);
 }
 
-void PreferenceToggle(Tools *state, int y, const char *title, const char *description,
-                      Preference preference) {
-  auto *row = Row(state->list, y, LV_SYMBOL_SETTINGS, title, description, [] {}, "");
-  // A full-width touch target; the switch is visual and does not double-toggle.
+void PreferenceColumn(lv_obj_t *object, int gap = 12) {
+  lv_obj_set_width(object, LV_PCT(100));
+  lv_obj_set_height(object, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(object, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(object, gap, 0);
+}
+
+lv_obj_t *PreferenceEntry(Tools *state, const char *symbol,
+                          const char *title, const std::string &description,
+                          Handler action, bool toggle = false) {
+  auto *row = lv_button_create(state->list);
+  Clear(row);
+  lv_obj_set_style_bg_color(row, kMainSelected, LV_STATE_PRESSED);
+  if (action) OnClick(row, std::move(action));
+  lv_obj_set_width(row, LV_PCT(100));
+  lv_obj_set_height(row, LV_SIZE_CONTENT);
+  lv_obj_set_style_min_height(row, 154, 0);
+  lv_obj_set_style_pad_all(row, 24, 0);
+  lv_obj_set_style_pad_column(row, 28, 0);
+  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(row, 1, 0);
+  lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+  lv_obj_set_style_border_color(row, kMainLine, 0);
+  lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
+  lv_obj_set_style_radius(row, 0, 0);
+  lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                       LV_FLEX_ALIGN_CENTER);
+  auto *icon = Label(row, symbol, &lv_font_montserrat_32, kAccent);
+  lv_obj_set_width(icon, 56);
+  auto *text = lv_obj_create(row);
+  Clear(text);
+  lv_obj_remove_flag(text, LV_OBJ_FLAG_CLICKABLE);
+  PreferenceColumn(text, 10);
+  lv_obj_set_flex_grow(text, 1);
+  auto *name = Label(text, title, &lv_font_montserrat_32, kText);
+  lv_obj_set_width(name, LV_PCT(100));
+  lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
+  if (!description.empty()) {
+    auto *copy = Label(text, description.c_str(), &lv_font_montserrat_24, kMuted);
+    lv_obj_set_width(copy, LV_PCT(100));
+    lv_label_set_long_mode(copy, LV_LABEL_LONG_WRAP);
+  }
+  if (!toggle) Label(row, LV_SYMBOL_RIGHT, &lv_font_montserrat_28, kMuted);
+  return row;
+}
+
+void PreferenceToggle(Tools *state, const char *symbol, const char *title,
+                      const char *description, Preference preference) {
+  auto *row = PreferenceEntry(state, symbol, title, description, {}, true);
   auto *toggle = lv_switch_create(row);
-  lv_obj_set_size(toggle, 108, 60);
-  lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -24, 0);
-  lv_obj_remove_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(toggle, kMainLine, LV_PART_MAIN);
-  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
-  lv_obj_set_style_bg_color(toggle, kAccent, LV_PART_INDICATOR | LV_STATE_CHECKED);
-  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-  lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, LV_PART_KNOB);
-  lv_obj_set_style_bg_color(toggle, kText, LV_PART_KNOB);
-  lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-  lv_obj_set_style_pad_all(toggle, -8, LV_PART_KNOB);
-  if (RecoveryPreference(preference)) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+  StyleSwitch(toggle, RecoveryPreference(preference));
   OnClick(row, [state, toggle, preference] {
     const bool enabled = !RecoveryPreference(preference);
     if (!RecoverySetPreference(preference, enabled)) {
@@ -1172,9 +1206,13 @@ void PreferenceToggle(Tools *state, int y, const char *title, const char *descri
   });
 }
 
-void PreferenceSection(Tools *state, int y, const char *title) {
+void PreferenceSection(Tools *state, const char *title) {
   auto *label = Label(state->list, title, &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(label, 32, y);
+  lv_obj_set_width(label, LV_PCT(100));
+  lv_obj_set_style_pad_top(label, 32, 0);
+  lv_obj_set_style_pad_bottom(label, 14, 0);
+  lv_obj_set_style_pad_left(label, 24, 0);
+  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
 }
 
 void HapticValue(lv_obj_t *label, int milliseconds) {
@@ -1182,32 +1220,32 @@ void HapticValue(lv_obj_t *label, int milliseconds) {
       (std::to_string(milliseconds) + " ms").c_str());
 }
 
-void HapticSlider(Tools *state, int y, const char *title,
+void HapticSlider(Tools *state, lv_obj_t *parent, const char *title,
                   const char *description, Haptic haptic, int maximum) {
-  auto *card = lv_obj_create(state->list);
-  Panel(card, 32, kMainPanel);
-  lv_obj_set_pos(card, 16, y);
-  lv_obj_set_size(card, 1280, 220);
+  auto *card = lv_obj_create(parent);
+  Clear(card);
+  PreferenceColumn(card, 18);
+  lv_obj_set_style_pad_all(card, 24, 0);
   auto *name = Label(card, title, &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(name, 36, 26);
-  lv_obj_set_width(name, 850);
-  FitLabelToLines(name, 850, 1,
-                  {&lv_font_montserrat_32, &lv_font_montserrat_28});
+  lv_obj_set_width(name, LV_PCT(100));
+  lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
   auto *copy = Label(card, description, &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(copy, 36, 78);
-  lv_obj_set_width(copy, 850);
-  FitLabelToLines(copy, 850, 2,
-                  {&lv_font_montserrat_24, &lv_font_montserrat_20});
-  auto *value_plate = lv_obj_create(card);
-  Panel(value_plate, 28, kAccentSoft);
-  lv_obj_set_pos(value_plate, 936, 24);
-  lv_obj_set_size(value_plate, 176, 68);
-  auto *value = Label(value_plate, "", &lv_font_montserrat_24, kAccent);
+  lv_obj_set_width(copy, LV_PCT(100));
+  lv_label_set_long_mode(copy, LV_LABEL_LONG_WRAP);
+  auto *controls = lv_obj_create(card);
+  Clear(controls);
+  lv_obj_set_width(controls, LV_PCT(100));
+  lv_obj_set_height(controls, 104);
+  lv_obj_set_flex_flow(controls, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(controls, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                       LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(controls, 32, 0);
+  auto *value = Label(controls, "", &lv_font_montserrat_24, kAccent);
+  lv_obj_set_width(value, 180);
   HapticValue(value, RecoveryHapticDuration(haptic));
-  lv_obj_center(value);
-  auto *slider = lv_slider_create(card);
-  lv_obj_set_pos(slider, 52, 166);
-  lv_obj_set_size(slider, 1176, 20);
+  auto *slider = lv_slider_create(controls);
+  lv_obj_set_height(slider, 24);
+  lv_obj_set_flex_grow(slider, 1);
   lv_slider_set_range(slider, 0, maximum);
   lv_slider_set_value(slider, RecoveryHapticDuration(haptic), LV_ANIM_OFF);
   RangeSlider(slider);
@@ -1234,7 +1272,7 @@ void HapticSlider(Tools *state, int y, const char *title,
       }
     }
   }, LV_EVENT_ALL, binding);
-  auto *reset = Button(card, LV_SYMBOL_REFRESH, [state, slider, value, haptic] {
+  auto *reset = Button(controls, LV_SYMBOL_REFRESH, [state, slider, value, haptic] {
     const int duration = RecoveryDefaultHapticDuration(haptic);
     if (!RecoverySetHapticDuration(haptic, duration)) return;
     lv_slider_set_value(slider, duration, LV_ANIM_OFF);
@@ -1242,7 +1280,6 @@ void HapticSlider(Tools *state, int y, const char *title,
     AutoSaveSettings(state);
     RecoveryVibrate(haptic);
   });
-  lv_obj_set_pos(reset, 1136, 8);
   lv_obj_set_size(reset, 104, 104);
 }
 
@@ -2225,60 +2262,70 @@ void BuildTheme(Tools *state) {
 }
 
 void BuildPreferences(Tools *state) {
-  Header(state->screen, "Preferences", "Display, files, backups and connection settings.", state->callback, state->context);
+  Header(state->screen, "Preferences", "Display, files, backups and connection settings.",
+         state->callback, state->context);
   const bool landscape = Landscape(state->screen);
   const int list_y = landscape ? 340 : 480;
   state->list = Scroll(state->screen, list_y,
-      std::max(640, static_cast<int>(lv_obj_get_height(state->screen)) -
+      std::max(1, static_cast<int>(lv_obj_get_height(state->screen)) -
           list_y - NavigationHeight(state->screen) - 28));
   if (landscape) {
     lv_obj_set_x(state->list, 884);
     lv_obj_set_width(state->list, 1400);
   }
+  lv_obj_set_flex_flow(state->list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(state->list, 8, 0);
+  lv_obj_set_style_pad_bottom(state->list, 32, 0);
+  lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_ACTIVE);
+
+  PreferenceSection(state, "Display & regional");
   std::string language_name = i18n::CurrentLanguage();
   for (const auto &language : i18n::AvailableLanguages())
     if (language_name == language.code) {
       language_name = language.native_name;
       break;
     }
-  Row(state->list, 0, LV_SYMBOL_KEYBOARD, "Language", language_name,
-      [state] { Open(state, Action::kLanguage); });
-  constexpr int kContentTop = 210;
-  PreferenceSection(state, kContentTop, "Display & time");
+  PreferenceEntry(state, LV_SYMBOL_KEYBOARD, "Language", language_name,
+                  [state] { Open(state, Action::kLanguage); });
+
   auto *brightness = lv_obj_create(state->list);
-  Panel(brightness, 36, kMainPanel);
-  lv_obj_set_pos(brightness, 16, kContentTop + 76);
-  lv_obj_set_size(brightness, 1280, 246);
-  auto *brightness_icon = Label(brightness, LV_SYMBOL_EYE_OPEN,
+  Clear(brightness);
+  PreferenceColumn(brightness, 12);
+  lv_obj_set_style_pad_all(brightness, 24, 0);
+  auto *brightness_heading = lv_obj_create(brightness);
+  Clear(brightness_heading);
+  lv_obj_set_width(brightness_heading, LV_PCT(100));
+  lv_obj_set_height(brightness_heading, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(brightness_heading, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(brightness_heading, LV_FLEX_ALIGN_START,
+                       LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(brightness_heading, 28, 0);
+  auto *brightness_icon = Label(brightness_heading, LV_SYMBOL_EYE_OPEN,
                                 &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(brightness_icon, 34, 34);
-  auto *title = Label(brightness, "Brightness", &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(title, 100, 28);
-  auto *subtitle = Label(brightness, "Display level changes as you drag",
-                         &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(subtitle, 100, 80);
-  auto *value_plate = lv_obj_create(brightness);
-  Panel(value_plate, 30, kAccentSoft);
-  lv_obj_set_pos(value_plate, 1090, 25);
-  lv_obj_set_size(value_plate, 146, 72);
-  auto *value = Label(value_plate,
-                      (std::to_string(RecoveryBrightness()) + "%").c_str(),
-                      &lv_font_montserrat_32, kAccent);
-  lv_obj_center(value);
-  auto *slider = lv_slider_create(brightness);
-  lv_obj_set_pos(slider, 52, 176);
-  lv_obj_set_size(slider, 1176, 22);
+  lv_obj_set_width(brightness_icon, 56);
+  auto *title = Label(brightness_heading, "Brightness", &lv_font_montserrat_32, kText);
+  lv_obj_set_flex_grow(title, 1);
+  lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
+  auto *value = Label(brightness_heading,
+      (std::to_string(RecoveryBrightness()) + "%").c_str(),
+      &lv_font_montserrat_32, kAccent);
+  lv_obj_set_width(value, 146);
+  lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_RIGHT, 0);
+  auto *brightness_track = lv_obj_create(brightness);
+  Clear(brightness_track);
+  lv_obj_set_size(brightness_track, LV_PCT(100), 96);
+  auto *slider = lv_slider_create(brightness_track);
+  lv_obj_set_size(slider, LV_PCT(96), 24);
+  lv_obj_center(slider);
   lv_slider_set_range(slider, 10, 100);
   lv_slider_set_value(slider, std::max(10, RecoveryBrightness()), LV_ANIM_OFF);
   RangeSlider(slider);
   lv_obj_add_event_cb(slider, [](lv_event_t *event) {
     const auto code = lv_event_get_code(event);
     if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
-    auto *target = lv_event_get_target_obj(event);
-    const int percent = lv_slider_get_value(target);
-    const std::string text = std::to_string(percent) + "%";
+    const int percent = lv_slider_get_value(lv_event_get_target_obj(event));
     lv_label_set_text(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),
-                      text.c_str());
+                      (std::to_string(percent) + "%").c_str());
     if (code == LV_EVENT_RELEASED ||
         std::abs(percent - RecoveryBrightness()) >= 2)
       RecoverySetBrightness(percent);
@@ -2287,88 +2334,126 @@ void BuildPreferences(Tools *state) {
     AutoSaveSettings(static_cast<Tools *>(lv_event_get_user_data(event)));
   }, LV_EVENT_RELEASED, state);
 
-  PreferenceToggle(state, kContentTop + 340, "24-hour clock", "Off uses 12-hour time with AM / PM", Preference::kClock24);
-  auto *zone = Label(state->list, "", &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(zone, 116, kContentTop + 562);
-  auto refresh_zone = [zone] {
+  PreferenceToggle(state, LV_SYMBOL_BELL, "24-hour clock",
+                   "Off uses 12-hour time with AM / PM", Preference::kClock24);
+  auto zone_text = [] {
     const int offset = RecoveryUtcOffset(), magnitude = std::abs(offset);
     char text[64];
-    snprintf(text, sizeof(text), "UTC %c%02d:%02d", offset < 0 ? '-' : '+', magnitude / 60, magnitude % 60);
-    i18n::BindLabel(zone, text);
+    snprintf(text, sizeof(text), "UTC %c%02d:%02d", offset < 0 ? '-' : '+',
+             magnitude / 60, magnitude % 60);
+    return std::string(text);
   };
-  refresh_zone();
-  auto *zone_hint = Label(state->list, "Fixed offset, 15-minute steps; no automatic DST.", &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(zone_hint, 116, kContentTop + 636);
-  for (int direction : {-1, 1}) {
-    auto *button = Button(state->list, direction < 0 ? LV_SYMBOL_MINUS : LV_SYMBOL_PLUS,
-        [state, direction, refresh_zone] {
-      const int next = std::clamp(RecoveryUtcOffset() + 15 * direction, -720, 840);
-      if (!RecoverySetUtcOffset(next)) {
-        Sheet(state->screen, "Time offset unavailable", "The time offset could not be changed.");
-        return;
+  auto *zone = PreferenceEntry(state, LV_SYMBOL_SETTINGS, "Time zone",
+                               zone_text(), {});
+  auto *zone_value = lv_obj_get_child(lv_obj_get_child(zone, 1), 1);
+  OnClick(zone, [state, zone_value, zone_text] {
+    Sheet(state->screen, "Time zone", "", {}, 840, true,
+          SheetPresentation::kStandard, "Swipe to confirm",
+          [state, zone_value, zone_text](lv_obj_t *area) {
+      lv_obj_set_flex_flow(area, LV_FLEX_FLOW_COLUMN);
+      lv_obj_set_style_pad_row(area, 28, 0);
+      auto *current = Label(area, zone_text().c_str(), &lv_font_montserrat_48, kText);
+      lv_obj_set_width(current, LV_PCT(100));
+      lv_obj_set_style_text_align(current, LV_TEXT_ALIGN_CENTER, 0);
+      auto *controls = lv_obj_create(area);
+      Clear(controls);
+      lv_obj_set_width(controls, LV_PCT(100));
+      lv_obj_set_height(controls, LV_SIZE_CONTENT);
+      lv_obj_set_flex_flow(controls, LV_FLEX_FLOW_ROW);
+      lv_obj_set_flex_align(controls, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                           LV_FLEX_ALIGN_CENTER);
+      lv_obj_set_style_pad_column(controls, 40, 0);
+      for (int direction : {-1, 1}) {
+        auto *button = Button(controls,
+            direction < 0 ? LV_SYMBOL_MINUS : LV_SYMBOL_PLUS,
+            [state, direction, current, zone_value, zone_text] {
+          const int next = std::clamp(RecoveryUtcOffset() + 15 * direction, -720, 840);
+          if (!RecoverySetUtcOffset(next)) {
+            Sheet(state->screen, "Time offset unavailable",
+                  "The time offset could not be changed.");
+            return;
+          }
+          lv_label_set_text(current, zone_text().c_str());
+          lv_label_set_text(zone_value, zone_text().c_str());
+          AutoSaveSettings(state);
+        });
+        lv_obj_set_size(button, 180, 124);
       }
-      refresh_zone();
-      AutoSaveSettings(state);
+      auto *hint = Label(area, "Fixed offset, 15-minute steps; no automatic DST.",
+                         &lv_font_montserrat_24, kMuted);
+      lv_obj_set_width(hint, LV_PCT(100));
+      lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
     });
-    lv_obj_set_pos(button, direction < 0 ? 996 : 1156, kContentTop + 534);
-    lv_obj_set_size(button, 132, 112);
-  }
-  PreferenceSection(state, kContentTop + 780, "Recents");
-  PreferenceToggle(state, kContentTop + 860, "Gesture navigation",
+  });
+
+  PreferenceSection(state, "Navigation & feedback");
+  PreferenceToggle(state, LV_SYMBOL_HOME, "Gesture navigation",
                    "Swipe up for Home; swipe up and hold for Recents",
                    Preference::kRecents);
-  PreferenceSection(state, kContentTop + 1100, "Files & installation");
-  PreferenceToggle(state, kContentTop + 1180, "Show hidden files", "Include dot-prefixed files and folders", Preference::kHiddenFiles);
-  PreferenceToggle(state, kContentTop + 1370, "Verify ZIP signatures", "Only install packages signed by a trusted recovery key", Preference::kVerifyZip);
-  PreferenceToggle(state, kContentTop + 1560, "Keep AERA installed",
+  if (RecoveryHapticsAvailable()) {
+    const std::string feedback = std::string(i18n::Translate("Touch feedback")) +
+        " / " + i18n::Translate("Keyboard feedback") +
+        " / " + i18n::Translate("Operation feedback");
+    PreferenceEntry(state, LV_SYMBOL_BELL, "Haptics", feedback, [state] {
+      Sheet(state->screen, "Haptics", "", {}, 1460, true,
+            SheetPresentation::kStandard, "Swipe to confirm",
+            [state](lv_obj_t *area) {
+        lv_obj_set_flex_flow(area, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(area, 16, 0);
+        HapticSlider(state, area, "Touch feedback",
+                     "Buttons, cards and navigation", Haptic::kTouch, 300);
+        HapticSlider(state, area, "Keyboard feedback",
+                     "Keys in PIN, Wi-Fi and text entry", Haptic::kKeyboard, 300);
+        HapticSlider(state, area, "Operation feedback",
+                     "A stronger pulse when recovery work finishes", Haptic::kAction, 500);
+        auto *test = Button(area, "Test operation vibration", [] {
+          RecoveryVibrate(Haptic::kAction);
+        });
+        lv_obj_set_width(test, LV_PCT(100));
+        lv_obj_set_height(test, 124);
+      });
+    });
+  }
+
+  PreferenceSection(state, "Files & installation");
+  PreferenceToggle(state, LV_SYMBOL_FILE, "Show hidden files",
+                   "Include dot-prefixed files and folders", Preference::kHiddenFiles);
+  PreferenceToggle(state, LV_SYMBOL_OK, "Verify ZIP signatures",
+                   "Only install packages signed by a trusted recovery key", Preference::kVerifyZip);
+  PreferenceToggle(state, LV_SYMBOL_REFRESH, "Keep AERA installed",
                    "Restore the running AERA recovery to both slots after ZIP installs",
                    Preference::kPreserveRecovery);
-  int installation_offset = kContentTop + 190;
-  if (RecoveryAblPreservationSupported()) {
-    PreferenceToggle(state, 1560 + installation_offset, "Keep current ABL",
+  if (RecoveryAblPreservationSupported())
+    PreferenceToggle(state, LV_SYMBOL_SAVE, "Keep current ABL",
                      "Restore the active-slot ABL to both slots after ZIP installs",
                      Preference::kPreserveAbl);
-    installation_offset += 190;
-  }
-  PreferenceSection(state, 1610 + installation_offset, "Backup & restore");
-  PreferenceToggle(state, 1690 + installation_offset, "Compress backups by default", "Smaller archives; backup and restore may take longer", Preference::kCompression);
+
+  PreferenceSection(state, "Backup & connection");
+  PreferenceToggle(state, LV_SYMBOL_SAVE, "Compress backups by default",
+                   "Smaller archives; backup and restore may take longer", Preference::kCompression);
   if (RecoverySha256Available())
-    PreferenceToggle(state, 1880 + installation_offset, "SHA-256 backup checksums", "On: SHA-256 / Off: legacy MD5 checksums", Preference::kSha256);
+    PreferenceToggle(state, LV_SYMBOL_OK, "SHA-256 backup checksums",
+                     "On: SHA-256 / Off: legacy MD5 checksums", Preference::kSha256);
   auto *integrity = Label(state->list,
       "Backup checksums are always generated. Restore verification stays on.",
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(integrity, 116, 2080 + installation_offset);
-  lv_obj_set_width(integrity, 1120);
-  PreferenceSection(state, 2230 + installation_offset, "USB connection");
-  auto *mtp = Button(state->list, RecoveryMtpEnabled() ? "USB file transfer: on" :
-                       "USB file transfer: off", [] {});
-  auto *mtp_label = lv_obj_get_child(mtp, 0);
-  OnClick(mtp, [state, mtp_label] {
-    if (!RecoverySetMtp(!RecoveryMtpEnabled()))
-      Sheet(state->screen, "USB transfer unavailable", "Check that storage is unlocked and mounted.");
-    i18n::BindLabel(mtp_label, RecoveryMtpEnabled() ? "USB file transfer: on" : "USB file transfer: off");
+  lv_obj_set_width(integrity, LV_PCT(100));
+  lv_obj_set_style_pad_all(integrity, 24, 0);
+  lv_label_set_long_mode(integrity, LV_LABEL_LONG_WRAP);
+  auto *mtp = PreferenceEntry(state, LV_SYMBOL_USB, "USB file transfer",
+      "MTP makes accessible storage available to your computer.", {}, true);
+  auto *mtp_switch = lv_switch_create(mtp);
+  StyleSwitch(mtp_switch, RecoveryMtpEnabled());
+  OnClick(mtp, [state, mtp_switch] {
+    const bool enabled = !RecoveryMtpEnabled();
+    if (!RecoverySetMtp(enabled)) {
+      Sheet(state->screen, "USB transfer unavailable",
+            "Check that storage is unlocked and mounted.");
+      return;
+    }
+    StyleSwitch(mtp_switch, RecoveryMtpEnabled());
   });
-  lv_obj_set_pos(mtp, 32, 2330 + installation_offset);
-  lv_obj_set_size(mtp, 1248, 132);
-  auto *hint = Label(state->list,
-      "MTP makes accessible storage available to your computer.",
-      &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(hint, 48, 2510 + installation_offset);
-  lv_obj_set_width(hint, 1190);
-  if (RecoveryHapticsAvailable()) {
-    PreferenceSection(state, 2630 + installation_offset, "Haptics");
-    HapticSlider(state, 2710 + installation_offset, "Touch feedback",
-                 "Buttons, cards and navigation", Haptic::kTouch, 300);
-    HapticSlider(state, 2950 + installation_offset, "Keyboard feedback",
-                 "Keys in PIN, Wi-Fi and text entry", Haptic::kKeyboard, 300);
-    HapticSlider(state, 3190 + installation_offset, "Operation feedback",
-                 "A stronger pulse when recovery work finishes", Haptic::kAction, 500);
-    auto *test = Button(state->list, "Test operation vibration", [] {
-      RecoveryVibrate(Haptic::kAction);
-    });
-    lv_obj_set_pos(test, 32, 3430 + installation_offset);
-    lv_obj_set_size(test, 1248, 124);
-  }
+
   auto *reset = Button(state->list, "Reset preferences", [state] {
     Sheet(state->screen, "Reset preferences",
           "Restore default preferences? Theme, language, Wi-Fi and plugin settings are kept.",
@@ -2380,9 +2465,8 @@ void BuildPreferences(Tools *state) {
             if (AutoSaveSettings(state)) Open(state, Action::kPreferences);
           }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
   });
-  lv_obj_set_pos(reset, 32,
-                 (RecoveryHapticsAvailable() ? 3620 : 2630) + installation_offset);
-  lv_obj_set_size(reset, 1248, 124);
+  lv_obj_set_width(reset, LV_PCT(100));
+  lv_obj_set_height(reset, 124);
 }
 
 void RefreshPcConnection(Tools *state) {

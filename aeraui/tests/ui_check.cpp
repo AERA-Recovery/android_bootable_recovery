@@ -398,6 +398,14 @@ static lv_area_t Bounds(lv_obj_t *object) {
   lv_obj_get_coords(object, &area);
   return area;
 }
+static lv_obj_t *FindPreferenceEntry(lv_obj_t *screen, const char *title) {
+  auto *item = FindLabel(screen, title);
+  auto *reset = Find(screen, i18n::Translate("Reset preferences"));
+  if (!item || !reset) return nullptr;
+  auto *list = lv_obj_get_parent(reset);
+  while (item && lv_obj_get_parent(item) != list) item = lv_obj_get_parent(item);
+  return item;
+}
 static bool Overlaps(lv_obj_t *left, lv_obj_t *right, int gap = 0) {
   const lv_area_t a = Bounds(left);
   const lv_area_t b = Bounds(right);
@@ -415,6 +423,13 @@ static void AssertInside(lv_obj_t *object, int width, int height) {
 static void AssertContained(lv_obj_t *child, lv_obj_t *parent) {
   const lv_area_t inner = Bounds(child);
   const lv_area_t outer = Bounds(parent);
+  if (inner.x1 < outer.x1 || inner.y1 < outer.y1 ||
+      inner.x2 > outer.x2 || inner.y2 > outer.y2)
+    fprintf(stderr, "Child outside parent in %s, size %d: (%d,%d)-(%d,%d) / (%d,%d)-(%d,%d) %s\n",
+            i18n::CurrentLanguage(), static_cast<int>(interface_size),
+            inner.x1, inner.y1, inner.x2, inner.y2,
+            outer.x1, outer.y1, outer.x2, outer.y2,
+            lv_obj_check_type(child, &lv_label_class) ? lv_label_get_text(child) : "control");
   assert(inner.x1 >= outer.x1 && inner.y1 >= outer.y1);
   assert(inner.x2 <= outer.x2 && inner.y2 <= outer.y2);
 }
@@ -700,18 +715,21 @@ int main(int argc,char **argv) {
     lv_screen_load(prefs); Tick();
     assert(!Find(prefs, "Save preferences"));
     assert(Find(prefs, "Reset preferences"));
-    auto *clock = Find(prefs, "24-hour clock"); assert(clock);
+    auto *clock = FindPreferenceEntry(prefs, "24-hour clock"); assert(clock);
     const bool old_clock = RecoveryPreference(Preference::kClock24);
     lv_obj_send_event(clock, LV_EVENT_CLICKED, nullptr);
     assert(RecoveryPreference(Preference::kClock24) != old_clock);
     assert(autosave_count == 1);
-    auto *brightness = Find(prefs, "Brightness"); assert(brightness);
+    auto *brightness = FindPreferenceEntry(prefs, "Brightness"); assert(brightness);
     auto *slider = FindType(brightness, &lv_slider_class); assert(slider);
     lv_slider_set_value(slider, 70, LV_ANIM_OFF);
     lv_obj_send_event(slider, LV_EVENT_VALUE_CHANGED, nullptr);
     assert(autosave_count == 1);
     lv_obj_send_event(slider, LV_EVENT_RELEASED, nullptr);
     assert(autosave_count == 2);
+    lv_obj_send_event(FindPreferenceEntry(prefs, "Haptics"), LV_EVENT_CLICKED, nullptr);
+    Tick(2);
+    save("/tmp/aera-preferences-haptics-host.png");
     for (const auto &item : std::vector<std::pair<const char *, Haptic>>{
         {"Touch feedback", Haptic::kTouch},
         {"Keyboard feedback", Haptic::kKeyboard},
@@ -731,6 +749,23 @@ int main(int argc,char **argv) {
       assert(RecoveryHapticDuration(item.second) == RecoveryDefaultHapticDuration(item.second));
       assert(lv_slider_get_value(control) == RecoveryDefaultHapticDuration(item.second));
     }
+    assert(widgets::DismissModal(prefs)); Tick(2);
+    const int before_zone = autosave_count;
+    const int previous_zone = utc_offset;
+    lv_obj_send_event(FindPreferenceEntry(prefs, "Time zone"), LV_EVENT_CLICKED, nullptr);
+    Tick(2);
+    auto *zone_plus = Find(prefs, LV_SYMBOL_PLUS); assert(zone_plus);
+    lv_obj_send_event(zone_plus, LV_EVENT_CLICKED, nullptr);
+    assert(utc_offset == previous_zone + 15 && autosave_count == before_zone + 1);
+    lv_obj_send_event(Find(prefs, LV_SYMBOL_MINUS), LV_EVENT_CLICKED, nullptr);
+    assert(utc_offset == previous_zone && autosave_count == before_zone + 2);
+    utc_offset = 840;
+    lv_obj_send_event(zone_plus, LV_EVENT_CLICKED, nullptr); assert(utc_offset == 840);
+    utc_offset = -720;
+    lv_obj_send_event(Find(prefs, LV_SYMBOL_MINUS), LV_EVENT_CLICKED, nullptr);
+    assert(utc_offset == -720);
+    utc_offset = previous_zone;
+    assert(widgets::DismissModal(prefs)); Tick(2);
     for (bool main_failure : {true, false}) {
       save_succeeds = !main_failure;
       early_save_succeeds = main_failure;
@@ -865,12 +900,13 @@ int main(int argc,char **argv) {
     return 0;
   }
   if (!strcmp(argv[1], "--preferences-layout")) {
-    assert(i18n::SetLanguage("en"));
+    for (const char *language : {"en", "de_DE", "sv_SE"})
     for (bool landscape : {false, true})
       for (auto size : {InterfaceSize::kSmall, InterfaceSize::kNormal,
                         InterfaceSize::kLarge, InterfaceSize::kSpacious})
         for (bool abl : {false, true})
           for (bool haptics : {false, true}) {
+            assert(i18n::SetLanguage(language));
             abl_preservation_supported = abl;
             haptics_available = haptics;
             interface_size = size;
@@ -881,37 +917,57 @@ int main(int argc,char **argv) {
             BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
             lv_screen_load(prefs); Tick(1);
             std::vector<const char *> titles{
-                "Language", "Brightness", "24-hour clock", "Gesture navigation",
-                "Show hidden files", "Verify ZIP signatures", "Keep AERA installed"};
+                "Language", "Brightness", "24-hour clock", "Time zone", "Gesture navigation"};
+            if (haptics) titles.push_back("Haptics");
+            titles.push_back("Show hidden files");
+            titles.push_back("Verify ZIP signatures");
+            titles.push_back("Keep AERA installed");
             if (abl) titles.push_back("Keep current ABL");
             titles.push_back("Compress backups by default");
             titles.push_back("SHA-256 backup checksums");
-            titles.push_back("USB file transfer: off");
-            if (haptics) {
-              titles.push_back("Touch feedback");
-              titles.push_back("Keyboard feedback");
-              titles.push_back("Operation feedback");
-              titles.push_back("Test operation vibration");
-            }
+            titles.push_back("USB file transfer");
             titles.push_back("Reset preferences");
             lv_obj_t *previous = nullptr;
             for (const char *title : titles) {
-              auto *item = Find(prefs, title); assert(item);
+              auto *item = FindPreferenceEntry(prefs, i18n::Translate(title)); assert(item);
+              auto inspect = [&](auto &&self, lv_obj_t *object) -> void {
+                for (uint32_t i = 0; i < lv_obj_get_child_count(object); ++i) {
+                  auto *child = lv_obj_get_child(object, i);
+                  AssertContained(child, object);
+                  self(self, child);
+                }
+              };
+              inspect(inspect, item);
               if (previous) {
                 assert(Bounds(previous).y2 < Bounds(item).y1);
                 assert(!Overlaps(previous, item));
               }
               previous = item;
             }
-            auto *reset = Find(prefs, "Reset preferences");
+            auto *reset = Find(prefs, i18n::Translate("Reset preferences"));
             auto *list = lv_obj_get_parent(reset);
             lv_obj_scroll_to_view(reset, LV_ANIM_OFF); Tick(1);
             AssertContained(reset, list);
-            if (!landscape && abl && haptics && size == InterfaceSize::kNormal)
+            if (!strcmp(language, "en") && !landscape && abl && haptics && size == InterfaceSize::kNormal)
               save("/tmp/aera-preferences-bottom-host.png");
             lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF); Tick(1);
-            if (!landscape && abl && haptics && size == InterfaceSize::kNormal)
+            if (!strcmp(language, "en") && !landscape && abl && haptics && size == InterfaceSize::kNormal)
               save("/tmp/aera-preferences-top-host.png");
+            if (haptics) {
+              lv_obj_send_event(FindPreferenceEntry(prefs, i18n::Translate("Haptics")),
+                                LV_EVENT_CLICKED, nullptr);
+              Tick(2);
+              lv_obj_t *previous_card = nullptr;
+              for (const char *name : {"Touch feedback", "Keyboard feedback", "Operation feedback"}) {
+                auto *card = Find(prefs, i18n::Translate(name)); assert(card);
+                assert(FindType(card, &lv_slider_class));
+                if (previous_card) assert(Bounds(previous_card).y2 < Bounds(card).y1);
+                previous_card = card;
+              }
+              lv_obj_scroll_to_view(previous_card, LV_ANIM_OFF); Tick(2);
+              AssertContained(previous_card, lv_obj_get_parent(previous_card));
+              assert(widgets::DismissModal(prefs)); Tick(2);
+            }
             lv_screen_load(screen); lv_obj_delete(prefs);
           }
     lv_display_delete(display); lv_deinit();
@@ -926,7 +982,7 @@ int main(int argc,char **argv) {
       abl_preservation_supported = false;
       auto *independent = lv_obj_create(nullptr);
       BuildToolScene(independent, Action::kPreferences, RecordAction, nullptr);
-      auto *keep_aera = Find(independent, "Keep AERA installed");
+      auto *keep_aera = FindPreferenceEntry(independent, "Keep AERA installed");
       assert(keep_aera && !Find(independent, "Keep current ABL"));
       const bool previous = RecoveryPreference(Preference::kPreserveRecovery);
       lv_obj_send_event(keep_aera, LV_EVENT_CLICKED, nullptr);
@@ -947,7 +1003,7 @@ int main(int argc,char **argv) {
     auto *prefs = lv_obj_create(nullptr);
     BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
     assert(Find(prefs, "Language"));
-    lv_obj_send_event(Find(prefs, "Language"), LV_EVENT_CLICKED, nullptr);
+    lv_obj_send_event(FindPreferenceEntry(prefs, "Language"), LV_EVENT_CLICKED, nullptr);
     assert(last_action == Action::kLanguage);
     lv_obj_delete(prefs);
     for (int layout = 0; layout <= kDockLayoutMax; ++layout)
@@ -1167,7 +1223,7 @@ int main(int argc,char **argv) {
   lv_screen_load(screen); lv_obj_delete(format);
   auto *prefs=lv_obj_create(nullptr); BuildToolScene(prefs,Action::kPreferences,RecordAction,nullptr);
   lv_screen_load(prefs); Tick();
-  auto *clock_row=Find(prefs,"24-hour clock");
+  auto *clock_row=FindPreferenceEntry(prefs,"24-hour clock");
   assert(clock_row && lv_obj_get_width(clock_row)>=1200);
   for(const auto &item : std::vector<std::pair<const char*,Preference>>{
       {"24-hour clock",Preference::kClock24},{"Gesture navigation",Preference::kRecents},
@@ -1177,14 +1233,16 @@ int main(int argc,char **argv) {
       {"Keep current ABL",Preference::kPreserveAbl},
       {"SHA-256 backup checksums",Preference::kSha256}}) {
     const bool old=RecoveryPreference(item.second);
-    auto *toggle=Find(prefs,item.first); assert(toggle);
+    auto *toggle=FindPreferenceEntry(prefs,item.first); assert(toggle);
     lv_obj_send_event(toggle,LV_EVENT_CLICKED,nullptr); assert(RecoveryPreference(item.second)!=old);
     lv_obj_send_event(toggle,LV_EVENT_CLICKED,nullptr); assert(RecoveryPreference(item.second)==old);
   }
   save("/tmp/aera-preferences-host.png");
+  lv_obj_send_event(FindPreferenceEntry(prefs,"Time zone"),LV_EVENT_CLICKED,nullptr); Tick(2);
   lv_obj_send_event(Find(prefs,LV_SYMBOL_PLUS),LV_EVENT_CLICKED,nullptr); assert(utc_offset==135);
   utc_offset=840; lv_obj_send_event(Find(prefs,LV_SYMBOL_PLUS),LV_EVENT_CLICKED,nullptr); assert(utc_offset==840);
   utc_offset=-720; lv_obj_send_event(Find(prefs,LV_SYMBOL_MINUS),LV_EVENT_CLICKED,nullptr); assert(utc_offset==-720);
+  assert(widgets::DismissModal(prefs)); Tick(2);
   assert(!Find(prefs,"Save preferences"));
   assert(Find(prefs,"Reset preferences"));
   save_succeeds=false;
