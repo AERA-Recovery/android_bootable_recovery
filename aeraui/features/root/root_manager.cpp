@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #include "root_manager.hpp"
 #include "kernel_kmi.hpp"
+#include "module_assets.hpp"
 
 #include <algorithm>
 #include <array>
@@ -643,15 +644,6 @@ bool FetchManagerApk(Provider provider, Progress &progress, Release &release) {
   return true;
 }
 
-std::string ExpectedAsset(Provider provider, const std::string &kmi) {
-  switch (provider) {
-    case Provider::kKernelSU: return "lkm-aarch64-" + kmi + "_kernelsu.ko";
-    case Provider::kKernelSUNext: return "aarch64-" + kmi + "_kernelsu.ko";
-    case Provider::kSukiSU: return "aarch64-" + kmi + "-lkm.zip";
-  }
-  return {};
-}
-
 bool FetchRelease(Provider provider, const Status &device, Progress &progress,
                   Release &release) {
   release = {};
@@ -678,10 +670,7 @@ bool FetchRelease(Provider provider, const Status &device, Progress &progress,
   }
   release.version = root["tag_name"].asString();
   release.kmi = device.kmi;
-  const std::string preferred = ExpectedAsset(provider, device.kmi);
-  std::vector<std::string> accepted = {preferred};
-  if (provider == Provider::kKernelSUNext)
-    accepted.push_back(device.kmi + "_kernelsu.ko");
+  const auto accepted = ModuleAssetNames(provider, device.kmi);
   unsigned matches = 0;
   for (const auto &wanted : accepted) {
     matches = 0;
@@ -734,13 +723,14 @@ Release LoadBundledRelease(Provider provider, const std::string &kmi) {
     return release;
   }
   const std::string wanted_id = ProviderId(provider);
-  const std::string wanted_asset = ExpectedAsset(provider, kmi);
+  const auto accepted = ModuleAssetNames(provider, kmi);
   for (const auto &item : catalog["providers"]) {
     if (item.get("id", "").asString() != wanted_id || !item["assets"].isArray()) continue;
     release.version = item.get("version", "").asString();
     for (const auto &asset : item["assets"]) {
+      const std::string wanted_asset = asset.get("name", "").asString();
       if (asset.get("kmi", "").asString() != kmi ||
-          asset.get("name", "").asString() != wanted_asset) continue;
+          std::find(accepted.begin(), accepted.end(), wanted_asset) == accepted.end()) continue;
       release.asset_name = wanted_asset;
       release.size = asset.get("size", Json::UInt64(0)).asUInt64();
       release.sha256 = asset.get("sha256", "").asString();
@@ -1219,10 +1209,16 @@ bool Patch(const Request &request, Progress &progress) {
           release.version.c_str(), device.kmi.c_str()));
   progress.value.store(64);
   std::string patch_log;
-  const bool patched = RunCapture(
-      {kKsud, "boot-patch", "-b", backup, "-m", module,
-       "--magiskboot", kMagiskboot, "--partition", "init_boot", "--kmi", device.kmi,
-       "-o", kWork, "--out-name", "patched.img"}, &patch_log);
+  std::vector<std::string> patch_command{
+      kKsud, "boot-patch", "-b", backup, "-m", module,
+      "--partition", "init_boot", "--kmi", device.kmi,
+      "-o", kWork, "--out-name", "patched.img"};
+  // ksud 3.3 uses its built-in boot image patcher; older helpers need magiskboot.
+  if (CaptureKsud({"boot-patch", "--help"}).find("--magiskboot") !=
+      std::string::npos) {
+    patch_command.insert(patch_command.end(), {"--magiskboot", kMagiskboot});
+  }
+  const bool patched = RunCapture(patch_command, &patch_log);
   const std::string image = std::string(kWork) + "/patched.img";
   if (!patched || FileSize(image) != partition_size) {
     SetText(progress, "ksud patch failed", Trim(patch_log)); return false;
