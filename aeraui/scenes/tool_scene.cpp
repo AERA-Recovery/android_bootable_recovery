@@ -2306,13 +2306,10 @@ void BuildPreferences(Tools *state) {
   PreferenceSection(state, 1100, "Files & installation");
   PreferenceToggle(state, 1180, "Show hidden files", "Include dot-prefixed files and folders", Preference::kHiddenFiles);
   PreferenceToggle(state, 1370, "Verify ZIP signatures", "Only install packages signed by a trusted recovery key", Preference::kVerifyZip);
-  int installation_offset = 0;
-  if (RecoveryPreservationSupported()) {
-    PreferenceToggle(state, 1560 + installation_offset, "Keep AERA installed",
-                     "Restore the running AERA recovery to both slots after ZIP installs",
-                     Preference::kPreserveRecovery);
-    installation_offset += 190;
-  }
+  PreferenceToggle(state, 1560, "Keep AERA installed",
+                   "Restore the running AERA recovery to both slots after ZIP installs",
+                   Preference::kPreserveRecovery);
+  int installation_offset = 190;
   if (RecoveryAblPreservationSupported()) {
     PreferenceToggle(state, 1560 + installation_offset, "Keep current ABL",
                      "Restore the active-slot ABL to both slots after ZIP installs",

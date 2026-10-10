@@ -1529,7 +1529,6 @@ bool RecoverySha256Available() { return DataManager::GetIntValue(TW_NO_SHA2) == 
 bool RecoverySetPreference(Preference preference, bool enabled) {
   const char *variable = PreferenceVariable(preference);
   if (!variable || (preference == Preference::kSha256 && !RecoverySha256Available()) ||
-      (preference == Preference::kPreserveRecovery && !RecoveryPreservationSupported()) ||
       (preference == Preference::kPreserveAbl && !RecoveryAblPreservationSupported())) return false;
   return DataManager::SetValue(variable, enabled ? 1 : 0) == 0;
 }
