@@ -3,6 +3,7 @@
 import hashlib
 import base64
 import http.client
+import http.server
 import json
 import os
 import pathlib
@@ -13,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -745,6 +747,87 @@ class PcConnectionTest(unittest.TestCase):
             self.assertTrue(final["cancel_requested"])
             self.assertNotEqual(final["result"], 0)
             self.assertIn("partially restored" if restore else "unfinished", final["detail"])
+
+    def test_05h_direct_link_downloads(self):
+        fixture = b"PK\x03\x04" + b"AERA download fixture" * 4096
+
+        class Downloads(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                if self.path == "/redirect":
+                    self.send_response(302)
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Location", "/download.php?file=test.zip&download=true")
+                    self.end_headers()
+                    return
+                html = self.path == "/page"
+                unknown = self.path == "/unknown"
+                slow = self.path == "/slow"
+                data = b"<html>Click Download</html>" if html else fixture
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html" if html else "application/octet-stream")
+                self.send_header("Content-Disposition", 'attachment; filename="Real release.zip"')
+                if not unknown:
+                    self.send_header("Content-Length", str(len(data) * (100 if slow else 1)))
+                self.end_headers()
+                try:
+                    for _ in range(100 if slow else 1):
+                        self.wfile.write(data)
+                        self.wfile.flush()
+                        if slow:
+                            time.sleep(.05)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Downloads)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        request = {"url": base + "/download.php?file=test.zip&download=true", "name": "Download.zip",
+                   "kind": "zip", "storage": str(self.root)}
+        try:
+            self.command("wifi-off")
+            self.assertFalse(self.request("/api/status")[1]["url_download_available"])
+            self.assertEqual(self.request("/api/download", request)[0], 409)
+            self.command("wifi-on")
+            self.assertTrue(self.request("/api/status")[1]["url_download_available"])
+            self.assertEqual(self.request("/api/download", dict(request, url="file:///etc/passwd"))[0], 400)
+            for path in ("/download.php?file=test.zip&download=true", "/redirect", "/unknown"):
+                status, job = self.request("/api/download", dict(request, url=base + path))
+                self.assertEqual(status, 200)
+                for _ in range(100):
+                    job = self.request("/api/status")[1]["job"]
+                    if job["phase"] != "uploading":
+                        break
+                    time.sleep(.02)
+                self.assertEqual(job["phase"], "ready", job)
+                self.assertEqual(job["name"], "Real release.zip")
+                self.assertEqual(job["bytes"], len(fixture))
+                self.assertEqual(job["received"], len(fixture))
+                directory = self.root / "AERA/PCTransfers" / job["id"]
+                self.assertEqual((directory / "payload.zip").read_bytes(), fixture)
+                self.assertEqual(self.request("/api/cancel", {"id": job["id"]})[0], 200)
+                self.assertFalse(directory.exists())
+            for path in ("/page", "/slow"):
+                status, job = self.request("/api/download", dict(request, url=base + path))
+                self.assertEqual(status, 200)
+                if path == "/slow":
+                    time.sleep(.1)
+                    self.assertEqual(self.request("/api/cancel", {"id": job["id"]})[0], 200)
+                for _ in range(100):
+                    current = self.request("/api/status")[1]["job"]
+                    if current["phase"] != "uploading":
+                        break
+                    time.sleep(.02)
+                self.assertEqual(current["phase"], "cancelled" if path == "/slow" else "failed", current)
+                self.assertFalse((self.root / "AERA/PCTransfers" / job["id"]).exists())
+        finally:
+            self.command("wifi-off")
+            server.shutdown()
+            server.server_close()
+            worker.join()
 
     def test_06_remember_restart_and_forget(self):
         self.command("restart")

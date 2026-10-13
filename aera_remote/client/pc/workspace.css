@@ -18,6 +18,12 @@
 .root-inspection .offline-module strong{display:block;color:var(--text);font-weight:550;margin-top:5px;overflow-wrap:anywhere}
 .root-inspection .legacy-result{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font-size:14px;line-height:1.8;margin-top:12px}
 #statusDetail{white-space:pre-wrap}
+.install-source{display:flex;gap:0;padding:0;margin:0 0 20px;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.install-source label{flex:1;display:flex;align-items:center;justify-content:center;gap:10px;min-height:48px;margin:0;padding:12px;cursor:pointer}
+.install-source label:has(input:checked){background:var(--raised);color:var(--accent)}
+.install-source input{width:18px;height:18px;min-height:18px;padding:0;margin:0;accent-color:var(--accent)}
+.install-url{margin-bottom:20px}
+.install-url input{width:100%;min-height:48px}
 .context-note{font-size:13px;color:var(--muted);margin:18px 0;line-height:1.7;overflow-wrap:anywhere}
 .method-summary{white-space:pre-line;border-left:2px solid var(--accent);padding-left:12px}
 #installMethodFields{margin:18px 0}

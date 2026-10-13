@@ -3,6 +3,52 @@ const workspace = {tab: 'install', folder: null, selected: null, loading: false,
   dismissed: setting('dismissedActivity'), localJob: null, serverJobId: '', download: null,
   selection: new Map(), entries: new Map(), selectionAnchor: '', batchDownload: false, pendingFolder: null};
 const activeJob = () => state.busy || workspace.batchDownload || ['prepared','uploading','ready','queued','installing'].includes(state.job?.phase);
+const installSource = document.createElement('fieldset');
+installSource.className='install-source';installSource.hidden=true;
+installSource.innerHTML='<legend class="sr-only">Install source</legend><label><input type="radio" name="installSource" value="file" checked>File</label><label><input type="radio" name="installSource" value="url">Download link</label>';
+const urlFields = document.createElement('div');urlFields.className='install-url';urlFields.hidden=true;
+urlFields.innerHTML='<label for="downloadUrl">Direct download URL</label><input id="downloadUrl" type="url" placeholder="https://example.com/recovery.zip" autocomplete="off" spellcheck="false"><div class="context-note">Direct ZIP or IMG downloads only. No download pages, login, or extra confirmation.</div>';
+$('drop').before(installSource);$('drop').after(urlFields);
+const urlMode = () => !state.saveFolder && installSource.querySelector('input:checked').value==='url';
+function linkedFile() {
+  try {
+    const url=new URL($('downloadUrl').value.trim());
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password)return null;
+    const candidates=[url.searchParams.get('file'),url.searchParams.get('filename'),decodeURIComponent(url.pathname)];
+    const name=candidates.filter(Boolean).map(path=>path.split('/').pop()).find(name=>/\.(zip|img)$/i.test(name))||'Download.zip';
+    return {url:url.href,name,image:/\.img$/i.test(name)};
+  }catch{return null}
+}
+function renderInstallSource() {
+  const available=state.connected&&!!state.info?.url_download_available&&!state.saveFolder;
+  installSource.hidden=!available;
+  if(!available&&!activeJob())installSource.querySelector('[value="file"]').checked=true;
+  const mode=available&&urlMode(),file=mode?linkedFile():null;
+  urlFields.hidden=!mode;$('drop').hidden=mode;
+  $('fileInfo').hidden=mode||!state.file;
+  if(mode){
+    $('imageFields').hidden=!file?.image;
+    $('downloadUrl').disabled=activeJob()||!!state.info?.busy;
+    $('transfer').disabled=!file||activeJob()||!!state.info?.busy||!$('storage').value||(file.image&&!$('partition').value);
+    $('transferLabel').textContent=file?.image?'Download & flash':'Download & install';
+  }
+  for(const input of installSource.querySelectorAll('input'))input.disabled=activeJob()||!!state.info?.busy;
+}
+installSource.onchange=()=>{if(!urlMode())$('imageFields').hidden=!/\.img$/i.test(state.file?.name||'');controls()};
+$('downloadUrl').oninput=()=>controls();
+$('downloadUrl').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('transfer').click()}};
+async function downloadLink() {
+  const file=linkedFile();if(!file||activeJob()||!state.info?.url_download_available)return;
+  workspace.urlConfirmation='';state.busy=true;state.cancelled=false;controls();notice('');
+  try {
+    const job=await api('download',{url:file.url,name:file.name,kind:file.image?'img':'zip',storage:$('storage').value,
+      partition:$('partition').value,both_slots:$('slots').value==='both'});
+    state.file=null;state.busy=false;updateJob(job);
+  }catch(error){notice(error.message)}
+  finally{state.busy=false;controls()}
+}
+const uploadFile=transfer;
+$('transfer').onclick=()=>urlMode()?downloadLink():uploadFile();
 const icon = name => {
   const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
   const use = document.createElementNS(svg.namespaceURI,'use');
@@ -120,6 +166,7 @@ controls = function() {
   renderPackageInfo($('packageInfo'),!state.file||state.job?.name===state.file.name?state.job?.package_info:null);
   const packageInfo=state.job?.package_info;
   if(packageInfo?.error||(packageInfo?.arb_decision==='downgrade'&&!packageInfo?.advanced_available)) $('install').disabled=true;
+  renderInstallSource();
   activityVisibility();
 };
 const originalUpdateInfo = updateInfo;
@@ -170,12 +217,13 @@ const originalUpdateJob = updateJob;
 function renderUploadProgress(job) {
   const transfer=job.upload_transfer;
   if(!transfer?.active)return;
-  const percent=job.bytes?100*Math.min(job.received,job.bytes)/job.bytes:100;
-  $('statusTitle').textContent=job.cancel_requested?'Cancelling upload':transfer.finalizing?'Finishing transfer':'Receiving file on recovery';
+  const percent=job.bytes?100*Math.min(job.received,job.bytes)/job.bytes:0;
+  $('statusTitle').textContent=job.cancel_requested?'Cancelling transfer':transfer.finalizing?'Finishing transfer':job.from_url?'Downloading on recovery':'Receiving file on recovery';
   $('statusDetail').textContent=job.name;
   $('progressLabel').textContent='Transfer';$('progress').value=percent;$('percent').textContent=Math.floor(percent)+'%';
+  if(!job.bytes){$('progress').removeAttribute('value');$('percent').textContent='Downloading';}
   const mb=bytes=>(Number(bytes||0)/1000000).toFixed(1)+' MB';
-  $('bytes').textContent=mb(job.received)+' / '+mb(job.bytes);
+  $('bytes').textContent=mb(job.received)+(job.bytes?' / '+mb(job.bytes):'');
   const seconds=Math.max(0,Math.round(transfer.remaining_seconds));
   const eta=transfer.remaining_seconds>=0?' / ~'+Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' remaining':'';
   $('speed').textContent=transfer.finalizing?'Finishing up':mb(transfer.bytes_per_second)+'/s'+eta;
@@ -235,6 +283,10 @@ updateJob = function(job) {
   if (job.id===workspace.dismissed && ['completed','failed','cancelled'].includes(job.phase)) job={phase:'idle'};
   originalUpdateJob(job);
   renderUploadProgress(job);
+  if(job.from_url&&job.phase==='ready'){
+    $('statusDetail').textContent='Downloaded / ready to install';
+    if(job.owned!==false&&workspace.urlConfirmation!==job.id){workspace.urlConfirmation=job.id;showConfirmation();}
+  }
   renderRootInspection(job);
   if (job.root_action) {
     $('progressLabel').textContent = 'Root operation';

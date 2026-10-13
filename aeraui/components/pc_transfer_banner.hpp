@@ -29,10 +29,11 @@ class PcTransferBanner {
     if (!visible) Close();
     lv_obj_set_flag(banner_, LV_OBJ_FLAG_HIDDEN, !visible || Expanded());
     const int percent = progress.bytes ? static_cast<int>(
-        100.0 * std::min(progress.received, progress.bytes) / progress.bytes) : 100;
+        100.0 * std::min(progress.received, progress.bytes) / progress.bytes) : 0;
     char amount[128], speed[64];
     snprintf(amount, sizeof(amount), "%.1f / %.1f MB  /  %d%%",
         progress.received / 1000000.0, progress.bytes / 1000000.0, percent);
+    if (!progress.bytes) snprintf(amount, sizeof(amount), "%.1f MB", progress.received / 1000000.0);
     snprintf(speed, sizeof(speed), "%.1f MB/s", progress.bytes_per_second / 1000000.0);
     const char *stage = progress.cancelling ? i18n::Translate("Cancelling...") :
         progress.finalizing ? i18n::Translate("Finishing up") : nullptr;

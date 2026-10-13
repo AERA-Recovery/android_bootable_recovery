@@ -88,6 +88,7 @@ struct Transfer {
   bool cancel_requested = false;
   int upload_socket = -1;
   bool upload_finalizing = false;
+  bool from_url = false;
   Clock::time_point upload_started{}, upload_sample{}, upload_last_data{};
   uint64_t upload_sample_bytes = 0;
   double upload_speed = 0;
@@ -103,6 +104,8 @@ struct Transfer {
 };
 std::mutex g_lock, g_lifecycle;
 std::mutex g_diagnostic_lock;
+std::mutex g_download_lock;
+std::thread g_download_thread;
 std::atomic<bool> g_running{false};
 std::atomic<bool> g_backup_active{false}, g_backup_cancel{false};
 std::atomic<unsigned> g_generation{0};
@@ -618,7 +621,7 @@ UploadProgress UploadProgressLocked() {
   if (!progress.finalizing && !progress.cancelling &&
       now - g_transfer.upload_last_data < std::chrono::seconds(2)) {
     progress.bytes_per_second = g_transfer.upload_speed;
-    if (progress.bytes_per_second > 0 &&
+    if (progress.bytes > 0 && progress.bytes_per_second > 0 &&
         now - g_transfer.upload_started >= std::chrono::seconds(1))
       progress.remaining_seconds = (progress.bytes - std::min(progress.bytes, progress.received)) /
           progress.bytes_per_second;
@@ -646,6 +649,7 @@ Json::Value TransferStatus() {
   state["phase"] = g_transfer.phase; state["detail"] = g_transfer.detail;
   state["bytes"] = Json::UInt64(g_transfer.bytes);
   state["received"] = Json::UInt64(g_transfer.received);
+  state["from_url"] = g_transfer.from_url;
   const auto upload = UploadProgressLocked();
   state["upload_transfer"]["active"] = upload.active;
   state["upload_transfer"]["bytes_per_second"] = upload.bytes_per_second;
@@ -1213,10 +1217,28 @@ void DiagnosticLog(SSL *tls, bool kernel) {
   }
   Reply(tls, 200, output.empty() ? "The requested log buffer is empty.\n" : output, "text/plain; charset=utf-8");
 }
-void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner) {
+const char *DownloadBinary() {
+#ifdef AERA_PC_HOST_TEST
+  return "/usr/bin/wget";
+#else
+  return access("/sbin/busybox", X_OK) == 0 ? "/sbin/busybox" : "/system/bin/busybox";
+#endif
+}
+bool DirectDownloadUrl(const std::string &url) {
+  const auto start = url.compare(0, 8, "https://") == 0 ? 8U :
+      url.compare(0, 7, "http://") == 0 ? 7U : 0U;
+  if (!start || url.size() > 4096 || url.size() <= start) return false;
+  const auto end = url.find_first_of("/?#", start);
+  const auto authority = url.substr(start, end == std::string::npos ? end : end - start);
+  return !authority.empty() && authority.find('@') == std::string::npos &&
+      std::none_of(url.begin(), url.end(), [](unsigned char c) { return c <= 32 || c == 127; });
+}
+void FetchTransfer(Transfer transfer, const std::string &url, unsigned generation);
+void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner, bool download = false) {
   if (!body["name"].isString() || !body["storage"].isString() ||
-      !body["sha256"].isString() || !IsToken(body["sha256"].asString()) ||
-      !body["bytes"].isUInt64() || (body["bytes"].asUInt64() == 0 && body["kind"] != "file") ||
+      (!download && (!body["sha256"].isString() || !IsToken(body["sha256"].asString()) ||
+       !body["bytes"].isUInt64() || (body["bytes"].asUInt64() == 0 && body["kind"] != "file"))) ||
+      (download && (!body["url"].isString() || !DirectDownloadUrl(body["url"].asString()) || body["kind"] == "file")) ||
       !body["kind"].isString() || (body["kind"] != "zip" && body["kind"] != "img" && body["kind"] != "file")) {
     Error(tls, 400, "Invalid transfer request."); return;
   }
@@ -1233,6 +1255,10 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
   }
   {
     std::lock_guard<std::mutex> guard(g_lock);
+    if (!g_running.load()) { Error(tls, 409, "PC connection is disabled."); return; }
+    if (download && (g_network_ip.empty() || access(DownloadBinary(), X_OK) != 0)) {
+      Error(tls, 409, "Connect recovery to Wi-Fi before downloading a link."); return;
+    }
     if (!TerminalPhase(g_transfer.phase)) { Error(tls, 409, "Another transfer or installation is active."); return; }
     if (g_recovery_busy || g_file_busy || !g_reboot_target.empty()) { Error(tls, 409, "Recovery is busy."); return; }
     const std::string root = body["storage"].asString();
@@ -1243,7 +1269,7 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
     struct statvfs filesystem{};
     struct statfs filesystem_type{};
     char canonical[4096];
-    const uint64_t size = body["bytes"].asUInt64();
+    const uint64_t size = download ? 0 : body["bytes"].asUInt64();
     if (!realpath(root.c_str(), canonical) || root != canonical ||
         statfs(root.c_str(), &filesystem_type) != 0 ||
         filesystem_type.f_type == 0x01021994 || filesystem_type.f_type == 0x858458f6 ||
@@ -1256,7 +1282,8 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
     next.id = RandomToken(); next.owner = owner; next.name = name;
     next.computer = g_trusted.get(owner, "Computer").asString();
     if (g_pair.fingerprint == owner) next.computer = g_pair.name;
-    next.bytes = size; next.checksum = body["sha256"].asString(); next.root = root;
+    next.bytes = size; next.checksum = download ? "" : body["sha256"].asString(); next.root = root;
+    next.from_url = download;
     if (body["kind"] == "file") {
       struct stat folder{}, existing{};
       next.save_path = save_directory + "/" + name;
@@ -1281,12 +1308,23 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
       Error(tls, 409, "Could not record the temporary transfer ownership."); return;
     }
     next.request.path = next.path;
-    next.phase = "prepared";
+    next.phase = download ? "uploading" : "prepared";
+    if (download) {
+      next.detail = "Downloading file on recovery...";
+      next.upload_started = next.upload_sample = next.upload_last_data = Clock::now();
+    }
     RemoveTransferFiles(g_transfer);
     g_transfer = std::move(next);
     g_prompt = Json::Value(Json::objectValue);
     g_presentation = Json::Value(Json::objectValue);
     result = TransferStatus();
+  }
+  if (download) {
+    std::lock_guard<std::mutex> guard(g_download_lock);
+    if (g_download_thread.joinable()) g_download_thread.join();
+    Transfer transfer;
+    { std::lock_guard<std::mutex> lock(g_lock); transfer = g_transfer; }
+    g_download_thread = std::thread(FetchTransfer, transfer, body["url"].asString(), g_generation.load());
   }
   Reply(tls, 200, JsonText(result));
 }
@@ -1387,6 +1425,190 @@ Json::Value InspectPackage(Transfer &transfer) {
     }
   }
   return result;
+}
+void FetchTransfer(Transfer transfer, const std::string &url, unsigned generation) {
+  const std::string partial = transfer.path + ".part";
+  int fd = open(partial.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+  int output[2]{-1, -1}, headers[2]{-1, -1};
+  pid_t child = -1;
+  std::string failure, header_buffer, content_type, first_bytes;
+  uint64_t received = 0, expected = 0, maximum = 0;
+  bool have_length = false;
+  int response_code = 0;
+  struct statvfs filesystem{};
+  if (fd < 0 || statvfs(transfer.root.c_str(), &filesystem) != 0 ||
+      uint64_t(filesystem.f_bavail) * filesystem.f_frsize <= kStorageReserve) {
+    failure = "Not enough writable storage for the complete download.";
+  } else maximum = uint64_t(filesystem.f_bavail) * filesystem.f_frsize - kStorageReserve;
+  SHA256_CTX hash{}; SHA256_Init(&hash);
+  if (failure.empty() && (pipe2(output, O_CLOEXEC) != 0 || pipe2(headers, O_CLOEXEC) != 0))
+    failure = "Could not start the download.";
+  if (failure.empty()) {
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_adddup2(&actions, output[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, headers[1], STDERR_FILENO);
+    for (int descriptor : {output[0], output[1], headers[0], headers[1]})
+      posix_spawn_file_actions_addclose(&actions, descriptor);
+    posix_spawnattr_t attributes;
+    posix_spawnattr_init(&attributes);
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP);
+    posix_spawnattr_setpgroup(&attributes, 0);
+    std::vector<std::string> arguments{DownloadBinary()};
+#ifndef AERA_PC_HOST_TEST
+    arguments.emplace_back("wget");
+#endif
+    for (const char *argument : {"-q", "-S", "-T", "20", "-t", "1", "-O", "-"})
+      arguments.emplace_back(argument);
+    arguments.push_back(url);
+    std::vector<char *> argv;
+    for (auto &argument : arguments) argv.push_back(argument.data());
+    argv.push_back(nullptr);
+    if (posix_spawn(&child, argv[0], &actions, &attributes, argv.data(), environ) != 0) {
+      child = -1; failure = "Could not start the download.";
+    }
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attributes);
+  }
+  for (int descriptor : {output[1], headers[1]}) if (descriptor >= 0) close(descriptor);
+  output[1] = headers[1] = -1;
+  const auto last_started = Clock::now();
+  auto last_data = last_started;
+  auto current = [&] {
+    std::lock_guard<std::mutex> guard(g_lock);
+    return g_running.load() && g_generation.load() == generation &&
+        g_transfer.id == transfer.id && g_transfer.phase == "uploading" &&
+        !g_transfer.cancel_requested && !g_network_ip.empty();
+  };
+  auto header = [&](std::string line) {
+    line = Trim(line);
+    if (line.compare(0, 5, "HTTP/") == 0) {
+      std::istringstream response(line); std::string protocol;
+      response >> protocol >> response_code;
+      // Redirect responses must not supply the final file's name or size.
+      have_length = false; expected = 0; content_type.clear(); transfer.name = transfer.request.name;
+    }
+    const auto colon = line.find(':');
+    if (colon == std::string::npos) return;
+    const auto key = Lower(Trim(line.substr(0, colon)));
+    const auto value = Trim(line.substr(colon + 1));
+    if (key == "content-length") {
+      char *end = nullptr; errno = 0;
+      const auto size = strtoull(value.c_str(), &end, 10);
+      if (!value.empty() && value.front() >= '0' && value.front() <= '9' && !errno && end && !*end) {
+        expected = size; have_length = true;
+      }
+    } else if (key == "content-type") content_type = Lower(value);
+    else if (key == "content-disposition") {
+      const auto lower = Lower(value);
+      const auto start = lower.find("filename=");
+      if (start != std::string::npos) {
+        auto name = Trim(value.substr(start + 9));
+        if (!name.empty() && name.front() == '"') {
+          const auto end_quote = name.find('"', 1);
+          name = end_quote == std::string::npos ? "" : name.substr(1, end_quote - 1);
+        } else name = Trim(name.substr(0, name.find(';')));
+        if (FileName(name)) transfer.name = name;
+      }
+    }
+  };
+  std::array<char, 65536> buffer{};
+  while (failure.empty() && (output[0] >= 0 || headers[0] >= 0)) {
+    if (!current()) { failure = "Download cancelled or Wi-Fi disconnected. No installation was started."; break; }
+    if (Clock::now() - last_data > std::chrono::seconds(60)) {
+      failure = "The download stopped responding. No installation was started."; break;
+    }
+    pollfd events[2]{{headers[0], POLLIN | POLLHUP, 0}, {output[0], POLLIN | POLLHUP, 0}};
+    const int polled = poll(events, 2, 100);
+    if (polled < 0 && errno == EINTR) continue;
+    if (polled < 0) { failure = "The download connection failed."; break; }
+    for (int index = 0; index < 2 && failure.empty(); ++index) {
+      int &descriptor = index == 0 ? headers[0] : output[0];
+      if (descriptor < 0 || !events[index].revents) continue;
+      const auto count = read(descriptor, buffer.data(), buffer.size());
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) { close(descriptor); descriptor = -1; continue; }
+      last_data = Clock::now();
+      if (index == 0) {
+        header_buffer.append(buffer.data(), count);
+        size_t newline;
+        while ((newline = header_buffer.find('\n')) != std::string::npos) {
+          header(header_buffer.substr(0, newline)); header_buffer.erase(0, newline + 1);
+        }
+        if (header_buffer.size() > 65536) { failure = "Invalid download response headers."; break; }
+      } else {
+        if (first_bytes.size() < 128) first_bytes.append(buffer.data(), std::min<size_t>(count, 128 - first_bytes.size()));
+        if (uint64_t(count) > maximum - received || !WriteAll(fd, buffer.data(), count)) {
+          failure = "Not enough writable storage for the complete download."; break;
+        }
+        SHA256_Update(&hash, buffer.data(), count); received += count;
+      }
+      if (response_code == 200 && have_length && expected > maximum) { failure = "Not enough storage for the linked file."; break; }
+      if (response_code == 200 && content_type.find("html") != std::string::npos) {
+        failure = "This link opens a webpage. Use a direct ZIP or IMG download link."; break;
+      }
+      std::lock_guard<std::mutex> guard(g_lock);
+      if (g_transfer.id != transfer.id) continue;
+      g_transfer.bytes = have_length ? expected : 0; g_transfer.received = received;
+      g_transfer.name = transfer.name;
+      const auto now = Clock::now();
+      const double elapsed = std::chrono::duration<double>(now - g_transfer.upload_sample).count();
+      g_transfer.upload_last_data = now;
+      if (elapsed >= .25) {
+        const double speed = (received - g_transfer.upload_sample_bytes) / elapsed;
+        g_transfer.upload_speed = g_transfer.upload_speed == 0 ? speed : .7 * g_transfer.upload_speed + .3 * speed;
+        g_transfer.upload_sample = now; g_transfer.upload_sample_bytes = received;
+      }
+    }
+  }
+  for (int descriptor : {output[0], headers[0]}) if (descriptor >= 0) close(descriptor);
+  int status = 0;
+  if (child > 0) {
+    if (!failure.empty()) { kill(-child, SIGKILL); kill(child, SIGKILL); }
+    pid_t waited;
+    do { waited = waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+    if (failure.empty() && (waited != child || !WIFEXITED(status) || WEXITSTATUS(status) != 0))
+      failure = "Download failed. Use a direct link without login or confirmation.";
+  }
+  if (failure.empty() && (response_code != 200 || !received || (have_length && received != expected)))
+    failure = "The download is incomplete. No installation was started.";
+  const bool image = transfer.request.job == aeraui::Job::kFlashImage;
+  const auto prefix = Lower(Trim(first_bytes));
+  if (failure.empty() && (prefix.compare(0, 5, "<html") == 0 || prefix.compare(0, 9, "<!doctype") == 0 ||
+      (!image && first_bytes.compare(0, 4, "PK\003\004") != 0)))
+    failure = "This link did not return a ZIP or IMG file. No installation was started.";
+  const auto extension = transfer.name.size() > 4 ? Lower(transfer.name.substr(transfer.name.size() - 4)) : "";
+  if (failure.empty() && extension != (image ? ".img" : ".zip"))
+    failure = "The downloaded file type does not match the selected ZIP or IMG target.";
+  std::array<unsigned char, SHA256_DIGEST_LENGTH> digest{};
+  SHA256_Final(digest.data(), &hash);
+  {
+    std::lock_guard<std::mutex> guard(g_lock);
+    if (g_transfer.id == transfer.id) g_transfer.upload_finalizing = true;
+  }
+  if (failure.empty() && fsync(fd) != 0) failure = "Could not flush the download to storage.";
+  if (fd >= 0 && close(fd) != 0 && failure.empty()) failure = "Could not finish writing the download.";
+  if (failure.empty() && !current()) failure = "Download cancelled. No installation was started.";
+  if (failure.empty() && rename(partial.c_str(), transfer.path.c_str()) != 0)
+    failure = "Could not finalize the downloaded file.";
+  Json::Value package_info(Json::objectValue);
+  if (failure.empty() && !image) package_info = InspectPackage(transfer);
+  {
+    std::lock_guard<std::mutex> guard(g_lock);
+    if (g_transfer.id != transfer.id) { RemoveTransferFiles(transfer); return; }
+    if (g_transfer.cancel_requested || !g_running.load() || g_generation.load() != generation)
+      failure = "Download cancelled. No installation was started.";
+    g_transfer.phase = g_transfer.cancel_requested || !g_running.load() ? "cancelled" : failure.empty() ? "ready" : "failed";
+    g_transfer.detail = failure.empty() ? "Downloaded and ready to install." : failure;
+    g_transfer.bytes = have_length ? expected : received; g_transfer.received = received;
+    g_transfer.name = transfer.name; g_transfer.request.name = transfer.name;
+    g_transfer.checksum = Hex(digest.data(), digest.size());
+    g_transfer.package_info = std::move(package_info);
+    g_transfer.fast_request = std::move(transfer.fast_request);
+    g_transfer.payload_request = std::move(transfer.payload_request);
+    if (!failure.empty()) RemoveTransferFiles(transfer);
+  }
 }
 void Upload(SSL *tls, const HttpRequest &request, const std::string &owner, unsigned generation) {
   Transfer transfer;
@@ -1623,6 +1845,7 @@ void Handle(SSL *tls, unsigned generation) {
       state["busy"] = g_recovery_busy || g_file_busy || !g_reboot_target.empty();
       state["certificate"] = g_status.certificate; state["persistent_certificate"] = g_status.remember_available;
       state["address"] = g_status.address; state["ip_address"] = g_status.ip_address;
+      state["url_download_available"] = !g_network_ip.empty() && access(DownloadBinary(), X_OK) == 0;
       state["usb_address"] = g_status.usb_address; }
     Reply(tls, 200, JsonText(state)); return;
   }
@@ -1635,6 +1858,7 @@ void Handle(SSL *tls, unsigned generation) {
     Error(tls, 400, "Invalid command."); return;
   }
   if (request.path == "/api/prepare") { PrepareTransfer(tls, body, owner); return; }
+  if (request.path == "/api/download") { PrepareTransfer(tls, body, owner, true); return; }
   if (request.path == "/api/backups") { QueueBackup(tls, body, owner); return; }
   if (request.path == "/api/backups/heartbeat") {
     if (!body["id"].isString()) { Error(tls, 400, "Missing backup operation ID."); return; }
@@ -2124,6 +2348,10 @@ bool SetEnabled(bool enabled, int port, bool manual) {
   terminal::Stop();
   storage::Channel().Stop();
   g_generation.fetch_add(1);
+  {
+    std::lock_guard<std::mutex> guard(g_download_lock);
+    if (g_download_thread.joinable()) g_download_thread.join();
+  }
   StopNetwork();
   for (int *listener : {&g_listener, &g_http_listener}) {
     if (*listener >= 0) { shutdown(*listener, SHUT_RDWR); close(*listener); *listener = -1; }
