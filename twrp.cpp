@@ -669,6 +669,15 @@ int main(int argc, char **argv) {
 	// Set the props for OrangeFox dynamic partitions
 	//PartitionManager.Fox_Set_Dynamic_Partition_Props();
 
+	// Fstab and Keymaster discovery release vendor before returning. Native
+	// graphics may load further driver dependencies from installed vendor;
+	// restore it using the existing fstab/slot policy before initializing UI.
+	if (PartitionManager.Find_Partition_By_Path("/vendor") != nullptr) {
+		if (!PartitionManager.Mount_By_Path("/vendor", false)) {
+			LOGINFO("Native UI: vendor runtime mount unavailable\n");
+		}
+	}
+
 	// start the UI
 	printf("Starting the UI...\n");
 	gui_init();
