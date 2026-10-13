@@ -286,6 +286,12 @@ target_link_libraries(status_gesture_test PRIVATE lvgl PNG::PNG Threads::Threads
 add_test(NAME status_gesture_cancellation COMMAND status_gesture_test)
 add_test(NAME status_bar_display_settings COMMAND ui_check --status-bar-settings)
 
+add_executable(temperature_reader_test temperature_reader_test.cpp)
+target_include_directories(temperature_reader_test PRIVATE ../include)
+target_compile_options(temperature_reader_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(temperature_reader_test PRIVATE Threads::Threads)
+add_test(NAME temperature_sensor_readings COMMAND temperature_reader_test)
+
 find_program(AERA_NODE_EXECUTABLE node)
 if(AERA_NODE_EXECUTABLE)
   add_test(NAME pc_snapshot_label COMMAND "${AERA_NODE_EXECUTABLE}"

@@ -52,6 +52,7 @@
 #include "aera_remote/pc_storage.hpp"
 #include "aeraui/features/backup/app_vault.hpp"
 #include "aeraui/platform/image_targets.hpp"
+#include "temperature_reader.hpp"
 #include <twinstall.h>
 #include <twinstall/adb_install.h>
 
@@ -2135,10 +2136,10 @@ struct EarlyUiPreferences {
   int verify_backup_checksums;
   int wifi_show_speed;
   int wifi_show_name;
-  int wifi_speed_position;
   int battery_style;
   int battery_circle_size;
   int battery_percentage;
+  TemperatureDisplay temperature;
 };
 
 bool gEarlyPreferencesAttempted = false;
@@ -2216,10 +2217,10 @@ EarlyUiPreferences DefaultEarlyUiPreferences() {
   preferences.verify_backup_checksums = 1;
   preferences.wifi_show_speed = 1;
   preferences.wifi_show_name = 1;
-  preferences.wifi_speed_position = 100;
   preferences.battery_style = 0;
   preferences.battery_circle_size = kBatteryCircleSizeDefault;
   preferences.battery_percentage = 1;
+  preferences.temperature = {};
   return preferences;
 }
 
@@ -2279,14 +2280,27 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.verify_backup_checksums = DataManager::GetStrValue("aera_verify_backup_checksums") != "0" ? 1 : 0;
   preferences.wifi_show_speed = DataManager::GetStrValue("aera_wifi_show_speed") != "0" ? 1 : 0;
   preferences.wifi_show_name = DataManager::GetStrValue("aera_wifi_show_name") != "0" ? 1 : 0;
-  const std::string speed_position = DataManager::GetStrValue("aera_wifi_speed_position");
-  preferences.wifi_speed_position = 100;
-  ParseInteger(speed_position, 0, 100, &preferences.wifi_speed_position);
   preferences.battery_style = DataManager::GetIntValue("aera_battery_style") == 1 ? 1 : 0;
   preferences.battery_circle_size = kBatteryCircleSizeDefault;
   ParseInteger(DataManager::GetStrValue("aera_battery_circle_size"), kBatteryCircleSizeMin,
                kBatteryCircleSizeMax, &preferences.battery_circle_size);
   preferences.battery_percentage = DataManager::GetStrValue("aera_battery_percentage") != "0" ? 1 : 0;
+  preferences.temperature.cpu = DataManager::GetIntValue("aera_temperature_cpu") == 1;
+  preferences.temperature.battery = DataManager::GetIntValue("aera_temperature_battery") == 1;
+  preferences.temperature.cpu_load = DataManager::GetIntValue("aera_status_cpu_load") == 1;
+  preferences.temperature.ram = DataManager::GetIntValue("aera_status_ram") == 1;
+  preferences.temperature.fahrenheit = DataManager::GetIntValue("aera_temperature_fahrenheit") == 1;
+  preferences.temperature.decimals = DataManager::GetIntValue("aera_temperature_decimals") == 1;
+  preferences.temperature.labels = DataManager::GetStrValue("aera_temperature_labels") != "0";
+  preferences.temperature.colors = DataManager::GetStrValue("aera_temperature_colors") != "0";
+  ParseInteger(DataManager::GetStrValue("aera_temperature_cpu_warm"), 30, 109, &preferences.temperature.cpu_warm);
+  ParseInteger(DataManager::GetStrValue("aera_temperature_cpu_hot"), 31, 110, &preferences.temperature.cpu_hot);
+  ParseInteger(DataManager::GetStrValue("aera_temperature_battery_warm"), 25, 59, &preferences.temperature.battery_warm);
+  ParseInteger(DataManager::GetStrValue("aera_temperature_battery_hot"), 26, 60, &preferences.temperature.battery_hot);
+  preferences.temperature.cpu_hot = std::max(preferences.temperature.cpu_hot, preferences.temperature.cpu_warm + 1);
+  preferences.temperature.battery_hot = std::max(preferences.temperature.battery_hot, preferences.temperature.battery_warm + 1);
+  ParseInteger(DataManager::GetStrValue("aera_temperature_size"), 20, 32, &preferences.temperature.size);
+  ParseInteger(DataManager::GetStrValue("aera_temperature_position"), 0, 100, &preferences.temperature.position);
   return preferences;
 }
 
@@ -2334,6 +2348,20 @@ bool ResetAeraSettings(bool theme) {
     set("aera_battery_style", defaults.battery_style);
     set("aera_battery_circle_size", defaults.battery_circle_size);
     set("aera_battery_percentage", defaults.battery_percentage);
+    set("aera_temperature_cpu", defaults.temperature.cpu);
+    set("aera_temperature_battery", defaults.temperature.battery);
+    set("aera_status_cpu_load", defaults.temperature.cpu_load);
+    set("aera_status_ram", defaults.temperature.ram);
+    set("aera_temperature_fahrenheit", defaults.temperature.fahrenheit);
+    set("aera_temperature_decimals", defaults.temperature.decimals);
+    set("aera_temperature_labels", defaults.temperature.labels);
+    set("aera_temperature_colors", defaults.temperature.colors);
+    set("aera_temperature_cpu_warm", defaults.temperature.cpu_warm);
+    set("aera_temperature_cpu_hot", defaults.temperature.cpu_hot);
+    set("aera_temperature_battery_warm", defaults.temperature.battery_warm);
+    set("aera_temperature_battery_hot", defaults.temperature.battery_hot);
+    set("aera_temperature_size", defaults.temperature.size);
+    set("aera_temperature_position", defaults.temperature.position);
     set(TW_TIME_ZONE_VAR, defaults.timezone);
     set("aera_recents_enabled", defaults.recents);
     set("tw_hidden_files", 0);
@@ -2440,9 +2468,6 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "wifi_show_name") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->wifi_show_name = parsed;
-  } else if (key == "wifi_speed_position") {
-    if (!ParseInteger(value, 0, 100, &parsed)) return false;
-    preferences->wifi_speed_position = parsed;
   } else if (key == "battery_style") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->battery_style = parsed;
@@ -2452,6 +2477,48 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "battery_percentage") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->battery_percentage = parsed;
+  } else if (key == "temperature_cpu") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->temperature.cpu = parsed;
+  } else if (key == "temperature_battery") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->temperature.battery = parsed;
+  } else if (key == "status_cpu_load") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->temperature.cpu_load = parsed;
+  } else if (key == "status_ram") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->temperature.ram = parsed;
+  } else if (key == "temperature_fahrenheit") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->temperature.fahrenheit = parsed;
+  } else if (key == "temperature_decimals") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->temperature.decimals = parsed;
+  } else if (key == "temperature_labels") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->temperature.labels = parsed;
+  } else if (key == "temperature_size") {
+    if (!ParseInteger(value, 20, 32, &parsed)) return false;
+    preferences->temperature.size = parsed;
+  } else if (key == "temperature_colors") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->temperature.colors = parsed;
+  } else if (key == "temperature_cpu_warm") {
+    if (!ParseInteger(value, 30, 109, &parsed)) return false;
+    preferences->temperature.cpu_warm = parsed;
+  } else if (key == "temperature_cpu_hot") {
+    if (!ParseInteger(value, 31, 110, &parsed)) return false;
+    preferences->temperature.cpu_hot = parsed;
+  } else if (key == "temperature_battery_warm") {
+    if (!ParseInteger(value, 25, 59, &parsed)) return false;
+    preferences->temperature.battery_warm = parsed;
+  } else if (key == "temperature_battery_hot") {
+    if (!ParseInteger(value, 26, 60, &parsed)) return false;
+    preferences->temperature.battery_hot = parsed;
+  } else if (key == "temperature_position") {
+    if (!ParseInteger(value, 0, 100, &parsed)) return false;
+    preferences->temperature.position = parsed;
   } else {
     if (recognized != nullptr) *recognized = false;
     return false;
@@ -2493,10 +2560,23 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue(TW_SKIP_DIGEST_CHECK_VAR, preferences.verify_backup_checksums);
   DataManager::SetValue("aera_wifi_show_speed", preferences.wifi_show_speed);
   DataManager::SetValue("aera_wifi_show_name", preferences.wifi_show_name);
-  DataManager::SetValue("aera_wifi_speed_position", preferences.wifi_speed_position);
   DataManager::SetValue("aera_battery_style", preferences.battery_style);
   DataManager::SetValue("aera_battery_circle_size", preferences.battery_circle_size);
   DataManager::SetValue("aera_battery_percentage", preferences.battery_percentage);
+  DataManager::SetValue("aera_temperature_cpu", preferences.temperature.cpu ? 1 : 0);
+  DataManager::SetValue("aera_temperature_battery", preferences.temperature.battery ? 1 : 0);
+  DataManager::SetValue("aera_status_cpu_load", preferences.temperature.cpu_load ? 1 : 0);
+  DataManager::SetValue("aera_status_ram", preferences.temperature.ram ? 1 : 0);
+  DataManager::SetValue("aera_temperature_fahrenheit", preferences.temperature.fahrenheit ? 1 : 0);
+  DataManager::SetValue("aera_temperature_decimals", preferences.temperature.decimals ? 1 : 0);
+  DataManager::SetValue("aera_temperature_labels", preferences.temperature.labels ? 1 : 0);
+  DataManager::SetValue("aera_temperature_colors", preferences.temperature.colors ? 1 : 0);
+  DataManager::SetValue("aera_temperature_cpu_warm", preferences.temperature.cpu_warm);
+  DataManager::SetValue("aera_temperature_cpu_hot", preferences.temperature.cpu_hot);
+  DataManager::SetValue("aera_temperature_battery_warm", preferences.temperature.battery_warm);
+  DataManager::SetValue("aera_temperature_battery_hot", preferences.temperature.battery_hot);
+  DataManager::SetValue("aera_temperature_size", preferences.temperature.size);
+  DataManager::SetValue("aera_temperature_position", preferences.temperature.position);
 }
 
 void ApplyEarlyUiSideEffects() {
@@ -2571,10 +2651,23 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "verify_backup_checksums=" << preferences.verify_backup_checksums << '\n'
          << "wifi_show_speed=" << preferences.wifi_show_speed << '\n'
          << "wifi_show_name=" << preferences.wifi_show_name << '\n'
-         << "wifi_speed_position=" << preferences.wifi_speed_position << '\n'
          << "battery_style=" << preferences.battery_style << '\n'
          << "battery_circle_size=" << preferences.battery_circle_size << '\n'
-         << "battery_percentage=" << preferences.battery_percentage << '\n';
+         << "battery_percentage=" << preferences.battery_percentage << '\n'
+         << "temperature_cpu=" << preferences.temperature.cpu << '\n'
+         << "temperature_battery=" << preferences.temperature.battery << '\n'
+         << "status_cpu_load=" << preferences.temperature.cpu_load << '\n'
+         << "status_ram=" << preferences.temperature.ram << '\n'
+         << "temperature_fahrenheit=" << preferences.temperature.fahrenheit << '\n'
+         << "temperature_decimals=" << preferences.temperature.decimals << '\n'
+         << "temperature_labels=" << preferences.temperature.labels << '\n'
+         << "temperature_colors=" << preferences.temperature.colors << '\n'
+         << "temperature_cpu_warm=" << preferences.temperature.cpu_warm << '\n'
+         << "temperature_cpu_hot=" << preferences.temperature.cpu_hot << '\n'
+         << "temperature_battery_warm=" << preferences.temperature.battery_warm << '\n'
+         << "temperature_battery_hot=" << preferences.temperature.battery_hot << '\n'
+         << "temperature_size=" << preferences.temperature.size << '\n'
+         << "temperature_position=" << preferences.temperature.position << '\n';
   return output.str();
 }
 
@@ -2752,10 +2845,24 @@ bool SaveAeraPreferences(bool require_early) {
          << "wifi_last_ssid=" << DataManager::GetStrValue("of_wlan_last_ssid") << '\n'
          << "wifi_show_speed=" << (DataManager::GetStrValue("aera_wifi_show_speed") != "0" ? 1 : 0) << '\n'
          << "wifi_show_name=" << (DataManager::GetStrValue("aera_wifi_show_name") != "0" ? 1 : 0) << '\n'
-         << "wifi_speed_position=" << RecoveryWifiStatusDisplay().speed_position << '\n'
          << "battery_style=" << static_cast<int>(RecoveryBatteryStyle()) << '\n'
          << "battery_circle_size=" << RecoveryBatteryCircleSize() << '\n'
          << "battery_percentage=" << (RecoveryBatteryPercentage() ? 1 : 0) << '\n';
+  const auto temperature = RecoveryTemperatureDisplay();
+  output << "temperature_cpu=" << temperature.cpu << '\n'
+         << "temperature_battery=" << temperature.battery << '\n'
+         << "status_cpu_load=" << temperature.cpu_load << '\n'
+         << "status_ram=" << temperature.ram << '\n'
+         << "temperature_fahrenheit=" << temperature.fahrenheit << '\n'
+         << "temperature_decimals=" << temperature.decimals << '\n'
+         << "temperature_labels=" << temperature.labels << '\n'
+         << "temperature_colors=" << temperature.colors << '\n'
+         << "temperature_cpu_warm=" << temperature.cpu_warm << '\n'
+         << "temperature_cpu_hot=" << temperature.cpu_hot << '\n'
+         << "temperature_battery_warm=" << temperature.battery_warm << '\n'
+         << "temperature_battery_hot=" << temperature.battery_hot << '\n'
+         << "temperature_size=" << temperature.size << '\n'
+         << "temperature_position=" << temperature.position << '\n';
   if (!WriteFileAtomically(kAeraPreferencesPath, output.str())) return false;
   const bool early_saved = SaveEarlyUiPreferences();
   if (!early_saved)
@@ -2870,8 +2977,6 @@ WifiStatusDisplay RecoveryWifiStatusDisplay() {
   WifiStatusDisplay display;
   display.show_speed = DataManager::GetStrValue("aera_wifi_show_speed") != "0";
   display.show_name = DataManager::GetStrValue("aera_wifi_show_name") != "0";
-  ParseInteger(DataManager::GetStrValue("aera_wifi_speed_position"), 0, 100,
-               &display.speed_position);
   return display;
 }
 
@@ -2879,13 +2984,55 @@ bool RecoverySetWifiStatusDisplay(const WifiStatusDisplay &display, bool save) {
   const auto previous = RecoveryWifiStatusDisplay();
   auto apply = [](const WifiStatusDisplay &value) {
     return DataManager::SetValue("aera_wifi_show_speed", value.show_speed ? 1 : 0) == 0 &&
-        DataManager::SetValue("aera_wifi_show_name", value.show_name ? 1 : 0) == 0 &&
-        DataManager::SetValue("aera_wifi_speed_position", std::clamp(value.speed_position, 0, 100)) == 0;
+        DataManager::SetValue("aera_wifi_show_name", value.show_name ? 1 : 0) == 0;
   };
   if (apply(display) && (!save || SaveAeraPreferences())) return true;
   apply(previous);
   return false;
 }
+
+TemperatureDisplay RecoveryTemperatureDisplay() {
+  LoadAeraPreferencesIfAvailable();
+  return CaptureCurrentEarlyUiPreferences().temperature;
+}
+
+bool RecoverySetTemperatureDisplay(const TemperatureDisplay &display, bool save) {
+  const auto previous = RecoveryTemperatureDisplay();
+  auto apply = [](TemperatureDisplay value) {
+    value.size = std::clamp(value.size, 20, 32);
+    value.position = std::clamp(value.position, 0, 100);
+    value.cpu_warm = std::clamp(value.cpu_warm, 30, 109);
+    value.cpu_hot = std::clamp(value.cpu_hot, value.cpu_warm + 1, 110);
+    value.battery_warm = std::clamp(value.battery_warm, 25, 59);
+    value.battery_hot = std::clamp(value.battery_hot, value.battery_warm + 1, 60);
+    return DataManager::SetValue("aera_temperature_cpu", value.cpu ? 1 : 0) == 0 &&
+        DataManager::SetValue("aera_temperature_battery", value.battery ? 1 : 0) == 0 &&
+        DataManager::SetValue("aera_status_cpu_load", value.cpu_load ? 1 : 0) == 0 &&
+        DataManager::SetValue("aera_status_ram", value.ram ? 1 : 0) == 0 &&
+        DataManager::SetValue("aera_temperature_fahrenheit", value.fahrenheit ? 1 : 0) == 0 &&
+        DataManager::SetValue("aera_temperature_decimals", value.decimals ? 1 : 0) == 0 &&
+        DataManager::SetValue("aera_temperature_labels", value.labels ? 1 : 0) == 0 &&
+        DataManager::SetValue("aera_temperature_colors", value.colors ? 1 : 0) == 0 &&
+        DataManager::SetValue("aera_temperature_cpu_warm", value.cpu_warm) == 0 &&
+        DataManager::SetValue("aera_temperature_cpu_hot", value.cpu_hot) == 0 &&
+        DataManager::SetValue("aera_temperature_battery_warm", value.battery_warm) == 0 &&
+        DataManager::SetValue("aera_temperature_battery_hot", value.battery_hot) == 0 &&
+        DataManager::SetValue("aera_temperature_size", value.size) == 0 &&
+        DataManager::SetValue("aera_temperature_position", value.position) == 0;
+  };
+  if (apply(display) && (!save || SaveAeraPreferences())) return true;
+  apply(previous);
+  return false;
+}
+
+StatusReadings RecoveryStatusReadings() {
+  static TemperatureSampler sampler;
+  const auto display = RecoveryTemperatureDisplay();
+  return sampler.Snapshot(display.cpu || display.battery || display.cpu_load || display.ram,
+                          display.cpu || display.battery);
+}
+Temperatures RecoveryTemperatures() { return RecoveryStatusReadings().temperature; }
+SystemMetrics RecoverySystemMetrics() { return RecoveryStatusReadings().system; }
 
 BatteryStyle RecoveryBatteryStyle() {
   LoadAeraPreferencesIfAvailable();

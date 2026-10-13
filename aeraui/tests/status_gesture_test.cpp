@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <cassert>
 #include <vector>
+#include <png.h>
 #include "../core/status_bar.cpp"
 
 static int autosave_count = 0;
+static aeraui::TemperatureDisplay temperature_display;
+static aeraui::Temperatures temperature_values{42500, 28700};
 static aeraui::WifiConnection wifi_connection;
 static aeraui::WifiTraffic wifi_traffic;
 static aeraui::WifiStatusDisplay wifi_display;
@@ -28,6 +31,9 @@ WifiStatus RecoveryWifiStatus() { return {}; }
 WifiConnection RecoveryWifiConnection() { return wifi_connection; }
 WifiTraffic RecoveryWifiTraffic() { ++traffic_reads; return wifi_traffic; }
 WifiStatusDisplay RecoveryWifiStatusDisplay() { return wifi_display; }
+TemperatureDisplay RecoveryTemperatureDisplay() { return temperature_display; }
+Temperatures RecoveryTemperatures() { return temperature_values; }
+SystemMetrics RecoverySystemMetrics() { return {27, 512000000, 2048000000}; }
 BatteryStyle RecoveryBatteryStyle() { return battery_style; }
 int RecoveryBatteryCircleSize() { return battery_circle_size; }
 bool RecoveryBatteryPercentage() { return battery_percentage; }
@@ -55,6 +61,12 @@ static void Settle() {
 
 static void CheckTrafficRate() {
   using namespace aeraui;
+  assert(TrafficText(0) == "0 KB/s");
+  assert(TrafficText(250000000) == "250 MB/s");
+  assert(TrafficText(1000000000) == "1.0 GB/s");
+  assert(TrafficText(999600) == "1.0 MB/s");
+  assert(TrafficText(99960000) == "100 MB/s");
+  assert(TrafficText(999600000) == "1.0 GB/s");
   assert(widgets::WifiSignalLevel(-999) == -1);
   assert(widgets::WifiSignalLevel(0) == -1);
   assert(widgets::WifiSignalLevel(-89) == 0);
@@ -92,7 +104,7 @@ static void CheckTrafficRate() {
   assert(rate.Sample(traffic, 500) == 1000);
 }
 
-static void CheckTrafficLayout(lv_display_t *display) {
+static void CheckTrafficLayout(lv_display_t *display, const std::vector<uint8_t> &pixels) {
   using namespace aeraui;
   for (const auto action : {StatusBarAction::kNone, StatusBarAction::kBack, StatusBarAction::kPower}) {
     for (bool crowded : {false, true}) {
@@ -106,6 +118,7 @@ static void CheckTrafficLayout(lv_display_t *display) {
         wifi_connection = {true, "A very long network name that should not overlap other status indicators"};
         wifi_traffic = {true, "wlan0", 12, 0, 0};
         wifi_display = {};
+        temperature_display = {};
         battery_style = BatteryStyle::kClassic;
         battery_circle_size = kBatteryCircleSizeDefault;
         battery_percentage = true;
@@ -123,23 +136,86 @@ static void CheckTrafficLayout(lv_display_t *display) {
         assert(std::string(lv_label_get_text(state->wifi_speed)) == "1.0 MB/s");
         assert(lv_obj_get_x(state->wifi_speed) + lv_obj_get_width(state->wifi_speed) < lv_obj_get_x(state->wifi_icon.root));
         assert(lv_obj_get_x(state->wifi) + lv_obj_get_width(state->wifi) < lv_obj_get_x(state->battery_text));
+        assert(lv_obj_get_height(state->wifi) ==
+            lv_font_get_line_height(lv_obj_get_style_text_font(state->wifi, LV_PART_MAIN)));
         auto *left = crowded ? state->recording : state->clock;
         assert(lv_obj_get_x(left) + lv_obj_get_width(left) < lv_obj_get_x(state->wifi_speed));
         const int original_speed_x = lv_obj_get_x(state->wifi_speed);
-        wifi_display.speed_position = 0;
+        temperature_display.cpu = true;
+        temperature_display.battery = true;
+        temperature_display.position = 0;
         RefreshStatusBars();
         lv_obj_update_layout(screen);
-        assert(lv_obj_get_x(state->wifi_speed) <= original_speed_x);
+        assert(lv_obj_get_x(state->wifi_speed) >= original_speed_x);
         assert(lv_obj_get_x(left) + lv_obj_get_width(left) < lv_obj_get_x(state->wifi_speed));
-        const int leftmost_speed_x = lv_obj_get_x(state->wifi_speed);
-        wifi_display.speed_position = 50;
+        if (!lv_obj_has_flag(state->temperature, LV_OBJ_FLAG_HIDDEN))
+          assert(lv_obj_get_x(state->temperature) + lv_obj_get_width(state->temperature) < lv_obj_get_x(state->wifi_speed));
+        const int leftmost_temperature_x = lv_obj_get_x(state->temperature);
+        if (!crowded) {
+          assert(lv_obj_get_x(state->temperature) + lv_obj_get_width(state->temperature) ==
+              lv_obj_get_x(state->wifi_speed) - kSystemIndicatorGap);
+          assert(lv_obj_get_style_text_align(state->temperature_battery, LV_PART_MAIN) == LV_TEXT_ALIGN_RIGHT);
+          assert(lv_obj_get_style_text_align(state->wifi_speed, LV_PART_MAIN) == LV_TEXT_ALIGN_RIGHT);
+          assert(lv_obj_get_x(state->wifi_icon.root) - lv_obj_get_x(state->wifi_speed) -
+              lv_obj_get_width(state->wifi_speed) == kWifiSpeedGap);
+          const int sysinfo_x = lv_obj_get_x(state->temperature);
+          const int speed_x = lv_obj_get_x(state->wifi_speed);
+          for (uint64_t rate : {0ULL, 20000ULL, 850000ULL, 250000000ULL, 1000000000ULL, 1000000ULL}) {
+            lv_tick_inc(1000);
+            wifi_traffic.received_bytes += rate;
+            Refresh(state, false); lv_obj_update_layout(screen);
+            assert(std::string(lv_label_get_text(state->wifi_speed)) == TrafficText(rate));
+            assert(lv_obj_get_x(state->temperature) == sysinfo_x);
+            assert(lv_obj_get_x(state->wifi_speed) == speed_x);
+            assert(lv_obj_get_height(state->wifi_speed) ==
+                lv_font_get_line_height(lv_obj_get_style_text_font(state->wifi_speed, LV_PART_MAIN)));
+          }
+          temperature_display.cpu_load = temperature_display.ram = true;
+          RefreshStatusBars(); lv_obj_update_layout(screen);
+          assert(std::string(lv_label_get_text(state->cpu_load)) == "CPU 27%");
+          assert(std::string(lv_label_get_text(state->ram)) == "RAM 25%");
+          if (!lv_obj_has_flag(state->temperature, LV_OBJ_FLAG_HIDDEN))
+            assert(lv_obj_get_x(state->temperature) + lv_obj_get_width(state->temperature) < lv_obj_get_x(state->wifi_speed));
+          temperature_display.cpu_load = temperature_display.ram = false;
+        }
+        temperature_display.position = 50;
         RefreshStatusBars();
         lv_obj_update_layout(screen);
-        assert(lv_obj_get_x(state->wifi_speed) >= leftmost_speed_x);
-        assert(lv_obj_get_x(state->wifi_speed) <= original_speed_x);
-        wifi_display.speed_position = 100;
+        assert(lv_obj_get_x(state->temperature) <= leftmost_temperature_x);
+        const int fixed_speed_x = lv_obj_get_x(state->wifi_speed);
+        temperature_display.position = 100;
         RefreshStatusBars();
         lv_obj_update_layout(screen);
+        assert(lv_obj_get_x(state->wifi_speed) == fixed_speed_x);
+        if (!lv_obj_has_flag(state->temperature, LV_OBJ_FLAG_HIDDEN)) {
+          assert(lv_obj_get_x(state->temperature) + lv_obj_get_width(state->temperature) < lv_obj_get_x(state->wifi_speed));
+          assert(lv_obj_get_x(left) + lv_obj_get_width(left) < lv_obj_get_x(state->temperature));
+          assert(std::string(lv_label_get_text(state->temperature_cpu)) == "CPU 42\xc2\xb0" "C");
+          assert(std::string(lv_label_get_text(state->temperature_battery)) == "BAT 29\xc2\xb0" "C");
+        }
+        for (int font_size : {20, 24, 28, 32}) {
+          temperature_display.size = font_size;
+          temperature_display.fahrenheit = temperature_display.decimals = true;
+          RefreshStatusBars(); lv_obj_update_layout(screen);
+          if (!crowded) assert(!lv_obj_has_flag(state->temperature, LV_OBJ_FLAG_HIDDEN));
+          if (!lv_obj_has_flag(state->temperature, LV_OBJ_FLAG_HIDDEN)) {
+            assert(lv_obj_get_x(state->temperature) + lv_obj_get_width(state->temperature) < lv_obj_get_x(state->wifi_speed));
+            assert(lv_obj_get_x(left) + lv_obj_get_width(left) < lv_obj_get_x(state->temperature));
+          }
+          if (font_size == 24 && !crowded && width == 1440 && action == StatusBarAction::kNone) {
+            temperature_values = {72000, 49000};
+            RefreshStatusBars(); lv_refr_now(display);
+            png_image image{}; image.version = PNG_IMAGE_VERSION;
+            image.width = width; image.height = StatusBarHeight(); image.format = PNG_FORMAT_BGRA;
+            assert(png_image_write_to_file(&image, "/tmp/aera-temperature-bar.png", 0, pixels.data(), 0, nullptr));
+          }
+          temperature_values = {};
+          RefreshStatusBars();
+          assert(lv_obj_has_flag(state->temperature, LV_OBJ_FLAG_HIDDEN));
+          temperature_values = {42500, 28700};
+        }
+        temperature_display = {};
+        RefreshStatusBars(); lv_obj_update_layout(screen);
         assert(lv_obj_get_x(state->wifi_speed) == original_speed_x);
         const int original_wifi_x = lv_obj_get_x(state->wifi_icon.root);
         wifi_display.show_name = false;
@@ -288,7 +364,24 @@ int main() {
   Touch(400, 480, false); Settle();
   assert(state.shade == nullptr && !state.dragging);
   lv_indev_delete(input);
-  CheckTrafficLayout(display);
+  const TemperatureDisplay defaults;
+  assert(TemperatureText(defaults, {70000, 45000}).empty());
+  auto options = defaults;
+  options.cpu = options.battery = true;
+  options.decimals = true;
+  assert(TemperatureText(options, {42500, 28700}) == "CPU 42.5\xc2\xb0" "C  BAT 28.7\xc2\xb0" "C");
+  options.fahrenheit = true;
+  options.labels = false;
+  assert(TemperatureText(options, {0, 100000}) == "32.0\xc2\xb0" "F  212.0\xc2\xb0" "F");
+  assert(TemperatureText(options, {}).empty());
+  assert(lv_color_eq(TemperatureColor(69900, true, 70, 90), design::kGreen));
+  assert(lv_color_eq(TemperatureColor(70000, true, 70, 90), design::kAmber));
+  assert(lv_color_eq(TemperatureColor(89900, true, 70, 90), design::kAmber));
+  assert(lv_color_eq(TemperatureColor(90000, true, 70, 90), design::kRed));
+  assert(lv_color_eq(TemperatureColor(40000, true, 40, 48), design::kAmber));
+  assert(lv_color_eq(TemperatureColor(48000, true, 40, 48), design::kRed));
+  assert(lv_color_eq(TemperatureColor(90000, false, 70, 90), design::kMutedStrong));
+  CheckTrafficLayout(display, frame);
   lv_display_delete(display); lv_deinit();
   puts("Bottom taps, status taps, pull-down, horizontal motion and canceled gestures passed");
   puts("Combined Wi-Fi throughput, units, resets and status layouts passed");

@@ -332,8 +332,34 @@ struct WifiTraffic {
 struct WifiStatusDisplay {
   bool show_speed = true;
   bool show_name = true;
-  int speed_position = 100;
 };
+struct TemperatureDisplay {
+  bool cpu = false;
+  bool battery = false;
+  bool cpu_load = false;
+  bool ram = false;
+  bool fahrenheit = false;
+  bool decimals = false;
+  bool labels = true;
+  bool colors = true;
+  int cpu_warm = 70, cpu_hot = 90;
+  int battery_warm = 40, battery_hot = 48;
+  int size = 24;
+  int position = 0;
+};
+constexpr int kTemperatureUnavailable = -1000000;
+struct Temperatures {
+  int cpu = kTemperatureUnavailable;
+  int battery = kTemperatureUnavailable;
+};
+TemperatureDisplay RecoveryTemperatureDisplay();
+bool RecoverySetTemperatureDisplay(const TemperatureDisplay &display, bool save = true);
+Temperatures RecoveryTemperatures();
+struct SystemMetrics {
+  int cpu_percent = -1;
+  uint64_t memory_used = 0, memory_total = 0;
+};
+SystemMetrics RecoverySystemMetrics();
 enum class BatteryStyle { kClassic = 0, kCircle = 1 };
 constexpr int kBatteryCircleSizeMin = 48;
 constexpr int kBatteryCircleSizeMax = 96;

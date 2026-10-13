@@ -39,11 +39,13 @@ struct Tools {
   lv_obj_t *pc_switch = nullptr, *pc_address = nullptr;
   lv_obj_t *pc_certificate = nullptr, *pc_details = nullptr, *pc_forget = nullptr;
   std::string pc_signature;
-  lv_obj_t *status_position = nullptr, *status_position_slider = nullptr;
-  lv_obj_t *status_position_amount = nullptr;
+  lv_obj_t *temperature_controls = nullptr;
+  lv_obj_t *temperature_sliders[6]{}, *temperature_amounts[6]{}, *temperature_panels[6]{};
+  lv_obj_t *temperature_toggles[8]{};
+  lv_obj_t *temperature_colors_heading = nullptr;
+  TemperatureDisplay temperature_saved;
   lv_obj_t *battery_choices[2]{};
   lv_obj_t *battery_checks[2]{};
-  int status_saved_position = 100;
   lv_obj_t *battery_size_panel = nullptr, *battery_size_slider = nullptr, *battery_size_amount = nullptr;
   lv_obj_t *battery_percentage_row = nullptr;
   widgets::CircleBattery battery_preview_circle;
@@ -2485,14 +2487,6 @@ void BuildPreferences(Tools *state) {
   lv_obj_set_height(reset, 124);
 }
 
-void RefreshStatusPosition(Tools *state) {
-  const auto display = RecoveryWifiStatusDisplay();
-  if (display.show_speed) lv_obj_remove_flag(state->status_position, LV_OBJ_FLAG_HIDDEN);
-  else lv_obj_add_flag(state->status_position, LV_OBJ_FLAG_HIDDEN);
-  lv_slider_set_value(state->status_position_slider, display.speed_position, LV_ANIM_OFF);
-  lv_label_set_text(state->status_position_amount, (std::to_string(display.speed_position) + "%").c_str());
-}
-
 void RefreshBatterySettings(Tools *state) {
   const bool circle = RecoveryBatteryStyle() == BatteryStyle::kCircle;
   if (circle) {
@@ -2514,6 +2508,164 @@ void RefreshBatterySettings(Tools *state) {
   lv_obj_set_width(state->battery_preview_classic, percentage ? 188 : 80);
   lv_obj_set_x(state->battery_preview_body, percentage ? 100 : 0);
   lv_obj_set_x(state->battery_preview_tip, percentage ? 171 : 71);
+}
+
+constexpr bool TemperatureDisplay::* kTemperatureToggles[] = {
+  &TemperatureDisplay::cpu, &TemperatureDisplay::battery, &TemperatureDisplay::fahrenheit,
+  &TemperatureDisplay::decimals, &TemperatureDisplay::labels, &TemperatureDisplay::colors,
+  &TemperatureDisplay::cpu_load, &TemperatureDisplay::ram,
+};
+constexpr int TemperatureDisplay::* kTemperatureSliders[] = {
+  &TemperatureDisplay::size, &TemperatureDisplay::position, &TemperatureDisplay::cpu_warm,
+  &TemperatureDisplay::cpu_hot, &TemperatureDisplay::battery_warm, &TemperatureDisplay::battery_hot,
+};
+
+void RefreshTemperatureSettings(Tools *state) {
+  const auto display = RecoveryTemperatureDisplay();
+  const bool temperatures = display.cpu || display.battery;
+  const bool enabled = temperatures || display.cpu_load || display.ram;
+  if (enabled) lv_obj_remove_flag(state->temperature_controls, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(state->temperature_controls, LV_OBJ_FLAG_HIDDEN);
+  for (int i = 0; i < 8; ++i)
+    StyleSwitch(state->temperature_toggles[i], display.*kTemperatureToggles[i]);
+  for (int i : {2, 3, 5})
+    lv_obj_set_flag(lv_obj_get_parent(state->temperature_toggles[i]), LV_OBJ_FLAG_HIDDEN, !temperatures);
+  lv_obj_set_flag(state->temperature_colors_heading, LV_OBJ_FLAG_HIDDEN, !temperatures);
+  for (int i = 0; i < 6; ++i) {
+    const int value = display.*kTemperatureSliders[i];
+    lv_slider_set_value(state->temperature_sliders[i], i == 0 ? (value - 20) / 4 : value, LV_ANIM_OFF);
+    const int degrees = display.fahrenheit ? int(std::lround(value * 1.8 + 32)) : value;
+    const std::string amount = i == 0 ? std::to_string(value * 100 / 24) + "%" :
+        i == 1 ? std::to_string(value) + "%" : std::to_string(degrees) +
+        (display.fahrenheit ? "\xc2\xb0" "F" : "\xc2\xb0" "C");
+    lv_label_set_text(state->temperature_amounts[i], amount.c_str());
+    if (i >= 2) {
+      const bool visible = display.colors && (i < 4 ? display.cpu : display.battery);
+      if (visible) lv_obj_remove_flag(state->temperature_panels[i], LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(state->temperature_panels[i], LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
+void BuildTemperatureSettings(Tools *state) {
+  Header(state->screen, "SysInfo", "", state->callback, state->context);
+  const int top = Landscape(state->screen) ? 340 : 452;
+  state->list = Scroll(state->screen, top,
+      std::max(1, int(lv_obj_get_height(state->screen)) - top - NavigationHeight(state->screen) - 28));
+  lv_obj_set_flex_flow(state->list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(state->list, 16, 0);
+  lv_obj_set_style_pad_bottom(state->list, 32, 0);
+  PreferenceSection(state, "Sensors");
+  state->temperature_saved = RecoveryTemperatureDisplay();
+  auto *main_list = state->list;
+  const char *titles[] = {"CPU temperature", "Battery temperature", "Use Fahrenheit",
+                         "Show decimal places", "Show labels", "Temperature colors", "CPU usage", "RAM usage"};
+  auto add_toggle = [&](int i) {
+    auto *row = PreferenceEntry(state, LV_SYMBOL_SETTINGS, titles[i], "", {}, true);
+    auto *toggle = lv_switch_create(row);
+    state->temperature_toggles[i] = toggle;
+    OnClick(row, [state, i] {
+      auto display = RecoveryTemperatureDisplay();
+      display.*kTemperatureToggles[i] = !(display.*kTemperatureToggles[i]);
+      if (!RecoverySetTemperatureDisplay(display)) {
+        Sheet(state->screen, "Setting unavailable", "This setting could not be changed.");
+        return;
+      }
+      state->temperature_saved = RecoveryTemperatureDisplay();
+      RefreshTemperatureSettings(state);
+      RefreshStatusBars();
+    });
+  };
+  for (int i : {0, 1, 6, 7, 2, 3, 4}) {
+    if (i == 2) {
+      state->temperature_controls = lv_obj_create(main_list);
+      Clear(state->temperature_controls);
+      PreferenceColumn(state->temperature_controls, 16);
+      state->list = state->temperature_controls;
+      PreferenceSection(state, "Display");
+    }
+    add_toggle(i);
+  }
+  const char *slider_titles[] = {"Text size", "Spacing", "CPU orange from",
+                                "CPU red from", "Battery orange from", "Battery red from"};
+  const int minimum[] = {0, 0, 30, 31, 25, 26};
+  const int maximum[] = {3, 100, 109, 110, 59, 60};
+  for (int i = 0; i < 6; ++i) {
+    if (i == 2) {
+      PreferenceSection(state, "Colors");
+      state->temperature_colors_heading = lv_obj_get_child(state->list, -1);
+      add_toggle(5);
+    }
+    auto *panel = lv_obj_create(state->list);
+    state->temperature_panels[i] = panel;
+    Clear(panel);
+    PreferenceColumn(panel, 12);
+    lv_obj_set_style_pad_all(panel, 24, 0);
+    auto *heading = lv_obj_create(panel);
+    Clear(heading);
+    lv_obj_set_size(heading, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(heading, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(heading, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    auto *title = Label(heading, slider_titles[i], &lv_font_montserrat_32, kText);
+    lv_obj_set_width(title, 0);
+    lv_obj_set_flex_grow(title, 1);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
+    auto *amount = Label(heading, "", &lv_font_montserrat_24, kAccent);
+    state->temperature_amounts[i] = amount;
+    lv_obj_set_width(amount, 140);
+    lv_obj_set_style_text_align(amount, LV_TEXT_ALIGN_RIGHT, 0);
+    auto *track = lv_obj_create(panel);
+    Clear(track);
+    lv_obj_set_size(track, LV_PCT(100), 96);
+    auto *slider = lv_slider_create(track);
+    state->temperature_sliders[i] = slider;
+    lv_obj_set_size(slider, LV_PCT(96), 24);
+    lv_obj_center(slider);
+    lv_slider_set_range(slider, minimum[i], maximum[i]);
+    RangeSlider(slider);
+    lv_obj_add_event_cb(slider, [](lv_event_t *event) {
+      const auto code = lv_event_get_code(event);
+      if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
+      auto *state = static_cast<Tools *>(lv_event_get_user_data(event));
+      auto display = code == LV_EVENT_PRESS_LOST ? state->temperature_saved : RecoveryTemperatureDisplay();
+      for (int j = 0; j < 6; ++j) {
+        if (lv_event_get_target_obj(event) != state->temperature_sliders[j]) continue;
+        const int value = lv_slider_get_value(state->temperature_sliders[j]);
+        display.*kTemperatureSliders[j] = code == LV_EVENT_PRESS_LOST ?
+            state->temperature_saved.*kTemperatureSliders[j] : j == 0 ? 20 + value * 4 : value;
+      }
+      const bool save = code == LV_EVENT_RELEASED;
+      if (!RecoverySetTemperatureDisplay(display, save)) {
+        RecoverySetTemperatureDisplay(state->temperature_saved, false);
+        i18n::BindLabel(state->summary, "This setting could not be changed.");
+        lv_obj_set_style_text_color(state->summary, kRed, 0);
+      } else {
+        if (save) state->temperature_saved = RecoveryTemperatureDisplay();
+        i18n::BindLabel(state->summary, save ? "Settings saved" : "");
+        lv_obj_set_style_text_color(state->summary, kGreen, 0);
+      }
+      RefreshTemperatureSettings(state);
+      RefreshStatusBars();
+    }, LV_EVENT_ALL, state);
+  }
+  state->list = main_list;
+  auto *reset = Button(main_list, "Reset SysInfo", [state] {
+    Sheet(state->screen, "Reset SysInfo", "Restore default SysInfo settings?", [state] {
+      if (!RecoverySetTemperatureDisplay({})) {
+        Sheet(state->screen, "Setting unavailable", "This setting could not be changed.");
+        return;
+      }
+      state->temperature_saved = RecoveryTemperatureDisplay();
+      RefreshTemperatureSettings(state);
+      lv_obj_update_layout(state->list);
+      lv_obj_scroll_to_y(state->list, 0, LV_ANIM_OFF);
+      RefreshStatusBars();
+    }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
+  });
+  lv_obj_set_size(reset, LV_PCT(100), 124);
+  state->summary = Label(main_list, "", &lv_font_montserrat_24, kMuted);
+  lv_obj_set_width(state->summary, LV_PCT(100));
+  RefreshTemperatureSettings(state);
 }
 
 void BuildStatusBarSettings(Tools *state) {
@@ -2667,7 +2819,6 @@ void BuildStatusBarSettings(Tools *state) {
   }, LV_EVENT_ALL, state);
   PreferenceSection(state, "Network");
   const auto display = RecoveryWifiStatusDisplay();
-  state->status_saved_position = display.speed_position;
   auto *speed_row = PreferenceEntry(state, LV_SYMBOL_WIFI, "Network speed", "", {}, true);
   auto *speed_toggle = lv_switch_create(speed_row);
   StyleSwitch(speed_toggle, display.show_speed);
@@ -2679,7 +2830,6 @@ void BuildStatusBarSettings(Tools *state) {
       return;
     }
     StyleSwitch(speed_toggle, display.show_speed);
-    RefreshStatusPosition(state);
     RefreshStatusBars();
   });
   auto *name_row = PreferenceEntry(state, LV_SYMBOL_WIFI, "Show network name", "", {}, true);
@@ -2695,56 +2845,10 @@ void BuildStatusBarSettings(Tools *state) {
     StyleSwitch(name_toggle, display.show_name);
     RefreshStatusBars();
   });
-  auto *position = lv_obj_create(state->list);
-  state->status_position = position;
-  Clear(position);
-  PreferenceColumn(position, 12);
-  lv_obj_set_style_pad_all(position, 24, 0);
-  auto *heading = lv_obj_create(position);
-  Clear(heading);
-  lv_obj_set_size(heading, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(heading, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(heading, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  auto *title = Label(heading, "Speed position", &lv_font_montserrat_32, kText);
-  lv_obj_set_width(title, 0);
-  lv_obj_set_flex_grow(title, 1);
-  lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
-  state->status_position_amount = Label(heading, "", &lv_font_montserrat_24, kAccent);
-  lv_obj_set_width(state->status_position_amount, 130);
-  lv_obj_set_style_text_align(state->status_position_amount, LV_TEXT_ALIGN_RIGHT, 0);
-  auto *track = lv_obj_create(position);
-  Clear(track);
-  lv_obj_set_size(track, LV_PCT(100), 96);
-  auto *slider = lv_slider_create(track);
-  state->status_position_slider = slider;
-  lv_obj_set_size(slider, LV_PCT(96), 24);
-  lv_obj_center(slider);
-  lv_slider_set_range(slider, 0, 100);
-  RangeSlider(slider);
+  PreferenceEntry(state, LV_SYMBOL_SETTINGS, "SysInfo", "",
+                  [state] { Open(state, Action::kTemperatures); });
   state->summary = Label(state->list, "", &lv_font_montserrat_24, kMuted);
   lv_obj_set_width(state->summary, LV_PCT(100));
-  lv_obj_add_event_cb(slider, [](lv_event_t *event) {
-    const auto code = lv_event_get_code(event);
-    if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
-    auto *state = static_cast<Tools *>(lv_event_get_user_data(event));
-    auto display = RecoveryWifiStatusDisplay();
-    display.speed_position = code == LV_EVENT_PRESS_LOST ? state->status_saved_position :
-        lv_slider_get_value(lv_event_get_target_obj(event));
-    const bool save = code == LV_EVENT_RELEASED;
-    if (RecoverySetWifiStatusDisplay(display, save)) {
-      if (save) state->status_saved_position = display.speed_position;
-      i18n::BindLabel(state->summary, save ? "Settings saved" : "");
-      lv_obj_set_style_text_color(state->summary, kGreen, 0);
-    } else {
-      display.speed_position = state->status_saved_position;
-      RecoverySetWifiStatusDisplay(display, false);
-      i18n::BindLabel(state->summary, "This setting could not be changed.");
-      lv_obj_set_style_text_color(state->summary, kRed, 0);
-    }
-    RefreshStatusPosition(state);
-    RefreshStatusBars();
-  }, LV_EVENT_ALL, state);
-  RefreshStatusPosition(state);
   RefreshBatterySettings(state);
 }
 
@@ -3059,10 +3163,11 @@ void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void
     auto *state = static_cast<Tools *>(lv_event_get_user_data(event));
     if (state->pc_timer) lv_timer_delete(state->pc_timer);
     if (state->tool == Action::kStatusBar) {
-      auto display = RecoveryWifiStatusDisplay();
-      display.speed_position = state->status_saved_position;
-      RecoverySetWifiStatusDisplay(display, false);
       RecoverySetBatteryCircleSize(state->battery_saved_size, false);
+      RefreshStatusBars();
+    }
+    if (state->tool == Action::kTemperatures) {
+      RecoverySetTemperatureDisplay(state->temperature_saved, false);
       RefreshStatusBars();
     }
     delete state;
@@ -3074,6 +3179,7 @@ void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void
   else if (tool == Action::kPreferences) BuildPreferences(state);
   else if (tool == Action::kLanguage) BuildLanguage(state);
   else if (tool == Action::kStatusBar) BuildStatusBarSettings(state);
+  else if (tool == Action::kTemperatures) BuildTemperatureSettings(state);
   else if (tool == Action::kPcConnection) BuildPcConnection(state);
   else if (tool == Action::kTheme) BuildTheme(state);
   else if (tool == Action::kLogs) BuildLogs(state);

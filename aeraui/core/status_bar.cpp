@@ -28,6 +28,10 @@
 namespace aeraui {
 namespace {
 using namespace design;
+constexpr int kWifiSpeedWidth = 128;
+constexpr int kWifiSpeedGap = 12;
+constexpr int kWifiSpeedReserved = kWifiSpeedWidth + kWifiSpeedGap;
+constexpr int kSystemIndicatorGap = 12;
 
 struct TrafficRate {
   WifiTraffic previous;
@@ -58,12 +62,45 @@ struct TrafficRate {
 };
 
 std::string TrafficText(double bytes_per_second) {
+  const char *units[] = {"KB/s", "MB/s", "GB/s", "TB/s", "PB/s", "EB/s"};
+  double value = bytes_per_second > 0 ? bytes_per_second / 1000.0 : 0;
+  unsigned unit = 0;
+  while (value >= 999.5 && unit + 1 < sizeof(units) / sizeof(units[0])) {
+    value /= 1000.0;
+    ++unit;
+  }
   char text[32];
-  if (bytes_per_second >= 1000000.0)
-    snprintf(text, sizeof(text), "%.1f MB/s", bytes_per_second / 1000000.0);
-  else
-    snprintf(text, sizeof(text), "%u KB/s", unsigned(bytes_per_second / 1000.0));
+  snprintf(text, sizeof(text), unit > 0 && value < 99.95 ? "%.1f %s" : "%.0f %s",
+           value, units[unit]);
   return text;
+}
+
+const lv_font_t *TemperatureFont(int size) {
+  return UiFont(size <= 20 ? &lv_font_montserrat_20 : size <= 24 ? &lv_font_montserrat_24 :
+                size <= 28 ? &lv_font_montserrat_28 : &lv_font_montserrat_32);
+}
+
+std::string TemperatureText(const TemperatureDisplay &display, const Temperatures &values) {
+  std::string text;
+  auto append = [&](bool enabled, int millidegrees, const char *name) {
+    if (!enabled || millidegrees == kTemperatureUnavailable) return;
+    if (!text.empty()) text += "  ";
+    if (display.labels) text += std::string(name) + " ";
+    const double celsius = millidegrees / 1000.0;
+    const double value = display.fahrenheit ? celsius * 1.8 + 32 : celsius;
+    char number[32];
+    snprintf(number, sizeof(number), display.decimals ? "%.1f" : "%.0f", value);
+    text += number;
+    text += display.fahrenheit ? "\xc2\xb0" "F" : "\xc2\xb0" "C";
+  };
+  append(display.cpu, values.cpu, "CPU");
+  append(display.battery, values.battery, "BAT");
+  return text;
+}
+
+lv_color_t TemperatureColor(int millidegrees, bool colored, int warm, int hot) {
+  if (!colored || millidegrees == kTemperatureUnavailable) return kMutedStrong;
+  return millidegrees >= hot * 1000 ? kRed : millidegrees >= warm * 1000 ? kAmber : kGreen;
 }
 
 struct StatusState {
@@ -76,6 +113,9 @@ struct StatusState {
   lv_obj_t *wifi = nullptr;
   widgets::WifiIndicator wifi_icon;
   lv_obj_t *wifi_speed = nullptr;
+  lv_obj_t *temperature = nullptr;
+  lv_obj_t *temperature_cpu = nullptr, *temperature_battery = nullptr;
+  lv_obj_t *cpu_load = nullptr, *ram = nullptr;
   TrafficRate traffic_rate;
   lv_obj_t *recording_dot = nullptr;
   lv_obj_t *recording = nullptr;
@@ -744,11 +784,68 @@ void Refresh(StatusState *state, bool refresh_battery) {
   const auto traffic = connection.connected && display.show_speed ? RecoveryWifiTraffic() : WifiTraffic{};
   const auto speed = TrafficText(state->traffic_rate.Sample(traffic, lv_tick_get()));
   lv_label_set_text(state->wifi_speed, speed.c_str());
+  widgets::FitLabelToLines(state->wifi_speed, kWifiSpeedWidth, 1,
+      {&lv_font_montserrat_24, &lv_font_montserrat_20, &lv_font_montserrat_18, &lv_font_montserrat_16});
   const bool show_speed = connection.connected && display.show_speed && traffic.valid;
+  auto temperature_display = RecoveryTemperatureDisplay();
+  const auto temperatures = RecoveryTemperatures();
+  const auto *temperature_font = TemperatureFont(temperature_display.size);
+  // Reserve a stable width so digit changes cannot move neighboring indicators.
+  temperature_display.cpu &= temperatures.cpu != kTemperatureUnavailable;
+  temperature_display.battery &= temperatures.battery != kTemperatureUnavailable;
+  int temperature_width = 0;
+  auto temperature_label = [&](lv_obj_t *label, bool cpu) {
+    auto options = temperature_display;
+    options.cpu &= cpu; options.battery &= !cpu;
+    const auto text = TemperatureText(options, temperatures);
+    if (text.empty()) { lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN); return; }
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(label, text.c_str());
+    lv_obj_set_style_text_font(label, temperature_font, 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_color(label, TemperatureColor(cpu ? temperatures.cpu : temperatures.battery,
+        options.colors, cpu ? options.cpu_warm : options.battery_warm,
+        cpu ? options.cpu_hot : options.battery_hot), 0);
+    lv_point_t positive{}, negative{};
+    lv_text_get_size(&positive, TemperatureText(options, {150000, 90000}).c_str(), temperature_font,
+                    0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    lv_text_get_size(&negative, TemperatureText(options, {150000, -20000}).c_str(), temperature_font,
+                    0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    const int width = std::max(positive.x, negative.x) + 8;
+    if (temperature_width) temperature_width += 12;
+    lv_obj_set_pos(label, temperature_width, 0);
+    lv_obj_set_width(label, width);
+    temperature_width += width;
+  };
+  temperature_label(state->temperature_cpu, true);
+  temperature_label(state->temperature_battery, false);
+  const auto system = RecoverySystemMetrics();
+  auto metric_label = [&](lv_obj_t *label, bool enabled, int percent, const char *name) {
+    if (!enabled || percent < 0) { lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN); return; }
+    const auto prefix = temperature_display.labels ? std::string(name) + " " : "";
+    lv_label_set_text(label, (prefix + std::to_string(percent) + "%").c_str());
+    lv_obj_set_style_text_font(label, temperature_font, 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_color(label, kMutedStrong, 0);
+    lv_point_t bounds{};
+    lv_text_get_size(&bounds, (prefix + "100%").c_str(), temperature_font, 0, 0,
+                    LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    if (temperature_width) temperature_width += 20;
+    lv_obj_set_pos(label, temperature_width, 0);
+    lv_obj_set_width(label, bounds.x + 8);
+    temperature_width += bounds.x + 8;
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_HIDDEN);
+  };
+  metric_label(state->cpu_load, temperature_display.cpu_load, system.cpu_percent, "CPU");
+  metric_label(state->ram, temperature_display.ram, system.memory_total ?
+      static_cast<int>(100.0 * system.memory_used / system.memory_total) : -1, "RAM");
+  const int temperature_reserved = temperature_width ? temperature_width + kSystemIndicatorGap : 0;
+  lv_obj_set_size(state->temperature, std::max(1, temperature_width), lv_font_get_line_height(temperature_font));
   // Reserve only the width currently used by the battery percentage/charge text.
   const int wifi_right = lv_obj_get_x(circle_battery ? state->battery_circle.root :
       show_percentage ? state->battery_text : state->battery_body) - 24;
-  const int network_reserved = connection.connected ? widgets::kWifiIndicatorWidth + 26 + (show_speed ? 192 : 0) : 0;
+  const int network_reserved = (connection.connected ? widgets::kWifiIndicatorWidth + 26 +
+      (show_speed ? kWifiSpeedReserved : 0) : 0) + temperature_reserved;
   const auto recording = recorder::GetSnapshot();
   const bool recording_active = recorder::Active();
   if (recording_active) {
@@ -819,11 +916,13 @@ void Refresh(StatusState *state, bool refresh_battery) {
     i18n::BindLabel(state->wifi, text.c_str());
     lv_obj_remove_flag(state->wifi, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_width(state->wifi, LV_SIZE_CONTENT);
+    lv_obj_set_height(state->wifi,
+        lv_font_get_line_height(lv_obj_get_style_text_font(state->wifi, LV_PART_MAIN)));
     lv_obj_update_layout(state->bar);
     const int available = wifi_right - lv_obj_get_x(activity_anchor) -
-        lv_obj_get_width(activity_anchor) - 26 - (show_speed ? 192 : 0);
+        lv_obj_get_width(activity_anchor) - 26 - (show_speed ? kWifiSpeedReserved : 0) - temperature_reserved;
     const int name_width = display.show_name ? std::clamp(lv_obj_get_width(state->wifi), 0,
-        std::max(0, std::min(available, 660 - (show_speed ? 192 : 0)) - widgets::kWifiIndicatorWidth - 12)) : 0;
+        std::max(0, std::min(available, 660 - (show_speed ? kWifiSpeedReserved : 0)) - widgets::kWifiIndicatorWidth - 12)) : 0;
     lv_obj_set_width(state->wifi, name_width);
     const int icon_x = wifi_right - widgets::kWifiIndicatorWidth - (name_width > 0 ? name_width + 12 : 0);
     lv_obj_align(state->wifi_icon.root, LV_ALIGN_LEFT_MID, icon_x, 0);
@@ -840,12 +939,39 @@ void Refresh(StatusState *state, bool refresh_battery) {
   if (show_speed) {
     lv_obj_update_layout(state->bar);
     const int left = lv_obj_get_x(activity_anchor) + lv_obj_get_width(activity_anchor) + 26;
-    const int right = std::max(left, int(lv_obj_get_x(state->wifi_icon.root)) - 192);
-    const int x = left + (right - left) * std::clamp(display.speed_position, 0, 100) / 100;
+    const int x = std::max(left, int(lv_obj_get_x(state->wifi_icon.root)) - kWifiSpeedReserved);
     lv_obj_align(state->wifi_speed, LV_ALIGN_LEFT_MID, x, 0);
     lv_obj_remove_flag(state->wifi_speed, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(state->wifi_speed, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  lv_obj_update_layout(state->bar);
+  const int temperature_left = lv_obj_get_x(activity_anchor) + lv_obj_get_width(activity_anchor) + 26;
+  const int temperature_right = (connection.connected ? lv_obj_get_x(show_speed ? state->wifi_speed :
+      state->wifi_icon.root) : wifi_right + 24) - kSystemIndicatorGap;
+  // Keep all selected values readable when a narrow bar cannot fit their preferred size.
+  for (const auto *font : {TemperatureFont(20), UiFont(&lv_font_montserrat_16)}) {
+    if (temperature_width <= temperature_right - temperature_left) break;
+    if (lv_font_get_line_height(font) >= lv_font_get_line_height(temperature_font)) continue;
+    temperature_font = font;
+    temperature_width = 0;
+    temperature_label(state->temperature_cpu, true);
+    temperature_label(state->temperature_battery, false);
+    metric_label(state->cpu_load, temperature_display.cpu_load, system.cpu_percent, "CPU");
+    metric_label(state->ram, temperature_display.ram, system.memory_total ?
+        static_cast<int>(100.0 * system.memory_used / system.memory_total) : -1, "RAM");
+    lv_obj_set_size(state->temperature, std::max(1, temperature_width), lv_font_get_line_height(font));
+    lv_obj_update_layout(state->bar);
+  }
+  if (temperature_width > 0 && temperature_right - temperature_left >= temperature_width) {
+    const int spacing = std::min(temperature_right - temperature_left - temperature_width,
+        std::clamp(temperature_display.position, 0, 100) * 2);
+    const int x = temperature_right - temperature_width - spacing;
+    lv_obj_align(state->temperature, LV_ALIGN_LEFT_MID, x, 0);
+    lv_obj_remove_flag(state->temperature, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(state->temperature, LV_OBJ_FLAG_HIDDEN);
   }
 
   const int level = state->battery < 0 ? 0 : state->battery;
@@ -991,9 +1117,18 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
   lv_obj_add_flag(state->wifi, LV_OBJ_FLAG_HIDDEN);
 
   state->wifi_speed = Label(bar, "0 KB/s", &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_width(state->wifi_speed, 176);
+  lv_obj_set_width(state->wifi_speed, kWifiSpeedWidth);
   lv_obj_set_style_text_align(state->wifi_speed, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_add_flag(state->wifi_speed, LV_OBJ_FLAG_HIDDEN);
+
+  state->temperature = lv_obj_create(bar);
+  Clear(state->temperature);
+  lv_obj_remove_flag(state->temperature, LV_OBJ_FLAG_CLICKABLE);
+  state->temperature_cpu = Label(state->temperature, "", &lv_font_montserrat_24, kMutedStrong);
+  state->temperature_battery = Label(state->temperature, "", &lv_font_montserrat_24, kMutedStrong);
+  state->cpu_load = Label(state->temperature, "", &lv_font_montserrat_24, kMutedStrong);
+  state->ram = Label(state->temperature, "", &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_add_flag(state->temperature, LV_OBJ_FLAG_HIDDEN);
 
   state->battery_text =
       Label(bar, "--%", &lv_font_montserrat_32, kMutedStrong);

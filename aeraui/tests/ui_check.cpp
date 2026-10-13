@@ -58,6 +58,7 @@ static bool wifi_auto_connect = false;
 static WifiStatusDisplay wifi_display;
 static BatteryStyle battery_style = BatteryStyle::kClassic;
 static int battery_circle_size = kBatteryCircleSizeDefault;
+static TemperatureDisplay temperature_display;
 static bool battery_percentage = true;
 static bool adb_over_wifi = false;
 static bool adb_pairing = false;
@@ -292,6 +293,16 @@ bool RecoveryWifiAutoConnect() { return wifi_auto_connect; }
 bool RecoverySetWifiAutoEnable(bool enabled) { wifi_auto_enable = enabled; return true; }
 bool RecoverySetWifiAutoConnect(bool enabled) { wifi_auto_connect = enabled; return true; }
 WifiStatusDisplay RecoveryWifiStatusDisplay() { return wifi_display; }
+TemperatureDisplay RecoveryTemperatureDisplay() { return temperature_display; }
+Temperatures RecoveryTemperatures() { return {42500, 28700}; }
+SystemMetrics RecoverySystemMetrics() { return {27, 512000000, 2048000000}; }
+bool RecoverySetTemperatureDisplay(const TemperatureDisplay &display, bool save) {
+  if (save && !save_succeeds) return false;
+  temperature_display = display;
+  temperature_display.cpu_hot = std::max(display.cpu_hot, display.cpu_warm + 1);
+  temperature_display.battery_hot = std::max(display.battery_hot, display.battery_warm + 1);
+  return true;
+}
 bool RecoverySetWifiStatusDisplay(const WifiStatusDisplay &display, bool save) {
   if (save && !save_succeeds) return false;
   wifi_display = display;
@@ -535,6 +546,7 @@ int main(int argc,char **argv) {
         interface_size = static_cast<InterfaceSize>(size);
         design::ApplyInterfaceSize(size);
         wifi_display = {};
+        temperature_display = {};
         battery_style = BatteryStyle::kClassic;
         battery_circle_size = kBatteryCircleSizeDefault;
         battery_percentage = true;
@@ -589,18 +601,59 @@ int main(int argc,char **argv) {
         assert(battery_percentage);
         auto *speed_text = Find(page, i18n::Translate("Network speed")); assert(speed_text);
         auto *speed = lv_obj_get_parent(speed_text);
-        auto *position_title = FindLabel(page, i18n::Translate("Speed position")); assert(position_title);
+        assert(!FindLabel(page, i18n::Translate("Speed position")));
+        assert(!FindLabel(page, i18n::Translate("CPU temperature")));
+        auto *temperature_text = Find(page, i18n::Translate("SysInfo"));
+        auto *temperature_entry = temperature_text ? lv_obj_get_parent(temperature_text) : nullptr;
+        assert(temperature_entry);
+        lv_obj_send_event(temperature_entry, LV_EVENT_CLICKED, nullptr);
+        assert(last_action == Action::kTemperatures);
+        auto *status_page = page;
+        page = lv_obj_create(nullptr);
+        BuildToolScene(page, Action::kTemperatures, RecordAction, nullptr);
+        lv_screen_load(page); Tick();
+        auto *cpu_text = Find(page, i18n::Translate("CPU temperature")); assert(cpu_text);
+        auto *cpu_row = lv_obj_get_parent(cpu_text);
+        auto *scroller = lv_obj_get_parent(cpu_row);
+        assert(lv_obj_get_x(scroller) + lv_obj_get_width(scroller) <= lv_obj_get_width(page));
+        assert(lv_obj_get_y(scroller) + lv_obj_get_height(scroller) <= lv_obj_get_height(page));
+        lv_obj_send_event(cpu_row, LV_EVENT_CLICKED, nullptr);
+        assert(temperature_display.cpu);
+        for (const char *title : {"CPU usage", "RAM usage"}) {
+          auto *label = Find(page, i18n::Translate(title)); assert(label);
+          lv_obj_send_event(lv_obj_get_parent(label), LV_EVENT_CLICKED, nullptr);
+        }
+        assert(temperature_display.cpu_load && temperature_display.ram);
+        auto *position_title = FindLabel(page, i18n::Translate("Spacing")); assert(position_title);
         auto *position = lv_obj_get_parent(lv_obj_get_parent(position_title));
         auto *slider = FindType(position, &lv_slider_class); assert(slider);
         lv_obj_send_event(speed, LV_EVENT_CLICKED, nullptr);
-        assert(!wifi_display.show_speed && lv_obj_has_flag(position, LV_OBJ_FLAG_HIDDEN));
+        assert(!wifi_display.show_speed);
         lv_obj_send_event(speed, LV_EVENT_CLICKED, nullptr);
         assert(wifi_display.show_speed && !lv_obj_has_flag(position, LV_OBJ_FLAG_HIDDEN));
         lv_slider_set_value(slider, 25, LV_ANIM_OFF);
         lv_obj_send_event(slider, LV_EVENT_VALUE_CHANGED, nullptr);
-        assert(wifi_display.speed_position == 25);
+        assert(temperature_display.position == 25);
         lv_obj_send_event(slider, LV_EVENT_RELEASED, nullptr);
-        auto *name_text = Find(page, i18n::Translate("Show network name")); assert(name_text);
+        auto *battery_temp_text = Find(page, i18n::Translate("Battery temperature")); assert(battery_temp_text);
+        lv_obj_send_event(lv_obj_get_parent(battery_temp_text), LV_EVENT_CLICKED, nullptr);
+        assert(temperature_display.battery);
+        for (const char *title : {"Use Fahrenheit", "Show decimal places", "Show labels", "Temperature colors"}) {
+          auto *label = Find(page, i18n::Translate(title)); assert(label);
+          lv_obj_send_event(lv_obj_get_parent(label), LV_EVENT_CLICKED, nullptr);
+        }
+        assert(temperature_display.fahrenheit && temperature_display.decimals && !temperature_display.labels && !temperature_display.colors);
+        auto *colors_text = Find(page, i18n::Translate("Temperature colors")); assert(colors_text);
+        lv_obj_send_event(lv_obj_get_parent(colors_text), LV_EVENT_CLICKED, nullptr);
+        auto *warm_title = FindLabel(page, i18n::Translate("CPU orange from")); assert(warm_title);
+        auto *warm_panel = lv_obj_get_parent(lv_obj_get_parent(warm_title));
+        auto *warm_slider = FindType(warm_panel, &lv_slider_class); assert(warm_slider);
+        lv_slider_set_value(warm_slider, 100, LV_ANIM_OFF);
+        lv_obj_send_event(warm_slider, LV_EVENT_VALUE_CHANGED, nullptr);
+        assert(temperature_display.cpu_hot == 101);
+        lv_obj_send_event(warm_slider, LV_EVENT_PRESS_LOST, nullptr);
+        assert(temperature_display.cpu_warm == 70 && temperature_display.cpu_hot == 90);
+        auto *name_text = Find(status_page, i18n::Translate("Show network name")); assert(name_text);
         auto *name = lv_obj_get_parent(name_text);
         lv_obj_send_event(name, LV_EVENT_CLICKED, nullptr);
         assert(!wifi_display.show_name);
@@ -610,21 +663,43 @@ int main(int argc,char **argv) {
         lv_slider_set_value(slider, 50, LV_ANIM_OFF);
         lv_obj_send_event(slider, LV_EVENT_VALUE_CHANGED, nullptr);
         lv_obj_send_event(slider, LV_EVENT_RELEASED, nullptr);
-        assert(wifi_display.speed_position == 25 && lv_slider_get_value(slider) == 25);
+        assert(temperature_display.position == 25 && lv_slider_get_value(slider) == 25);
         save_succeeds = true;
         lv_slider_set_value(slider, 100, LV_ANIM_OFF);
         lv_obj_send_event(slider, LV_EVENT_VALUE_CHANGED, nullptr);
         lv_obj_send_event(slider, LV_EVENT_RELEASED, nullptr);
         Tick();
-        AssertContained(FindLabel(page, i18n::Translate("Circle")), circle);
-        AssertContained(FindLabel(page, i18n::Translate("Classic")), classic);
+        AssertContained(FindLabel(status_page, i18n::Translate("Circle")), circle);
+        AssertContained(FindLabel(status_page, i18n::Translate("Classic")), classic);
         AssertContained(position_title, lv_obj_get_parent(position_title));
         assert(!Overlaps(circle, classic));
         lv_obj_send_event(circle, LV_EVENT_CLICKED, nullptr);
+        lv_screen_load(status_page);
         Tick();
         if (size == 1 && !strcmp(language, "en")) save("/tmp/aera-status-settings-en.png");
         if (size == 2 && !strcmp(language, "de_DE")) save("/tmp/aera-status-settings-de.png");
+        lv_screen_load(page);
+        lv_obj_scroll_to_view(cpu_row, LV_ANIM_OFF); Tick();
+        for (const char *title : {"CPU temperature", "Battery temperature", "Use Fahrenheit", "Show decimal places", "Show labels", "Temperature colors"}) {
+          auto *label = FindLabel(page, i18n::Translate(title)); assert(label);
+          AssertContained(label, lv_obj_get_parent(label));
+        }
+        if (size == 1 && !strcmp(language, "en")) save("/tmp/aera-temperature-settings-en.png");
+        if (size == 2 && !strcmp(language, "de_DE")) save("/tmp/aera-temperature-settings-de.png");
+        lv_obj_scroll_to_view_recursive(warm_panel, LV_ANIM_OFF); Tick();
+        AssertContained(warm_title, lv_obj_get_parent(warm_title));
+        if (size == 2 && !strcmp(language, "de_DE")) save("/tmp/aera-temperature-colors-de.png");
+        auto *reset_sysinfo = Find(page, i18n::Translate("Reset SysInfo")); assert(reset_sysinfo);
+        lv_obj_scroll_to_view_recursive(reset_sysinfo, LV_ANIM_OFF); Tick();
+        assert(lv_obj_get_scroll_y(scroller) > 0);
+        lv_obj_send_event(reset_sysinfo, LV_EVENT_CLICKED, nullptr);
+        ConfirmSettingsModal(page); Tick(2);
+        assert(!temperature_display.cpu && !temperature_display.battery &&
+               !temperature_display.cpu_load && !temperature_display.ram && temperature_display.position == 0);
+        assert(lv_obj_get_scroll_y(scroller) == 0);
+        assert(lv_obj_get_y(cpu_row) >= 0);
         lv_screen_load(screen); lv_obj_delete(page);
+        lv_obj_delete(status_page);
       }
     }
     lv_deinit();
