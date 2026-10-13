@@ -25,7 +25,7 @@ namespace {
 constexpr char kLogTag[] = "AeraGpu";
 constexpr char kEglDriver[] = "/vendor/lib64/egl/libEGL_adreno.so";
 constexpr char kGlesDriver[] = "/vendor/lib64/egl/libGLESv2_adreno.so";
-constexpr char kNativeWindowLibrary[] = "/vendor/lib64/libnativewindow.so";
+constexpr char kNativeWindowLibrary[] = "/system/lib64/libnativewindow.so";
 constexpr uint32_t Fourcc(char a, char b, char c, char d) {
   return static_cast<uint32_t>(a) | (static_cast<uint32_t>(b) << 8) |
          (static_cast<uint32_t>(c) << 16) | (static_cast<uint32_t>(d) << 24);
