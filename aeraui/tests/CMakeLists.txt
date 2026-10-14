@@ -224,6 +224,9 @@ target_include_directories(image_targets_test PRIVATE ../include)
 target_compile_options(image_targets_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME physical_firmware_image_targets COMMAND image_targets_test)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+add_test(NAME fastbootd_capability COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/fastbootd_capability_test.py")
 add_executable(pc_connection_host pc_connection_host.cpp ../../aera_remote/pc_connection.cpp ../../aera_remote/pc_storage.cpp ../../aera_remote/pc_terminal.cpp ../../aera_flash_log.cpp)
 target_include_directories(pc_connection_host PRIVATE ../include)
 set(AERA_TEST_ROOT_MANAGER "1" CACHE STRING "Root Manager feature flag for the PC host fixture")

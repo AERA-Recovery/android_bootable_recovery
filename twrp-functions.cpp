@@ -61,6 +61,7 @@
 #include <fs_mgr_priv.h>
 #ifndef BUILD_TWRPTAR_MAIN
 #include "data.hpp"
+#include <aeraui/backend.hpp>
 #include "partitions.hpp"
 #include "variables.h"
 #include "bootloader_message/include/bootloader_message/bootloader_message.h"
@@ -1098,6 +1099,10 @@ void TWFunc::Update_Intent_File(string Intent)
 // reboot: Reboot the system. Return -1 on error, no return on success
 int TWFunc::tw_reboot(RebootCommand command)
 {
+	if (command == rb_fastboot && !aeraui::RecoverySupportsFastbootd()) {
+		LOGERR("AERA: refusing unsupported fastbootd reboot.\n");
+		return -1;
+	}
 	DataManager::Flush();
 	Update_Log_File();
 
