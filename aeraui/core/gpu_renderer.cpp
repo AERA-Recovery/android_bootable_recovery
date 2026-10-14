@@ -129,6 +129,13 @@ bool GpuRenderer::Initialize(int32_t width, int32_t height) {
     return false;
   }
   nativewindow_library_ = dlopen(kNativeWindowLibrary, RTLD_NOW | RTLD_GLOBAL);
+  // Some recovery device trees package the matching native-window runtime in
+  // /system as well: inspecting Android's vendor partition temporarily hides
+  // the ramdisk copy. Keep the existing vendor runtime as the first choice.
+  if (nativewindow_library_ == nullptr) {
+    nativewindow_library_ = dlopen("/system/lib64/libnativewindow.so",
+                                 RTLD_NOW | RTLD_GLOBAL);
+  }
   if (nativewindow_library_ == nullptr) {
     __android_log_print(ANDROID_LOG_WARN, kLogTag,
                         "Android native-buffer runtime unavailable: %s",
