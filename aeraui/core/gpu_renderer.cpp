@@ -4,6 +4,7 @@
  */
 
 #include "gpu_renderer.hpp"
+#include "native_buffer_library.hpp"
 
 #include <android/log.h>
 #include <android/hardware_buffer.h>
@@ -25,7 +26,6 @@ namespace {
 constexpr char kLogTag[] = "AeraGpu";
 constexpr char kEglDriver[] = "/vendor/lib64/egl/libEGL_adreno.so";
 constexpr char kGlesDriver[] = "/vendor/lib64/egl/libGLESv2_adreno.so";
-constexpr char kNativeWindowLibrary[] = "/system/lib64/libnativewindow.so";
 constexpr uint32_t Fourcc(char a, char b, char c, char d) {
   return static_cast<uint32_t>(a) | (static_cast<uint32_t>(b) << 8) |
          (static_cast<uint32_t>(c) << 16) | (static_cast<uint32_t>(d) << 24);
@@ -65,6 +65,16 @@ using GetHardwareBufferHandle = const native_handle_t* (*)(
 using ToNativeWindowBuffer = void* (*)(const AHardwareBuffer*);
 using ImportScanoutBuffer = int (*)(const GRDrmBufferInfo*, gr_surface*);
 using ReleaseScanoutBuffer = int (*)(gr_surface);
+
+void LogNativeBufferLibrary(const char* path, const char* reason) {
+  if (reason != nullptr) {
+    __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                        "native-buffer runtime rejected %s: %s", path, reason);
+  } else {
+    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                        "native-buffer runtime: %s", path);
+  }
+}
 
 bool HasExtension(const char* extensions, const char* wanted) {
   if (extensions == nullptr || wanted == nullptr || *wanted == '\0')
@@ -128,11 +138,11 @@ bool GpuRenderer::Initialize(int32_t width, int32_t height) {
     Shutdown();
     return false;
   }
-  nativewindow_library_ = dlopen(kNativeWindowLibrary, RTLD_NOW | RTLD_GLOBAL);
+  const auto native_buffer = LoadNativeBufferLibrary(LogNativeBufferLibrary);
+  nativewindow_library_ = native_buffer.handle;
   if (nativewindow_library_ == nullptr) {
     __android_log_print(ANDROID_LOG_WARN, kLogTag,
-                        "Android native-buffer runtime unavailable: %s",
-                        dlerror());
+                        "no complete Android native-buffer runtime available");
     Shutdown();
     return false;
   }
@@ -238,21 +248,16 @@ bool GpuRenderer::Initialize(int32_t width, int32_t height) {
   }
 
   auto allocate_buffer = reinterpret_cast<AllocateHardwareBuffer>(
-      dlsym(nativewindow_library_, "AHardwareBuffer_allocate"));
-  auto release_buffer = reinterpret_cast<ReleaseHardwareBuffer>(
-      dlsym(nativewindow_library_, "AHardwareBuffer_release"));
+      native_buffer.allocate);
   auto describe_buffer = reinterpret_cast<DescribeHardwareBuffer>(
-      dlsym(nativewindow_library_, "AHardwareBuffer_describe"));
+      native_buffer.describe);
   auto get_buffer_handle = reinterpret_cast<GetHardwareBufferHandle>(
-      dlsym(nativewindow_library_, "AHardwareBuffer_getNativeHandle"));
-  auto to_native_window = reinterpret_cast<ToNativeWindowBuffer>(dlsym(
-      nativewindow_library_,
-      "_ZN7android38AHardwareBuffer_to_ANativeWindowBufferEPK15AHardwareBuffer"));
+      native_buffer.get_native_handle);
+  auto to_native_window = reinterpret_cast<ToNativeWindowBuffer>(
+      native_buffer.to_native_window);
   auto import_scanout = reinterpret_cast<ImportScanoutBuffer>(
       dlsym(RTLD_DEFAULT, "gr_drm_import_scanout_buffer"));
-  if (allocate_buffer == nullptr || release_buffer == nullptr ||
-      describe_buffer == nullptr || get_buffer_handle == nullptr ||
-      to_native_window == nullptr || import_scanout == nullptr) {
+  if (import_scanout == nullptr) {
     __android_log_print(ANDROID_LOG_WARN, kLogTag,
                         "native-buffer allocation or DRM import API is unavailable");
     Shutdown();
