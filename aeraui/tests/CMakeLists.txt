@@ -238,6 +238,9 @@ target_compile_definitions(pc_connection_host PRIVATE OF_ENABLE_WLAN=1 AERA_PC_H
   AERA_PC_CLIENT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../../aera_remote/client/pc/index.html")
 target_compile_options(pc_connection_host PRIVATE -Wall -Wextra -Wno-deprecated-declarations)
 target_link_libraries(pc_connection_host PRIVATE jsoncpp_static OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+
+add_test(NAME reboot_handoff COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/reboot_handoff_test.py")
 add_test(NAME pc_connection_approval_transfer_and_install
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/pc_connection_test.py"
   "$<TARGET_FILE:pc_connection_host>" "${CMAKE_CURRENT_BINARY_DIR}")
