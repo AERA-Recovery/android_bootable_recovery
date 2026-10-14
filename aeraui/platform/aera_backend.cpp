@@ -589,6 +589,10 @@ bool RecoveryLeaveFastbootd(bool initialize_recovery) {
     return false;
   }
 
+  // Logical vendor was deliberately released for fastbootd. Restore UI
+  // runtime ownership before recovery's partition setup can clean it up.
+  PartitionManager.Prepare_Vendor_For_Native_UI(false);
+
   if (initialize_recovery) {
     LOGINFO("AERA live fastbootd: initializing cold recovery backend.\n");
     // Cold fastbootd intentionally skipped vendor/vendor_dlkm module work.

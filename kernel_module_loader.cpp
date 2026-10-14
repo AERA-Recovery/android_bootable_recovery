@@ -272,6 +272,7 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 	std::vector<std::string> vendor_module_dirs;
 
 	TWPartition* ven = PartitionManager.Find_Partition_By_Path("/vendor");
+	const bool vendor_was_mounted = ven && ven->Is_Mounted();
 	TWPartition* ven_dlkm = PartitionManager.Find_Partition_By_Path("/vendor_dlkm");
 	TWPartition* sys_dlkm = PartitionManager.Find_Partition_By_Path("/system_dlkm");
 
@@ -404,7 +405,7 @@ stage_only_exit:
 #endif
 
 exit:
-	if (ven)
+	if (ven && !vendor_was_mounted)
 		ven->UnMount(false);
 	if (ven_dlkm)
 		ven_dlkm->UnMount(false, MNT_DETACH);
@@ -440,7 +441,12 @@ int KernelModuleLoader::Try_And_Load_Modules(std::string module_dir, bool vendor
 		Modprobe m({module_dir}, "modules.load.twrp", false);
 		m.LoadListedModules(false);
 		modules_loaded = m.GetModuleCount();
-		PartitionManager.UnMount_By_Path(module_dir.c_str(), false, MNT_DETACH);
+		// This is a temporary directory bind, not the parent partition. The
+		// partition API reduces /vendor/lib/modules to /vendor and can detach
+		// the graphics runtime along with the module staging directory.
+		if (umount2(module_dir.c_str(), MNT_DETACH) != 0)
+			LOGERR("Unable to unmount module staging directory %s: %s\n",
+				module_dir.c_str(), strerror(errno));
 		LOGINFO("Modules Loaded: %d\n", modules_loaded);
 	}
 	LOGINFO("Loaded %d modules from %s\n", modules_loaded, module_dir.c_str());

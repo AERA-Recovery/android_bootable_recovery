@@ -851,7 +851,7 @@ void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
 			}
 		}
 	#ifndef USE_VENDOR_LIBS
-		if (ven)
+		if (ven && !native_ui_vendor_)
 			ven->UnMount(Display_Error);
 		if (sys)
 			sys->UnMount(Display_Error);
@@ -1272,6 +1272,23 @@ void TWPartitionManager::Output_Partition(TWPartition* Part) {
 	if (!Part->Key_Directory.empty())
 		printf("   Metadata Key Directory: %s\n", Part->Key_Directory.c_str());
 	printf("\n");
+}
+
+bool TWPartitionManager::Prepare_Vendor_For_Native_UI(bool fastboot_mode) {
+	native_ui_vendor_ = false;
+	// Fastbootd must be able to release and flash logical vendor. Do not
+	// acquire a recovery mount that would be torn down before its UI starts.
+	if (fastboot_mode)
+		return true;
+	TWPartition* vendor = Find_Partition_By_Path("/vendor");
+	if (!vendor)
+		return true;
+	if (!vendor->Mount(false)) {
+		LOGINFO("Native UI: vendor runtime mount unavailable\n");
+		return false;
+	}
+	native_ui_vendor_ = true;
+	return true;
 }
 
 int TWPartitionManager::Mount_By_Path(string Path, bool Display_Error) {
@@ -2398,6 +2415,7 @@ static void Update_Encryption_Props_Before_Format() {
 	bool Display_Error = false;
 	TWPartition* ven = PartitionManager.Find_Partition_By_Path("/vendor");
 	TWPartition* odm = PartitionManager.Find_Partition_By_Path("/odm");
+	const bool vendor_was_mounted = ven && ven->Is_Mounted();
 	if (ven || odm) {
 		if (ven) ven->Mount(Display_Error);
 		if (odm) odm->Mount(Display_Error);
@@ -2405,7 +2423,7 @@ static void Update_Encryption_Props_Before_Format() {
 		Process_ResetProps(ven, odm);
 
 		if (odm) odm->UnMount(Display_Error);
-		if (ven) ven->UnMount(Display_Error);
+		if (ven && !vendor_was_mounted) ven->UnMount(Display_Error);
 	}
 }
 
@@ -3079,7 +3097,11 @@ void TWPartitionManager::UnMount_Main_Partitions(void) {
 
 	TWPartition *Partition = Find_Partition_By_Path ("/vendor");
 
-	if (Partition != NULL) UnMount_By_Path("/vendor", false);
+	// Native graphics can load driver companions after its first frame.
+	// Only automatic cleanup observes this ownership; explicit unmounts and
+	// image-flash/Super release still use their normal failure checks.
+	if (Partition != NULL && !native_ui_vendor_)
+		UnMount_By_Path("/vendor", false);
 	UnMount_By_Path (Get_Android_Root_Path(), true);
 	Partition = Find_Partition_By_Path ("/product");
 	if (Partition != NULL) UnMount_By_Path("/product", false);
@@ -5793,6 +5815,7 @@ bool TWPartitionManager::Unmap_Super_Devices(bool preserve_partitions) {
 		}
 	closedir(d);
 	}
+	native_ui_vendor_ = false;
 	return true;
 }
 

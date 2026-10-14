@@ -359,6 +359,7 @@ public:
 	void Output_Partition_Logging();                                          // Outputs partition information to the log
 	void Output_Partition(TWPartition* Part);                                 // Outputs partition details to the log
 	int Mount_By_Path(string Path, bool Display_Error);                       // Mounts partition based on path (e.g. /system)
+	bool Prepare_Vendor_For_Native_UI(bool fastboot_mode);                   // Retains vendor across automatic recovery cleanup
 	int UnMount_By_Path(string Path, bool Display_Error, int flags = 0);      // Unmounts partition based on path
 	int Is_Mounted_By_Path(string Path);                                      // Checks if partition is mounted based on path
 	int Mount_Current_Storage(bool Display_Error);                            // Mounts the current storage location
@@ -481,6 +482,7 @@ public:
 	bool is_MTP_Enabled(void);						  // returns whether MTP is already enabled
 #endif
 private:
+	bool native_ui_vendor_ = false;
 	void Setup_Settings_Storage_Partition(TWPartition* Part);                 // Sets up settings storage
 	void Setup_Android_Secure_Location(TWPartition* Part);                    // Sets up .android_secure if needed
 	bool Backup_Partition(struct PartitionSettings *part_settings);           // Backup the partitions based on type
