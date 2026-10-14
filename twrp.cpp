@@ -62,6 +62,7 @@ extern "C" {
 #include "startupArgs.hpp"
 #include "twrpAdbBuFifo.hpp"
 #include <aeraui/runner.hpp>
+#include <aeraui/backend.hpp>
 #ifdef TW_USE_NEW_MINADBD
 // #include "minadbd/minadbd.h"
 #else
@@ -130,7 +131,22 @@ static void Decrypt_Page(bool SkipDecryption, bool datamedia) {
 	}
 }
 
+namespace aeraui {
+bool RecoverySupportsFastbootd() {
+#ifdef TW_INCLUDE_FASTBOOTD
+    return android::base::GetBoolProperty("ro.boot.dynamic_partitions", false) &&
+           access("/system/bin/fastbootd", X_OK) == 0;
+#else
+    return false;
+#endif
+}
+}  // namespace aeraui
+
 static void process_fastbootd_mode() {
+        if (!aeraui::RecoverySupportsFastbootd()) {
+            LOGERR("AERA: fastbootd is disabled or unavailable.\n");
+            return;
+        }
 		LOGINFO("starting fastboot\n");
 
 		// Cold fastbootd uses the normal recovery partition/module setup so
@@ -483,8 +499,7 @@ static bool Aera_Close_Runtime_Fds_On_Exec() {
 // entering fastbootd deliberately destroys its mapped logical-partition
 // objects. If exec fails, the caller falls back to the normal hardware reboot.
 static bool Aera_Soft_Switch(bool fastboot_mode) {
-	if (fastboot_mode &&
-		!android::base::GetBoolProperty("ro.boot.dynamic_partitions", false)) {
+	if (fastboot_mode && !aeraui::RecoverySupportsFastbootd()) {
 		LOGERR("AERA userspace handoff: fastbootd is unavailable on this device.\n");
 		return false;
 	}

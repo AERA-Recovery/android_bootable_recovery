@@ -511,8 +511,8 @@ bool RecoveryDataLocked() {
 }
 
 bool RecoveryEnterFastbootd() {
-  if (!android::base::GetBoolProperty("ro.boot.dynamic_partitions", false)) {
-    LOGERR("AERA live fastbootd: dynamic partitions are unavailable.\n");
+  if (!RecoverySupportsFastbootd()) {
+    LOGERR("AERA live fastbootd: disabled or unavailable.\n");
     return false;
   }
 
