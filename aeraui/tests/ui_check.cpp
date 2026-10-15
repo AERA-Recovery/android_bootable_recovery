@@ -203,7 +203,7 @@ int32_t StatusBarHeight() { return 165; }
 bool StatusBarShadeOpen() { return false; }
 void RefreshStatusBars() {}
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
-  if (kind == "wipe") return {{"Dalvik / ART cache","DALVIK",0},{"Data","/data",23000000000},
+  if (kind == "wipe") return {{"FRP","/frp",524288},{"Dalvik / ART cache","DALVIK",0},{"Data","/data",23000000000},
     {"Internal storage","INTERNAL",12000000000},{"Metadata","/metadata",40960000}};
   return {{"Metadata","/metadata",40960000},{"Data","/data",23000000000},{"Vendor Boot","/vendor_boot",100663296},
     {"Boot","/boot",100663296},{"DTBO","/dtbo",25165824},{"EFS","/efs",12648448},{"Init Boot","/init_boot",8388608},{"Modem","/modem",446693376}};
@@ -539,6 +539,44 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--wipe-layout")) {
+    for (const char *language : {"en", "de_DE", "fr_FR"}) {
+      assert(i18n::SetLanguage(language));
+      for (bool landscape : {false, true}) {
+        lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                  landscape ? 1440 : 3168);
+        for (int size = 0; size < 4; ++size) {
+          interface_size = static_cast<InterfaceSize>(size);
+          design::ApplyInterfaceSize(size);
+          auto *wipe = lv_obj_create(nullptr);
+          BuildToolScene(wipe, Action::kWipe, RecordAction, nullptr);
+          lv_screen_load(wipe); Tick(2);
+          auto *frp = FindLabel(wipe, "FRP"); assert(frp);
+          auto *list = lv_obj_get_parent(lv_obj_get_parent(frp));
+          lv_obj_t *previous = nullptr;
+          for (uint32_t index = 0; index < lv_obj_get_child_count(list); ++index) {
+            auto *row = lv_obj_get_child(list, index);
+            if (previous) assert(Bounds(previous).y2 < Bounds(row).y1);
+            lv_obj_t *previous_label = nullptr;
+            for (uint32_t child = 0; child < lv_obj_get_child_count(row); ++child) {
+              auto *label = lv_obj_get_child(row, child);
+              if (!lv_obj_check_type(label, &lv_label_class) || !*lv_label_get_text(label)) continue;
+              AssertContained(label, row);
+              if (previous_label) assert(!Overlaps(previous_label, label));
+              previous_label = label;
+            }
+            previous = row;
+          }
+          if (!landscape && !strcmp(language, "en") && size == 2)
+            save("/tmp/aera-wipe-wrapped-host.png");
+          lv_screen_load(screen); lv_obj_delete(wipe);
+        }
+      }
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("Wipe rows fit wrapped warnings across languages, interface sizes and orientations.");
+    return 0;
+  }
   if (!strcmp(argv[1], "--status-bar-settings")) {
     for (const char *language : {"en", "de_DE"}) {
       assert(i18n::SetLanguage(language));

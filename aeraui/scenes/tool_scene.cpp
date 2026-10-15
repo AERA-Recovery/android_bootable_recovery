@@ -533,6 +533,23 @@ void UpdateSelection(Tools *state) {
   }
 }
 
+void LayoutWipeRow(lv_obj_t *row, lv_obj_t *name, lv_obj_t *detail,
+                   lv_obj_t *indicator) {
+  lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
+  lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
+  lv_obj_set_height(name, LV_SIZE_CONTENT);
+  lv_obj_set_height(detail, LV_SIZE_CONTENT);
+  lv_obj_update_layout(row);
+  const int detail_y = std::max(76, static_cast<int>(
+      lv_obj_get_y(name) + lv_obj_get_height(name) + 14));
+  lv_obj_set_y(detail, detail_y);
+  lv_obj_update_layout(row);
+  lv_obj_set_height(row, std::max(142, detail_y +
+      static_cast<int>(lv_obj_get_height(detail)) + 20));
+  lv_obj_align(indicator, LV_ALIGN_LEFT_MID, 24, 0);
+  lv_obj_update_layout(row);
+}
+
 void PartitionRows(Tools *state) {
   lv_obj_clean(state->list);
   // Resolve the real scroll width before laying out rows. Without this pass,
@@ -541,13 +558,14 @@ void PartitionRows(Tools *state) {
   lv_obj_update_layout(state->list);
   const int row_width = std::max(600, static_cast<int>(
       lv_obj_get_width(state->list)));
+  int row_y = 0;
   for (size_t i = 0; i < state->volumes.size(); ++i) {
     const auto v = state->volumes[i];
     const bool selected = state->selected.count(v.path) != 0;
     {
       const bool wipe = state->tool == Action::kWipe;
       auto *row = Button(state->list, "", [] {});
-      lv_obj_set_pos(row, 0, static_cast<int>(i) * 148);
+      lv_obj_set_pos(row, 0, row_y);
       lv_obj_set_size(row, row_width, 142);
       lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
       lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
@@ -592,6 +610,8 @@ void PartitionRows(Tools *state) {
         else { state->selected.insert(v.path); lv_obj_add_state(check, LV_STATE_CHECKED); }
         UpdateSelection(state);
       });
+      if (wipe) LayoutWipeRow(row, name, path, check);
+      row_y += wipe ? lv_obj_get_height(row) + 6 : 148;
     }
   }
   if (state->tool == Action::kWipe) {
@@ -599,7 +619,6 @@ void PartitionRows(Tools *state) {
     const bool cow_ready = cow_status.supported &&
         cow_status.metadata_readable && cow_status.safe_to_remove &&
         !cow_status.partitions.empty();
-    const int row_y = static_cast<int>(state->volumes.size()) * 148;
     auto *row = Button(state->list, "", [state] {
       ConfirmSnapshotCowCleanup(state);
     });
@@ -635,6 +654,7 @@ void PartitionRows(Tools *state) {
     lv_obj_set_pos(status, 112, 76);
     lv_obj_set_width(status, row_width - 150);
     lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
+    LayoutWipeRow(row, name, status, indicator);
     if (!cow_ready) {
       lv_obj_add_state(row, LV_STATE_DISABLED);
       lv_obj_set_style_opa(row, LV_OPA_50, LV_STATE_DISABLED);

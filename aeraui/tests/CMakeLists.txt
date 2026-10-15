@@ -43,6 +43,7 @@ target_compile_definitions(ui_check PRIVATE
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
+add_test(NAME wipe_partition_row_layout COMMAND ui_check --wipe-layout)
 add_executable(flash_log_test flash_log_test.cpp ../../aera_flash_log.cpp)
 target_compile_options(flash_log_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(flash_log_test PRIVATE Threads::Threads)
