@@ -20,6 +20,7 @@
 */
 
 #include "startupArgs.hpp"
+#include <aeraui/backend.hpp>
 
 void startupArgs::parse(int *argc, char ***argv) {
 	std::vector<std::string> args = args::get_args(argc, argv);
@@ -46,6 +47,10 @@ bool startupArgs::processRecoveryArgs(std::vector<std::string> args, int index) 
 		} else
 		printf("'%s'", args[index].c_str());
 		if (args[index] == FASTBOOT) {
+			if (!aeraui::RecoverySupportsFastbootd()) {
+				LOGERR("AERA: ignoring unsupported --fastboot request.\n");
+				return true;
+			}
 			fastboot_mode = true;
 			android::base::SetProperty("sys.usb.config", "none");
 			android::base::SetProperty("sys.usb.configfs", "0");

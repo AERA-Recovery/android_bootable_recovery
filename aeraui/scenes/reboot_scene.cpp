@@ -3,6 +3,7 @@
 #include "ui_components.hpp"
 #include "power_transition.hpp"
 #include <cctype>
+#include <vector>
 
 namespace aeraui {
 void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) {
@@ -89,12 +90,14 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
   lv_obj_set_style_text_letter_space(section, 2, 0);
 
   struct Destination { const char *icon, *name, *detail; Action action; };
-  const std::array<Destination, 5> destinations{{
+  std::vector<Destination> destinations{
     {LV_SYMBOL_HOME, "Android", "Leave recovery and start the system", Action::kRebootSystem},
     {LV_SYMBOL_REFRESH, "Recovery", "Restart AERA Recovery Project", Action::kRebootRecovery},
-    {LV_SYMBOL_SETTINGS, "Bootloader", "Restart in hardware fastboot mode", Action::kRebootBootloader},
-    {LV_SYMBOL_USB, "Fastbootd", "Userspace fastboot for logical partitions", Action::kRebootFastbootd},
-    {LV_SYMBOL_POWER, "Power off", "Turn off the device", Action::kPowerOff}}};
+    {LV_SYMBOL_SETTINGS, "Bootloader", "Restart in hardware fastboot mode", Action::kRebootBootloader}};
+  if (RecoverySupportsFastbootd()) {
+    destinations.push_back({LV_SYMBOL_USB, "Fastbootd", "Userspace fastboot for logical partitions", Action::kRebootFastbootd});
+  }
+  destinations.push_back({LV_SYMBOL_POWER, "Power off", "Turn off the device", Action::kPowerOff});
   auto *list = Scroll(screen, landscape ? 392 : 948,
                       landscape ? 820 : 1730);
   if (landscape) {

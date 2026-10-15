@@ -129,6 +129,7 @@ int RecoveryDecrypt(const std::string &credential, int user_id = 0);
 
 // Switch the recovery backend between ordinary AERA and userspace fastboot
 // without replacing the UI process or its Qualcomm display context.
+bool RecoverySupportsFastbootd();
 bool RecoveryEnterFastbootd();
 bool RecoveryLeaveFastbootd(bool initialize_recovery = false);
 void RecoveryCompleteColdStartup();
