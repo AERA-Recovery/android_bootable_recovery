@@ -67,6 +67,7 @@
 #include "twrpDigest/twrpMD5.hpp"
 #include "twrp-functions.hpp"
 #include "aera_core.hpp"
+#include "aera_flash_log.hpp"
 #include "aeraui/platform/aera_ui_host.hpp"
 #include "twinstall.h"
 #include "installcommand.h"
@@ -709,7 +710,7 @@ static int Run_Update_Binary(const char *path, int* wipe_cache, zip_type ztype) 
 	return INSTALL_SUCCESS;
 }
 
-int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
+static int InstallZipImpl(const char *path, int *wipe_cache, bool check_for_digest)
 {
   int ret_val, zip_verify = 1, unmount_system = 1, reflashtwrp = 0, unmount_vendor = 1;
   bool run_rom_scripts = false;
@@ -990,4 +991,9 @@ int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest)
    }
 
   return ret_val;
+}
+
+int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest) {
+  aera::flashlog::Recording recording(path ? path : "", "ZIP installer");
+  return recording.Finish(InstallZipImpl(path, wipe_cache, check_for_digest));
 }

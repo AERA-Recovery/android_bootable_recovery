@@ -35,6 +35,7 @@ public:
 	void SetFileVersion(int version);
 	void SetConst();
 	void Clear();
+	map<string, string> GetValues() const { return mValues; }
 	int LoadValues();
 	int SaveValues();
 
@@ -62,4 +63,3 @@ private:
 };
 
 #endif // _DATAMANAGER_HPP_HEADER
-

@@ -470,6 +470,18 @@ exit:
   return ret;
 }
 
+map<string, string> DataManager::GetDiagnosticSettings()
+{
+  if (!mInitialized) SetDefaultValues();
+  pthread_mutex_lock(&m_valuesLock);
+  auto values = mPersist.GetValues();
+  for (const auto &entry : mData.GetValues())
+    if (entry.first.compare(0, 5, "aera_") == 0)
+      values.emplace(entry.first, entry.second);
+  pthread_mutex_unlock(&m_valuesLock);
+  return values;
+}
+
 int DataManager::GetValue(const string & varName, int &value)
 {
   string data;

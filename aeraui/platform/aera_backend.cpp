@@ -41,6 +41,7 @@
 #include <android-base/properties.h>
 
 #include "data.hpp"
+#include "aera_flash_log.hpp"
 #include "aera_secrets/aera_secrets.hpp"
 #include "aeraui/features/root/root_manager.hpp"
 #include "partitions.hpp"
@@ -940,7 +941,25 @@ std::atomic<int> gPayloadVerifyProgress{0};
 payload::FlashProgressStore gPayloadProgress;
 }
 PayloadFlashProgress RecoveryPayloadFlashProgress() { return gPayloadProgress.Read(); }
+static int RecoveryRunJobImpl(const JobRequest &request);
 int RecoveryRunJob(const JobRequest &request) {
+  const char *method = request.job == Job::kInstall ? "ZIP installation" :
+      request.job == Job::kSideload ? "ADB sideload" :
+      request.job == Job::kFlashPayload ? "Advanced payload flash" :
+      request.job == Job::kFlashImage ? "Image flash" : nullptr;
+  if (!method) return RecoveryRunJobImpl(request);
+  std::string details = request.title;
+  if (!request.name.empty()) details += " / file name: " + request.name;
+  if (request.job == Job::kFlashImage) details += request.both_slots ? " / both slots" : " / current slot";
+  if (request.job == Job::kFlashPayload)
+    details += std::string(" / direct=") + (request.payload_direct ? "1" : "0") +
+        " / full=" + (request.payload_full ? "1" : "0") +
+        " / manual protection override=" + (request.payload_override_protection ? "1" : "0");
+  for (const auto &partition : request.partitions) details += " / " + partition;
+  aera::flashlog::Recording recording(request.path, method, details);
+  return recording.Finish(RecoveryRunJobImpl(request));
+}
+static int RecoveryRunJobImpl(const JobRequest &request) {
   if (request.job == Job::kFormatData && !FormatDataAuthorized(request)) return 1;
   if (request.job == Job::kClearSnapshotCow &&
       !SnapshotCowCleanupAuthorized(request)) return 1;

@@ -99,3 +99,8 @@
 #deviceDetails dd{white-space:pre-wrap;word-break:break-word}
 #actionText{white-space:pre-wrap}
 @media(max-width:760px){.workspace>section:nth-child(2){grid-column:1;grid-row:2}.tabs{gap:0}.tabs button{font-size:14px;padding:10px 6px}.file-list{max-height:360px}.package-info .review div{grid-template-columns:minmax(0,36%) minmax(0,1fr)}}
+.flash-reports{display:grid;gap:10px;color:var(--muted)}
+.flash-report{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--line)}
+.flash-report strong,.flash-report small{display:block;overflow-wrap:anywhere}
+.flash-report strong{color:var(--text);margin-bottom:5px}
+.flash-report button{flex:0 0 48px;width:48px;height:48px;padding:12px}

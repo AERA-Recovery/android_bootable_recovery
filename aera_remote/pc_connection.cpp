@@ -3,6 +3,7 @@
 #include "pc_storage.hpp"
 #include "backup_cancel.hpp"
 #include "pc_terminal.hpp"
+#include "../aera_flash_log.hpp"
 #include "../aeraui/features/backup/app_vault.hpp"
 
 #ifdef OF_ENABLE_WLAN
@@ -1122,6 +1123,20 @@ void QueueBackup(SSL *tls, const Json::Value &body, const std::string &owner) {
   Reply(tls, 200, JsonText(result));
 }
 
+void SendDownload(SSL *tls, int fd, uint64_t bytes, const std::string &name) {
+  const auto header = "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: " +
+      std::to_string(bytes) + "\r\nContent-Disposition: attachment; filename=\"" + name +
+      "\"\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n";
+  bool okay = TlsWrite(tls, header.data(), header.size());
+  std::array<char, 65536> buffer{};
+  while (okay && bytes) {
+    const auto count = read(fd, buffer.data(), std::min<uint64_t>(buffer.size(), bytes));
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) break;
+    okay = TlsWrite(tls, buffer.data(), count); bytes -= count;
+  }
+  close(fd);
+}
 void DownloadFile(SSL *tls, const std::string &ticket) {
   FileAccess access;
   if (!access.acquired) { Error(tls, 409, "Recovery is busy."); return; }
@@ -1834,6 +1849,30 @@ void Handle(SSL *tls, unsigned generation) {
   }
   if (request.method == "GET" && (request.path == "/api/log/logcat" || request.path == "/api/log/kernel")) {
     DiagnosticLog(tls, request.path == "/api/log/kernel"); return;
+  }
+  if (request.method == "GET" && request.path == "/api/log/flashes") {
+    FileAccess access;
+    if (!access.acquired) { Error(tls, 409, "Recovery is busy."); return; }
+    Json::Value result(Json::objectValue); result["reports"] = Json::Value(Json::arrayValue);
+    for (const auto &report : aera::flashlog::Reports()) {
+      Json::Value entry;
+      entry["name"] = report.name; entry["bytes"] = Json::UInt64(report.bytes);
+      entry["timestamp"] = Json::Int64(report.timestamp);
+      entry["result"] = report.name.find("_SUCCESS.zip") != std::string::npos ? "Success" :
+          report.name.find("_FAILED.zip") != std::string::npos ? "Failed" : "Incomplete";
+      result["reports"].append(entry);
+    }
+    Reply(tls, 200, JsonText(result)); return;
+  }
+  if (request.method == "GET" && request.path.compare(0, 15, "/api/log/flash/") == 0) {
+    FileAccess access;
+    if (!access.acquired) { Error(tls, 409, "Recovery is busy."); return; }
+    uint64_t bytes = 0;
+    const auto name = request.path.substr(15);
+    const int fd = aera::flashlog::OpenReport(name, &bytes);
+    if (fd < 0) Error(tls, 404, "Flash report is no longer available.");
+    else SendDownload(tls, fd, bytes, name);
+    return;
   }
   if (request.method == "GET" && request.path == "/api/status") {
     keep_connection = request.length == 0;

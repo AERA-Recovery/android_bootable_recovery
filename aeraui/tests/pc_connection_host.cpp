@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "../../aera_remote/pc_connection.hpp"
 #include "../../aera_remote/pc_storage.hpp"
+#include "../../aera_flash_log.hpp"
 #include "../features/update/payload_inspector.hpp"
 #include "../features/update/payload_arb.hpp"
 #include "../features/root/root_manager.hpp"
@@ -167,6 +168,13 @@ DeviceArb ReadDeviceArb() { return {{true, 2, "Fixture slot A"}, {true, 2, "Fixt
 ArbDecision CompareArb(bool includes_firmware, const Arb &package, const DeviceArb &) {
   return !includes_firmware ? ArbDecision::NotApplicable : package.index < 2 ? ArbDecision::Downgrade :
       package.index > 2 ? ArbDecision::Upgrade : ArbDecision::Same;
+}
+}
+
+namespace aera::flashlog {
+Options PlatformOptions(const std::string &, const std::string &, const std::string &) { return {}; }
+std::vector<std::string> PlatformDirectories() {
+  return {storage + "/AERA/logs/FlashLogs"};
 }
 }
 

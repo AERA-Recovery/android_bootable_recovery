@@ -57,6 +57,7 @@ public:
 	static int _SetProgress(float Fraction);
 	static int ShowProgress(float Portion, const float Seconds);
 	static void DumpValues();
+	static map<string, string> GetDiagnosticSettings();
 	static void update_tz_environment_variables();
 	static void Vibrate(const string& varName);
 	static void SetBackupFolder();
@@ -94,4 +95,3 @@ private:
 };
 
 #endif // _DATAMANAGER_HPP_HEADER
-

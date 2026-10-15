@@ -4,6 +4,7 @@ import hashlib
 import base64
 import http.client
 import http.server
+import io
 import json
 import os
 import pathlib
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zipfile
 
 
 class PcConnectionTest(unittest.TestCase):
@@ -495,6 +497,37 @@ class PcConnectionTest(unittest.TestCase):
         self.assertEqual(self.request("/api/hello", token="")[1]["certificate"], hello["certificate"])
         _, approved = self.request("/api/connect", {"key": self.key, "name": "Test computer"}, token="")
         type(self).token = approved["token"]
+
+    def test_05bb_flash_reports_are_authenticated_bounded_downloads(self):
+        folder = self.root / "AERA" / "logs" / "FlashLogs"
+        folder.mkdir(parents=True, exist_ok=True)
+        names = []
+        for index, result in enumerate(("SUCCESS", "FAILED", "INCOMPLETE")):
+            name = f"flash_20261015_10000{index}_ABCDEF_{result}.zip"
+            names.append(name)
+            with zipfile.ZipFile(folder / name, "w") as report:
+                report.writestr("summary.txt", f"Result: {result}\nKeep current ABL: 1\n")
+                report.writestr("logcat.txt", "diagnostic fixture\n")
+            os.utime(folder / name, (100 + index, 100 + index))
+        unrelated = folder / "keep.zip"
+        unrelated.write_bytes(b"not an automatic report")
+        self.assertEqual(self.request("/api/log/flashes", token="")[0], 401)
+        self.assertEqual(self.request("/api/log/flash/" + names[-1], token="")[0], 401)
+        status, result = self.request("/api/log/flashes")
+        self.assertEqual(status, 200)
+        self.assertEqual([entry["name"] for entry in result["reports"]], list(reversed(names[1:])))
+        self.assertFalse((folder / names[0]).exists())
+        self.assertTrue(unrelated.exists())
+        status, content = self.request("/api/log/flash/" + names[-1], raw=True)
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(content)) as report:
+            self.assertIn(b"Keep current ABL: 1", report.read("summary.txt"))
+        self.assertEqual(self.request("/api/log/flash/keep.zip")[0], 404)
+        self.assertNotEqual(self.request("/api/log/flash/../keep.zip")[0], 200)
+        self.command("busy")
+        self.assertEqual(self.request("/api/log/flashes")[0], 409)
+        self.assertEqual(self.request("/api/log/flash/" + names[-1])[0], 409)
+        self.command("idle")
 
     def test_05c_root_and_reboot_are_confirmed_queued_jobs(self):
         self.command("run")
