@@ -4,6 +4,7 @@
  */
 #include "scene.hpp"
 #include "../../aera_remote/backup_cancel.hpp"
+#include "../../aera_shared_storage.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -889,6 +890,7 @@ void Worker(State *state, Work work, std::vector<std::string> paths,
     state->done.store(true, std::memory_order_release);
     return;
   }
+  aera::shared_storage::RepairOnExit shared_permissions(state->repository);
   std::string output;
   std::vector<std::string> arguments;
   appvault::RestoreRegistration registration;

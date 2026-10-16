@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "operations.hpp"
+#include "../../../aera_shared_storage.hpp"
 #include <aeraui/i18n.hpp>
 
 #include "../../../aera_remote/aera_remote.hpp"
@@ -490,6 +491,10 @@ bool RunOperation(const plugins::Plugin& plugin, Operation operation, std::strin
     result = "Shared recovery storage is locked or unavailable.";
     return false;
   }
+  aera::shared_storage::RepairOnExit shared_backup_permissions(
+      std::string(kAeraDirectory) + "/" + kBackupDirectory);
+  aera::shared_storage::RepairOnExit shared_preferences_permissions(
+      std::string(kAeraDirectory) + "/" + kSettingsFile);
 
   if (operation == Operation::kBackupSettings || operation == Operation::kRestoreSettings) {
     const bool success = operation == Operation::kBackupSettings

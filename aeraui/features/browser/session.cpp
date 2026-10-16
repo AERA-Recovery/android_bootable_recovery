@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "session.hpp"
+#include "../../../aera_shared_storage.hpp"
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -46,6 +47,7 @@ void RestoreDownloadStorage(const std::string *single = nullptr) {
   if (directory < 0) return;
   if (single) {
     NormalizeDownload(directory, *single);
+    aera::shared_storage::Normalize("/sdcard/AERA/Downloads/" + *single);
     // Keep the directory writable by the isolated browser for the remainder
     // of this session. Only the completed file returns to media_rw here;
     // closing Browser restores the directory and any remaining partial files.
@@ -64,6 +66,7 @@ void RestoreDownloadStorage(const std::string *single = nullptr) {
   }
   fchmod(directory, 0770);
   close(directory);
+  aera::shared_storage::Normalize("/sdcard/AERA/Downloads", true);
 }
 }
 

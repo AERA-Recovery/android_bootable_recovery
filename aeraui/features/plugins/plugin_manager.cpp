@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "plugin_manager.hpp"
+#include "../../../aera_shared_storage.hpp"
 #include "store_metadata.hpp"
 
 #include <aeraui/i18n.hpp>
@@ -778,6 +779,7 @@ bool InstallLocal(const Request &request, Location location,
     return false;
   }
   RemoveTree(previous);
+  aera::shared_storage::Normalize(final, true);
   progress.status = bundle.plugin.name +
       (bundle.plugin.trust == Trust::kOfficial
            ? " installed"
@@ -826,6 +828,7 @@ bool Refresh(Progress &progress) {
            (std::string(kPersistentCacheRoot) + "/catalog.json").c_str());
     rename((std::string(kPersistentCacheRoot) + "/catalog.json.sig.new").c_str(),
            (std::string(kPersistentCacheRoot) + "/catalog.json.sig").c_str());
+    aera::shared_storage::Normalize(kPersistentCacheRoot, true);
   }
   {
     std::lock_guard<std::mutex> lock(gCatalogMutex);
@@ -927,6 +930,7 @@ bool Install(const std::string &id, Location location, Progress &progress) {
   if (!RemoveTree(final) || rename(staging.c_str(), final.c_str())) {
     RemoveTree(staging); progress.error = "Could not publish the verified plugin."; return false;
   }
+  aera::shared_storage::Normalize(final, true);
   progress.status =
       i18n::Format("%s installed", plugin.name.c_str());
   progress.value.store(100);

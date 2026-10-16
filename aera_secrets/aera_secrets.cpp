@@ -4,6 +4,7 @@
  */
 
 #include "aera_secrets.hpp"
+#include "../aera_shared_storage.hpp"
 
 #include <algorithm>
 #include <array>
@@ -279,6 +280,10 @@ bool WriteDocument(const char* path, Json::Value root) {
   if (!okay || rename(temporary.c_str(), path) != 0) {
     unlink(temporary.c_str());
     return false;
+  }
+  if (!aera::shared_storage::detail::MediaPath(path).empty()) {
+    aera::shared_storage::Normalize(path);
+    return true;
   }
   return chmod(path, 0600) == 0;
 }

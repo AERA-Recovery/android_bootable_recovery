@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "service.hpp"
+#include "../../../aera_shared_storage.hpp"
 #include "../../core/operation_affinity.hpp"
 
 #include "protocol.hpp"
@@ -283,6 +284,7 @@ class Service {
           next_frame_ns_ = started_ns_;
         }
       } else if (message.kind == Kind::kDone) {
+        aera::shared_storage::Normalize(path_);
         status_ = "Saved to AERA/Recordings";
         state_ = State::kIdle;
         CloseChannel();

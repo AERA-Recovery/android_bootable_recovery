@@ -46,6 +46,7 @@
 #include "aeraui/features/root/root_manager.hpp"
 #include "partitions.hpp"
 #include "twrp-functions.hpp"
+#include "../../aera_shared_storage.hpp"
 #include "variables.h"
 #include <set_metadata.h>
 #include "aeraui/platform/aera_ui_host.hpp"
@@ -1216,6 +1217,7 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
     std::vector<char> folder(pattern.begin(), pattern.end()); folder.push_back('\0');
     if (!mkdtemp(folder.data())) return fail("Cannot create a new extraction folder");
     const std::string directory(folder.data());
+    aera::shared_storage::RepairOnExit shared_extraction_permissions(directory);
     struct Performance {
       Performance() { TWFunc::SetPerformanceMode(true); }
       ~Performance() {
@@ -2637,6 +2639,7 @@ bool WriteFileAtomically(const std::string& path, const std::string& contents) {
     return false;
   }
   chmod(path.c_str(), 0600);
+  aera::shared_storage::Normalize(path);
   return true;
 }
 
@@ -2763,6 +2766,13 @@ void LoadAeraPreferencesIfAvailable() {
   CaptureEarlyDefaultsIfNeeded();
   LoadEarlyUiPreferencesIfAvailable();
   static bool loaded = false;
+  static std::atomic<bool> shared_repair_started{false};
+  struct stat shared_info{};
+  if (!shared_repair_started &&
+      lstat("/data/media/0/AERA", &shared_info) == 0 && S_ISDIR(shared_info.st_mode) &&
+      !shared_repair_started.exchange(true)) {
+    std::thread([] { aera::shared_storage::NormalizeAll(); }).detach();
+  }
   if (loaded) return;
   std::ifstream input(kAeraPreferencesPath);
   // Before decryption /data/media/0 is intentionally unavailable. Leave the
@@ -2933,6 +2943,7 @@ bool SaveNasProfile(const NasConfig &config) {
   output.close();
   if (rename(temporary.c_str(), kNasProfilePath) != 0) return false;
   chmod(kNasProfilePath, 0600);
+  aera::shared_storage::Normalize(kNasProfilePath);
   return true;
 }
 

@@ -4,6 +4,7 @@
  */
 
 #include "aeraui/runner.hpp"
+#include "../../aera_shared_storage.hpp"
 #include "operation_affinity.hpp"
 
 #include <linux/input.h>
@@ -246,6 +247,7 @@ void CaptureHardwareScreenshot(Engine& engine) {
                      ? gr_save_screenshot_rotated(path.c_str(), 270)
                      : gr_save_screenshot(path.c_str())) == 0;
         if (saved) {
+            aera::shared_storage::Normalize(path);
             __android_log_print(ANDROID_LOG_INFO, kLogTag,
                                 "hardware screenshot saved to %s", path.c_str());
         }

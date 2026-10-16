@@ -35,6 +35,7 @@
 #include <android-base/properties.h>
 #include <private/android_filesystem_config.h>
 #include "selinux/selinux.h"
+#include "../aera_shared_storage.hpp"
 
 static security_context_t selinux_context;
 struct stat s;
@@ -70,6 +71,8 @@ int tw_get_default_metadata(const char* filename) {
 // to set contexts and permissions on file systems that do not support
 // these types of things (e.g. vfat / FAT / FAT32).
 int tw_set_default_metadata(const char* filename) {
+	if (!aera::shared_storage::detail::MediaPath(filename).empty())
+		return aera::shared_storage::Normalize(filename) ? 0 : -1;
 	int ret = 0;
 	struct stat st;
 	bool selinux_context_needs_substitution = false;

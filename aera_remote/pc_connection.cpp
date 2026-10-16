@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "pc_connection.hpp"
+#include "../aera_shared_storage.hpp"
 #include "pc_storage.hpp"
 #include "backup_cancel.hpp"
 #include "pc_terminal.hpp"
@@ -212,6 +213,7 @@ bool MakeDirectories(const std::string &path) {
       return false;
     }
   }
+  aera::shared_storage::Normalize(path);
   return true;
 }
 bool WriteAll(int fd, const char *bytes, size_t size) {
@@ -230,6 +232,7 @@ bool AtomicFile(const std::string &path, const std::string &text) {
   bool ok = fchmod(fd, 0600) == 0 && WriteAll(fd, text.data(), text.size()) && fsync(fd) == 0;
   if (close(fd) != 0) ok = false;
   if (!ok || rename(temporary.c_str(), path.c_str()) != 0) { unlink(temporary.c_str()); return false; }
+  aera::shared_storage::Normalize(path);
   return true;
 }
 void RemoveTransferFiles(const Transfer &transfer) {
@@ -1607,6 +1610,7 @@ void FetchTransfer(Transfer transfer, const std::string &url, unsigned generatio
   if (failure.empty() && !current()) failure = "Download cancelled. No installation was started.";
   if (failure.empty() && rename(partial.c_str(), transfer.path.c_str()) != 0)
     failure = "Could not finalize the downloaded file.";
+  if (failure.empty()) aera::shared_storage::Normalize(transfer.path);
   Json::Value package_info(Json::objectValue);
   if (failure.empty() && !image) package_info = InspectPackage(transfer);
   {
@@ -1697,6 +1701,7 @@ void Upload(SSL *tls, const HttpRequest &request, const std::string &owner, unsi
     if (g_transfer.cancel_requested) failure = "Transfer cancelled. No installation was started.";
     if (failure.empty() && rename(partial.c_str(), transfer.path.c_str()) != 0)
       failure = "Could not finalize the transferred file.";
+    if (failure.empty()) aera::shared_storage::Normalize(transfer.path);
     if (failure.empty() && transfer.save_path.empty() && transfer.request.job == aeraui::Job::kInstall)
       g_transfer.detail = "Reading package information...";
   }

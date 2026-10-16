@@ -52,6 +52,7 @@
 #include <private/android_filesystem_config.h>
 
 #include "twrp-functions.hpp"
+#include "aera_shared_storage.hpp"
 #include "aera_log_history.hpp"
 #include "aera_core.hpp"
 #include "abx-functions.hpp"
@@ -1304,6 +1305,7 @@ int TWFunc::copy_file(string src, string dst, int mode, bool mount_paths) {
 		LOGERR("Unable to chmod file: %s. Error: %s\n", dst.c_str(), strerror(errno));
 		return -1;
 	}
+	aera::shared_storage::Normalize(dst);
 	return 0;
 }
 
@@ -2093,6 +2095,7 @@ bool TWFunc::Create_Dir_Recursive(const std::string & path, mode_t mode,
 	  chown(cur_path.c_str(), uid, gid);
 	}
     }
+  aera::shared_storage::Normalize(path);
   return true;
 }
 
@@ -5154,6 +5157,10 @@ bool TWFunc::IsRecoveryOverwritten(bool only_update) {
 }
 
 void TWFunc::set_media_rw_permissions(const string pathname) {
+	if (!aera::shared_storage::detail::MediaPath(pathname).empty()) {
+		aera::shared_storage::Normalize(pathname);
+		return;
+	}
 	if (Path_Exists(pathname)) {
 		setfilecon(pathname.c_str(), AERA_MEDIA_RW_DATA_FILE);
 		chown(pathname.c_str(), AID_MEDIA_RW, AID_MEDIA_RW);
@@ -5161,6 +5168,7 @@ void TWFunc::set_media_rw_permissions(const string pathname) {
 }
 
 void TWFunc::update_permissions_on_reboot() {
+  aera::shared_storage::NormalizeAll();
   if (android::base::GetProperty("ro.aera.substitute_permissions", "") == "1") {
 	TWFunc::set_media_rw_permissions(Aera_Settings_Path);
 	TWFunc::set_media_rw_permissions(AERA_NAVBAR_PATH);

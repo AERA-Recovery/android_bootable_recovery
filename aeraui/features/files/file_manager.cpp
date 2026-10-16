@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include "file_manager.hpp"
+#include "../../../aera_shared_storage.hpp"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -709,12 +710,16 @@ bool WriteTextAtomic(const std::string& path, const std::string& text, std::stri
     okay = false;
   }
   if (okay) SyncParentDirectory(path);
+  if (okay) aera::shared_storage::Normalize(path);
   if (!okay) unlink(temporary.c_str());
   return okay;
 }
 
 bool CreateDirectory(const std::string& path, std::string& error) {
-  if (mkdir(path.c_str(), 0755) == 0) return true;
+  if (mkdir(path.c_str(), 0755) == 0) {
+    aera::shared_storage::Normalize(path);
+    return true;
+  }
   error = Error("Cannot create folder", path);
   return false;
 }
@@ -724,7 +729,10 @@ bool Rename(const std::string& source, const std::string& destination, std::stri
     error = "An item with this name already exists.";
     return false;
   }
-  if (rename(source.c_str(), destination.c_str()) == 0) return true;
+  if (rename(source.c_str(), destination.c_str()) == 0) {
+    aera::shared_storage::Normalize(destination, true);
+    return true;
+  }
   error = Error("Cannot rename", source);
   return false;
 }
@@ -766,6 +774,7 @@ void Run(const Request& request, Progress& progress) {
     }
 
     std::string destination = Join(request.destination, BaseName(source));
+    aera::shared_storage::RepairOnExit shared_permissions(destination);
     std::string replacement_backup;
     if (!PrepareDestination(source, destination, request, progress, replacement_backup)) continue;
     if (request.operation == Operation::kMove && rename(source.c_str(), destination.c_str()) == 0) {

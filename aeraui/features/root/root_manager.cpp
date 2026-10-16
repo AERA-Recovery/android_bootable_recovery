@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include "root_manager.hpp"
+#include "../../../aera_shared_storage.hpp"
 #include "kernel_kmi.hpp"
 #include "module_assets.hpp"
 
@@ -1756,6 +1757,7 @@ bool Run(const Request &request, Progress &progress) {
     return false;
   }
   progress.value.store(0); progress.downloaded.store(0); progress.total.store(0);
+  aera::shared_storage::RepairOnExit shared_permissions(kRoot);
   switch (request.job) {
     case Job::kRefreshRelease: {
       Release release;

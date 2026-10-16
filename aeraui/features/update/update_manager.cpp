@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "update_manager.hpp"
+#include "../../../aera_shared_storage.hpp"
 
 #include <algorithm>
 #include <array>
@@ -496,6 +497,7 @@ bool PrepareDownload() {
 }
 
 bool Download() {
+  aera::shared_storage::RepairOnExit shared_permissions(kUpdateRoot);
   Snapshot snapshot = GetSnapshot();
   if (!snapshot.available || snapshot.release.size == 0) {
     SetPhase(Phase::kError, "No recovery update is ready to download", false);

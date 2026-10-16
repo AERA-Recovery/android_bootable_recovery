@@ -322,3 +322,7 @@ foreach(target frp_wipe_enabled_test frp_wipe_disabled_test)
   add_test(NAME ${target} COMMAND ${target})
 endforeach()
 target_compile_definitions(frp_wipe_enabled_test PRIVATE AERA_ENABLE_FRP_WIPE=1)
+
+add_executable(shared_storage_test shared_storage_test.cpp)
+target_compile_options(shared_storage_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME shared_storage_android_access COMMAND shared_storage_test)

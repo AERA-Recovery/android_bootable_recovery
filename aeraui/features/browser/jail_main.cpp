@@ -140,12 +140,10 @@ static void PrepareBrowserStorage() {
       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   close(aera);
   if (downloads < 0) Die("safe AERA downloads directory");
-  // WebKit keeps no storage-related supplementary groups. Temporarily make
-  // only this directory writable by its dedicated UID; the trusted host
-  // restores media_rw ownership after each transfer and when the session
-  // closes.
-  Check(fchown(downloads, kBrowserUid, kBrowserUid), "downloads ownership");
-  Check(fchmod(downloads, 0700), "downloads permissions");
+  // WebKit writes as its dedicated UID; Android keeps shared-storage access
+  // through media_rw. The browser's private profile below remains separate.
+  Check(fchown(downloads, kBrowserUid, kMediaRwGid), "downloads ownership");
+  Check(fchmod(downloads, 02770), "downloads permissions");
   close(downloads);
 
   // Keep browser identity outside shared/MTP storage. Only the final profile
