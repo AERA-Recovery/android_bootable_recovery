@@ -2950,8 +2950,33 @@ bool TWPartition::Backup_Tar(PartitionSettings *part_settings, pid_t *tar_fork_p
 			}
 		}
 	}
+	// Scope destination exclusions to this backup, not future backups/restores.
+	TWExclude archive_exclusions = backup_exclusions;
+	if (!part_settings->adbbackup) {
+		if (!archive_exclusions.add_directory_identity(part_settings->Backup_Folder)) {
+			LOGERR("Cannot identify backup destination; refusing unsafe archive\n");
+			return false;
+		}
+		// Exclude previous backups too, when using the configured backup root.
+		string root = DataManager::GetStrValue(TW_BACKUPS_FOLDER_VAR);
+		root = TWFunc::Remove_Trailing_Slashes(root);
+		if (!root.empty() && part_settings->Backup_Folder.compare(0, root.size() + 1, root + "/") == 0) {
+			string parent = root.substr(0, root.find_last_of('/'));
+			if (TWFunc::Get_Filename(parent) == "BACKUPS")
+				root = parent;
+			if (!archive_exclusions.add_directory_identity(root)) {
+				LOGERR("Cannot identify backup root; refusing unsafe archive\n");
+				return false;
+			}
+			LOGINFO("Archive excludes backup directory: %s (including storage aliases)\n", root.c_str());
+		}
+		if (archive_exclusions.check_skip_dirs(Backup_Path)) {
+			LOGERR("Backup source is also the backup destination\n");
+			return false;
+		}
+	}
 	tar.part_settings = part_settings;
-	tar.backup_exclusions = &backup_exclusions;
+	tar.backup_exclusions = &archive_exclusions;
 	tar.setdir(Backup_Path);
 	tar.setfn(Full_FileName);
 	tar.setsize(Backup_Size);

@@ -58,6 +58,15 @@ void TWExclude::add_absolute_dir(const string& dir) {
 	absolutedir.push_back(TWFunc::Remove_Trailing_Slashes(dir));
 }
 
+bool TWExclude::add_directory_identity(const string& path) {
+	struct stat st;
+	if (stat(path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+		return false;
+	directory_identities.emplace_back(st.st_dev, st.st_ino);
+	add_absolute_dir(path);
+	return true;
+}
+
 uint64_t TWExclude::Get_Folder_Size(const string& Path) {
 	DIR* d;
 	struct dirent* de;
@@ -112,7 +121,17 @@ bool TWExclude::check_relative_skip_dirs(const string& dir) {
 }
 
 bool TWExclude::check_absolute_skip_dirs(const string& path) {
-	return std::find(absolutedir.begin(), absolutedir.end(), path) != absolutedir.end();
+	if (std::find(absolutedir.begin(), absolutedir.end(), path) != absolutedir.end())
+		return true;
+	// Match bind mounts and symlinked storage roots without following file
+	// symlinks during traversal. The archive must never consume its own output.
+	if (!directory_identities.empty()) {
+		struct stat st;
+		if (lstat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
+			return std::find(directory_identities.begin(), directory_identities.end(),
+			                 make_pair(st.st_dev, st.st_ino)) != directory_identities.end();
+	}
+	return false;
 }
 
 bool TWExclude::check_skip_dirs(const string& path) {

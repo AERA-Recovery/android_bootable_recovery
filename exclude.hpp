@@ -21,6 +21,8 @@
 
 #include <string>
 #include <vector>
+#include <utility>
+#include <sys/types.h>
 
 using namespace std;
 
@@ -30,6 +32,7 @@ public:
 	TWExclude();
 	uint64_t Get_Folder_Size(const string& Path); // Gets the folder's size using stat
 	void add_absolute_dir(const string& Path);
+	bool add_directory_identity(const string& Path);
 	void add_relative_dir(const string& Path);
 	bool check_relative_skip_dirs(const string& dir);
 	bool check_absolute_skip_dirs(const string& path);
@@ -38,6 +41,7 @@ public:
 private:
 	vector<string> absolutedir;
 	vector<string> relativedir;
+	vector<pair<dev_t, ino_t>> directory_identities;
 };
 
 #endif

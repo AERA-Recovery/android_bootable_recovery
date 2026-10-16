@@ -1735,7 +1735,7 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 		disable_free_space_check = true;
 
 	if (!disable_free_space_check) {
-		if (free_space - (32 * 1024 * 1024) < total_bytes) {
+		if (free_space < (32 * 1024 * 1024) || free_space - (32 * 1024 * 1024) < total_bytes) {
 			// We require an extra 32MB just in case
 			gui_err("no_space=Not enough free space on storage.");
 			return false;
@@ -1779,18 +1779,7 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 		backup_path = Backup_List.substr(start_pos, end_pos - start_pos);
 		part_settings.Part = Find_Partition_By_Path(backup_path);
 		if (part_settings.Part != NULL) {
-// DJ9 20/08/2018 { - check for someone trying to back up internal storage onto internal storage
-      		if ((strstr(backup_path.c_str(), "/storage")) || (strstr(backup_path.c_str(), "/data/media/0")))
-        	{ 
-          	   if (strstr(part_settings.Backup_Folder.c_str(), "data/media/0"))
-             		{
-			   gui_err("fox_internal_fatal_i1=AERA: FATAL ERROR! You cannot backup Internal Storage onto itself!");
-                	   gui_err("fox_internal_fatal_i2=You MUST change the backup destination to MicroSD/USB-OTG.");
-                	   return false;
-             		} 
-			   else gui_msg("fox_internal_q1=AERA - Internal Storage - take care!");
-        	}
-// DJ9 20/08/2018 }
+			// Backup_Tar excludes the output directory, including storage aliases.
 			if (!Backup_Partition(&part_settings))
 				return false;
 		} else {
