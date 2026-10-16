@@ -61,7 +61,14 @@ bool Active() { return gPicture && gPicture->pixels; }
 
 const std::string &Path() { return gPath; }
 
-bool Attach(lv_obj_t *target) {
+int PreviewHeight(int width, int fallback) {
+  if (!Active() || gPicture->width == 0) return fallback;
+  return std::max(1, static_cast<int>(
+      (static_cast<int64_t>(width) * gPicture->height + gPicture->width / 2) /
+      gPicture->width));
+}
+
+bool Attach(lv_obj_t *target, bool contain) {
   if (!target || !Active()) return false;
   auto *instance = new Instance;
   instance->picture = gPicture;
@@ -79,7 +86,7 @@ bool Attach(lv_obj_t *target) {
   lv_obj_set_pos(image, 0, 0);
   lv_obj_set_size(image, LV_PCT(100), LV_PCT(100));
   lv_image_set_src(image, &descriptor);
-  lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
+  lv_image_set_inner_align(image, contain ? LV_IMAGE_ALIGN_CONTAIN : LV_IMAGE_ALIGN_COVER);
   lv_image_set_antialias(image, true);
   lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(image, LV_OBJ_FLAG_SCROLLABLE);

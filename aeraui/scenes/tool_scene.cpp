@@ -1649,16 +1649,18 @@ void BuildTheme(Tools *state) {
   auto *wallpaper_card = lv_obj_create(state->list);
   Panel(wallpaper_card, 32, kMainPanel);
   lv_obj_set_pos(wallpaper_card, 16, 760);
-  lv_obj_set_size(wallpaper_card, 1280, 220);
+  const int wallpaper_preview_height = std::max(172, wallpaper::PreviewHeight(260, 172));
+  const int wallpaper_card_height = std::max(296, wallpaper_preview_height + 48);
+  lv_obj_set_size(wallpaper_card, 1280, wallpaper_card_height);
   auto *wallpaper_preview = lv_obj_create(wallpaper_card);
   Clear(wallpaper_preview);
   lv_obj_set_pos(wallpaper_preview, 24, 24);
-  lv_obj_set_size(wallpaper_preview, 260, 172);
+  lv_obj_set_size(wallpaper_preview, 260, wallpaper_preview_height);
   lv_obj_set_style_radius(wallpaper_preview, 24, 0);
   lv_obj_set_style_clip_corner(wallpaper_preview, true, 0);
   lv_obj_set_style_bg_color(wallpaper_preview, kMainSheet, 0);
   lv_obj_set_style_bg_opa(wallpaper_preview, LV_OPA_COVER, 0);
-  const bool custom_wallpaper = wallpaper::Attach(wallpaper_preview);
+  const bool custom_wallpaper = wallpaper::Attach(wallpaper_preview, true);
   if (!custom_wallpaper) {
     auto *image = Label(wallpaper_preview, LV_SYMBOL_IMAGE,
                         &lv_font_montserrat_48, kMuted);
@@ -1667,7 +1669,7 @@ void BuildTheme(Tools *state) {
   auto *wallpaper_title = Label(
       wallpaper_card, custom_wallpaper ? "Custom wallpaper" : "Appearance background",
       &lv_font_montserrat_28, kText);
-  lv_obj_set_pos(wallpaper_title, 316, 30);
+  lv_obj_set_pos(wallpaper_title, 316, wallpaper_card_height / 2 - 55);
   const std::string selected_wallpaper = RecoveryWallpaperPath();
   const size_t wallpaper_slash = selected_wallpaper.find_last_of('/');
   const std::string wallpaper_detail = custom_wallpaper
@@ -1676,13 +1678,13 @@ void BuildTheme(Tools *state) {
       : "Graphite, Light or AMOLED supplies the background";
   auto *wallpaper_copy = Label(wallpaper_card, wallpaper_detail.c_str(),
                                &lv_font_montserrat_20, kMuted);
-  lv_obj_set_pos(wallpaper_copy, 316, 88);
+  lv_obj_set_pos(wallpaper_copy, 316, wallpaper_card_height / 2 + 3);
   SingleLineLabel(wallpaper_copy, 470, &lv_font_montserrat_20);
   auto *choose_wallpaper = Button(wallpaper_card, "Choose image", [state] {
     OpenWallpaperPicker(state);
   });
-  lv_obj_set_pos(choose_wallpaper, 816, 28);
-  lv_obj_set_size(choose_wallpaper, 424, 76);
+  lv_obj_set_pos(choose_wallpaper, 816, wallpaper_card_height / 2 - 116);
+  lv_obj_set_size(choose_wallpaper, 424, 108);
   auto *clear_wallpaper = Button(wallpaper_card, "Reset wallpaper", [state] {
     if (!RecoverySetWallpaperPath({})) {
       Sheet(state->screen, "Wallpaper unavailable",
@@ -1692,8 +1694,8 @@ void BuildTheme(Tools *state) {
     wallpaper::Clear();
     RefreshTheme(state);
   });
-  lv_obj_set_pos(clear_wallpaper, 816, 116);
-  lv_obj_set_size(clear_wallpaper, 424, 76);
+  lv_obj_set_pos(clear_wallpaper, 816, wallpaper_card_height / 2 + 8);
+  lv_obj_set_size(clear_wallpaper, 424, 108);
   if (!custom_wallpaper) {
     lv_obj_add_state(clear_wallpaper, LV_STATE_DISABLED);
     lv_obj_set_style_opa(clear_wallpaper, LV_OPA_40, LV_STATE_DISABLED);
@@ -2289,6 +2291,13 @@ void BuildTheme(Tools *state) {
   });
   lv_obj_set_pos(reset, 16, reset_y);
   lv_obj_set_size(reset, 1280, 124);
+
+  // Preserve all section spacing below the variable-height wallpaper card.
+  for (uint32_t i = lv_obj_get_index(surface_section);
+       i < lv_obj_get_child_count(state->list); ++i) {
+    auto *child = lv_obj_get_child(state->list, i);
+    lv_obj_set_y(child, lv_obj_get_style_y(child, LV_PART_MAIN) + wallpaper_card_height - 220);
+  }
 
   if (theme_scroll_restore >= 0) {
     lv_obj_update_layout(state->list);
