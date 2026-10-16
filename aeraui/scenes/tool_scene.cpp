@@ -2968,23 +2968,53 @@ void BuildPcConnection(Tools *state) {
       message);
   state->pc_details = lv_obj_create(state->list);
   Clear(state->pc_details);
-  lv_obj_set_pos(state->pc_details, 24, 432);
-  lv_obj_set_size(state->pc_details, lv_obj_get_width(state->list) - 48, LV_SIZE_CONTENT);
+  lv_obj_set_pos(state->pc_details, 0, 432);
+  lv_obj_set_size(state->pc_details, lv_obj_get_width(state->list), LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(state->pc_details, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(state->pc_details, 18, 0);
-  auto detail = [state](const char *text, const lv_font_t *font, lv_color_t color) {
-    auto *label = Label(state->pc_details, text, font, color);
+  auto detail = [](lv_obj_t *parent, const char *text, const lv_font_t *font, lv_color_t color) {
+    auto *label = Label(parent, text, font, color);
     lv_obj_set_width(label, LV_PCT(100));
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     return label;
   };
-  detail("USB", &lv_font_montserrat_28, kMuted);
-  detail("adb -d forward tcp:8443 tcp:443", &lv_font_montserrat_36, kText);
-  detail("https://localhost:8443", &lv_font_montserrat_36, kAccent);
-  detail("Wi-Fi", &lv_font_montserrat_28, kMuted);
-  state->pc_address = detail("", &lv_font_montserrat_36, kAccent);
-  detail("SHA-256", &lv_font_montserrat_28, kMuted);
-  state->pc_certificate = detail("", &lv_font_montserrat_24, kMuted);
+  auto section = [state, &detail](const char *title) {
+    auto *card = lv_obj_create(state->pc_details);
+    Panel(card, 32, kMainPanel);
+    lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(card, 32, 0);
+    lv_obj_set_style_pad_row(card, 24, 0);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    detail(card, title, &lv_font_montserrat_28, kText);
+    return card;
+  };
+  auto command = [](lv_obj_t *parent, const char *text, const char *symbol) {
+    auto *card = lv_obj_create(parent);
+    Panel(card, 26, kMainPanel);
+    lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(card, 128, 0);
+    lv_obj_set_style_pad_all(card, 28, 0);
+    lv_obj_set_style_pad_column(card, 26, 0);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START,
+                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    Label(card, symbol, &lv_font_montserrat_28, kAccent);
+    auto *label = Label(card, text, &lv_font_montserrat_36, kMutedStrong);
+    lv_obj_set_width(label, 0);
+    lv_obj_set_flex_grow(label, 1);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    return label;
+  };
+  auto *usb = section("USB");
+  detail(usb, "Run on your computer", &lv_font_montserrat_24, kMuted);
+  command(usb, "adb -d forward tcp:8443 tcp:443", LV_SYMBOL_RIGHT);
+  detail(usb, "Open in your browser", &lv_font_montserrat_24, kMuted);
+  command(usb, "https://localhost:8443", LV_SYMBOL_RIGHT);
+  auto *wifi = section("Wi-Fi");
+  detail(wifi, "Open in your browser", &lv_font_montserrat_24, kMuted);
+  state->pc_address = command(wifi, "", LV_SYMBOL_RIGHT);
+  auto *certificate = section("SHA-256");
+  state->pc_certificate = detail(certificate, "", &lv_font_montserrat_24, kMuted);
   state->pc_forget = Button(state->list, "Forget remembered computers", [state] {
     Sheet(state->screen, "Forget remembered computers", "Remove all saved PC connection approvals?",
         [state] {
@@ -2993,6 +3023,7 @@ void BuildPcConnection(Tools *state) {
         });
   });
   lv_obj_set_size(state->pc_forget, lv_obj_get_width(state->list), 124);
+  Panel(state->pc_forget, 32, kMainPanel);
   RefreshPcConnection(state);
   state->pc_timer = lv_timer_create([](lv_timer_t *timer) {
     RefreshPcConnection(static_cast<Tools *>(lv_timer_get_user_data(timer)));

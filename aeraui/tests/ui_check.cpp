@@ -1380,6 +1380,22 @@ int main(int argc,char **argv) {
           auto *wifi = lv_obj_create(nullptr);
           BuildToolScene(wifi, Action::kPcConnection, RecordAction, nullptr);
           lv_screen_load(wifi); Tick(2);
+          for (const char *text : {"adb -d forward tcp:8443 tcp:443",
+                                   "https://localhost:8443",
+                                   "https://aera.local\nhttps://192.168.1.42"}) {
+            auto *label = FindLabel(wifi, text); assert(label);
+            auto *card = lv_obj_get_parent(label);
+            assert(lv_obj_get_height(card) >= 128);
+            assert(lv_label_get_long_mode(label) == LV_LABEL_LONG_WRAP);
+            AssertContained(label, card);
+            AssertContained(card, lv_obj_get_parent(card));
+            auto *section = lv_obj_get_parent(card);
+            auto *details = lv_obj_get_parent(section);
+            assert(lv_obj_get_x(details) == 0);
+            assert(lv_obj_get_width(section) == lv_obj_get_width(lv_obj_get_parent(details)));
+          }
+          if (!landscape && size == InterfaceSize::kNormal && !strcmp(language, "en"))
+            save("/tmp/aera-pc-command-cards.png");
           for (const char *tag : {"PC connection", "Auto-enable PC connection"}) {
             auto *expected = lv_label_create(wifi);
             lv_label_set_text(expected, i18n::Translate(tag));
