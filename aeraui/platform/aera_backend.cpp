@@ -2104,6 +2104,12 @@ constexpr const char *kAeraPreferencesPath =
 constexpr const char *kNasProfilePath =
     "/data/media/0/AERA/network_storage.conf";
 
+#ifdef OF_ENABLE_WLAN
+bool gEarlyWifiInitialized = false;
+AeraSecrets::WlanSession gEarlyWifiDefaults;
+#endif
+bool gPrimaryWifiPreferencesLoaded = false;
+
 #ifdef OF_ALLOW_EARLY_SETTINGS_LOAD
 #ifdef OF_SETTINGS_ROOT_DIRECTORY
 constexpr const char* kAeraEarlyPreferencesRoot = OF_SETTINGS_ROOT_DIRECTORY;
@@ -2120,6 +2126,8 @@ std::string EarlyPreferencesDirectory() {
 const std::string kAeraEarlyPreferencesDirectory = EarlyPreferencesDirectory();
 const std::string kAeraEarlyPreferencesPath =
     kAeraEarlyPreferencesDirectory + "/early-ui.conf";
+const std::string kAeraEarlyWifiPath =
+    kAeraEarlyPreferencesDirectory + "/early-wifi.json";
 
 bool PrepareEarlyPreferencesRoot() {
   // Mount the backing recovery partition when the configured path belongs to
@@ -2705,6 +2713,20 @@ bool SaveEarlyUiPreferences() {
 #endif
 }
 
+bool SaveEarlyWifiPreferences() {
+#if defined(OF_ALLOW_EARLY_SETTINGS_LOAD) && defined(OF_ENABLE_WLAN)
+  if (!PrepareEarlyPreferencesRoot() ||
+      !TWFunc::Recursive_Mkdir(kAeraEarlyPreferencesDirectory, false)) return false;
+  AeraSecrets::WlanSession session;
+  session.auto_enable = DataManager::GetIntValue("of_wlan_auto_enable") == 1;
+  session.auto_connect = DataManager::GetIntValue("of_wlan_auto_connect") == 1;
+  session.last_ssid = DataManager::GetStrValue("of_wlan_last_ssid");
+  return AeraSecrets::SaveEarlyWlan(kAeraEarlyWifiPath, session);
+#else
+  return true;
+#endif
+}
+
 void LoadEarlyUiPreferencesIfAvailable() {
 #ifndef OF_ALLOW_EARLY_SETTINGS_LOAD
   return;
@@ -2816,8 +2838,12 @@ void LoadAeraPreferencesIfAvailable() {
   }
   ApplyEarlyUiPreferences(full_ui);
   loaded = true;
+  gPrimaryWifiPreferencesLoaded = true;
+  if (AeraSecrets::UsePrimaryWlan(DataManager::GetStrValue("wlan_connected_name")))
+    DataManager::SetValue("aera_wlan_reconnect", 1);
   ApplyEarlyUiSideEffects();
   if (!SaveEarlyUiPreferences()) LOGERR("AERA: could not refresh the early UI preference cache.\n");
+  if (!SaveEarlyWifiPreferences()) LOGERR("AERA: could not refresh the early WLAN cache.\n");
   LOGINFO("AERA: restored preferences from shared storage.\n");
 }
 
@@ -2894,6 +2920,8 @@ bool SaveAeraPreferences(bool require_early) {
          << "temperature_position=" << temperature.position << '\n';
   if (!WriteFileAtomically(kAeraPreferencesPath, output.str())) return false;
   const bool early_saved = SaveEarlyUiPreferences();
+  if (!SaveEarlyWifiPreferences())
+    LOGERR("AERA: saved full preferences but could not update the early WLAN cache.\n");
   if (!early_saved)
     LOGERR("AERA: saved full preferences but could not update the early UI cache.\n");
   LOGINFO("AERA: saved preferences to shared storage.\n");
@@ -2968,8 +2996,37 @@ std::vector<std::string> Lines(const std::string &text) {
 void RecoveryWifiInitialize() {
 #ifdef OF_ENABLE_WLAN
   LoadAeraPreferencesIfAvailable();
-  Wlan::Init();
+  AeraSecrets::UsePrimaryWlan();
+  if (gEarlyWifiInitialized && !gPrimaryWifiPreferencesLoaded) {
+    DataManager::SetValue("of_wlan_auto_enable", gEarlyWifiDefaults.auto_enable ? 1 : 0);
+    DataManager::SetValue("of_wlan_auto_connect", gEarlyWifiDefaults.auto_connect ? 1 : 0);
+    DataManager::SetValue("of_wlan_last_ssid", gEarlyWifiDefaults.last_ssid);
+  }
+  const bool early_initialized = gEarlyWifiInitialized;
+  gEarlyWifiInitialized = false;
+  if (early_initialized && DataManager::GetIntValue("of_wlan_auto_enable") != 1) {
+    AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::StopRadio);
+    return;
+  }
   AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::RestoreSession);
+#endif
+}
+
+void RecoveryWifiInitializeEarly() {
+#if defined(OF_ALLOW_EARLY_SETTINGS_LOAD) && defined(OF_ENABLE_WLAN)
+  if (gEarlyWifiInitialized || !RecoveryDataLocked() ||
+      !PrepareEarlyPreferencesRoot()) return;
+  AeraSecrets::WlanSession session;
+  if (!AeraSecrets::LoadEarlyWlan(kAeraEarlyWifiPath, session)) return;
+  gEarlyWifiDefaults.auto_enable = DataManager::GetIntValue("of_wlan_auto_enable") == 1;
+  gEarlyWifiDefaults.auto_connect = DataManager::GetIntValue("of_wlan_auto_connect") == 1;
+  gEarlyWifiDefaults.last_ssid = DataManager::GetStrValue("of_wlan_last_ssid");
+  DataManager::SetValue("of_wlan_auto_enable", session.auto_enable ? 1 : 0);
+  DataManager::SetValue("of_wlan_auto_connect", session.auto_connect ? 1 : 0);
+  DataManager::SetValue("of_wlan_last_ssid", session.last_ssid);
+  gEarlyWifiInitialized = true;
+  if (session.auto_enable)
+    AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::RestoreEarlySession);
 #endif
 }
 

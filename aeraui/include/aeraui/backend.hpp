@@ -390,6 +390,7 @@ struct WifiRequest {
   bool use_saved_credentials = false;
 };
 void RecoveryWifiInitialize();
+void RecoveryWifiInitializeEarly();
 WifiConnection RecoveryWifiConnection();
 WifiTraffic RecoveryWifiTraffic();
 WifiStatusDisplay RecoveryWifiStatusDisplay();

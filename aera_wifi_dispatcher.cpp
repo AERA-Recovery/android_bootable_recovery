@@ -9,6 +9,7 @@
 #include <thread>
 
 #include <sys/stat.h>
+#include <cutils/properties.h>
 
 #include "data.hpp"
 #include "aeraui/platform/aera_ui_host.h"
@@ -20,6 +21,7 @@ constexpr uint32_t kStart = 1U << 0;
 constexpr uint32_t kStop = 1U << 1;
 constexpr uint32_t kRefresh = 1U << 2;
 constexpr uint32_t kRestore = 1U << 3;
+constexpr uint32_t kEarlyRestore = 1U << 4;
 constexpr auto kLinkPollInterval = std::chrono::seconds(2);
 constexpr auto kRadioSettleDelay = std::chrono::milliseconds(1500);
 
@@ -28,6 +30,8 @@ std::condition_variable g_wakeup;
 std::once_flag g_start_once;
 uint32_t g_pending = 0;
 std::atomic<bool> g_active{false};
+bool g_radio_initialized = false;
+bool g_early_radio_initialized = false;
 
 bool RadioEnabled() {
     return DataManager::GetIntValue("tw_wlan_enabled") == 1;
@@ -103,13 +107,22 @@ void RestoreSession() {
         return;
     }
 
+    const bool auto_connect = DataManager::GetIntValue("of_wlan_auto_connect") == 1;
+    const std::string ssid = DataManager::GetStrValue("of_wlan_last_ssid");
+    const bool changed = DataManager::GetIntValue("aera_wlan_reconnect") == 1;
+    DataManager::SetValue("aera_wlan_reconnect", 0);
+    if (LinkConnected() && auto_connect &&
+        (changed || (!ssid.empty() &&
+         DataManager::GetStrValue("wlan_connected_name") != ssid)))
+        Wlan::Disconnect();
+
     PublishRestingState();
+    if (LinkConnected()) return;
     RefreshAccessPoints();
 
-    if (DataManager::GetIntValue("of_wlan_auto_connect") != 1 || LinkConnected())
+    if (!auto_connect || LinkConnected())
         return;
 
-    const std::string ssid = DataManager::GetStrValue("of_wlan_last_ssid");
     if (ssid.empty())
         return;
 
@@ -117,6 +130,36 @@ void RestoreSession() {
     Wlan::ConnectSaved();
     PublishRestingState();
     Wlan::RefreshWlanPageIfShown();
+}
+
+void RestoreEarlySession() {
+    // Never trigger device bring-up before decryption. Only adopt hardware
+    // which the device's own init sequence has already made available.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::unique_lock<std::mutex> guard(g_lock);
+        if (g_pending & (kStart | kStop | kRestore)) return;
+        guard.unlock();
+        std::string iface = DataManager::GetStrValue("tw_wlan_iface");
+        if (iface.empty()) iface = "wlan0";
+        if (iface.find_first_not_of(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.") !=
+                std::string::npos || iface == "." || iface == "..") return;
+        char service[PROPERTY_VALUE_MAX] = {};
+        property_get("init.svc.wpa_supplicant", service, "");
+        struct stat info{};
+        if (std::string(service) == "running" &&
+            stat(("/sys/class/net/" + iface).c_str(), &info) == 0) {
+            Wlan::Init();
+            g_radio_initialized = true;
+            g_early_radio_initialized = true;
+            RestoreSession();
+            return;
+        }
+        guard.lock();
+        g_wakeup.wait_for(guard, std::chrono::milliseconds(250),
+                         [] { return (g_pending & (kStart | kStop | kRestore)) != 0; });
+    }
 }
 
 uint32_t TakeNextRequest() {
@@ -136,15 +179,28 @@ uint32_t TakeNextRequest() {
         g_pending &= ~kRefresh;
         return kRefresh;
     }
+    if (g_pending & kEarlyRestore) {
+        g_pending &= ~kEarlyRestore;
+        return kEarlyRestore;
+    }
     return 0;
 }
 
 void RunRequest(uint32_t request) {
     if (request == kRestore) {
+        if (!g_early_radio_initialized) Wlan::Init();
+        g_radio_initialized = true;
+        g_early_radio_initialized = false;
         RestoreSession();
+    } else if (request == kEarlyRestore) {
+        RestoreEarlySession();
     } else if (request == kStop) {
         StopRadio();
     } else if (request == kStart) {
+        if (!g_radio_initialized) {
+            Wlan::Init();
+            g_radio_initialized = true;
+        }
         StartRadio();
     } else if (request == kRefresh) {
         Wlan::Info();
@@ -190,6 +246,8 @@ uint32_t RequestBit(AeraWifiDispatcher::Request request) {
             return kRefresh;
         case AeraWifiDispatcher::Request::RestoreSession:
             return kRestore;
+        case AeraWifiDispatcher::Request::RestoreEarlySession:
+            return kEarlyRestore;
     }
     return 0;
 }
@@ -203,7 +261,8 @@ void AeraWifiDispatcher::Submit(Request request) {
         std::lock_guard<std::mutex> guard(g_lock);
         const uint32_t bit = RequestBit(request);
         if (bit == kStart || bit == kStop)
-            g_pending &= ~(kStart | kStop | kRestore);
+            g_pending &= ~(kStart | kStop | kRestore | kEarlyRestore);
+        if (bit == kRestore) g_pending &= ~kEarlyRestore;
         g_pending |= bit;
     }
     g_wakeup.notify_one();

@@ -477,6 +477,7 @@ RunResult RunLoop(bool fastboot_mode = false,
                 gFileBasedEncryption.load(std::memory_order_acquire),
                 gCryptoUserId.load(std::memory_order_acquire),
                 gPatternGridSize.load(std::memory_order_acquire));
+            RecoveryWifiInitializeEarly();
             decrypt_request_sent = true;
             __android_log_print(ANDROID_LOG_INFO, kLogTag,
                                 "native decrypt page shown at stock startup gate");

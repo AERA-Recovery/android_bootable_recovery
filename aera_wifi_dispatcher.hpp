@@ -10,6 +10,7 @@ public:
         StopRadio,
         RefreshStatus,
         RestoreSession,
+        RestoreEarlySession,
     };
 
     static void Submit(Request request);

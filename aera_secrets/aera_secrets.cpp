@@ -28,13 +28,14 @@
 
 namespace {
 
-constexpr char kStoreDirectory[] = "/data/media/0/AERA";
 constexpr char kCredentialPath[] = "/data/media/0/AERA/secrets.json";
 constexpr char kWifiPath[] = "/data/media/0/AERA/wifi.json";
 constexpr int kSchema = 2;
 constexpr size_t kMaximumDocument = 1024 * 1024;
 
 std::mutex g_lock;
+Json::Value g_early_wlan;
+std::string g_early_wlan_path;
 
 std::string Property(const char* name) {
   char value[PROPERTY_VALUE_MAX] = {};
@@ -245,7 +246,7 @@ Json::Value ReadDocument(const char* path) {
   std::string errors;
   std::istringstream input(text);
   if (!Json::parseFromStream(builder, input, &root, &errors) ||
-      !root.isObject() || root.get("schema", 0).asInt() != kSchema)
+      !root.isObject() || !root["schema"].isInt() || root["schema"].asInt() != kSchema)
     return EmptyDocument();
   return root;
 }
@@ -263,7 +264,8 @@ bool WriteAll(int descriptor, const std::string& text) {
 }
 
 bool WriteDocument(const char* path, Json::Value root) {
-  if (mkdir(kStoreDirectory, 0700) != 0 && errno != EEXIST) return false;
+  const std::string directory = std::string(path).substr(0, std::string(path).find_last_of('/'));
+  if (mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST) return false;
   root["schema"] = kSchema;
   Json::StreamWriterBuilder writer;
   writer["indentation"] = "  ";
@@ -286,6 +288,16 @@ bool WriteDocument(const char* path, Json::Value root) {
     return true;
   }
   return chmod(path, 0600) == 0;
+}
+
+void RefreshEarlyWlanNetworks(const Json::Value& primary) {
+  if (g_early_wlan_path.empty()) return;
+  Json::Value cache = ReadDocument(g_early_wlan_path.c_str());
+  if (!cache["auto_enable"].isBool() || !cache["auto_connect"].isBool() ||
+      !cache["last_ssid"].isString()) return;
+  cache["networks"] = primary["networks"].isObject()
+      ? primary["networks"] : Json::Value(Json::objectValue);
+  WriteDocument(g_early_wlan_path.c_str(), std::move(cache));
 }
 
 std::string KeyToken(const std::string& key) {
@@ -322,7 +334,9 @@ bool AeraSecrets::SetWlanNetwork(const std::string& ssid,
   network["security"] = security.empty() ? "WPA2" : security;
   if (!Seal(password, &network["password"], true)) return false;
   root["networks"][ssid] = std::move(network);
-  return WriteDocument(kWifiPath, std::move(root));
+  if (!WriteDocument(kWifiPath, root)) return false;
+  RefreshEarlyWlanNetworks(root);
+  return true;
 }
 
 bool AeraSecrets::GetWlanNetwork(const std::string& ssid,
@@ -332,13 +346,14 @@ bool AeraSecrets::GetWlanNetwork(const std::string& ssid,
   security.clear();
   if (ssid.empty()) return false;
   std::lock_guard<std::mutex> guard(g_lock);
-  Json::Value root = ReadDocument(kWifiPath);
+  Json::Value root = g_early_wlan.isObject() ? g_early_wlan : ReadDocument(kWifiPath);
   Json::Value& network = root["networks"][ssid];
-  if (!network.isObject()) return false;
+  if (!network.isObject() ||
+      (network.isMember("security") && !network["security"].isString())) return false;
   security = network.get("security", "WPA2").asString();
   bool used_legacy = false;
   if (!Open(network["password"], &password, &used_legacy, true)) return false;
-  if (used_legacy && Seal(password, &network["password"], true))
+  if (!g_early_wlan.isObject() && used_legacy && Seal(password, &network["password"], true))
     WriteDocument(kWifiPath, std::move(root));
   return true;
 }
@@ -347,21 +362,84 @@ bool AeraSecrets::DeleteWlanNetwork(const std::string& ssid) {
   if (ssid.empty()) return false;
   std::lock_guard<std::mutex> guard(g_lock);
   Json::Value root = ReadDocument(kWifiPath);
-  if (!root["networks"].isObject() || !root["networks"].isMember(ssid))
+  if (!root["networks"].isObject() || !root["networks"].isMember(ssid)) {
+    RefreshEarlyWlanNetworks(root);
     return true;
+  }
   root["networks"].removeMember(ssid);
-  return WriteDocument(kWifiPath, std::move(root));
+  if (!WriteDocument(kWifiPath, root)) return false;
+  RefreshEarlyWlanNetworks(root);
+  return true;
 }
 
 bool AeraSecrets::ListWlanNetworks(std::vector<std::string>& ssids) {
   ssids.clear();
   std::lock_guard<std::mutex> guard(g_lock);
-  const Json::Value root = ReadDocument(kWifiPath);
+  const Json::Value root = g_early_wlan.isObject() ? g_early_wlan : ReadDocument(kWifiPath);
   if (!root["networks"].isObject()) return false;
   ssids = root["networks"].getMemberNames();
   ssids.erase(std::remove(ssids.begin(), ssids.end(), ""), ssids.end());
   std::sort(ssids.begin(), ssids.end());
   return !ssids.empty();
+}
+
+bool AeraSecrets::LoadEarlyWlan(const std::string& path, WlanSession& session) {
+  std::lock_guard<std::mutex> guard(g_lock);
+  g_early_wlan = Json::Value();
+  session = WlanSession{};
+  const Json::Value cache = ReadDocument(path.c_str());
+  if (!cache["auto_enable"].isBool() || !cache["auto_connect"].isBool() ||
+      !cache["last_ssid"].isString() || !cache["networks"].isObject())
+    return false;
+  session.auto_enable = cache["auto_enable"].asBool();
+  session.auto_connect = cache["auto_connect"].asBool();
+  session.last_ssid = cache["last_ssid"].asString();
+  if (session.last_ssid.size() > 32) return false;
+  for (const auto& ssid : cache["networks"].getMemberNames()) {
+    const auto& network = cache["networks"][ssid];
+    if (ssid.empty() || ssid.size() > 32 || !network.isObject() ||
+        !network["security"].isString() || !network["password"].isObject()) return false;
+  }
+  g_early_wlan = cache;
+  g_early_wlan_path = path;
+  return true;
+}
+
+bool AeraSecrets::SaveEarlyWlan(const std::string& path, const WlanSession& session) {
+  std::lock_guard<std::mutex> guard(g_lock);
+  // Called only after the normal settings become available. Missing/empty
+  // primary credentials deliberately clear old cached networks.
+  Json::Value cache = EmptyDocument();
+  const Json::Value primary = ReadDocument(kWifiPath);
+  cache["networks"] = primary["networks"].isObject()
+      ? primary["networks"] : Json::Value(Json::objectValue);
+  cache["auto_enable"] = session.auto_enable;
+  cache["auto_connect"] = session.auto_connect;
+  cache["last_ssid"] = session.last_ssid;
+  if (!WriteDocument(path.c_str(), std::move(cache))) return false;
+  g_early_wlan_path = path;
+  return true;
+}
+
+bool AeraSecrets::UsePrimaryWlan(const std::string& connected_ssid) {
+  std::lock_guard<std::mutex> guard(g_lock);
+  bool changed = false;
+  if (g_early_wlan.isObject() && !connected_ssid.empty()) {
+    const Json::Value primary = ReadDocument(kWifiPath);
+    const Json::Value& before = g_early_wlan["networks"][connected_ssid];
+    const Json::Value after = primary["networks"].isObject()
+        ? primary["networks"][connected_ssid] : Json::Value();
+    std::string old_password, new_password;
+    changed = !before.isObject() || !after.isObject() ||
+        before["security"] != after["security"] ||
+        !Open(before["password"], &old_password, nullptr, true) ||
+        !Open(after["password"], &new_password, nullptr, true) ||
+        old_password != new_password;
+    OPENSSL_cleanse(old_password.data(), old_password.size());
+    OPENSSL_cleanse(new_password.data(), new_password.size());
+  }
+  g_early_wlan = Json::Value();
+  return changed;
 }
 
 bool AeraSecrets::SetNasPassword(const std::string& password) {
