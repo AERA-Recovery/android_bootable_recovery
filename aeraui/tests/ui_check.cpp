@@ -1019,6 +1019,24 @@ int main(int argc,char **argv) {
         assert(!Find(screen, "Extract selected images"));
       } else {
         auto *flash = Find(screen, "Flash selected partitions"); assert(flash);
+        auto *package = Find(screen, "SELECTED PACKAGE"); assert(package);
+        for (int surface = 0; surface < 4; ++surface) {
+          design::ApplySurfaceStyle(surface);
+          // Reopen the page so every control is created using this surface.
+          lv_obj_send_event(Find(screen, LV_SYMBOL_LEFT "  Back"), LV_EVENT_CLICKED, nullptr); Tick();
+          lv_obj_send_event(advanced, LV_EVENT_CLICKED, nullptr); Tick();
+          package = Find(screen, "SELECTED PACKAGE"); assert(package);
+          for (const char *text : {LV_SYMBOL_LEFT "  Back", "Flash selected partitions",
+                                  "Direct flash selected partitions", "Extract selected images"}) {
+            auto *control = Find(screen, text); assert(control);
+            assert(lv_color_eq(lv_obj_get_style_bg_color(control, LV_PART_MAIN), lv_obj_get_style_bg_color(package, LV_PART_MAIN)));
+            assert(lv_obj_get_style_bg_opa(control, LV_PART_MAIN) == lv_obj_get_style_bg_opa(package, LV_PART_MAIN));
+            assert(lv_obj_get_style_border_width(control, LV_PART_MAIN) == lv_obj_get_style_border_width(package, LV_PART_MAIN));
+            assert(lv_obj_get_style_blur_backdrop(control, LV_PART_MAIN) == lv_obj_get_style_blur_backdrop(package, LV_PART_MAIN));
+          }
+        }
+        design::ApplySurfaceStyle(0);
+        flash = Find(screen, "Flash selected partitions");
         lv_obj_send_event(flash, LV_EVENT_CLICKED, nullptr); Tick();
         auto *flash_review = Find(screen, "Review selected flash"); assert(flash_review);
         assert(lv_obj_has_state(flash_review, LV_STATE_DISABLED));

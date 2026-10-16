@@ -252,7 +252,7 @@ lv_obj_t *AdvancedPage(lv_obj_t *screen, const char *title) {
   lv_obj_move_background(background);
   auto *back = Button(page, LV_SYMBOL_LEFT "  Back", [page] { lv_obj_delete_async(page); });
   lv_obj_set_size(back, 240, 90);
-  lv_obj_set_style_radius(back, 24, 0);
+  Panel(back, 24, kMainPanel);
   auto *heading = Label(page, title, &lv_font_montserrat_48, kText);
   lv_obj_set_width(heading, LV_PCT(100));
   return page;
@@ -345,7 +345,7 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
   lv_obj_set_flex_grow(caption, 1);
   auto *select_all = Button(selection_header, "Select all", [] {});
   lv_obj_set_size(select_all, 280, 88);
-  lv_obj_set_style_radius(select_all, 24, 0);
+  Panel(select_all, 24, kMainPanel);
   lv_obj_add_state(select_all, LV_STATE_DISABLED);
   auto *select_all_label = lv_obj_get_child(select_all, 0);
   lv_obj_set_style_text_align(select_all_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -484,9 +484,7 @@ void AdvancedZip(lv_obj_t *screen, const payload::Info &info, const std::string 
       SelectPayload(page, info, path, gate, flash, callback, context, direct);
     });
     lv_obj_set_size(button, LV_PCT(100), 180);
-    lv_obj_set_style_radius(button, 28, 0);
-    lv_obj_set_style_border_width(button, 1, 0);
-    lv_obj_set_style_border_color(button, kMainLine, 0);
+    Panel(button, 28, kMainPanel);
     auto *title = lv_obj_get_child(button, 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 12);
     auto *subtitle = Label(button, direct ? "Experimental: no temporary images; verified readback" : flash ? "Extract and verify all images before writing" : "Save images to storage without flashing",
