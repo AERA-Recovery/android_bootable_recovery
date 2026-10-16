@@ -901,6 +901,22 @@ void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
 		Decrypt_Data();
 	#endif
 
+		// Unencrypted userdata never enters Post_Decrypt(), but still needs the
+		// deferred hardware setup. Mounted DE storage alone is not sufficient:
+		// encrypted devices must keep waiting for their normal unlock path.
+		TWPartition* data_ready = Find_Partition_By_Path("/data");
+		if (data_ready && data_ready->Is_Mounted() &&
+			(!data_ready->Is_Encrypted || data_ready->Is_Decrypted) &&
+			!Storage_Is_Encrypted() &&
+			!android::base::GetBoolProperty("post.decrypt.modules", false)) {
+			LOGINFO("Unencrypted data is ready; completing deferred hardware setup.\n");
+	#ifdef TW_POST_DECRYPT_MODULES
+			KernelModuleLoader::Load_Post_Decrypt_Modules();
+	#else
+			property_set("post.decrypt.modules", "true");
+	#endif
+		}
+
 	#ifdef OF_ENABLE_WLAN
 		Add_NAS_Storage();
 	#endif
