@@ -322,3 +322,6 @@ foreach(target frp_wipe_enabled_test frp_wipe_disabled_test)
   add_test(NAME ${target} COMMAND ${target})
 endforeach()
 target_compile_definitions(frp_wipe_enabled_test PRIVATE AERA_ENABLE_FRP_WIPE=1)
+
+add_test(NAME reboot_handoff COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/reboot_handoff_test.py")
