@@ -21,7 +21,8 @@ enum class Job {
   kFormatData,
   kClearSnapshotCow,
   kRootOperation,
-  kPcBackupOperation
+  kPcBackupOperation,
+  kFormatUsb
 };
 struct Volume {
   std::string name;
@@ -47,6 +48,7 @@ struct JobRequest {
   bool digest = true;
   bool both_slots = false;
   std::string confirmation;
+  std::string usb_identity, usb_filesystem;
   bool present_before_run = false;
   bool show_on_device = true;
   std::string root_action;
@@ -77,6 +79,13 @@ inline bool SnapshotCowCleanupAuthorized(const JobRequest &request) {
 }
 // Implemented beside the stock GUI bridge, using the same recovery backend.
 std::vector<Volume> RecoveryVolumes(const std::string &kind);
+struct UsbFormatTarget {
+  bool available = false;
+  std::string name, path, block, filesystem, identity, error;
+  uint64_t bytes = 0;
+  std::vector<std::string> filesystems;
+};
+UsbFormatTarget RecoveryUsbFormatTarget(const std::string &path);
 std::vector<Volume> RecoveryImageVolumes();
 struct PayloadFlashTarget {
   std::string name;

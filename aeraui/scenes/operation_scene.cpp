@@ -122,6 +122,7 @@ const char *InitialTitle(Job job) {
     case Job::kRestore: return "Preparing to restore";
     case Job::kWipe: return "Preparing to wipe";
     case Job::kFormatData: return "Preparing data format";
+    case Job::kFormatUsb: return "Preparing USB format";
     case Job::kClearSnapshotCow: return "Preparing snapshot cleanup";
     case Job::kMount: return "Mounting storage";
     case Job::kUnmount: return "Unmounting storage";
@@ -142,6 +143,7 @@ const char *OperationSymbol(Job job) {
     case Job::kRestore: return LV_SYMBOL_REFRESH;
     case Job::kWipe:
     case Job::kFormatData:
+    case Job::kFormatUsb:
     case Job::kClearSnapshotCow: return LV_SYMBOL_TRASH;
     case Job::kMount:
     case Job::kUnmount: return LV_SYMBOL_DRIVE;
@@ -831,7 +833,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   const bool backup = request.job == Job::kBackup ||
       request.job == Job::kUploadBackup || request.job == Job::kRestore;
   const bool format = request.job == Job::kFormatData;
-  const bool wipe = request.job == Job::kWipe ||
+  const bool wipe = request.job == Job::kWipe || request.job == Job::kFormatUsb ||
       request.job == Job::kClearSnapshotCow;
   const bool mount = request.job == Job::kMount || request.job == Job::kUnmount;
   result.done = Button(screen,

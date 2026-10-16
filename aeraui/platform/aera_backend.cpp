@@ -35,6 +35,8 @@
 #include <linux/fs.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/sysmacros.h>
+#include <mntent.h>
 #include <unistd.h>
 
 #include <cutils/properties.h>
@@ -350,6 +352,115 @@ std::vector<Volume> RecoveryVolumes(const std::string &kind) {
     result.push_back({name, part.Mount_Point, part.PartitionSize, part.selected != 0});
   }
   return result;
+}
+
+UsbFormatTarget RecoveryUsbFormatTarget(const std::string &path) {
+  UsbFormatTarget result;
+  result.path = path;
+  const auto storage = RecoveryVolumes("storage");
+  const auto wipe = RecoveryVolumes("wipe");
+  const auto volume = std::find_if(storage.begin(), storage.end(),
+      [&](const Volume &v) { return v.path == path; });
+  if (volume == storage.end() || std::none_of(wipe.begin(), wipe.end(),
+      [&](const Volume &v) { return v.path == path; })) return result;
+  auto *partition = PartitionManager.Find_Partition_By_Path(path);
+  if (!partition || partition->Get_Mount_Point() != path || !partition->Is_Present) return result;
+  struct stat block{};
+  char canonical[PATH_MAX]{};
+  if (!realpath(partition->Actual_Block_Device.c_str(), canonical) ||
+      stat(canonical, &block) || !S_ISBLK(block.st_mode)) return result;
+  result.block = canonical;
+  const std::string sys = "/sys/dev/block/" + std::to_string(major(block.st_rdev)) +
+      ":" + std::to_string(minor(block.st_rdev));
+  if (!realpath(sys.c_str(), canonical)) return result;
+  const std::string device = canonical;
+  // Only real USB-backed partitions, never internal UFS/eMMC, device-mapper,
+  // network storage, or the parent disk containing a partition table.
+  if (device.find("/usb") == std::string::npos ||
+      access((device + "/partition").c_str(), F_OK)) return result;
+  result.available = true;
+  result.name = volume->name;
+  result.filesystem = partition->Current_File_System;
+  const int fd = open(result.block.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) { result.error = "Could not open USB partition."; return result; }
+  const bool size_ok = ioctl(fd, BLKGETSIZE64, &result.bytes) == 0 && result.bytes;
+  close(fd);
+  std::string sequence;
+  std::ifstream(device.substr(0, device.find_last_of('/')) + "/diskseq") >> sequence;
+  if (!size_ok || sequence.empty()) {
+    result.error = "This device cannot safely identify the USB attachment. Formatting is unavailable.";
+    return result;
+  }
+  result.identity = device + ":" + sequence + ":" + std::to_string(result.bytes);
+  std::ifstream filesystems("/proc/filesystems");
+  const std::string supported((std::istreambuf_iterator<char>(filesystems)), {});
+  for (const auto &fs : std::vector<std::pair<std::string, std::string>>{
+      {"vfat", "/system/bin/mkfs.fat"}, {"exfat", "/system/bin/mkexfatfs"},
+      {"ext4", "/system/bin/mke2fs"}}) {
+    if (!access(fs.second.c_str(), X_OK) && supported.find(fs.first) != std::string::npos)
+      result.filesystems.push_back(fs.first);
+  }
+  if (result.filesystems.empty()) result.error = "No supported USB formatting tools are available.";
+  return result;
+}
+
+static int FormatUsb(const JobRequest &request) {
+  const auto target = RecoveryUsbFormatTarget(request.path);
+  if (request.confirmation != "format-usb" || !request.partitions.empty() ||
+      !target.available || !target.error.empty() || target.identity.empty() ||
+      target.identity != request.usb_identity ||
+      std::find(target.filesystems.begin(), target.filesystems.end(), request.usb_filesystem) == target.filesystems.end()) {
+    LOGERR("USB format refused: target changed or request is not authorized.\n");
+    return 1;
+  }
+  auto *partition = PartitionManager.Find_Partition_By_Path(request.path);
+  PartitionManager.Remove_MTP_Storage(request.path);
+  const auto finish = [&](int result) {
+    PartitionManager.Update_System_Details();
+    if (partition->Is_Mounted()) PartitionManager.Add_MTP_Storage(request.path);
+    return result;
+  };
+  if (!partition->UnMount(true)) return finish(1);
+  const auto current = RecoveryUsbFormatTarget(request.path);
+  if (current.identity != target.identity || !current.error.empty()) return finish(1);
+  android::base::unique_fd fd(open(target.block.c_str(), O_RDWR | O_CLOEXEC));
+  struct stat block{};
+  if (fd.get() < 0 || fstat(fd.get(), &block)) return finish(1);
+  uint64_t disk_sequence = 0, capacity = 0;
+  constexpr unsigned long kGetDiskSequence = _IOR(0x12, 128, uint64_t);
+  const auto sequence_end = target.identity.find_last_of(':');
+  const auto sequence_start = target.identity.find_last_of(':', sequence_end - 1);
+  if (ioctl(fd.get(), kGetDiskSequence, &disk_sequence) ||
+      ioctl(fd.get(), BLKGETSIZE64, &capacity) || capacity != target.bytes ||
+      std::to_string(disk_sequence) != target.identity.substr(sequence_start + 1,
+          sequence_end - sequence_start - 1)) return finish(1);
+  // Reject mounted aliases too; never force or lazily unmount a busy drive.
+  FILE *mounts = setmntent("/proc/mounts", "r");
+  if (!mounts) return finish(1);
+  bool mounted = false;
+  while (auto *entry = getmntent(mounts)) {
+    struct stat source{};
+    if (!stat(entry->mnt_fsname, &source) && S_ISBLK(source.st_mode) &&
+        source.st_rdev == block.st_rdev) mounted = true;
+  }
+  endmntent(mounts);
+  if (mounted || RecoveryUsbFormatTarget(request.path).identity != target.identity) return finish(1);
+  // Pin the opened partition for the formatter instead of resolving a changing
+  // /dev/block symlink. Only fixed tool names and numeric fd paths reach shell.
+  const std::string pinned = "/proc/" + std::to_string(getpid()) + "/fd/" + std::to_string(fd.get());
+  const std::string command = request.usb_filesystem == "vfat" ? "/system/bin/mkfs.fat -F 32 " :
+      request.usb_filesystem == "exfat" ? "/system/bin/mkexfatfs " :
+      "/system/bin/mke2fs -t ext4 -F ";
+  DataManager::SetValue("tw_partition", request.path);
+  if (TWFunc::Exec_Cmd(command + pinned) != 0 || fsync(fd.get()) != 0) return finish(1);
+  if (RecoveryUsbFormatTarget(request.path).identity != target.identity) return finish(1);
+  partition->Check_FS_Type();
+  if (partition->Current_File_System != request.usb_filesystem || !partition->Mount(true)) {
+    LOGERR("USB formatted, but filesystem verification or remount failed.\n");
+    return finish(1);
+  }
+  DataManager::SetValue("ui_progress", 100);
+  return finish(0);
 }
 
 static std::map<std::string, images::Block> NamedImageBlocks() {
@@ -1522,6 +1633,7 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
     TWFunc::SetPerformanceMode(false);
     return result;
   }
+  if (request.job == Job::kFormatUsb) return FormatUsb(request);
   if (request.job == Job::kFormatData) {
     DataManager::SetValue("tw_partition", "/data");
     char fastboot_mode[PROPERTY_VALUE_MAX] = {};

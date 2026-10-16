@@ -32,6 +32,7 @@ struct Tools {
   void *context = nullptr;
   std::vector<Volume> volumes;
   std::set<std::string> selected;
+  std::vector<std::pair<std::string, lv_obj_t *>> usb_advanced;
   std::string restore_folder;
   bool compression = true;
   lv_obj_t *format_input = nullptr, *format_submit = nullptr;
@@ -504,7 +505,62 @@ std::string WipeDescription(const std::string &path) {
   return i18n::Format("Erase %s", path.c_str());
 }
 
+void UsbFormatOptions(Tools *state, const std::string &path) {
+  if (state->tool != Action::kWipe || state->selected.size() != 1 ||
+      !state->selected.count(path)) return;
+  const auto target = RecoveryUsbFormatTarget(path);
+  if (!target.available || !target.error.empty()) {
+    Sheet(state->screen, "USB format unavailable", target.error.empty()
+        ? "The selected USB partition is no longer connected." : target.error);
+    return;
+  }
+  const std::string description = target.name + "\n" + target.path + "\n" +
+      target.block + "\n" + Size(target.bytes) + " / " + target.filesystem +
+      "\n\nChoose a filesystem. Formatting erases all files on this USB partition. Other partitions are not changed.";
+  Sheet(state->screen, "Format USB storage", description, {}, 1400, true,
+        SheetPresentation::kStandard, "Swipe to confirm",
+        [state, target, description](lv_obj_t *area) {
+    lv_obj_set_flex_flow(area, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(area, 20, 0);
+    auto *info = Label(area, description.c_str(), &lv_font_montserrat_28, kMutedStrong);
+    lv_obj_set_width(info, LV_PCT(100));
+    lv_label_set_long_mode(info, LV_LABEL_LONG_WRAP);
+    for (const auto &fs : target.filesystems) {
+      const std::string label = fs == "vfat" ? "FAT32 — files up to 4 GB" :
+          fs == "exfat" ? "exFAT — large files" : "ext4 — Linux filesystem";
+      auto *choice = Button(area, label.c_str(), [state, target, fs] {
+        if (state->selected.size() != 1 || !state->selected.count(target.path)) return;
+        const auto current = RecoveryUsbFormatTarget(target.path);
+        if (!current.available || current.identity != target.identity || !current.error.empty()) {
+          Sheet(state->screen, "USB storage changed", "Reconnect the drive and select it again.");
+          return;
+        }
+        JobRequest request;
+        request.job = Job::kFormatUsb;
+        request.title = "Format USB storage";
+        request.path = target.path;
+        request.usb_identity = target.identity;
+        request.usb_filesystem = fs;
+        request.confirmation = "format-usb";
+        Sheet(state->screen, "Review USB format", target.name + "\n" + target.block +
+              "\n" + Size(target.bytes) + "\n\n" + target.filesystem + " → " +
+              (fs == "vfat" ? "FAT32" : fs) +
+              "\n\nAll files on this USB partition will be permanently erased. This cannot be undone.",
+              [state, request] { Run(state, request); }, 0, false,
+              SheetPresentation::kStandard, "Swipe to format USB");
+      });
+      Panel(choice, 24, kMainPanel);
+      lv_obj_set_size(choice, LV_PCT(100), 110);
+    }
+  });
+}
+
 void UpdateSelection(Tools *state) {
+  for (const auto &entry : state->usb_advanced) {
+    if (state->selected.size() == 1 && state->selected.count(entry.first))
+      lv_obj_remove_flag(entry.second, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(entry.second, LV_OBJ_FLAG_HIDDEN);
+  }
   uint64_t bytes = 0;
   for (const auto &v : state->volumes)
     if (state->selected.count(v.path)) bytes += v.bytes;
@@ -516,6 +572,16 @@ void UpdateSelection(Tools *state) {
   if (state->review) {
     LayoutPartitionReview(state->screen, state->list, state->review,
                           !state->selected.empty());
+    for (const auto &entry : state->usb_advanced) {
+      auto *button = entry.second;
+      if (lv_obj_has_flag(button, LV_OBJ_FLAG_HIDDEN)) continue;
+      const int x = lv_obj_get_x(state->review);
+      const int width = (lv_obj_get_width(state->review) - 24) / 2;
+      lv_obj_set_pos(button, x, lv_obj_get_y(state->review));
+      lv_obj_set_size(button, width, lv_obj_get_height(state->review));
+      lv_obj_set_x(state->review, x + width + 24);
+      lv_obj_set_width(state->review, width);
+    }
   }
   if (state->selection_detail) {
     std::string detail = state->selected.size() == 1
@@ -551,6 +617,8 @@ void LayoutWipeRow(lv_obj_t *row, lv_obj_t *name, lv_obj_t *detail,
 }
 
 void PartitionRows(Tools *state) {
+  for (const auto &entry : state->usb_advanced) lv_obj_delete(entry.second);
+  state->usb_advanced.clear();
   lv_obj_clean(state->list);
   // Resolve the real scroll width before laying out rows. Without this pass,
   // LVGL can still report its creation-time width and the entire row collapses
@@ -611,6 +679,12 @@ void PartitionRows(Tools *state) {
         UpdateSelection(state);
       });
       if (wipe) LayoutWipeRow(row, name, path, check);
+      if (wipe && RecoveryUsbFormatTarget(v.path).available) {
+        auto *advanced = Button(state->screen, "Advanced", [state, v] { UsbFormatOptions(state, v.path); }, true);
+        lv_obj_set_size(advanced, Landscape(state->screen) ? 940 : 1280, 110);
+        lv_obj_add_flag(advanced, LV_OBJ_FLAG_HIDDEN);
+        state->usb_advanced.emplace_back(v.path, advanced);
+      }
       row_y += wipe ? lv_obj_get_height(row) + 6 : 148;
     }
   }
