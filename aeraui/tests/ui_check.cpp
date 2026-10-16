@@ -241,6 +241,10 @@ std::vector<AndroidUser> RecoveryAndroidUsers() {
 bool RecoverySetStorage(const std::string &) { return true; }
 int RecoveryBrightness() { return 50; }
 void RecoverySetBrightness(int) {}
+static int screen_timeout = 60;
+bool RecoveryScreenTimeoutSupported() { return true; }
+int RecoveryScreenTimeout() { return screen_timeout; }
+void RecoverySetScreenTimeout(int seconds) { screen_timeout = seconds; }
 bool RecoveryMtpEnabled() { return false; }
 bool RecoverySetMtp(bool) { return true; }
 std::vector<Volume> RecoveryImageVolumes() {
@@ -1237,6 +1241,18 @@ int main(int argc,char **argv) {
     assert(autosave_count == 1);
     lv_obj_send_event(slider, LV_EVENT_RELEASED, nullptr);
     assert(autosave_count == 2);
+    auto *timeout = FindPreferenceEntry(prefs, "Screen-off timeout"); assert(timeout);
+    auto *timeout_slider = FindType(timeout, &lv_slider_class); assert(timeout_slider);
+    assert(lv_slider_get_min_value(timeout_slider) == 30);
+    assert(lv_slider_get_max_value(timeout_slider) == 300);
+    assert(lv_slider_get_value(timeout_slider) == 60);
+    lv_slider_set_value(timeout_slider, 300, LV_ANIM_OFF);
+    lv_obj_send_event(timeout_slider, LV_EVENT_VALUE_CHANGED, nullptr);
+    assert(Find(timeout, "300 s"));
+    assert(screen_timeout == 60);
+    lv_obj_send_event(timeout_slider, LV_EVENT_RELEASED, nullptr);
+    assert(screen_timeout == 300);
+    assert(autosave_count == 3);
     lv_obj_send_event(FindPreferenceEntry(prefs, "Haptics"), LV_EVENT_CLICKED, nullptr);
     Tick(2);
     save("/tmp/aera-preferences-haptics-host.png");

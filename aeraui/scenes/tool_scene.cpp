@@ -2374,6 +2374,49 @@ void BuildPreferences(Tools *state) {
     AutoSaveSettings(static_cast<Tools *>(lv_event_get_user_data(event)));
   }, LV_EVENT_RELEASED, state);
 
+  if (RecoveryScreenTimeoutSupported()) {
+    auto *timeout = lv_obj_create(state->list);
+    Clear(timeout);
+    PreferenceColumn(timeout, 12);
+    lv_obj_set_style_pad_all(timeout, 24, 0);
+    auto *heading = lv_obj_create(timeout);
+    Clear(heading);
+    lv_obj_set_size(heading, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(heading, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(heading, LV_FLEX_ALIGN_START,
+                         LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(heading, 28, 0);
+    auto *icon = Label(heading, LV_SYMBOL_EYE_CLOSE, &lv_font_montserrat_32, kAccent);
+    lv_obj_set_width(icon, 56);
+    auto *title = Label(heading, "Screen-off timeout", &lv_font_montserrat_32, kText);
+    lv_obj_set_flex_grow(title, 1);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
+    auto *value = Label(heading, (std::to_string(RecoveryScreenTimeout()) + " s").c_str(),
+                        &lv_font_montserrat_32, kAccent);
+    lv_obj_set_width(value, 146);
+    lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_RIGHT, 0);
+    auto *track = lv_obj_create(timeout);
+    Clear(track);
+    lv_obj_set_size(track, LV_PCT(100), 96);
+    auto *slider = lv_slider_create(track);
+    lv_obj_set_size(slider, LV_PCT(96), 24);
+    lv_obj_center(slider);
+    lv_slider_set_range(slider, 30, 300);
+    lv_slider_set_value(slider, RecoveryScreenTimeout(), LV_ANIM_OFF);
+    RangeSlider(slider);
+    lv_obj_add_event_cb(slider, [](lv_event_t *event) {
+      const auto code = lv_event_get_code(event);
+      if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
+      const int seconds = lv_slider_get_value(lv_event_get_target_obj(event));
+      lv_label_set_text(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),
+                        (std::to_string(seconds) + " s").c_str());
+      if (code == LV_EVENT_RELEASED) RecoverySetScreenTimeout(seconds);
+    }, LV_EVENT_ALL, value);
+    lv_obj_add_event_cb(slider, [](lv_event_t *event) {
+      AutoSaveSettings(static_cast<Tools *>(lv_event_get_user_data(event)));
+    }, LV_EVENT_RELEASED, state);
+  }
+
   PreferenceToggle(state, LV_SYMBOL_BELL, "24-hour clock",
                    "Off uses 12-hour time with AM / PM", Preference::kClock24);
   auto zone_text = [] {

@@ -290,6 +290,7 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
     if (event.type == EV_ABS) {
         if (hardware.screen_off) return false;
         performance.Boost();
+        aeraScreenTimer.Wake();
         PointerEvent pointer;
         pointer.x = event.value >> 16;
         pointer.y = event.value & 0xffff;
@@ -304,6 +305,7 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
     }
 
     if (event.type != EV_KEY) return false;
+    if (!hardware.screen_off) aeraScreenTimer.Wake();
 
     // Ordinary keyboard keys precede the handset Home fallback, so Home/End
     // edit text instead of navigating away from the active field.
@@ -642,6 +644,23 @@ RunResult RunLoop(bool fastboot_mode = false,
             if (reads + 1 == kInputDrainBudget)
                 break;
             result = ev_get(&event, 0);
+        }
+        // The native UI owns the display loop, so it must also drive the
+        // existing idle timer. Process input first so a fresh touch cannot
+        // race the timeout. Keep startup awake until an interactive page.
+        if (!hardware.screen_off) {
+            if ((!backend_ready_sent && !decrypt_request_sent) ||
+                gModeTransitionBusy.load(std::memory_order_acquire)) {
+                aeraScreenTimer.Wake();
+            } else {
+                aeraScreenTimer.CheckTimeout();
+                if (aeraScreenTimer.IsScreenOff()) {
+                    engine.SetSuspended(true);
+                    hardware.screen_off = true;
+                    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                        "display suspended by idle timeout");
+                }
+            }
         }
     }
 }

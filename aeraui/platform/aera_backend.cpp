@@ -1691,6 +1691,18 @@ bool RecoveryAnswerInstallerPrompt(bool accepted) {
   DataManager::SetValue("aera_installer_prompt_active", 0);
   return true;
 }
+bool RecoveryScreenTimeoutSupported() {
+  return DataManager::GetIntValue("tw_no_screen_timeout") == 0;
+}
+int RecoveryScreenTimeout() {
+  LoadAeraPreferencesIfAvailable();
+  const int seconds = DataManager::GetIntValue("tw_screen_timeout_secs");
+  return seconds >= 30 && seconds <= 300 ? seconds : 60;
+}
+void RecoverySetScreenTimeout(int seconds) {
+  if (RecoveryScreenTimeoutSupported())
+    DataManager::SetValue("tw_screen_timeout_secs", std::clamp(seconds, 30, 300));
+}
 int RecoveryBrightness() {
   LoadAeraPreferencesIfAvailable();
   return DataManager::GetIntValue("tw_brightness_pct");
@@ -2142,6 +2154,7 @@ struct EarlyUiPreferences {
   int clock24;
   std::string timezone;
   int brightness;
+  int screen_timeout = 60;
   std::string accent;
   std::string theme;
   int surface_style;
@@ -2259,6 +2272,8 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.timezone = DataManager::GetStrValue(TW_TIME_ZONE_VAR);
   if (!ValidPlainText(preferences.timezone, 96)) preferences.timezone = "UTC0";
   preferences.brightness = DataManager::GetIntValue("tw_brightness_pct");
+  const int timeout = DataManager::GetIntValue("tw_screen_timeout_secs");
+  preferences.screen_timeout = timeout >= 30 && timeout <= 300 ? timeout : 60;
   if (preferences.brightness < 10 || preferences.brightness > 100) preferences.brightness = 100;
   preferences.accent = DataManager::GetStrValue("aera_theme_accent");
   if (!ValidAccent(preferences.accent)) preferences.accent = "16c8ff";
@@ -2408,6 +2423,7 @@ bool ResetAeraSettings(bool theme) {
     set("tw_action_vibrate", defaults.haptic_action);
     DataManager::update_tz_environment_variables();
     RecoverySetBrightness(defaults.brightness);
+    RecoverySetScreenTimeout(defaults.screen_timeout);
   }
   return restored;
 }
@@ -2422,6 +2438,9 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "timezone") {
     if (!ValidPlainText(value, 96)) return false;
     preferences->timezone = value;
+  } else if (key == "screen_timeout") {
+    if (!ParseInteger(value, 30, 300, &parsed)) return false;
+    preferences->screen_timeout = parsed;
   } else if (key == "brightness") {
     if (!ParseInteger(value, 10, 100, &parsed)) return false;
     preferences->brightness = parsed;
@@ -2559,6 +2578,7 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue("tw_military_time", preferences.clock24);
   DataManager::SetValue(TW_TIME_ZONE_VAR, preferences.timezone);
   DataManager::SetValue("tw_brightness_pct", preferences.brightness);
+  RecoverySetScreenTimeout(preferences.screen_timeout);
   DataManager::SetValue("aera_theme_accent", preferences.accent);
   DataManager::SetValue("aera_theme_mode",
                         preferences.surface_style == 4 ? "amoled"
@@ -2657,6 +2677,7 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "clock24=" << preferences.clock24 << '\n'
          << "timezone=" << preferences.timezone << '\n'
          << "brightness=" << preferences.brightness << '\n'
+         << "screen_timeout=" << preferences.screen_timeout << '\n'
          << "accent=" << preferences.accent << '\n'
          << "theme=" << preferences.theme << '\n'
          << "surface_style=" << preferences.surface_style << '\n'
@@ -2866,6 +2887,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "recents=" << DataManager::GetIntValue("aera_recents_enabled") << '\n'
          << "timezone=" << DataManager::GetStrValue(TW_TIME_ZONE_VAR) << '\n'
          << "brightness=" << DataManager::GetIntValue("tw_brightness_pct") << '\n'
+         << "screen_timeout=" << CaptureCurrentEarlyUiPreferences().screen_timeout << '\n'
          << "accent=" << DataManager::GetStrValue("aera_theme_accent") << '\n'
          << "theme="
          << (RecoveryAppearanceMode() == AppearanceMode::kAmoled ? "amoled"
