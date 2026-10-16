@@ -4,6 +4,8 @@
 #include "hardware_keyboard.hpp"
 #include "themed_app_art.hpp"
 #include "package_review.hpp"
+#include "../core/usb_attachment.hpp"
+#include "screenshot_flash.hpp"
 #include "update/payload_inspector.hpp"
 #include "update/payload_arb.hpp"
 #include "update/payload_full_flash.hpp"
@@ -204,11 +206,18 @@ bool StatusBarShadeOpen() { return false; }
 void RefreshStatusBars() {}
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
   if (kind == "wipe") return {{"FRP","/frp",524288},{"Dalvik / ART cache","DALVIK",0},{"Data","/data",23000000000},
-    {"Internal storage","INTERNAL",12000000000},{"Metadata","/metadata",40960000}};
+    {"Internal storage","INTERNAL",12000000000},{"Metadata","/metadata",40960000},
+    {"USB storage","/usb-otg",32000000000}};
   return {{"Metadata","/metadata",40960000},{"Data","/data",23000000000},{"Vendor Boot","/vendor_boot",100663296},
     {"Boot","/boot",100663296},{"DTBO","/dtbo",25165824},{"EFS","/efs",12648448},{"Init Boot","/init_boot",8388608},{"Modem","/modem",446693376}};
 }
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &) { return RecoveryVolumes(""); }
+static bool usb_connected = true;
+UsbFormatTarget RecoveryUsbFormatTarget(const std::string &path) {
+  if (path != "/usb-otg" || !usb_connected) return {};
+  return {true, "USB storage", path, "/dev/block/sda1", "vfat", "usb:1:32000000000", "",
+          32000000000, {"vfat", "exfat", "ext4"}};
+}
 std::string RecoveryStorage() { return file_root.empty() ? "/tmp" : file_root; }
 std::string RecoveryBackupRoot() { return backup_root; }
 bool RecoveryDeleteBackup(const std::string &) { return true; }
@@ -535,14 +544,103 @@ int main(int argc,char **argv) {
   auto *display=lv_display_create(1440,3168);
   lv_display_set_buffers(display,frame.data(),nullptr,frame.size(),LV_DISPLAY_RENDER_MODE_DIRECT);
   lv_display_set_flush_cb(display,[](lv_display_t *d,const lv_area_t *,uint8_t *){lv_display_flush_ready(d);});
-  auto save=[&](const char *path) {
-    Tick(); png_image image{}; image.version=PNG_IMAGE_VERSION;
+  auto save=[&](const char *path, int ticks = 40) {
+    Tick(ticks); png_image image{}; image.version=PNG_IMAGE_VERSION;
     image.width=lv_display_get_horizontal_resolution(display);
     image.height=lv_display_get_vertical_resolution(display);
     image.format=PNG_FORMAT_BGRA;
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--screenshot-flash")) {
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *page = lv_obj_create(nullptr);
+      BuildToolScene(page, Action::kWipe, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      const auto count = lv_obj_get_child_count(lv_layer_top());
+      auto *flash = ScreenshotFlash(lv_layer_top());
+      Tick(7);
+      assert(!lv_obj_has_flag(flash, LV_OBJ_FLAG_CLICKABLE));
+      assert(lv_obj_get_child_count(flash) == 4);
+      assert(lv_obj_get_width(flash) == (landscape ? 3168 : 1440));
+      if (!landscape) save("/tmp/aera-screenshot-flash-preview.png", 0);
+      Tick();
+      assert(lv_obj_get_child_count(lv_layer_top()) == count);
+      lv_screen_load(screen); lv_obj_delete(page);
+    }
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Screenshot flash: portrait/landscape, non-blocking overlay and cleanup passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--usb-format")) {
+    UsbAttachmentTracker attachments;
+    assert(!attachments.Update({"existing"}));
+    assert(!attachments.Update({"existing"}));
+    assert(attachments.Update({"existing", "new:1"}));
+    assert(!attachments.Update({"existing", "new:1"}));
+    const auto removed = attachments.Update({"existing"});
+    assert(removed.disconnected && !removed.connected);
+    assert(attachments.Update({"existing", "new:2"}).connected);
+    assert(attachments.Update({}).disconnected);
+    assert(attachments.Update({"new:2"}));
+    const auto replaced = attachments.Update({"replacement"});
+    assert(replaced.connected && replaced.disconnected);
+    UsbAttachmentTracker mice, keyboards;
+    assert(!mice.Update({}) && !keyboards.Update({}));
+    assert(mice.Update({"mouse"}).connected);
+    assert(keyboards.Update({"keyboard"}).connected);
+    assert(!mice.Update({"mouse"}) && !keyboards.Update({"keyboard"}));
+    assert(mice.Update({}).disconnected && keyboards.Update({}).disconnected);
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *wipe = lv_obj_create(nullptr);
+      BuildToolScene(wipe, Action::kWipe, RecordAction, nullptr);
+      lv_screen_load(wipe); Tick();
+      auto *advanced = Find(wipe, "Advanced"); assert(advanced);
+      assert(lv_obj_has_flag(advanced, LV_OBJ_FLAG_HIDDEN));
+      auto *usb = Find(wipe, "USB storage"); assert(usb);
+      auto *data = Find(wipe, "Data"); assert(data);
+      lv_obj_send_event(usb, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(!lv_obj_has_flag(advanced, LV_OBJ_FLAG_HIDDEN));
+      auto *review = Find(wipe, "Review wipe"); assert(review);
+      assert(lv_obj_get_parent(advanced) == wipe);
+      assert(lv_obj_get_width(advanced) == lv_obj_get_width(review));
+      assert(lv_obj_get_y(advanced) == lv_obj_get_y(review));
+      assert(lv_obj_get_height(advanced) == lv_obj_get_height(review));
+      assert(lv_obj_get_x(advanced) + lv_obj_get_width(advanced) < lv_obj_get_x(review));
+      assert(lv_color_eq(lv_obj_get_style_bg_color(advanced, LV_PART_MAIN), lv_obj_get_style_bg_color(review, LV_PART_MAIN)));
+      assert(lv_obj_get_height(lv_obj_get_parent(usb)) > 200);
+      if (!landscape) save("/tmp/aera-usb-advanced-layout.png");
+      lv_obj_send_event(data, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(lv_obj_has_flag(advanced, LV_OBJ_FLAG_HIDDEN));
+      assert(lv_obj_get_width(review) == (landscape ? 940 : 1280));
+      lv_obj_send_event(data, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(!lv_obj_has_flag(advanced, LV_OBJ_FLAG_HIDDEN));
+      callback_count = 0;
+      lv_obj_send_event(advanced, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(Find(wipe, "Format USB storage"));
+      auto *ext4 = Find(wipe, "ext4 — Linux filesystem"); assert(ext4);
+      lv_obj_send_event(ext4, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(Find(wipe, "Review USB format"));
+      assert(Find(wipe, "Swipe to format USB"));
+      assert(callback_count == 0);
+      if (!landscape) save("/tmp/aera-usb-format-review.png");
+      assert(widgets::DismissModal(wipe)); Tick();
+      assert(widgets::DismissModal(wipe)); Tick();
+      usb_connected = false;
+      lv_obj_send_event(advanced, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(Find(wipe, "USB format unavailable"));
+      assert(callback_count == 0);
+      usb_connected = true;
+      lv_screen_load(screen); lv_obj_delete(wipe);
+    }
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("USB format: sole-selection gating, review-only choices, cancellation and disconnect passed");
+    return 0;
+  }
   if (!strcmp(argv[1], "--wipe-layout")) {
     for (const char *language : {"en", "de_DE", "fr_FR"}) {
       assert(i18n::SetLanguage(language));

@@ -8,6 +8,8 @@
 #include "aeraui/i18n.hpp"
 #include "operation_affinity.hpp"
 #include "mouse_cursor.hpp"
+#include "usb_attachment.hpp"
+#include "screenshot_flash.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
 
 #include <algorithm>
@@ -648,6 +650,7 @@ public:
     }
     PollAutomaticUpdates();
     PollPcConnection();
+    PollUsbAttachment();
     PollRecentsHold();
     const uint32_t next = lv_timer_handler();
 #ifndef TW_OEM_BUILD
@@ -1321,8 +1324,65 @@ public:
     displayed_volume_ = percent;
   }
 
+  void PollUsbAttachment() {
+    const uint32_t now = MonotonicMilliseconds();
+    if (now - last_usb_poll_ < 1000) return;
+    last_usb_poll_ = now;
+    const auto storage = usb_attachments_.Update(UsbAttachments());
+    const auto inputs = ExternalInputAttachments();
+    const auto mouse = mouse_attachments_.Update(inputs.mice);
+    const auto keyboard = keyboard_attachments_.Update(inputs.keyboards);
+    if (!storage && !mouse && !keyboard) return;
+    std::string message;
+    const auto append = [&message](const AttachmentChanges &changes,
+                                  const char *connected, const char *disconnected) {
+      for (const auto &line : {changes.disconnected ? disconnected : "",
+                               changes.connected ? connected : ""}) {
+        if (!*line) continue;
+        if (!message.empty()) message += "\n";
+        message += i18n::Translate(line);
+      }
+    };
+    append(storage, "USB storage connected", "USB storage disconnected");
+    append(mouse, "Mouse connected", "Mouse disconnected");
+    append(keyboard, "Keyboard connected", "Keyboard disconnected");
+    // A passive notice must never cover a destructive operation, unlock prompt,
+    // or fastboot handover. Suppressed notices are not replayed later.
+    if (!interactive_ready_ || suspended_ || decryption_active_ || decrypt_running_ ||
+        operation_running_ || fastboot_mode_ || lock_overlay_ || power_overlay_ ||
+        recents_overlay_ || StatusBarShadeOpen()) return;
+    if (notice_overlay_) lv_obj_delete(notice_overlay_);
+    auto *panel = lv_obj_create(lv_layer_top());
+    notice_overlay_ = panel;
+    design::Panel(panel, 42, design::kMainSheet);
+    const int lines = 1 + std::count(message.begin(), message.end(), '\n');
+    lv_obj_set_size(panel, std::min(1080, static_cast<int>(lv_obj_get_width(lv_layer_top())) - 80), 100 + lines * 60);
+    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 200);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(panel, [](lv_event_t *event) {
+      auto *self = static_cast<Impl *>(lv_event_get_user_data(event));
+      if (self->notice_overlay_ == lv_event_get_target(event)) self->notice_overlay_ = nullptr;
+    }, LV_EVENT_DELETE, this);
+    auto *label = design::Label(panel, message.c_str(), &lv_font_montserrat_36, design::kText);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_width(label, LV_PCT(90));
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_fade_in(panel, 160, 0);
+    lv_obj_delete_delayed(panel, 3500);
+  }
+
   void ShowScreenshotResult(bool success) {
     if (!initialized_) return;
+    if (success) {
+      if (screenshot_flash_) lv_obj_delete(screenshot_flash_);
+      screenshot_flash_ = ScreenshotFlash(lv_layer_top());
+      lv_obj_add_event_cb(screenshot_flash_, [](lv_event_t *event) {
+        auto *self = static_cast<Impl *>(lv_event_get_user_data(event));
+        if (self->screenshot_flash_ == lv_event_get_target(event)) self->screenshot_flash_ = nullptr;
+      }, LV_EVENT_DELETE, this);
+      return;
+    }
     if (notice_overlay_ != nullptr) lv_obj_delete(notice_overlay_);
     auto *panel = lv_obj_create(lv_layer_top());
     notice_overlay_ = panel;
@@ -3752,6 +3812,10 @@ private:
   lv_obj_t *volume_label_ = nullptr;
   lv_obj_t *volume_fill_ = nullptr;
   lv_timer_t *volume_hide_timer_ = nullptr;
+  UsbAttachmentTracker usb_attachments_;
+  lv_obj_t *screenshot_flash_ = nullptr;
+  UsbAttachmentTracker mouse_attachments_, keyboard_attachments_;
+  uint32_t last_usb_poll_ = 0;
   lv_obj_t *notice_overlay_ = nullptr;
   lv_obj_t *pc_overlay_ = nullptr;
   widgets::PcTransferBanner pc_transfer_;
