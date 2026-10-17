@@ -1156,6 +1156,10 @@ void OpenEntryMenu(Files* state, const Entry& entry) {
       });
 }
 
+bool DeferredTextProbe(const std::string &path) {
+  return path == "/mnt/nas" || path.compare(0, 9, "/mnt/nas/") == 0;
+}
+
 void OpenFile(Files *state, const Entry &entry) {
   if (entry.symlink) {
     struct stat target{};
@@ -1229,7 +1233,8 @@ void OpenFile(Files *state, const Entry &entry) {
     ReviewPackage(state->screen, entry.path, state->callback, state->context);
   } else if (Image(entry.name)) {
     OpenImageTargetPicker(state, entry);
-  } else if (entry.text) {
+  } else if (entry.text || (DeferredTextProbe(entry.path) &&
+                           file_manager::IsTextFile(entry.path, 1024 * 1024))) {
     OpenTextViewer(state, entry);
   } else {
     OpenInformation(state, entry);
@@ -1731,7 +1736,8 @@ void Populate(Files *state) {
       const uint64_t bytes = info.st_size < 0 ? 0 : static_cast<uint64_t>(info.st_size);
       state->entries.push_back(
           { item->d_name, path, folder, symlink,
-            S_ISREG(info.st_mode) && file_manager::IsTextFile(path, 1024 * 1024), bytes,
+            S_ISREG(info.st_mode) && !DeferredTextProbe(path) &&
+                file_manager::IsTextFile(path, 1024 * 1024), bytes,
             info.st_mode, info.st_uid, info.st_gid, info.st_mtime });
     }
     closedir(directory);
