@@ -56,6 +56,7 @@
 #include "aera_remote/pc_storage.hpp"
 #include "aeraui/features/backup/app_vault.hpp"
 #include "aeraui/platform/image_targets.hpp"
+#include "unencrypted_users.hpp"
 #include "temperature_reader.hpp"
 #include <twinstall.h>
 #include <twinstall/adb_install.h>
@@ -330,6 +331,12 @@ std::vector<AndroidUser> RecoveryAndroidUsers() {
       result.push_back({static_cast<int>(id), std::move(name), user.type,
                         user.isDecrypted});
     }
+  }
+  if (result.empty()) {
+    auto *data = PartitionManager.Find_Partition_By_Path("/data");
+    if (data && data->Is_Mounted() && !RecoveryDataLocked())
+      return UnencryptedAndroidUsers("/data", true,
+                                     PartitionManager.Storage_Is_Encrypted());
   }
   std::sort(result.begin(), result.end(),
             [](const AndroidUser &left, const AndroidUser &right) {

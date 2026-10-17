@@ -58,6 +58,12 @@ add_executable(android_packages_xml_test android_packages_xml_test.cpp
 target_include_directories(android_packages_xml_test PRIVATE "${AERA_TINYXML2_DIR}")
 target_compile_options(android_packages_xml_test PRIVATE -UNDEBUG -fno-exceptions)
 add_test(NAME android_package_xml_codec COMMAND android_packages_xml_test)
+add_executable(unencrypted_users_test unencrypted_users_test.cpp
+  ../platform/unencrypted_users.cpp ../features/backup/android_packages_xml.cpp
+  "${AERA_TINYXML2_DIR}/tinyxml2.cpp")
+target_include_directories(unencrypted_users_test PRIVATE ../include "${AERA_TINYXML2_DIR}")
+target_compile_options(unencrypted_users_test PRIVATE -UNDEBUG -fno-exceptions -Wall -Wextra -Werror)
+add_test(NAME unencrypted_android_users COMMAND unencrypted_users_test)
 add_executable(app_registration_test app_registration_test.cpp
   ../features/backup/android_packages_xml.cpp ../features/backup/app_registration.cpp
   "${AERA_TINYXML2_DIR}/tinyxml2.cpp")
