@@ -1339,6 +1339,11 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
     if (!TerminalPhase(g_transfer.phase)) { Error(tls, 409, "Another transfer or installation is active."); return; }
     if (g_recovery_busy || g_file_busy || !g_reboot_target.empty()) { Error(tls, 409, "Recovery is busy."); return; }
     const std::string root = body["storage"].asString();
+    if (body["kind"] != "file" &&
+        (g_platform["locked"].asBool() || !g_platform["transfer_storage"].isObject() ||
+         root != g_platform["transfer_storage"]["path"].asString())) {
+      Error(tls, 409, "Installation transfers require available, unlocked internal storage."); return;
+    }
     bool storage_available = false;
     for (const auto &storage : g_platform["storages"])
       storage_available |= storage["path"].asString() == root;
@@ -2542,11 +2547,6 @@ void RefreshPlatformInfo() {
   network["auth"] = nas.config.auth; network["key_name"] = nas.config.key_name;
   network["key_available"] = nas.key_available;
   network["password_saved"] = !nas.config.password.empty();
-  info["app_vault_storage"] = aeraui::RecoveryAppVaultStorage();
-  info["backup_storages"] = Json::Value(Json::arrayValue);
-  for (const auto &target : aeraui::RecoveryBackupStorages()) {
-    Json::Value item;
-    item["name"] = target.name; item["path"] = target.path;
   for (const auto *protocol : {"smb", "sftp"}) {
     const auto profile = aeraui::RecoverySavedNasConfig(protocol);
     auto &item = network["profiles"][protocol];
@@ -2558,6 +2558,11 @@ void RefreshPlatformInfo() {
     item["password_saved"] = !profile.password.empty();
     item["key_available"] = nas.key_available;
   }
+  info["app_vault_storage"] = aeraui::RecoveryAppVaultStorage();
+  info["backup_storages"] = Json::Value(Json::arrayValue);
+  for (const auto &target : aeraui::RecoveryBackupStorages()) {
+    Json::Value item;
+    item["name"] = target.name; item["path"] = target.path;
     item["mounted"] = target.mounted; item["free"] = Json::UInt64(target.free_bytes);
     info["backup_storages"].append(item);
   }
@@ -2609,7 +2614,19 @@ void RefreshPlatformInfo() {
     storage["free"] = Json::UInt64(uint64_t(filesystem.f_bavail) * filesystem.f_frsize);
     info["storages"].append(storage);
   };
-  if (!aeraui::RecoveryDataLocked()) add_storage("Current storage", aeraui::RecoveryStorage());
+  info["transfer_storage"] = Json::Value();
+  if (!aeraui::RecoveryDataLocked()) {
+    const auto internal = aeraui::RecoveryInternalStorage();
+    if (!internal.empty()) {
+      add_storage("Internal storage", internal);
+      char canonical[4096];
+      if (realpath(internal.c_str(), canonical)) {
+        for (const auto &storage : info["storages"])
+          if (storage["path"].asString() == canonical) info["transfer_storage"] = storage;
+      }
+    }
+    add_storage("Current storage", aeraui::RecoveryStorage());
+  }
   for (const auto &volume : aeraui::RecoveryVolumes("storage")) {
     if (aeraui::RecoveryDataLocked() && (volume.path == "/data" || volume.path == "/sdcard")) continue;
 #ifndef AERA_PC_HOST_TEST

@@ -73,6 +73,7 @@ int SimulateBackup(const aeraui::JobRequest &job) {
 namespace {
 std::string storage;
 bool locked = false;
+bool current_external = false;
 bool app_vault_installed = true;
 bool wifi_connected = false;
 std::string wifi_address = "127.0.0.2";
@@ -105,7 +106,8 @@ std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::st
   for (const auto &name : names) targets.push_back({name, "/fixture/" + name});
   return targets;
 }
-std::string RecoveryStorage() { return storage; }
+std::string RecoveryStorage() { return current_external ? storage + "/usb" : storage; }
+std::string RecoveryInternalStorage() { return locked ? "" : storage; }
 std::vector<BackupStorage> RecoveryBackupStorages() {
   return {{"Internal storage", storage, true, 10000000000},
           {"USB storage", storage + "/usb", true, 5000000000}};
@@ -123,13 +125,13 @@ NasStatus RecoveryNasStatus() {
   return status;
 }
 WifiConnection RecoveryWifiConnection() { return {wifi_connected, "Test network"}; }
-std::vector<Volume> RecoveryVolumes(const std::string &kind) {
-  if (kind == "backup") return {{"Data", "/data", 2147483648}, {"Boot", "/boot", 67108864}, {"Recovery", "/recovery", 104857600}};
 NasConfig RecoverySavedNasConfig(const std::string &protocol) {
   auto config = RecoveryNasStatus().config;
   config.type = protocol;
   return config;
 }
+std::vector<Volume> RecoveryVolumes(const std::string &kind) {
+  if (kind == "backup") return {{"Data", "/data", 2147483648}, {"Boot", "/boot", 67108864}, {"Recovery", "/recovery", 104857600}};
   return {{"USB storage", storage + "/usb"}};
 }
 std::vector<Volume> RecoveryImageVolumes() {
@@ -245,6 +247,9 @@ int main(int argc, char **argv) {
       else if (command == "off") aera::pc::SetEnabled(false, port, false);
       else if (command == "on") {
         if (!aera::pc::SetEnabled(true, port, false)) return 5;
+      }
+      else if (command == "current-usb" || command == "current-internal") {
+        current_external = command == "current-usb"; aera::pc::RefreshPlatformInfo();
       }
       else if (command == "lock" || command == "unlock") {
         locked = command == "lock"; aera::pc::RefreshPlatformInfo();

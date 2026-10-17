@@ -542,6 +542,12 @@ std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::st
 }
 
 std::string RecoveryStorage() { return DataManager::GetCurrentStoragePath(); }
+std::string RecoveryInternalStorage() {
+  if (RecoveryDataLocked()) return {};
+  const auto configured = DataManager::GetStrValue(TW_INTERNAL_PATH);
+  if (!configured.empty()) return configured;
+  return "/sdcard";
+}
 std::string RecoveryBackupRoot() { return DataManager::GetStrValue(TW_BACKUPS_FOLDER_VAR); }
 bool RecoveryDeleteBackup(const std::string &folder) {
   std::string canonical_backup;
@@ -3827,12 +3833,6 @@ NasStatus RecoveryNasStatus() {
   return status;
 }
 
-bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
-#ifndef OF_ENABLE_WLAN
-  if (error) *error = "This recovery was built without network storage support.";
-  return false;
-#else
-  const auto invalid = [](const std::string &value, size_t maximum) {
 NasConfig RecoverySavedNasConfig(const std::string &protocol) {
   NasConfig config;
   config.type = protocol == "smb" ? "smb" : "sftp";
@@ -3848,6 +3848,12 @@ NasConfig RecoverySavedNasConfig(const std::string &protocol) {
   return config;
 }
 
+bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
+#ifndef OF_ENABLE_WLAN
+  if (error) *error = "This recovery was built without network storage support.";
+  return false;
+#else
+  const auto invalid = [](const std::string &value, size_t maximum) {
     return value.size() > maximum || value.find('\n') != std::string::npos ||
            value.find('\r') != std::string::npos;
   };

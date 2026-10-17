@@ -139,6 +139,7 @@ PayloadFlashProgress RecoveryPayloadFlashProgress();
 std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names);
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder);
 std::string RecoveryStorage();
+std::string RecoveryInternalStorage();
 std::string RecoveryBackupRoot();
 void RecoveryEnsurePcStorage();
 int RecoveryRunPcBackup(const JobRequest &request);
@@ -492,8 +493,8 @@ struct NasStatus {
 enum class NasOperation { kMountAndUse, kUse, kUnmount };
 struct NasRequest { NasOperation operation = NasOperation::kMountAndUse; };
 NasStatus RecoveryNasStatus();
-bool RecoverySetNasConfig(const NasConfig &config, std::string *error);
 NasConfig RecoverySavedNasConfig(const std::string &protocol);
+bool RecoverySetNasConfig(const NasConfig &config, std::string *error);
 bool RecoveryImportNasKey(const std::string &key, const std::string &name,
                           std::string *error);
 int RecoveryRunNas(const NasRequest &request);

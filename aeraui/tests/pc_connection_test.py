@@ -398,6 +398,18 @@ class PcConnectionTest(unittest.TestCase):
 
     def test_04_image_targets_and_storage_are_validated(self):
         data = b"image fixture" * 8192
+        self.command("current-usb")
+        try:
+            info = self.request("/api/status")[1]
+            self.assertEqual(info["transfer_storage"]["path"], str(self.root))
+            self.assertTrue(any(item["path"] == str(self.root / "usb") for item in info["storages"]))
+            self.assertEqual(self.prepare(data, storage=str(self.root / "usb"))[0], 409)
+            self.command("lock")
+            self.assertIsNone(self.request("/api/status")[1]["transfer_storage"])
+            self.assertEqual(self.prepare(data)[0], 409)
+        finally:
+            self.command("unlock")
+            self.command("current-internal")
         self.assertEqual(self.prepare(data, storage="/tmp")[0], 409)
         self.assertEqual(self.prepare(data, kind="img", partition="/bad", both_slots=False)[0], 400)
         self.assertEqual(self.prepare(data, kind="img", partition="/system", both_slots=True)[0], 400)
