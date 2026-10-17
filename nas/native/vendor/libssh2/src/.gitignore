@@ -5,3 +5,5 @@ libssh2.pc
 libssh2_config.h
 libssh2_config.h.in
 stamp-h1
+# AERA uses this checked-in Android platform configuration.
+!libssh2_config.h
