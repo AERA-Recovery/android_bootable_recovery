@@ -49,7 +49,7 @@
 <div class="section-title"><h2>Files</h2><span id="fileCount" class="small muted"></span></div>
 <label for="fileStorage">Storage</label><select id="fileStorage"></select>
 <div class="file-toolbar"><button id="folderUp" class="quiet" title="Parent folder" aria-label="Parent folder"><svg class="icon"><use href="#up"/></svg></button><div id="folderPath" class="folder-path"></div><button id="folderRefresh" class="quiet" title="Refresh folder" aria-label="Refresh folder"><svg class="icon"><use href="#refresh"/></svg></button></div>
-<div class="file-actions"><button id="folderNew"><svg class="icon"><use href="#folder-plus"/></svg>New folder</button><button id="fileUpload"><svg class="icon"><use href="#upload"/></svg>Upload file</button><button id="fileUploadCancel" class="danger" hidden><svg class="icon"><use href="#close"/></svg>Cancel upload</button></div><input id="storageFile" type="file" hidden>
+<div class="file-actions"><button id="folderNew"><svg class="icon"><use href="#folder-plus"/></svg>New folder</button><button id="fileUpload"><svg class="icon"><use href="#upload"/></svg>Upload files</button><button id="fileUploadCancel" class="danger" hidden><svg class="icon"><use href="#close"/></svg>Cancel upload</button></div><input id="storageFile" type="file" multiple hidden><p id="fileUploadStatus" class="context-note" role="status" hidden></p>
 <div class="file-select-tools"><label><input id="fileSelectAll" type="checkbox"><span id="fileSelectAllLabel">Select all</span></label><span id="fileSelectedCount" class="small muted" aria-live="polite"></span><button id="fileClearSelection" class="quiet" title="Clear selection" aria-label="Clear selection" hidden><svg class="icon"><use href="#close"/></svg></button></div>
 <div id="fileList" class="file-list" aria-live="polite"></div><button id="filesMore" class="quiet" hidden>Load more</button>
 <div id="fileSelection" class="file-selection" hidden><div id="selectedName" class="file-name"></div><div id="selectedDetails" class="small muted"></div><div class="file-actions"><button id="fileDownload" title="Download file"><svg class="icon"><use href="#download"/></svg>Download</button><button id="fileInstall" class="primary" hidden><svg class="icon"><use href="#check"/></svg><span id="fileInstallLabel">Install ZIP</span></button><button id="fileRename">Rename</button><button id="fileDelete" class="danger" title="Delete file or empty folder"><svg class="icon"><use href="#trash"/></svg>Delete</button></div></div>
@@ -122,7 +122,7 @@ async function refresh(){if(!state.token)return;const info=await api('status');d
 async function hashFile(file){const hash=await hashwasm.createSHA256();hash.init();for(let offset=0;offset<file.size;offset+=4*1024*1024){if(state.cancelled)throw new Error('Transfer cancelled.');hash.update(new Uint8Array(await file.slice(offset,offset+4*1024*1024).arrayBuffer()));const percent=Math.min(100,100*(offset+4*1024*1024)/file.size);$('progress').value=percent;$('percent').textContent=Math.floor(percent)+'%';$('bytes').textContent=`${size(Math.min(file.size,offset+4*1024*1024))} / ${size(file.size)}`;await new Promise(resolve=>setTimeout(resolve,0))}return hash.digest('hex')}
 async function transfer(){
   if(!state.file||state.busy)return;
-  state.busy=true;state.cancelled=false;state.job=null;state.receivingJob=null;controls();notice('');
+  state.busy=true;state.cancelled=false;state.transferError='';state.job=null;state.receivingJob=null;controls();notice('');
   $('statusTitle').textContent='Calculating checksum';$('statusDetail').textContent=state.file.name;
   $('progressLabel').textContent='SHA-256';$('speed').textContent='--';
   try{
@@ -141,7 +141,7 @@ async function transfer(){
       const started=performance.now();
       xhr.upload.onprogress=event=>{
         if(state.receivingJob?.id===job.id){renderUploadProgress(state.receivingJob);return}
-        const sent=Math.min(event.loaded,file.size);const percent=100*sent/file.size;
+        const sent=Math.min(event.loaded,file.size);const percent=file.size?100*sent/file.size:100;
         $('statusTitle').textContent=sent===file.size?'Verifying on recovery':'Transferring file';
         $('statusDetail').textContent=file.name;$('progressLabel').textContent='Transfer';
         $('progress').value=percent;$('percent').textContent=Math.floor(percent)+'%';
@@ -159,7 +159,8 @@ async function transfer(){
     });
     state.busy=false;updateJob(received);notice('File transferred and verified.','success');
     if(!state.saveFolder&&received.phase==='ready'&&!state.cancelled)showConfirmation();
-  }catch(error){if(!state.cancelled)notice(error.message)}
+    return received;
+  }catch(error){state.transferError=error.message;if(!state.cancelled)notice(error.message)}
   finally{state.upload=null;state.busy=false;controls();await refresh().catch(()=>{})}
 }
 function reviewLine(label,value){const row=document.createElement('div'),term=document.createElement('dt'),detail=document.createElement('dd');term.textContent=label;detail.textContent=value;row.append(term,detail);$('review').append(row)}

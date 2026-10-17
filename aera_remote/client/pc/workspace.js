@@ -1,8 +1,8 @@
 'use strict';
 const workspace = {tab: 'install', folder: null, selected: null, loading: false, action: null, slotChosen: false,
   dismissed: setting('dismissedActivity'), localJob: null, serverJobId: '', download: null,
-  selection: new Map(), entries: new Map(), selectionAnchor: '', batchDownload: false, pendingFolder: null};
-const activeJob = () => state.busy || workspace.batchDownload || ['prepared','uploading','ready','queued','installing'].includes(state.job?.phase);
+  selection: new Map(), entries: new Map(), selectionAnchor: '', batchDownload: false, batchAbort: null, uploadQueue: null, pendingFolder: null};
+const activeJob = () => state.busy || workspace.batchDownload || !!workspace.uploadQueue || ['prepared','uploading','ready','queued','installing'].includes(state.job?.phase);
 const installSource = document.createElement('fieldset');
 installSource.className='install-source';installSource.hidden=true;
 installSource.innerHTML='<legend class="sr-only">Install source</legend><label><input type="radio" name="installSource" value="file" checked>File</label><label><input type="radio" name="installSource" value="url">Download link</label>';
@@ -115,7 +115,7 @@ function showTab(tab) {
   activityVisibility();
 }
 function activityVisibility() {
-  const empty = !state.busy && (!state.job || state.job.phase === 'idle');
+  const empty = !state.busy && !workspace.batchDownload && (!state.job || state.job.phase === 'idle');
   const inspection = state.job?.root_action === 'inspect' && state.job?.phase === 'completed' && workspace.tab === 'root';
   const hidden = (empty && workspace.tab !== 'install') || inspection;
   $('workspace').children[1].hidden = hidden;
@@ -136,12 +136,20 @@ controls = function() {
   originalControls();
   $('transferLabel').textContent=state.saveFolder?'Upload file':/\.img$/i.test(state.file?.name||'')?'Transfer & flash':'Transfer & install';
   $('transfer').hidden=state.job?.phase==='ready'&&!state.saveFolder;
-  if(workspace.download){$('cancel').hidden=false;$('cancel').disabled=false;$('cancel').textContent='Cancel download';}
+  const downloading=workspace.download||workspace.batchAbort;
+  if(downloading){$('cancel').hidden=false;$('cancel').disabled=false;$('cancel').textContent='Cancel download';}
   else $('cancel').textContent=state.busy||state.job?.phase==='uploading'?'Cancel upload':'Discard transfer';
   $('fileUploadCancel').hidden=(!state.saveFolder&&!state.job?.save_path)||(!state.busy&&!['prepared','uploading','ready'].includes(state.job?.phase));
   $('fileUploadCancel').disabled=state.cancelled||state.job?.owned===false;
-  if(workspace.download){$('fileUploadCancel').hidden=false;$('fileUploadCancel').disabled=false;}
-  $('fileUploadCancel').lastChild.textContent=workspace.download?' Cancel download':' Cancel upload';
+  if(downloading){$('fileUploadCancel').hidden=false;$('fileUploadCancel').disabled=false;}
+  $('fileUploadCancel').lastChild.textContent=downloading?' Cancel download':' Cancel upload';
+  if(workspace.uploadQueue){
+    $('cancel').hidden=$('fileUploadCancel').hidden=false;
+    $('cancel').disabled=$('fileUploadCancel').disabled=workspace.uploadQueue.cancelled;
+    $('cancel').textContent='Cancel uploads';
+    $('fileUploadCancel').lastChild.textContent=workspace.uploadQueue.cancelled?' Cancelling...':' Cancel uploads';
+    $('removeFile').disabled=true;$('drop').setAttribute('aria-disabled','true');
+  }
   const imageTarget=state.info?.partitions.find(partition=>partition.path===$('partition').value);
   if(imageTarget&&!imageTarget.slot_select){$('slots').disabled=true;$('slots').value='current';}
   const blocked = !state.connected || activeJob() || workspace.batchDownload || !!state.info?.busy;
@@ -153,7 +161,7 @@ controls = function() {
   $('fileStorage').disabled = blocked || workspace.loading;
   const selected=Array.from(workspace.selection.values());
   $('fileDelete').disabled=blocked||workspace.loading||!selected.length;
-  $('fileDownload').disabled=blocked||workspace.loading||!selected.length||selected.some(entry=>!entry.regular);
+  $('fileDownload').disabled=blocked||workspace.loading||!selected.length||selected.some(entry=>!entry.regular&&!entry.directory);
   $('fileSelectAll').disabled=blocked||workspace.loading||!workspace.entries.size;
   $('fileClearSelection').disabled=blocked||workspace.loading;
   for(const input of $('fileList').querySelectorAll('input'))input.disabled=blocked||workspace.loading;
@@ -267,6 +275,7 @@ function renderRootInspection(job) {
     'No matching module / check latest release';offline.append(module);panel.append(offline);
 }
 updateJob = function(job) {
+  if(workspace.batchDownload&&job!==workspace.localJob)return;
   if (state.busy) {
     if(state.upload&&job.id===state.job?.id){
       state.receivingJob=job;
@@ -297,6 +306,8 @@ updateJob = function(job) {
       if(job.phase==='completed'){$('statusDetail').textContent='';notice('');}
     } else if (job.phase === 'completed') notice('Root operation completed.','success');
   } else if (job.save_path) {
+    $('progressLabel').textContent='Upload';
+    if(!job.log&&job.phase==='completed')$('log').textContent='File saved to '+job.save_path;
     $('statusTitle').textContent = job.phase === 'ready' ? 'Ready to save' : job.phase === 'completed' ? 'File saved' : $('statusTitle').textContent;
     if (job.phase === 'completed') notice(job.detail,'success');
   } else if(job.download_name){
@@ -319,6 +330,7 @@ updateJob = function(job) {
 };
 const originalSelectFile = selectFile;
 selectFile = function(file) {
+  if(workspace.uploadQueue)return;
   if (!activeJob()) state.saveFolder = '';
   originalSelectFile(file);
   if(state.file===file&&file&&/\.img$/i.test(file.name)){
@@ -421,7 +433,7 @@ showConfirmation = function() {
 };
 $('install').onclick = showConfirmation;
 const originalDiscard=discard;
-$('cancel').onclick=()=>{if(workspace.download)workspace.download.abort();else originalDiscard()};
+$('cancel').onclick=()=>{const download=workspace.download||workspace.batchAbort;if(download)download.abort();else if(workspace.uploadQueue)cancelFileUploads();else originalDiscard()};
 async function cancelConfirmation() {
   if(workspace.confirming||workspace.cancellingConfirmation)return;
   if(state.job?.phase!=='ready'){$('confirm').close();return;}
@@ -544,7 +556,7 @@ function updateSelection(){
   $('selectedName').textContent=single?single.name:entries.length+' selected';
   const bytes=entries.reduce((total,entry)=>total+(entry.regular?entry.bytes:0),0);
   $('selectedDetails').textContent=single?(single.directory?'Only empty folders can be deleted.':size(single.bytes)+' / '+new Date(single.modified*1000).toLocaleString()):size(bytes)+' / '+entries.filter(entry=>entry.directory).length+' folders';
-  $('fileDownload').hidden=entries.some(entry=>!entry.regular);
+  $('fileDownload').hidden=entries.some(entry=>!entry.regular&&!entry.directory);
   $('fileDownload').lastChild.textContent=entries.length>1?' Download selected':' Download';
   $('fileRename').hidden=!single;
   $('fileInstall').hidden=!single?.regular||!single.bytes||!(/\.(zip|img)$/i.test(single.name));
@@ -629,11 +641,14 @@ async function downloadEntry(entry,directory=null,batchAbort=null){
       const handle=await window.showSaveFilePicker({suggestedName:entry.name});
       writer=await handle.createWritable();
     }
-    const serverJobId=workspace.localJob?workspace.serverJobId:state.job?.id||'';
-    if(['completed','failed','cancelled'].includes(state.job?.phase))clearActivity();
-    workspace.serverJobId=serverJobId;workspace.download=abort;
-    state.busy=true;controls();activityVisibility();notice('');
-    $('statusTitle').textContent='Downloading file';$('statusDetail').textContent=entry.name;
+    if(!workspace.batchDownload){
+      const serverJobId=workspace.localJob?workspace.serverJobId:state.job?.id||'';
+      if(['completed','failed','cancelled'].includes(state.job?.phase))clearActivity();
+      workspace.serverJobId=serverJobId;notice('');
+    }
+    workspace.download=abort;
+    state.busy=true;controls();activityVisibility();
+    $('statusTitle').textContent='Downloading file';$('statusDetail').textContent=entry.relative||entry.name;
     $('progressLabel').textContent='Download';$('progress').value=0;$('percent').textContent='0%';
     const result=await api('files/download',{path:entry.path});
     let lastProgress=performance.now();const started=lastProgress;
@@ -657,18 +672,20 @@ async function downloadEntry(entry,directory=null,batchAbort=null){
     if(writer){await writer.close();writer=null;}
     else{const url=URL.createObjectURL(new Blob(chunks,{type:'application/octet-stream'}));const link=document.createElement('a');link.href=url;link.download=entry.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);}
     state.busy=false;
-    workspace.localJob={id:'download-'+crypto.randomUUID(),phase:'completed',download_name:entry.name,
-      detail:'Downloaded '+entry.name+'.',bytes:entry.bytes,received:entry.bytes,progress:100,
-      log:'Downloaded '+entry.name+' to this computer.'};
-    updateJob(workspace.localJob);
+    if(!workspace.batchDownload){
+      workspace.localJob={id:'download-'+crypto.randomUUID(),phase:'completed',download_name:entry.name,
+        detail:'Downloaded '+entry.name+'.',bytes:entry.bytes,received:entry.bytes,progress:100,
+        log:'Downloaded '+entry.name+' to this computer.'};
+      updateJob(workspace.localJob);
+    }
     complete=true;
   }catch(error){
     const message=error.name==='AbortError'?'Download interrupted.':error.message;
     workspace.downloadError=message;
-    if(workspace.download){
+    if(workspace.download&&!workspace.batchDownload){
       state.busy=false;workspace.localJob={id:'download-'+crypto.randomUUID(),phase:'failed',download_name:entry.name,detail:message};
       updateJob(workspace.localJob);
-    }else if(error.name!=='AbortError')notice(message);
+    }else if(!workspace.batchDownload&&error.name!=='AbortError')notice(message);
   }
   finally{
     clearInterval(watchdog);if(writer)await writer.abort().catch(()=>{});
@@ -678,34 +695,105 @@ async function downloadEntry(entry,directory=null,batchAbort=null){
 }
 $('fileDownload').onclick=async()=>{
   const entries=Array.from(workspace.selection.values());if(!entries.length||activeJob())return;
-  if(entries.length===1){await downloadEntry(entries[0]);return}
+  if(entries.length===1&&!entries[0].directory){await downloadEntry(entries[0]);return}
+  const folders=entries.some(entry=>entry.directory);
+  if(folders&&typeof window.showDirectoryPicker!=='function'){
+    notice('Folder downloads require a browser with computer folder access, such as Chrome, Edge or Opera.');return;
+  }
   let directory=null;
   try{if(typeof window.showDirectoryPicker==='function')directory=await window.showDirectoryPicker({id:'aera-files-download',mode:'readwrite'})}
   catch(error){if(error.name!=='AbortError')notice(error.message);return}
-  const abort=new AbortController();workspace.batchDownload=true;controls();
-  let completed=0;
+  const serverJobId=workspace.localJob?workspace.serverJobId:state.job?.id||'';
+  clearActivity();workspace.serverJobId=serverJobId;
+  const abort=new AbortController();workspace.batchDownload=true;workspace.batchAbort=abort;
+  notice('Downloading selected items...','progress');controls();
+  let completed=0,files=0,foldersSaved=0,skipped=0,visited=0;
+  const checkCancelled=()=>{if(abort.signal.aborted)throw new DOMException('Download cancelled.','AbortError')};
+  async function copyEntry(entry,parent,relative=entry.name,depth=0){
+    checkCancelled();
+    if(depth>128||++visited>100000)throw new Error('The folder contains too many entries or nesting levels. Download smaller subfolders separately.');
+    if(!entry.directory){
+      if(!entry.regular){skipped++;return}
+      if(!await downloadEntry({...entry,relative},parent,abort))throw new Error(workspace.downloadError||'Download interrupted.');
+      files++;return;
+    }
+    try{await parent.getDirectoryHandle(entry.name);throw new Error(relative+' already exists in the chosen computer folder. Nothing was overwritten.')}
+    catch(error){if(error.name!=='NotFoundError')throw error}
+    checkCancelled();
+    const target=await parent.getDirectoryHandle(entry.name,{create:true});foldersSaved++;
+    let offset=0;
+    do{
+      checkCancelled();state.busy=true;controls();
+      $('statusTitle').textContent='Reading folder';$('statusDetail').textContent=relative;
+      $('progressLabel').textContent='Download';$('progress').removeAttribute('value');$('percent').textContent='Reading';
+      let listing;
+      try{listing=await api('files/list',{path:entry.path,offset})}finally{state.busy=false}
+      checkCancelled();
+      if(listing.truncated)throw new Error(relative+' has more than 10,000 entries and cannot be downloaded completely.');
+      for(const child of listing.entries)await copyEntry(child,target,relative+'/'+child.name,depth+1);
+      if(listing.next!==null&&(!Number.isInteger(listing.next)||listing.next<=offset))throw new Error('Recovery returned an invalid folder page.');
+      offset=listing.next;
+    }while(offset!==null);
+  }
   try{
     for(const entry of entries){
-      if(abort.signal.aborted||!await downloadEntry(entry,directory,abort))break;
+      await copyEntry(entry,directory);
       completed++;
     }
-    notice(completed+' / '+entries.length+' files downloaded.'+(completed===entries.length?'':' '+(workspace.downloadError||'Transfer stopped.')),completed===entries.length?'success':'');
-  }finally{workspace.batchDownload=false;controls()}
+    const detail=files+' files and '+foldersSaved+' folders saved.'+(skipped?' '+skipped+' links or special files skipped.':'');
+    workspace.localJob={id:'download-'+crypto.randomUUID(),phase:'completed',download_name:folders?'Folders':'Selected files',
+      detail,progress:100,log:detail};updateJob(workspace.localJob);notice(detail,'success');
+  }catch(error){
+    const detail=(error.name==='AbortError'?'Download cancelled.':error.message)+' '+
+      files+' files saved; '+completed+' / '+entries.length+' selected items completed. Partial folders may remain on the computer.';
+    workspace.localJob={id:'download-'+crypto.randomUUID(),phase:'failed',download_name:'Selected items',detail};
+    updateJob(workspace.localJob);notice(detail);
+  }finally{state.busy=false;workspace.batchDownload=false;workspace.batchAbort=null;controls()}
 };
 $('fileUpload').onclick=()=>$('storageFile').click();
-$('fileUploadCancel').onclick=()=>{if(workspace.download)workspace.download.abort();else discard()};
+$('fileUploadCancel').onclick=()=>{const download=workspace.download||workspace.batchAbort;if(download)download.abort();else if(workspace.uploadQueue)cancelFileUploads();else discard()};
+async function cancelFileUploads(){
+  const queue=workspace.uploadQueue;if(!queue||queue.cancelled)return;
+  queue.cancelled=true;state.cancelled=true;
+  $('fileUploadStatus').textContent='Cancelling uploads / '+queue.completed+' of '+queue.total+' files saved';controls();
+  // A save already submitted may finish, but no further file may start.
+  if(!queue.saving)await originalDiscard();
+}
 $('storageFile').onchange=async()=>{
-  const file=$('storageFile').files[0];if(!file||activeJob()||!workspace.folder)return;
-  const destination=workspace.folder.path;
-  state.file=file;state.saveFolder=workspace.folder.path;state.saveRoot=workspace.folder.root;
-  $('fileInfo').hidden=false;$('fileName').textContent=file.name;$('fileDetails').textContent=size(file.size)+' / Save to '+state.saveFolder;
-  $('imageFields').hidden=true;notice('');controls();$('storageFile').value='';
-  await transfer();
-  if(!state.cancelled&&state.job?.phase==='ready'&&state.job.save_path){
-    try{updateJob(await api('install',{id:state.job.id,confirm:true}));await loadFolder(destination);}
-    catch(error){notice(error.message);}
+  const files=Array.from($('storageFile').files);$('storageFile').value='';
+  if(!files.length||activeJob()||!workspace.folder)return;
+  const destination=workspace.folder.path,root=workspace.folder.root;
+  const queue={cancelled:false,saving:false,total:files.length,completed:0};workspace.uploadQueue=queue;
+  const status=$('fileUploadStatus');status.hidden=false;let error='';
+  try{
+    for(const [index,file] of files.entries()){
+      if(queue.cancelled)break;
+      status.textContent='File '+(index+1)+' of '+queue.total+' / '+file.name;
+      state.file=file;state.saveFolder=destination;state.saveRoot=root;
+      $('fileInfo').hidden=false;$('fileName').textContent=file.name;$('fileDetails').textContent=size(file.size)+' / Save to '+destination;
+      $('imageFields').hidden=true;notice('');controls();
+      const received=await transfer();
+      if(queue.cancelled||state.cancelled)break;
+      if(received?.phase!=='ready'||!received.save_path)throw new Error(state.transferError||received?.detail||'Upload failed.');
+      queue.saving=true;let saved;
+      try{saved=await api('install',{id:received.id,confirm:true})}finally{queue.saving=false}
+      updateJob(saved);
+      if(saved.phase!=='completed')throw new Error(saved.detail||'Could not save the uploaded file.');
+      queue.completed++;
+    }
+  }catch(failure){error=failure.message}
+  finally{
+    workspace.uploadQueue=null;
+    const detail=queue.completed+' / '+queue.total+' files uploaded.'+
+      (queue.cancelled?' Remaining uploads cancelled.':error?' Queue stopped: '+error:'');
+    status.textContent=detail;notice(detail,!queue.cancelled&&!error?'success':'');
+    state.file=null;state.saveFolder='';state.saveRoot='';$('fileInfo').hidden=true;
+    controls();await loadFolder(destination);
   }
 };
+window.addEventListener('beforeunload',event=>{
+  if(workspace.uploadQueue||workspace.batchDownload){event.preventDefault();event.returnValue=''}
+});
 function downloadText(text,name,type='text/plain') {
   const url=URL.createObjectURL(new Blob([text],{type}));const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
