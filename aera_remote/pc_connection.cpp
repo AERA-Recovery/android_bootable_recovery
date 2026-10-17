@@ -2625,7 +2625,6 @@ void RefreshPlatformInfo() {
           if (storage["path"].asString() == canonical) info["transfer_storage"] = storage;
       }
     }
-    add_storage("Current storage", aeraui::RecoveryStorage());
   }
   for (const auto &volume : aeraui::RecoveryVolumes("storage")) {
     if (aeraui::RecoveryDataLocked() && (volume.path == "/data" || volume.path == "/sdcard")) continue;

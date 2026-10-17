@@ -403,6 +403,9 @@ class PcConnectionTest(unittest.TestCase):
             info = self.request("/api/status")[1]
             self.assertEqual(info["transfer_storage"]["path"], str(self.root))
             self.assertTrue(any(item["path"] == str(self.root / "usb") for item in info["storages"]))
+            self.assertEqual(next(item["name"] for item in info["storages"]
+                                  if item["path"] == str(self.root / "usb")), "USB storage")
+            self.assertNotIn("Current storage", [item["name"] for item in info["storages"]])
             self.assertEqual(self.prepare(data, storage=str(self.root / "usb"))[0], 409)
             self.command("lock")
             self.assertIsNone(self.request("/api/status")[1]["transfer_storage"])
