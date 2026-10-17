@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "aera_fallback.hpp"
+#include "font_staging.hpp"
 
 #include <algorithm>
 #include <array>
@@ -68,6 +69,7 @@ struct DisplaySize {
 };
 std::map<uint32_t, DisplaySize> display_fonts;
 std::map<std::pair<std::string, uint32_t>, lv_font_t *> external_fonts;
+FontStaging staged_fonts;
 bool initialized = false;
 std::string language = "en";
 std::string selected_font_id;
@@ -130,12 +132,11 @@ lv_font_t *LoadExternalFont(const std::string &path, uint32_t size) {
   const auto key = std::make_pair(path, size);
   const auto existing = external_fonts.find(key);
   if (existing != external_fonts.end()) return existing->second;
-  struct stat info{};
-  if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) ||
-      info.st_size <= 0 || info.st_size > 32 * 1024 * 1024)
-    return nullptr;
+  // Do not let FreeType pin /data (or removable storage), even for previews.
+  const std::string staged_path = staged_fonts.Stage(path);
+  if (staged_path.empty()) return nullptr;
   lv_font_t *font = lv_freetype_font_create(
-      path.c_str(), LV_FREETYPE_FONT_RENDER_MODE_BITMAP, size,
+      staged_path.c_str(), LV_FREETYPE_FONT_RENDER_MODE_BITMAP, size,
       LV_FREETYPE_FONT_STYLE_NORMAL);
   if (font != nullptr) external_fonts.emplace(key, font);
   return font;
