@@ -149,7 +149,7 @@ void Reflow(Grid *state, bool animate) {
   const int current = CurrentPage(state);
   state->cells = PackHomePlugins(Preferences(state), state->geometry.columns,
                                  state->geometry.rows, state->geometry.icons);
-  state->page_count = state->cells.empty() ? 1 : state->cells.back().page + 1;
+  state->page_count = HomePluginPageCount(state->cells);
   while (static_cast<int>(state->pages.size()) < state->page_count) {
     auto *page = lv_obj_create(state->view);
     Clear(page);
@@ -188,6 +188,8 @@ void Reflow(Grid *state, bool animate) {
     }
     lv_obj_update_layout(state->view);
     lv_obj_scroll_to_x(state->view, std::min(current, state->page_count - 1) * state->geometry.width, LV_ANIM_OFF);
+  } else if (current >= state->page_count) {
+    lv_obj_scroll_to_x(state->view, (state->page_count - 1) * state->geometry.width, LV_ANIM_OFF);
   }
   ArrangeViewport(state);
   if (static_cast<int>(lv_obj_get_child_count(state->dots)) != state->page_count) {
@@ -292,17 +294,45 @@ void DragTick(Grid *state) {
   }
   state->edge_since = 0; state->edge_direction = 0;
   const int page = CurrentPage(state), from = Index(state, state->selected);
-  int target = -1; double best = std::numeric_limits<double>::max();
+  if (from < 0) return;
+  const int x = state->point.x - area.x1;
+  const int y = state->point.y - area.y1 + lv_obj_get_scroll_y(page_object);
+  bool occupied = false;
+  int target = -1;
   for (size_t i = 0; i < state->cells.size(); ++i) {
     if (state->cells[i].page != page) continue;
     const auto r = Bounds(state, state->cells[i]);
-    const int x = state->point.x - area.x1;
-    const int y = state->point.y - area.y1 + lv_obj_get_scroll_y(page_object);
-    if (x >= r.x1 && x <= r.x2 && y >= r.y1 && y <= r.y2) { target = i; break; }
-    const double dx = x - (r.x1 + r.x2) / 2, dy = y - (r.y1 + r.y2) / 2;
-    if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; target = i; }
+    if (x >= r.x1 && x <= r.x2 && y >= r.y1 && y <= r.y2) {
+      target = i; occupied = true; break;
+    }
   }
-  if (from < 0 || target < 0 || from == target) return;
+  if (!occupied) {
+    // Empty cells have no widget to hit. Test insertions against their actual
+    // packed position instead of selecting whichever neighbour is closest.
+    auto distance = [&](const HomePluginCell &cell) {
+      if (cell.page != page) return std::numeric_limits<double>::max();
+      const auto box = Bounds(state, cell);
+      const double dx = x - std::clamp(x, box.x1, box.x2);
+      const double dy = y - std::clamp(y, box.y1, box.y2);
+      return dx * dx + dy * dy;
+    };
+    target = from;
+    double best = distance(state->cells[from]);
+    auto remaining = Preferences(state);
+    const auto selected = remaining[from];
+    remaining.erase(remaining.begin() + from);
+    for (size_t index = 0; index <= remaining.size(); ++index) {
+      if (static_cast<int>(index) == from) continue;
+      auto candidate = remaining;
+      candidate.insert(candidate.begin() + index, selected);
+      const auto cells = PackHomePlugins(candidate, state->geometry.columns,
+                                        state->geometry.rows, state->geometry.icons);
+      const double score = distance(cells[index]);
+      if (score < best) { best = score; target = static_cast<int>(index); }
+      if (score == 0) break;
+    }
+  }
+  if (target < 0 || from == target) return;
   auto moved = std::move(state->tiles[from]);
   state->tiles.erase(state->tiles.begin() + from);
   state->tiles.insert(state->tiles.begin() + target, std::move(moved));

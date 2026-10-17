@@ -15,6 +15,13 @@ int main() {
   assert(ValidHomePluginPreference({"ok", 8}));
   const auto full_width = PackHomePlugins({{"full", 4}}, 3, 3, false);
   assert(full_width[0].width == 3 && full_width[0].height == 1);
+  const auto gap = PackHomePlugins({{"A", 0}, {"B", 0}, {"C", 1}, {"D", 0}}, 3, 3, false);
+  assert(gap[2].row == 1 && gap[2].column == 0 && gap[2].width == 2);
+  assert(gap[3].page == 0 && gap[3].row == 0 && gap[3].column == 2);
+  const auto earlier_page = PackHomePlugins({{"large-A", 2}, {"large-B", 2}, {"small", 0}}, 3, 3, false);
+  assert(earlier_page[1].page == 1 && earlier_page[2].page == 0);
+  assert(HomePluginPageCount(earlier_page) == 2);
+  assert(HomePluginPageCount({}) == 1);
   for (int columns = 2; columns <= 5; ++columns) {
     for (int rows : {1, 3, 5}) {
       for (bool icons : {false, true}) {
@@ -23,9 +30,8 @@ int main() {
         const auto cells = PackHomePlugins(items, columns, rows, icons);
         assert(cells.size() == items.size());
         std::set<std::tuple<int, int, int>> occupied;
-        int page = 0;
         for (const auto &cell : cells) {
-          assert(cell.page >= page); page = cell.page;
+          assert(cell.page >= 0 && cell.page < HomePluginPageCount(cells));
           assert(cell.column >= 0 && cell.column + cell.width <= columns);
           assert(cell.row >= 0 && cell.row + cell.height <= rows);
           assert(cell.width == std::min(columns, kHomePluginSizes[items[&cell - cells.data()].size].width));

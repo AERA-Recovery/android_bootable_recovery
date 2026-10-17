@@ -1405,7 +1405,8 @@ int main(int argc,char **argv) {
     puts("Advanced payload review: selection, incremental blocking, normal ZIP fallback and no implicit flash passed.");
     return 0;
   }
-  if (!strcmp(argv[1], "--home-edit") || !strcmp(argv[1], "--home-drag-stability")) {
+  if (!strcmp(argv[1], "--home-edit") || !strcmp(argv[1], "--home-drag-stability") ||
+      !strcmp(argv[1], "--home-gap-packing")) {
     using namespace widgets;
     for (int i = 0; i < 30; ++i) {
       plugins::Plugin plugin;
@@ -1429,6 +1430,39 @@ int main(int argc,char **argv) {
     auto hold = [&](lv_obj_t *tile) {
       auto p = centre(tile); point(p.x, p.y, true, 45); assert(PointerDragActive());
     };
+    if (!strcmp(argv[1], "--home-gap-packing")) {
+      for (int columns : {3, 5}) {
+        RecoverySetHomeGridColumns(columns); home_layout.clear(); callback_count = 0;
+        auto *home = lv_obj_create(nullptr); BuildHomeScene(home, RecordAction, nullptr);
+        lv_screen_load(home); Tick();
+        const std::string wide_name = "Plugin " + std::to_string(columns - 1);
+        const std::string filler_name = "Plugin " + std::to_string(columns);
+        const std::string moved_name = "Plugin " + std::to_string(columns + 1);
+        auto *wide = Find(home, wide_name.c_str()); auto p = centre(wide);
+        hold(wide); point(p.x, p.y, false);
+        lv_obj_send_event(Find(home, "2 x 1"), LV_EVENT_CLICKED, nullptr); Tick();
+        const auto first = Bounds(Find(home, "Plugin 0"));
+        const auto previous = Bounds(Find(home, ("Plugin " + std::to_string(columns - 2)).c_str()));
+        const auto filler = Bounds(Find(home, filler_name.c_str()));
+        assert(first.y1 == previous.y1 && first.y1 == filler.y1 && filler.x1 > previous.x1);
+        assert(Bounds(Find(home, wide_name.c_str())).y1 > first.y1);
+        auto target = centre(Find(home, filler_name.c_str()));
+        hold(Find(home, moved_name.c_str()));
+        point(target.x, target.y, true); point(target.x, target.y, false); Tick();
+        assert(Bounds(Find(home, moved_name.c_str())).y1 == first.y1);
+        assert(Bounds(Find(home, filler_name.c_str())).y1 > first.y1);
+        assert(callback_count == 0);
+        save(("/tmp/aera-home-gap-fixed-" + std::to_string(columns) + ".png").c_str());
+        lv_screen_load(screen); lv_obj_delete(home); Tick();
+        home = lv_obj_create(nullptr); BuildHomeScene(home, RecordAction, nullptr);
+        lv_screen_load(home); Tick();
+        assert(Bounds(Find(home, moved_name.c_str())).y1 == Bounds(Find(home, "Plugin 0")).y1);
+        lv_screen_load(screen); lv_obj_delete(home); Tick();
+      }
+      lv_indev_delete(input); lv_deinit(); std::filesystem::remove_all(backup_root);
+      puts("Home: 3x3 and 5x5 top-right resize, gap fill, replacement drag and saved layout passed.");
+      return 0;
+    }
     if (!strcmp(argv[1], "--home-drag-stability")) {
       for (int columns : {5, 3}) {
         home_layout.clear(); RecoverySetHomeGridColumns(columns);

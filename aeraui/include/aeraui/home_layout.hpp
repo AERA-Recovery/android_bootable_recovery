@@ -48,13 +48,13 @@ inline std::vector<HomePluginCell> PackHomePlugins(
   const int capacity = columns * rows;
   std::vector<bool> occupied(capacity, false);
   std::vector<HomePluginCell> result;
-  int cursor = 0;
+  (void)icons;
   for (const auto &item : items) {
-    (void)icons;
     const auto size = kHomePluginSizes[std::clamp(item.size, 0, static_cast<int>(kHomePluginSizes.size()) - 1)];
     const int width = std::min(size.width, columns);
     const int height = std::min(size.height, rows);
-    for (;; ++cursor) {
+    // Later small tiles may fit gaps skipped by an earlier wide or tall tile.
+    for (int cursor = 0;; ++cursor) {
       while (static_cast<int>(occupied.size()) < (cursor / capacity + 1) * capacity)
         occupied.resize(occupied.size() + capacity, false);
       const int page = cursor / capacity, offset = cursor % capacity;
@@ -69,10 +69,14 @@ inline std::vector<HomePluginCell> PackHomePlugins(
         for (int dx = 0; dx < width; ++dx)
           occupied[page * capacity + (y + dy) * columns + x + dx] = true;
       result.push_back({page, x, y, width, height});
-      cursor += width;
       break;
     }
   }
   return result;
+}
+inline int HomePluginPageCount(const std::vector<HomePluginCell> &cells) {
+  int count = 1;
+  for (const auto &cell : cells) count = std::max(count, cell.page + 1);
+  return count;
 }
 }  // namespace aeraui
