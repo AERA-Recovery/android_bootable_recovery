@@ -25,6 +25,7 @@ struct LockState {
   uint32_t pressed_at{}, last_telemetry{};
   bool dragging{}, unlocking{}, preview{}, landscape{};
   bool ambient{};
+  int dial_diameter = -1, date_day = -1, date_year = -1;
   std::string time;
   struct Stroke {lv_obj_t *object{};lv_point_precise_t points[2]{};};
   std::array<Stroke,80> strokes{};
@@ -46,16 +47,25 @@ long ReadNumber(const char *name) {
 }
 void Stroke(LockState *s,int index,int ax,int ay,int bx,int by,int width,lv_color_t color) {
   auto &stroke=s->strokes[index];
+  const bool created = !stroke.object;
+  const bool moved = created || stroke.points[0].x != ax || stroke.points[0].y != ay ||
+      stroke.points[1].x != bx || stroke.points[1].y != by;
   if(!stroke.object) {
     stroke.object=lv_line_create(s->clock);
     lv_obj_remove_flag(stroke.object,LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_line_rounded(stroke.object,true,0);
   }
-  stroke.points[0]={lv_value_precise_t(ax),lv_value_precise_t(ay)};
-  stroke.points[1]={lv_value_precise_t(bx),lv_value_precise_t(by)};
-  lv_line_set_points(stroke.object,stroke.points,2);
-  lv_obj_set_style_line_width(stroke.object,width,0);
-  lv_obj_set_style_line_color(stroke.object,color,0);
+  if(moved) {
+    // Invalidate the old bounds before changing the retained point array.
+    lv_obj_invalidate(stroke.object);
+    stroke.points[0]={lv_value_precise_t(ax),lv_value_precise_t(ay)};
+    stroke.points[1]={lv_value_precise_t(bx),lv_value_precise_t(by)};
+    lv_line_set_points(stroke.object,stroke.points,2);
+  }
+  if(created || lv_obj_get_style_line_width(stroke.object,LV_PART_MAIN)!=width)
+    lv_obj_set_style_line_width(stroke.object,width,0);
+  if(created || !lv_color_eq(lv_obj_get_style_line_color(stroke.object,LV_PART_MAIN),color))
+    lv_obj_set_style_line_color(stroke.object,color,0);
   lv_obj_remove_flag(stroke.object,LV_OBJ_FLAG_HIDDEN);
 }
 void DigitalClock(LockState *s) {
@@ -97,7 +107,11 @@ void AnalogueClock(LockState *s,const tm &local,double fraction) {
     Stroke(s,index,c+int(std::cos(angle)*inner),c+int(std::sin(angle)*inner),
         c+int(std::cos(angle)*outer),c+int(std::sin(angle)*outer),width,ink);
   };
-  for(int i=0;i<60;++i)radial(i,i/60.0,d*(i%5==0?.40:.44),d*.47,std::max(1,d/(i%5==0?100:220)),color);
+  // Theme changes recreate the scene. The dial is static until its size changes.
+  if(s->dial_diameter!=d) {
+    for(int i=0;i<60;++i)radial(i,i/60.0,d*(i%5==0?.40:.44),d*.47,std::max(1,d/(i%5==0?100:220)),color);
+    s->dial_diameter=d;
+  }
   const double seconds=local.tm_sec+(s->ambient?0.0:fraction);
   radial(60,(local.tm_hour%12+local.tm_min/60.0)/12,0,d*.25,std::max(2,d/45),color);
   radial(61,(local.tm_min+seconds/60)/60,0,d*.36,std::max(2,d/65),color);
@@ -113,14 +127,17 @@ void Refresh(LockState *s) {
   const bool clock24=RecoveryPreference(Preference::kClock24);
   const int hour=clock24 ? local.tm_hour : (local.tm_hour%12 ? local.tm_hour%12 : 12);
   char clock[32]; snprintf(clock,sizeof(clock),s->theme.clock==2 ? "%02d\n%02d" : "%02d:%02d",hour,local.tm_min);
+  const bool time_changed=s->time!=clock;
   s->time=clock;
   if(s->theme.clock==4) DigitalClock(s);
   else if(s->theme.clock==1) AnalogueClock(s,local,now.tv_nsec/1e9);
-  else if(s->theme.clock==3) {
+  else if(s->theme.clock==3 && time_changed) {
     lv_label_set_text_fmt(s->hours,"%02d",hour);
     lv_label_set_text_fmt(s->minutes,"%02d",local.tm_min);
   }
-  else lv_label_set_text(s->clock,clock);
+  else if(s->theme.clock!=3 && time_changed) lv_label_set_text(s->clock,clock);
+  if(s->date_day!=local.tm_yday || s->date_year!=local.tm_year) {
+  s->date_day=local.tm_yday;s->date_year=local.tm_year;
   static const char *days[]={"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
   static const char *months[]={"January","February","March","April","May","June","July","August","September","October","November","December"};
   auto date=i18n::Format("%s, %d %s",i18n::Translate(days[local.tm_wday]),local.tm_mday,i18n::Translate(months[local.tm_mon]));
@@ -128,6 +145,7 @@ void Refresh(LockState *s) {
   if(s->theme.date_style==2) {char numeric[24];snprintf(numeric,sizeof(numeric),"%04d-%02d-%02d",local.tm_year+1900,local.tm_mon+1,local.tm_mday);date=numeric;}
   if(s->theme.date_style==3)date=i18n::Format("%s\n%d %s",i18n::Translate(days[local.tm_wday]),local.tm_mday,i18n::Translate(months[local.tm_mon]));
   lv_label_set_text(s->date,date.c_str());
+  }
   if(s->ambient) {
     lv_obj_set_style_translate_x(s->group,Px(s,12)*(local.tm_min%3-1),0);
     lv_obj_set_style_translate_y(s->group,Px(s,12)*((local.tm_min/3)%3-1),0);
@@ -348,7 +366,8 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent,ActionCallback callback,void *context,
     for(auto event:{LV_EVENT_PRESSED,LV_EVENT_PRESSING,LV_EVENT_RELEASED,LV_EVENT_PRESS_LOST})
       lv_obj_add_event_cb(touch,Touch,event,s);
   }
-  s->timer=lv_timer_create([](lv_timer_t *timer){Refresh(static_cast<LockState *>(lv_timer_get_user_data(timer)));},s->theme.clock==1&&!ambient?100:1000,s);
+  // Sweep smoothly while awake; ambient mode retains its aligned one-second ticks.
+  s->timer=lv_timer_create([](lv_timer_t *timer){Refresh(static_cast<LockState *>(lv_timer_get_user_data(timer)));},s->theme.clock==1&&!ambient?33:1000,s);
   if(ambient)Refresh(s); // Align the very first tick to the next real second.
   if(ambient){lv_obj_add_flag(slider,LV_OBJ_FLAG_HIDDEN);Passive(root);}
   auto shortcut=[&](const char *name,bool right,Handler action) {
