@@ -17,9 +17,13 @@ class AeraScreenTimer {
   void Toggle();
   void Blank();
   bool IsScreenOff();
+  void SetAmbientEnabled(bool enabled, int brightness = 2);
 
  private:
-  enum class State { kOn, kDim, kOff, kBlanked };
+  enum class State { kOn, kDim, kOff, kBlanked, kAmbient };
+  bool ambient_enabled_ = false;
+  int ambient_brightness_ = 2;
+  std::string AmbientBrightness();
 
   void ResetClock();
   std::string CurrentBrightness();

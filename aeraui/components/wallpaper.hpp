@@ -18,6 +18,8 @@ const std::string &Path();
 // Adds a non-interactive, centre-cropped wallpaper behind the target's other
 // children. Returns false when the normal appearance background should be used.
 bool Attach(lv_obj_t *target, bool contain = false);
+// Independent lock-screen image/cache; never changes the main wallpaper.
+bool AttachLock(lv_obj_t *target, const std::string &path, int blur);
 // Height of an uncropped preview at the requested width, or fallback if unset.
 int PreviewHeight(int width, int fallback);
 

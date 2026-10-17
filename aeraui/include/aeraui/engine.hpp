@@ -75,6 +75,7 @@ enum class Action {
     kCancelPcBackup,
     kStatusBar,
     kTemperatures,
+    kLockScreenshot,
 };
 
 enum class DecryptionCompletion {
@@ -117,6 +118,7 @@ class Engine final {
 
     // Returns and clears the next action requested by the scene.
     Action TakeAction();
+    bool TakeScreenshotRequest();
 
     // Explicit Home clears navigation history. Hardware Back and the edge
     // gesture use NavigateBack() to return to the previous native surface.
@@ -150,7 +152,7 @@ class Engine final {
 
     // Hardware-key surfaces managed by the recovery event loop.
     void SetSuspended(bool suspended);
-    void ShowLockScreen();
+    void ShowLockScreen(bool ambient = false);
     void ShowPowerMenu();
     void ShowVolume(int percent);
     void ShowScreenshotResult(bool success);

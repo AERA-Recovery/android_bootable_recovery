@@ -184,7 +184,8 @@ void SetDecryptBusy(const DecryptScene &scene);
 void CompleteDecryptAttempt(const DecryptScene &scene, bool success);
 void BuildPreparingScene(lv_obj_t *screen, bool decrypted);
 lv_obj_t *BuildLockScene(lv_obj_t *parent, ActionCallback callback,
-                         void *context);
+                         void *context, bool preview = false,
+                         const LockTheme *theme = nullptr, bool ambient = false);
 void SetJobRequest(const JobRequest &request);
 JobRequest GetJobRequest();
 OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,

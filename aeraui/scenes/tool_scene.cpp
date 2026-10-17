@@ -239,7 +239,7 @@ void DeleteWallpaperPicker(lv_event_t *event) {
   delete picker;
 }
 
-void OpenWallpaperPicker(Tools *tools, const std::string &requested = {}) {
+void OpenWallpaperPicker(Tools *tools, const std::string &requested = {}, bool lock = false) {
   const bool roots = requested.empty() ||
       !WallpaperStoragePath(requested) || requested.find("/../") != std::string::npos;
   const std::string path = roots ? std::string{} : requested;
@@ -314,13 +314,28 @@ void OpenWallpaperPicker(Tools *tools, const std::string &requested = {}) {
   for (size_t index = 0; index < entries.size(); ++index) {
     const auto entry = entries[index];
     const bool up = !roots && index == 0;
-    auto *row = Button(list, "", [tools, overlay, entry] {
+    auto *row = Button(list, "", [tools, overlay, entry, lock] {
       if (entry.directory) {
-        OpenWallpaperPicker(tools, entry.path);
+        OpenWallpaperPicker(tools, entry.path, lock);
         lv_obj_delete_async(overlay);
         return;
       }
       std::string error;
+      if (lock) {
+        PictureData picture;
+        DecodePictureThumbnail(entry.path, 1440, 3168, picture);
+        if (!picture.pixels) {
+          Sheet(tools->screen, "Wallpaper unavailable", picture.error);
+          return;
+        }
+        auto theme = RecoveryLockTheme();
+        theme.wallpaper = entry.path;
+        if (!RecoverySetLockTheme(theme)) return;
+        AutoSaveSettings(tools);
+        lv_obj_delete_async(overlay);
+        RefreshTheme(tools);
+        return;
+      }
       if (!wallpaper::Load(entry.path, &error)) {
         Sheet(tools->screen, "Wallpaper unavailable", error);
         return;
@@ -1458,6 +1473,7 @@ lv_obj_t *HueSaturationDisk(lv_obj_t *parent, int size) {
 }
 
 struct AccentPickerState {
+  std::function<void(uint32_t)> selected;
   Tools *tools = nullptr;
   lv_obj_t *overlay = nullptr;
   lv_obj_t *wheel = nullptr;
@@ -1512,11 +1528,13 @@ void UpdateAccentPickerFromTouch(AccentPickerState *picker) {
       point.y - area.y1 - picker->wheel_size * 0.5);
 }
 
-void OpenAccentPicker(Tools *tools) {
+void OpenAccentPicker(Tools *tools, std::function<void(uint32_t)> selected = {},
+                      uint32_t initial = kDefaultAccentRgb) {
   constexpr double kPi = 3.14159265358979323846;
   auto *picker = new AccentPickerState;
   picker->tools = tools;
-  picker->rgb = RecoveryAccentColor();
+  picker->selected = std::move(selected);
+  picker->rgb = picker->selected ? initial : RecoveryAccentColor();
   picker->overlay = lv_obj_create(tools->screen);
   lv_obj_set_user_data(picker->overlay, &kModalMarker);
   Clear(picker->overlay);
@@ -1539,7 +1557,7 @@ void OpenAccentPicker(Tools *tools) {
   lv_obj_set_style_border_width(sheet, 1, 0);
   lv_obj_set_style_border_color(sheet, kMainLine, 0);
 
-  auto *heading = Label(sheet, "Choose your accent",
+  auto *heading = Label(sheet, picker->selected ? "Choose clock colour" : "Choose your accent",
                         &lv_font_montserrat_48, kText);
   lv_obj_set_pos(heading, 56, 48);
   auto *copy = Label(sheet,
@@ -1605,6 +1623,11 @@ void OpenAccentPicker(Tools *tools) {
   lv_obj_set_size(cancel, button_width, 126);
   auto *use = Button(sheet, "Use colour", [picker] {
     const uint32_t rgb = picker->rgb;
+    if (picker->selected) {
+      picker->selected(rgb);
+      lv_obj_delete_async(picker->overlay);
+      return;
+    }
     if (!RecoverySetAccentColor(rgb)) {
       Sheet(picker->tools->screen, "Theme unavailable",
             "The selected accent could not be stored.");
@@ -1622,6 +1645,213 @@ void OpenAccentPicker(Tools *tools) {
   UpdateAccentPicker(picker, std::cos(angle) * radius,
                      std::sin(angle) * radius);
   AnimateEnter(sheet, 0, 18);
+}
+
+// Keep the preview and the real lock screen on the same renderer.
+struct LockEditor {
+  Tools *tools;
+  lv_obj_t *preview;
+  LockTheme theme;
+  void Refresh() {
+    lv_obj_clean(preview);
+    BuildLockScene(preview, nullptr, nullptr, true, &theme);
+  }
+  void Save() {
+    if (RecoverySetLockTheme(theme)) AutoSaveSettings(tools);
+  }
+};
+
+void EditLockText(const std::shared_ptr<LockEditor> &editor, bool colour) {
+  auto *overlay = lv_obj_create(editor->tools->screen);
+  Clear(overlay);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  auto *title = Label(overlay, colour ? "Custom clock colour" : "Owner text",
+                      &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 64, 100);
+  auto *input = TextArea(overlay);
+  lv_obj_set_pos(input, 64, 220); lv_obj_set_size(input, lv_obj_get_width(editor->tools->screen)-128, 120);
+  lv_textarea_set_one_line(input, true);
+  lv_textarea_set_max_length(input, colour ? 6 : 40);
+  char hex[8]; snprintf(hex, sizeof(hex), "%06X", editor->theme.rgb);
+  lv_textarea_set_text(input, colour ? hex : editor->theme.owner.c_str());
+  if (colour) lv_textarea_set_accepted_chars(input, "0123456789abcdefABCDEF");
+  auto *keyboard = lv_keyboard_create(overlay);
+  phone_keyboard::Apply(keyboard);
+  lv_keyboard_set_textarea(keyboard, input);
+  auto *save = Button(overlay, "Apply", [editor, overlay, input, colour] {
+    const std::string text = lv_textarea_get_text(input);
+    if (colour) {
+      if (text.size()!=6) return;
+      editor->theme.rgb = static_cast<uint32_t>(strtoul(text.c_str(), nullptr, 16));
+      editor->theme.colour = 2;
+    } else editor->theme.owner = text;
+    editor->Save(); editor->Refresh(); lv_obj_delete_async(overlay);
+  });
+  lv_obj_set_pos(save, 64, 390); lv_obj_set_size(save, 580, 112);
+  auto *cancel = Button(overlay, "Cancel", [overlay]{lv_obj_delete_async(overlay);});
+  lv_obj_set_pos(cancel, 680, 390); lv_obj_set_size(cancel, 580, 112);
+}
+
+int BuildLockEditor(Tools *tools, int top) {
+  auto *section = lv_obj_create(tools->list); Clear(section);
+  lv_obj_set_pos(section, 16, top); lv_obj_set_width(section, 1280);
+  auto *heading = Label(section, "Lock screen", &lv_font_montserrat_40, kText);
+  lv_obj_set_pos(heading, 0, 0);
+  auto *copy = Label(section, "Personalise your lock screen. Storage unlock is unchanged.", &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(copy, 0, 66); lv_obj_set_width(copy, 1280);
+  auto *preview = lv_obj_create(section); Clear(preview);
+  const int pw = 520, ph = pw * 3168 / 1440;
+  lv_obj_set_size(preview, pw, ph); lv_obj_set_pos(preview, (1280-pw)/2, 130);
+  lv_obj_set_style_radius(preview, 44, 0); lv_obj_set_style_clip_corner(preview, true, 0);
+  lv_obj_set_style_border_width(preview, 3, 0);lv_obj_set_style_border_color(preview, kMainLine, 0);
+  lv_obj_set_style_border_post(preview, true, 0);
+  lv_obj_update_layout(preview);
+  auto editor = std::make_shared<LockEditor>(LockEditor{tools, preview, RecoveryLockTheme()});
+  editor->Refresh();
+  int y = 130 + ph + 60;
+  auto *wallpaper = Button(section, "Choose lock-screen wallpaper", [tools]{OpenWallpaperPicker(tools,{},true);});
+  Panel(wallpaper,24,kMainPanel);Interactive(wallpaper,kMainSelected);
+  lv_obj_set_pos(wallpaper,0,y);lv_obj_set_size(wallpaper,820,108);
+  auto *reset = Button(section,"Use main wallpaper",[editor]{editor->theme.wallpaper.clear();editor->Save();editor->Refresh();});
+  Panel(reset,24,kMainPanel);Interactive(reset,kMainSelected);
+  lv_obj_set_pos(reset,840,y);lv_obj_set_size(reset,440,108);y+=156;
+  auto range = [&](const char *title,int LockTheme::*member,int maximum,int minimum=0) {
+    auto *card=lv_obj_create(section);Panel(card,32,kMainPanel);
+    lv_obj_set_pos(card,0,y);lv_obj_set_size(card,1280,220);
+    auto *label=Label(card,title,&lv_font_montserrat_32,kText);lv_obj_set_pos(label,36,24);
+    auto *copy=Label(card,member==&LockTheme::date_size?"Resize the date independently of the clock":member==&LockTheme::clock_size?"Resize your chosen clock style":member==&LockTheme::dim?"Darken the wallpaper behind the clock":"Soften the wallpaper without blurring the clock",&lv_font_montserrat_24,kMuted);
+    lv_obj_set_pos(copy,36,76);
+    auto *amount=Label(card,"",&lv_font_montserrat_24,kAccent);
+    lv_label_set_text_fmt(amount,"%d%%",editor->theme.*member);
+    lv_obj_align(amount,LV_ALIGN_TOP_RIGHT,-38,34);
+    auto *slider=lv_slider_create(card);RangeSlider(slider);
+    lv_obj_set_pos(slider,52,166);lv_obj_set_size(slider,1176,20);
+    lv_slider_set_range(slider,minimum,maximum);lv_slider_set_value(slider,editor->theme.*member,LV_ANIM_OFF);
+    struct Binding {std::shared_ptr<LockEditor> editor;int LockTheme::*member;lv_obj_t *amount;};
+    auto *binding=new Binding{editor,member,amount};
+    lv_obj_add_event_cb(slider,[](lv_event_t *e){
+      auto *b=static_cast<Binding *>(lv_event_get_user_data(e));
+      auto code=lv_event_get_code(e);
+      if(code==LV_EVENT_DELETE){delete b;return;}
+      if(code==LV_EVENT_VALUE_CHANGED) {
+        b->editor->theme.*(b->member)=lv_slider_get_value(lv_event_get_target_obj(e));
+        lv_label_set_text_fmt(b->amount,"%d%%",b->editor->theme.*(b->member));
+        b->editor->Refresh();
+      }
+      if(code==LV_EVENT_RELEASED) b->editor->Save();
+    },LV_EVENT_ALL,binding);
+    y+=240;
+  };
+  range("Wallpaper dimming",&LockTheme::dim,90);
+  range("Wallpaper blur",&LockTheme::blur,100);
+  auto choices = [&](const char *title, int LockTheme::*member, std::initializer_list<const char *> names) {
+    auto *label = Label(section, title, &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(label, 0, y); y+=64;
+    auto buttons = std::make_shared<std::vector<lv_obj_t *>>();
+    const int count = names.size(), width = (1280-(count-1)*16)/count;
+    int index=0;
+    for (auto name : names) {
+      const int selected=index++;
+      auto *button = Button(section, name, [editor, member, selected, buttons] {
+        editor->theme.*member=selected;
+        for (size_t i=0;i<buttons->size();++i) {
+          lv_obj_set_style_border_color((*buttons)[i], i==static_cast<size_t>(selected)?kAccent:kMainLine,0);
+          lv_obj_set_style_border_width((*buttons)[i], i==static_cast<size_t>(selected)?3:RecoverySurfaceStyle()==SurfaceStyle::kOutline?2:1,0);
+        }
+        editor->Save(); editor->Refresh();
+      });
+      Panel(button,24,kMainPanel); Interactive(button,kMainSelected);
+      lv_obj_set_pos(button, selected*(width+16), y);lv_obj_set_size(button, width, 108);
+      lv_obj_set_style_border_width(button, editor->theme.*member==selected?3:RecoverySurfaceStyle()==SurfaceStyle::kOutline?2:1,0);
+      lv_obj_set_style_border_color(button, editor->theme.*member==selected?kAccent:kMainLine,0);
+      buttons->push_back(button);
+    }
+    y+=156;
+  };
+  choices("Clock style", &LockTheme::clock, {"Classic","Analogue","Stacked"});
+  choices("Clock position", &LockTheme::placement, {"Top","Centre","Bottom"});
+  range("Clock size",&LockTheme::clock_size,180,60);
+  auto *colour_title=Label(section,"Clock colour",&lv_font_montserrat_32,kText);
+  lv_obj_set_pos(colour_title,0,y);y+=64;
+  auto colour_cards=std::make_shared<std::vector<lv_obj_t *>>();
+  auto update_colours=[editor,colour_cards] {
+    for(size_t i=0;i<colour_cards->size();++i) {
+      bool active=editor->theme.colour==static_cast<int>(i);
+      auto *card=(*colour_cards)[i];
+      lv_obj_set_style_border_width(card,active?4:RecoverySurfaceStyle()==SurfaceStyle::kOutline?2:1,0);
+      lv_obj_set_style_border_color(card,active?kAccent:kMainLine,0);
+    }
+  };
+  for(int i=0;i<3;++i) {
+    auto *card=lv_button_create(section);Panel(card,32,kMainPanel);Interactive(card,kMainSelected);
+    lv_obj_set_pos(card,(i%4)*320,y+(i/4)*220);lv_obj_set_size(card,304,190);
+    colour_cards->push_back(card);
+    const uint32_t rgb=i==0?RecoveryAccentColor():i==1?0xffffff:editor->theme.rgb;
+    auto *dot=i==2?HueSaturationDisk(card,72):lv_obj_create(card);
+    if(i!=2) {Clear(dot);lv_obj_set_size(dot,72,72);lv_obj_set_style_radius(dot,LV_RADIUS_CIRCLE,0);
+      lv_obj_set_style_bg_color(dot,Color(rgb),0);lv_obj_set_style_bg_opa(dot,LV_OPA_COVER,0);}
+    lv_obj_set_pos(dot,24,24);lv_obj_remove_flag(dot,LV_OBJ_FLAG_CLICKABLE);
+    auto *name=Label(card,i==0?"Follow accent":i==1?"White":"User select",&lv_font_montserrat_24,kText);
+    lv_obj_set_pos(name,24,116);
+    OnClick(card,[editor,i,rgb,update_colours] {
+      if(i==2) {
+        OpenAccentPicker(editor->tools,[editor,update_colours](uint32_t colour) {
+          editor->theme.colour=2;editor->theme.rgb=colour;editor->Save();editor->Refresh();update_colours();
+        },editor->theme.rgb);
+      } else {
+        editor->theme.colour=i<2?i:2;editor->theme.rgb=rgb;
+        editor->Save();editor->Refresh();update_colours();
+      }
+    });
+  }
+  update_colours();y+=220+16;
+  choices("Date style",&LockTheme::date_style,{"Full","Short","Numeric","Stacked","Hidden"});
+  range("Date size",&LockTheme::date_size,200,60);
+  choices("Date colour",&LockTheme::date_colour,{"White","Clock colour","Accent"});
+  choices("Date position",&LockTheme::date_placement,{"Below clock","Above clock","Bottom"});
+  auto *aod=lv_button_create(section);Panel(aod,32,kMainPanel);Interactive(aod,kMainSelected);
+  lv_obj_set_pos(aod,0,y);lv_obj_set_size(aod,1280,editor->theme.aod?320:160);
+  auto *aod_label=Label(aod,"Always-on clock",&lv_font_montserrat_32,kText);lv_obj_set_pos(aod_label,36,24);
+  auto *aod_hint=Label(aod,"Dim clock on black. Uses more power than screen off. Wake with Power.",&lv_font_montserrat_24,kMuted);
+  lv_obj_set_pos(aod_hint,36,88);lv_obj_set_width(aod_hint,1120);
+  auto *aod_switch=lv_switch_create(aod);StyleSwitch(aod_switch,editor->theme.aod);lv_obj_align(aod_switch,LV_ALIGN_TOP_RIGHT,-36,24);
+  // Only the heading toggles AOC; dragging its brightness must not toggle it.
+  auto *aod_header=lv_obj_create(aod);Clear(aod_header);lv_obj_set_size(aod_header,1280,150);
+  lv_obj_add_flag(aod_header,LV_OBJ_FLAG_CLICKABLE);
+  OnClick(aod_header,[editor]{editor->theme.aod=!editor->theme.aod;editor->Save();RefreshTheme(editor->tools);});
+  if(editor->theme.aod) {
+    auto *title=Label(aod,"AOC brightness",&lv_font_montserrat_28,kText);lv_obj_set_pos(title,36,165);
+    auto *amount=Label(aod,"",&lv_font_montserrat_24,kAccent);
+    lv_label_set_text_fmt(amount,"%d%%",editor->theme.aod_brightness);lv_obj_align(amount,LV_ALIGN_TOP_RIGHT,-38,165);
+    auto *slider=lv_slider_create(aod);RangeSlider(slider);lv_obj_set_pos(slider,52,254);lv_obj_set_size(slider,1176,20);
+    lv_slider_set_range(slider,1,100);lv_slider_set_value(slider,editor->theme.aod_brightness,LV_ANIM_OFF);
+    struct AocBinding {std::shared_ptr<LockEditor> editor;lv_obj_t *amount;};
+    auto *binding=new AocBinding{editor,amount};
+    lv_obj_add_event_cb(slider,[](lv_event_t *e){
+      auto *b=static_cast<AocBinding *>(lv_event_get_user_data(e));
+      if(lv_event_get_code(e)==LV_EVENT_DELETE){delete b;return;}
+      if(lv_event_get_code(e)==LV_EVENT_VALUE_CHANGED){
+        b->editor->theme.aod_brightness=lv_slider_get_value(lv_event_get_target_obj(e));
+        lv_label_set_text_fmt(b->amount,"%d%%",b->editor->theme.aod_brightness);
+      }
+      if(lv_event_get_code(e)==LV_EVENT_RELEASED)b->editor->Save();
+    },LV_EVENT_ALL,binding);
+  }
+  y+=editor->theme.aod?344:184;
+  choices("Unlock gesture", &LockTheme::unlock, {"Slider","Swipe up","Hold"});
+  choices("Slide / hold unlock animation", &LockTheme::animation, {"None","Fade"});
+  auto *owner=Button(section,"Edit owner text",[editor]{EditLockText(editor,false);});
+  Panel(owner,24,kMainPanel);Interactive(owner,kMainSelected);
+  lv_obj_set_pos(owner,0,y);lv_obj_set_size(owner,1280,108);y+=156;
+  lv_obj_set_height(section,y);
+  for (uint32_t i=0;i<lv_obj_get_child_count(section);++i) {
+    auto *child=lv_obj_get_child(section,i);
+    if (lv_obj_check_type(child,&lv_button_class)) lv_obj_set_style_radius(child,24,0);
+  }
+  return top+y+48;
 }
 
 void BuildTheme(Tools *state) {
@@ -2341,12 +2571,12 @@ void BuildTheme(Tools *state) {
 
   const int font_rows = std::max(
       1, static_cast<int>((font_choices.size() + 1) / 2));
-  const int reset_y = kSurfaceSectionOffset + dock_extra_height +
-      std::max(3760, 3450 + font_rows * 220 + 70);
+  const int reset_y = BuildLockEditor(state, kSurfaceSectionOffset + dock_extra_height +
+      std::max(3760, 3450 + font_rows * 220 + 70));
   auto *reset = Button(state->list, "Reset theme settings", [state] {
     Sheet(
         state->screen, "Reset theme settings",
-        "Restore default colors, appearance, wallpaper, layout and font?",
+        "Restore default colors, appearance, wallpaper, layout, font and lock screen?",
         [state] {
           if (!RecoveryResetThemeSettings() || !fonts::SelectUiFont({}, {})) {
             Sheet(state->screen, "Theme unavailable",

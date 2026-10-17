@@ -17,6 +17,7 @@ find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
 add_executable(ui_check ui_check.cpp
+  ../scenes/lock_scene.cpp
   ../scenes/package_review.cpp
   ../scenes/launcher_scene.cpp ../components/retroarch_icon.cpp
   ../components/webkit_icon.cpp
@@ -43,10 +44,10 @@ target_compile_definitions(ui_check PRIVATE
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
-add_test(NAME wipe_partition_row_layout COMMAND ui_check --wipe-layout)
 add_executable(font_staging_test font_staging_test.cpp)
 target_compile_options(font_staging_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME font_storage_independence COMMAND font_staging_test)
+add_test(NAME wipe_partition_row_layout COMMAND ui_check --wipe-layout)
 add_executable(flash_log_test flash_log_test.cpp ../../aera_flash_log.cpp)
 target_compile_options(flash_log_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(flash_log_test PRIVATE Threads::Threads)
@@ -93,6 +94,7 @@ add_test(NAME ui_confirmation_navigation_preferences
   COMMAND ui_check "${LVGL_DIR}/examples/libs/libpng/png_demo.png")
 add_test(NAME file_timestamp_layout COMMAND ui_check --file-dates)
 add_test(NAME settings_autosave_and_reset COMMAND ui_check --settings)
+add_test(NAME lock_screen_customisation COMMAND ui_check --lock-theme)
 add_test(NAME themed_home_artwork COMMAND ui_check --art)
 add_test(NAME themed_home_layout COMMAND ui_check --home-art)
 add_test(NAME pc_connection_settings_layout COMMAND ui_check --pc-settings)

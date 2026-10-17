@@ -14,6 +14,7 @@
 #include "browser/protocol.hpp"
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -110,6 +111,16 @@ bool RecoverySetAppearanceMode(AppearanceMode mode) {
   return true;
 }
 std::string RecoveryWallpaperPath() { return {}; }
+static LockTheme lock_theme;
+WifiConnection RecoveryWifiConnection() { return {}; }
+LockTheme RecoveryLockTheme() { return lock_theme; }
+bool RecoverySetLockTheme(const LockTheme &theme) {
+  if (!ValidLockTheme(theme)) return false;
+  lock_theme = theme; return true;
+}
+bool RecoveryFlashlightSupported() { return true; }
+bool RecoveryFlashlightEnabled() { return false; }
+bool RecoverySetFlashlight(bool) { return true; }
 bool RecoverySetWallpaperPath(const std::string &) { return true; }
 SurfaceStyle RecoverySurfaceStyle() { return SurfaceStyle::kSolid; }
 static bool themed_home_icons = false;
@@ -552,6 +563,137 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--lock-theme")) {
+    LockTheme settings; settings.owner="AERA user's phone";settings.blur=45;
+    settings.wallpaper="/sdcard/My wallpaper.png";
+    assert(EncodeLockTheme(DecodeLockTheme(EncodeLockTheme(settings))) == EncodeLockTheme(settings));
+    assert(DecodeLockTheme("broken").clock == 0);
+    settings.clock_size=140;
+    assert(DecodeLockTheme(EncodeLockTheme(settings)).clock_size==140);
+    assert(DecodeLockTheme("1 0 0 1 16777215 25 0 0 1 1 0 0 0 0 0 0 \"\" \"\"").clock_size==100);
+    settings.clock_size=181;assert(!ValidLockTheme(settings));settings.clock_size=100;
+    settings.date_style=3;settings.date_size=200;settings.aod=true;
+    assert(DecodeLockTheme(EncodeLockTheme(settings)).aod);
+    assert(DecodeLockTheme(EncodeLockTheme(settings)).date_size==200);
+    settings.date_colour=2;settings.date_placement=2;settings.aod_brightness=15;
+    assert(DecodeLockTheme(EncodeLockTheme(settings)).date_colour==2);
+    assert(DecodeLockTheme(EncodeLockTheme(settings)).date_placement==2);
+    assert(DecodeLockTheme(EncodeLockTheme(settings)).aod_brightness==15);
+    for(int animation=0;animation<2;++animation) {
+      settings.animation=animation;
+      assert(DecodeLockTheme(EncodeLockTheme(settings)).animation==animation);
+    }
+    settings.animation=2;assert(!ValidLockTheme(settings));settings.animation=1;
+    settings.dim=101;assert(!ValidLockTheme(settings));
+    const std::string lock_wallpaper="/tmp/aera-lock-corners.png";
+    png_image lock_image{};lock_image.version=PNG_IMAGE_VERSION;
+    lock_image.width=lock_image.height=2;lock_image.format=PNG_FORMAT_RGBA;
+    const unsigned char lock_pixels[]={255,0,0,255,255,0,0,255,255,0,0,255,255,0,0,255};
+    assert(png_image_write_to_file(&lock_image,lock_wallpaper.c_str(),0,lock_pixels,0,nullptr));
+    assert(wallpaper::Load(lock_wallpaper));
+    auto *page=lv_obj_create(nullptr);
+    BuildToolScene(page,Action::kTheme,RecordAction,nullptr);
+    lv_screen_load(page);Tick();
+    auto *title=FindLabel(page,"Lock screen");assert(title);
+    auto *section=lv_obj_get_parent(title);
+    auto *preview_image=FindType(section,&lv_image_class);assert(preview_image);
+    const auto *rounded=static_cast<const lv_image_dsc_t *>(lv_image_get_src(preview_image));
+    assert(rounded->data[3]==0);
+    assert(rounded->data[(rounded->header.h/2*rounded->header.w+rounded->header.w/2)*4+3]==255);
+    lv_obj_scroll_to_y(lv_obj_get_parent(section),lv_obj_get_y(section),LV_ANIM_OFF);Tick();
+    save("/tmp/aera-lock-theme-preview.png");
+    auto *analogue=Find(page,"Analogue");assert(analogue);
+    lv_obj_send_event(analogue,LV_EVENT_CLICKED,nullptr);
+    assert(RecoveryLockTheme().clock==1);
+    auto *follow=Find(section,"Follow accent");assert(follow);
+    lv_obj_send_event(follow,LV_EVENT_CLICKED,nullptr);
+    assert(RecoveryLockTheme().colour==0);
+    auto *user_colour=Find(section,"User select");assert(user_colour);
+    const auto old_accent=RecoveryAccentColor();
+    lv_obj_send_event(user_colour,LV_EVENT_CLICKED,nullptr);Tick();
+    assert(FindLabel(page,"Choose clock colour"));
+    auto *use_colour=Find(page,"Use colour");assert(use_colour);
+    lv_obj_send_event(use_colour,LV_EVENT_CLICKED,nullptr);Tick();
+    assert(RecoveryLockTheme().colour==2);
+    assert(RecoveryAccentColor()==old_accent);
+    assert(!Find(section,"Charging details"));
+    assert(!Find(section,"Battery percentage"));
+    assert(!Find(section,"Wi-Fi status"));
+    lv_screen_load(screen);lv_obj_delete(page);
+    wallpaper::Clear();
+    for(bool landscape:{false,true}) {
+      lv_display_set_resolution(display,landscape?3168:1440,landscape?1440:3168);Tick();
+      for(int style=0;style<3;++style) {
+        LockTheme theme;theme.clock=style;theme.owner="AERA Recovery";theme.clock_size=180;
+        for(int placement=0;placement<3;++placement) {
+          theme.placement=placement;
+          auto *lock=BuildLockScene(screen,RecordAction,nullptr,true,&theme);Tick();
+          assert(lv_obj_get_width(lock)==(landscape?3168:1440));
+          assert(FindLabel(lock,"AERA Recovery"));
+          if(!landscape && placement==0 && style==0)save("/tmp/aera-lock-screen.png");
+          if(!landscape && placement==0)save(("/tmp/aera-clock-"+std::to_string(style)+".png").c_str());
+          lv_obj_delete(lock);
+        }
+      }
+    }
+    lv_display_set_resolution(display,1440,3168);Tick();
+    for(int style=0;style<3;++style) {
+      LockTheme theme;theme.clock=style;theme.owner="Private owner text";
+      auto *ambient=BuildLockScene(screen,RecordAction,nullptr,false,&theme,true);Tick();
+      assert(!lv_obj_has_flag(ambient,LV_OBJ_FLAG_CLICKABLE));
+      auto *hint=FindLabel(ambient,"Slide to unlock");assert(hint);
+      assert(lv_obj_has_flag(lv_obj_get_parent(hint),LV_OBJ_FLAG_HIDDEN));
+      if(style==1) {
+        auto *dial=lv_obj_get_parent(FindType(ambient,&lv_line_class));
+        assert(lv_obj_get_child_count(dial)==63);
+        const auto *points=lv_line_get_points(lv_obj_get_child(dial,62));
+        const double centre=lv_obj_get_width(dial)/2;
+        const double tick=std::atan2(points[1].y-centre,points[1].x-centre)*30.0/3.14159265358979323846;
+        assert(std::abs(tick-std::round(tick))<0.05);
+      }
+      save(("/tmp/aera-aod-"+std::to_string(style)+".png").c_str());
+      lv_obj_delete(ambient);
+    }
+    struct Pointer {int x=0,y=0;bool down=false;} pointer;
+    auto *input=lv_indev_create();lv_indev_set_type(input,LV_INDEV_TYPE_POINTER);
+    lv_indev_set_user_data(input,&pointer);
+    lv_indev_set_read_cb(input,[](lv_indev_t *i,lv_indev_data_t *data){
+      auto *p=static_cast<Pointer *>(lv_indev_get_user_data(i));
+      data->point={p->x,p->y};data->state=p->down?LV_INDEV_STATE_PRESSED:LV_INDEV_STATE_RELEASED;
+    });
+    auto point=[&](int x,int y,bool down,int ticks=4){pointer={x,y,down};Tick(ticks);};
+    for(int mode=0;mode<3;++mode) {
+      LockTheme theme;theme.unlock=mode;theme.animation=0;
+      auto *lock=BuildLockScene(screen,RecordAction,nullptr,false,&theme);Tick();
+      auto *hint=FindLabel(lock,mode==0?"Slide to unlock":mode==1?"Swipe up to unlock":"Hold to unlock");assert(hint);
+      const auto box=Bounds(lv_obj_get_parent(hint));
+      const int x=box.x1+40,y=(box.y1+box.y2)/2;
+      last_action=Action::kNone;
+      if(mode==0) {point(x,y,true);point(x+600,y,true);point(x,y,true);point(x,y,false);}
+      if(mode==1) {
+        point(720,2000,true);point(720,1500,true);
+        assert(lv_obj_get_style_translate_y(lv_obj_get_parent(hint),LV_PART_MAIN)<0);
+        point(720,1990,true);point(720,1990,false);
+      }
+      if(mode==2) {
+        point(x,y,true,10);
+        auto *progress=lv_obj_get_child(lv_obj_get_parent(hint),1);
+        assert(!lv_obj_has_flag(progress,LV_OBJ_FLAG_HIDDEN));
+        assert(lv_obj_get_width(progress)>1);
+        point(x,y-200,true);point(x,y-200,false);
+        assert(lv_obj_has_flag(progress,LV_OBJ_FLAG_HIDDEN));
+      }
+      assert(last_action!=Action::kUnlock);
+      if(mode==0) {point(x,y,true);point(box.x2-10,y,true);point(box.x2-10,y,false);}
+      if(mode==1) {point(720,2000,true);point(720,1500,true);point(720,1500,false);}
+      if(mode==2) {point(x,y,true,70);point(x,y,false);}
+      Tick(30); assert(last_action==Action::kUnlock);
+      lv_obj_delete(lock);Tick();
+    }
+    lv_indev_delete(input);
+    puts("Lock theme serialization, live selection, portrait/landscape and cancellable unlock gestures passed");
+    return 0;
+  }
   if (!strcmp(argv[1], "--screenshot-flash")) {
     for (bool landscape : {false, true}) {
       lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);

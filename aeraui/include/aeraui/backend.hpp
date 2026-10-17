@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "aeraui/lock_theme.hpp"
 
 namespace aeraui {
 enum class Job {

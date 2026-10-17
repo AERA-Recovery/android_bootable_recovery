@@ -128,7 +128,7 @@ void LinkFallbacks(FontSize &set, size_t index) {
 }
 
 lv_font_t *LoadExternalFont(const std::string &path, uint32_t size) {
-  if (path.empty() || size < 8 || size > 256) return nullptr;
+  if (path.empty() || size < 8 || size > 512) return nullptr;
   const auto key = std::make_pair(path, size);
   const auto existing = external_fonts.find(key);
   if (existing != external_fonts.end()) return existing->second;

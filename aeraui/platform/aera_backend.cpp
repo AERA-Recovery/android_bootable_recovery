@@ -1990,6 +1990,14 @@ std::string RecoveryWallpaperPath() {
       });
   return valid ? path : std::string{};
 }
+LockTheme RecoveryLockTheme() {
+  LoadAeraPreferencesIfAvailable();
+  return DecodeLockTheme(DataManager::GetStrValue("aera_lock_theme"));
+}
+bool RecoverySetLockTheme(const LockTheme &theme) {
+  return ValidLockTheme(theme) &&
+      DataManager::SetValue("aera_lock_theme", EncodeLockTheme(theme), 1) == 0;
+}
 bool RecoverySetWallpaperPath(const std::string &path) {
   if (path.size() > 4096 ||
       std::any_of(path.begin(), path.end(), [](unsigned char character) {
@@ -2263,6 +2271,7 @@ bool PrepareEarlyPreferencesRoot() {
 #endif
 
 struct EarlyUiPreferences {
+  std::string lock_theme;
   int clock24;
   std::string timezone;
   int brightness;
@@ -2355,6 +2364,7 @@ EarlyUiPreferences DefaultEarlyUiPreferences() {
   preferences.dock_blur = 24;
   preferences.dock_hide_apps = 0;
   preferences.recents = 1;
+  preferences.lock_theme = EncodeLockTheme({});
 #ifdef TW_NO_HAPTICS
   preferences.haptic_touch = 0;
   preferences.haptic_keyboard = 0;
@@ -2425,6 +2435,7 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.dock_blur = dock_blur.empty() ? 24 : std::clamp(atoi(dock_blur.c_str()), 0, 100);
   preferences.dock_hide_apps = DataManager::GetIntValue("aera_dock_hide_apps") != 0 ? 1 : 0;
   preferences.recents = DataManager::GetIntValue("aera_recents_enabled") != 0 ? 1 : 0;
+  preferences.lock_theme = EncodeLockTheme(DecodeLockTheme(DataManager::GetStrValue("aera_lock_theme")));
   preferences.haptic_touch = std::clamp(DataManager::GetIntValue("tw_button_vibrate"), 0, 300);
   preferences.haptic_keyboard = std::clamp(DataManager::GetIntValue("tw_keyboard_vibrate"), 0, 300);
   preferences.haptic_action = std::clamp(DataManager::GetIntValue("tw_action_vibrate"), 0, 500);
@@ -2499,6 +2510,7 @@ bool ResetAeraSettings(bool theme) {
     set("aera_dock_blur", defaults.dock_blur);
     set("aera_dock_hide_apps", defaults.dock_hide_apps);
     set("aera_ui_font", std::string());
+    set("aera_lock_theme", defaults.lock_theme);
   } else {
     set("tw_military_time", defaults.clock24);
     set("aera_battery_style", defaults.battery_style);
@@ -2601,6 +2613,8 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "recents") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->recents = parsed;
+  } else if (key == "lock_theme") {
+    preferences->lock_theme = EncodeLockTheme(DecodeLockTheme(value));
   } else if (key == "haptic_touch") {
     if (!ParseInteger(value, 0, 300, &parsed)) return false;
     preferences->haptic_touch = parsed;
@@ -2710,6 +2724,7 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue("aera_dock_blur", preferences.dock_blur);
   DataManager::SetValue("aera_dock_hide_apps", preferences.dock_hide_apps);
   DataManager::SetValue("aera_recents_enabled", preferences.recents);
+  DataManager::SetValue("aera_lock_theme", preferences.lock_theme, 1);
   DataManager::SetValue("tw_button_vibrate", preferences.haptic_touch);
   DataManager::SetValue("tw_keyboard_vibrate", preferences.haptic_keyboard);
   DataManager::SetValue("tw_action_vibrate", preferences.haptic_action);
@@ -2805,6 +2820,7 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "dock_blur=" << preferences.dock_blur << '\n'
          << "dock_hide_apps=" << preferences.dock_hide_apps << '\n'
          << "recents=" << preferences.recents << '\n'
+         << "lock_theme=" << preferences.lock_theme << '\n'
          << "haptic_touch=" << preferences.haptic_touch << '\n'
          << "haptic_keyboard=" << preferences.haptic_keyboard << '\n'
          << "haptic_action=" << preferences.haptic_action << '\n'
@@ -2997,6 +3013,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "pc_auto_enable=" << DataManager::GetIntValue("aera_pc_auto_enable") << '\n'
          << "update_nightly=" << DataManager::GetIntValue("aera_update_nightly") << '\n'
          << "recents=" << DataManager::GetIntValue("aera_recents_enabled") << '\n'
+         << "lock_theme=" << EncodeLockTheme(RecoveryLockTheme()) << '\n'
          << "timezone=" << DataManager::GetStrValue(TW_TIME_ZONE_VAR) << '\n'
          << "brightness=" << DataManager::GetIntValue("tw_brightness_pct") << '\n'
          << "screen_timeout=" << CaptureCurrentEarlyUiPreferences().screen_timeout << '\n'

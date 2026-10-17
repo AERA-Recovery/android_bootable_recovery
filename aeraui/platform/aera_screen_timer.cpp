@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "aeraui/platform/aera_screen_timer.hpp"
+#include <algorithm>
 
 #include "data.hpp"
 #include "twrp-functions.hpp"
@@ -29,9 +30,19 @@ void AeraScreenTimer::SetTimeout(int seconds) {
 
 bool AeraScreenTimer::IsScreenOff() {
   pthread_mutex_lock(&mutex_);
-  const bool off = state_ == State::kOff || state_ == State::kBlanked;
+  const bool off = state_ == State::kOff || state_ == State::kBlanked || state_ == State::kAmbient;
   pthread_mutex_unlock(&mutex_);
   return off;
+}
+void AeraScreenTimer::SetAmbientEnabled(bool enabled, int brightness) {
+  pthread_mutex_lock(&mutex_);
+  ambient_enabled_=enabled;
+  ambient_brightness_=std::clamp(brightness,1,100);
+  pthread_mutex_unlock(&mutex_);
+}
+std::string AeraScreenTimer::AmbientBrightness() {
+  const int maximum=std::max(1,DataManager::GetIntValue("tw_brightness_max"));
+  return std::to_string(std::max(1,maximum*ambient_brightness_/100));
 }
 
 std::string AeraScreenTimer::CurrentBrightness() {
@@ -57,6 +68,12 @@ void AeraScreenTimer::CheckTimeout() {
   }
   if (timeout_seconds_ > 0 && elapsed.tv_sec > timeout_seconds_ &&
       (state_ == State::kOn || state_ == State::kDim)) {
+    if(ambient_enabled_) {
+      TWFunc::Set_Brightness(AmbientBrightness());
+      state_=State::kAmbient;
+      pthread_mutex_unlock(&mutex_);
+      return;
+    }
     TWFunc::Set_Brightness("0");
     TWFunc::check_and_run_script("/system/bin/postscreenblank.sh", "blank");
     state_ = State::kOff;
@@ -91,6 +108,12 @@ void AeraScreenTimer::Blank() {
   pthread_mutex_lock(&mutex_);
   if (state_ == State::kOn || state_ == State::kDim) {
     original_brightness_ = CurrentBrightness();
+    if(ambient_enabled_) {
+      TWFunc::Set_Brightness(AmbientBrightness());
+      state_=State::kAmbient;
+      pthread_mutex_unlock(&mutex_);
+      return;
+    }
     TWFunc::Set_Brightness("0");
     TWFunc::check_and_run_script("/system/bin/postscreenblank.sh", "blank");
     state_ = State::kOff;

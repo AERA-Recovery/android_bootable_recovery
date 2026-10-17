@@ -28,6 +28,7 @@
 
 #include "aeraui/engine.hpp"
 #include "aeraui/backend.hpp"
+#include "aeraui/lock_theme.hpp"
 #include "aeraui/platform/aera_screen_timer.hpp"
 #include "../../aera_remote/pc_connection.hpp"
 #include "aeraui/status_bar.hpp"
@@ -338,7 +339,10 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
         } else if (event.value == 0) {
             if (!hardware.screen_off && !hardware.woke_on_power &&
                 !hardware.power_long_press && !hardware.screenshot_chord) {
-                engine.SetSuspended(true);
+                const bool ambient=RecoveryLockTheme().aod;
+                aeraScreenTimer.SetAmbientEnabled(ambient,RecoveryLockTheme().aod_brightness);
+                if(ambient){engine.ShowLockScreen(true);engine.RunFrame();}
+                engine.SetSuspended(!ambient);
                 aeraScreenTimer.Blank();
                 hardware.screen_off = true;
                 __android_log_print(ANDROID_LOG_INFO, kLogTag,
@@ -518,6 +522,7 @@ RunResult RunLoop(bool fastboot_mode = false,
             }
         }
         if (hardware.screen_off && aera::pc::NeedsUiAttention()) {
+            engine.ShowLockScreen();
             engine.SetSuspended(false);
             aeraScreenTimer.Wake();
             hardware.screen_off = false;
@@ -528,7 +533,8 @@ RunResult RunLoop(bool fastboot_mode = false,
         // while an input event is being dispatched. Capture only here, after
         // LVGL has completed and presented a frame; direct capture from the
         // key callback could restart recovery on the Adreno/KMS backend.
-        if (hardware.screenshot_pending) {
+        const bool lock_screenshot = engine.TakeScreenshotRequest();
+        if (hardware.screenshot_pending || lock_screenshot) {
             hardware.screenshot_pending = false;
             CaptureHardwareScreenshot(engine);
         }
@@ -653,9 +659,12 @@ RunResult RunLoop(bool fastboot_mode = false,
                 gModeTransitionBusy.load(std::memory_order_acquire)) {
                 aeraScreenTimer.Wake();
             } else {
+                const bool ambient=RecoveryLockTheme().aod;
+                aeraScreenTimer.SetAmbientEnabled(ambient,RecoveryLockTheme().aod_brightness);
                 aeraScreenTimer.CheckTimeout();
                 if (aeraScreenTimer.IsScreenOff()) {
-                    engine.SetSuspended(true);
+                    if(ambient)engine.ShowLockScreen(true);
+                    engine.SetSuspended(!ambient);
                     hardware.screen_off = true;
                     __android_log_print(ANDROID_LOG_INFO, kLogTag,
                                         "display suspended by idle timeout");

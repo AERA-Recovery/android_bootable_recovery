@@ -666,6 +666,11 @@ public:
     pending_action_ = Action::kNone;
     return action;
   }
+  bool TakeScreenshotRequest() {
+    const bool requested = screenshot_requested_;
+    screenshot_requested_ = false;
+    return requested;
+  }
 
   DecryptionCompletion TakeDecryptionCompletion() {
     const DecryptionCompletion result = decryption_completion_;
@@ -1093,14 +1098,17 @@ public:
     if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
   }
 
-  void ShowLockScreen() {
+  void ShowLockScreen(bool ambient = false) {
     ResetKeyboard();
-    if (!initialized_ || lock_overlay_ != nullptr) return;
+    if (!initialized_) return;
+    if(lock_overlay_ && lock_ambient_==ambient)return;
+    if(lock_overlay_){lv_obj_delete(lock_overlay_);lock_overlay_=nullptr;}
+    lock_ambient_=ambient;
     CancelEdgeSwipe();
     CancelRecentsSwipe();
     pointer_.pressed = false;
     if (pointer_device_ != nullptr) lv_indev_reset(pointer_device_, nullptr);
-    lock_overlay_ = BuildLockScene(lv_layer_top(), HandleSceneAction, this);
+    lock_overlay_ = BuildLockScene(lv_layer_top(), HandleSceneAction, this,false,nullptr,ambient);
   }
 
   void ShowPowerMenu() {
@@ -2433,12 +2441,16 @@ private:
       return;
     }
 
+    if (action == Action::kLockScreenshot) {
+      if (self->lock_overlay_) self->screenshot_requested_ = true;
+      return;
+    }
     if (action == Action::kUnlock) {
       if (self->lock_overlay_ != nullptr) {
         lv_obj_t *lock = self->lock_overlay_;
         self->lock_overlay_ = nullptr;
-        lv_obj_fade_out(lock, 220, 0);
-        lv_obj_delete_delayed(lock, 230);
+        // The lock scene completes its gesture-specific exit before notifying us.
+        lv_obj_delete_async(lock);
       }
       return;
     }
@@ -3806,6 +3818,7 @@ private:
   std::shared_ptr<RecentPreview> recent_launch_preview_;
   RecentApp recent_launch_app_;
   lv_obj_t *lock_overlay_ = nullptr;
+  bool lock_ambient_ = false;
   lv_obj_t *power_overlay_ = nullptr;
   lv_obj_t *volume_overlay_ = nullptr;
   lv_obj_t *volume_icon_ = nullptr;
@@ -3854,6 +3867,7 @@ private:
   std::vector<lv_obj_t *> recents_deferred_cards_;
   std::vector<lv_obj_t *> recents_all_cards_;
   Action pending_action_ = Action::kNone;
+  bool screenshot_requested_ = false;
   DecryptionCompletion decryption_completion_ = DecryptionCompletion::kNone;
   uint32_t submit_window_start_ms_ = 0;
   uint32_t last_submit_ms_ = 0;
@@ -3956,6 +3970,9 @@ void Engine::SetFastbootMode(bool enabled, bool show_recovery_home) {
 void Engine::AbandonForTerminalAction() { impl_.release(); }
 uint32_t Engine::RunFrame() { return impl_->RunFrame(); }
 Action Engine::TakeAction() { return impl_->TakeAction(); }
+bool Engine::TakeScreenshotRequest() {
+  return impl_->TakeScreenshotRequest();
+}
 void Engine::NavigateHome() { impl_->NavigateHome(); }
 void Engine::NavigateBack() { impl_->NavigateBack(); }
 void Engine::SetBackendReady() { impl_->SetBackendReady(); }
@@ -3975,7 +3992,7 @@ void Engine::MouseWheel(int steps) { impl_->MouseWheel(steps); }
 bool Engine::KeyboardKey(unsigned code, int value) { return impl_->KeyboardKey(code, value); }
 void Engine::ResetKeyboard() { impl_->ResetKeyboard(); }
 void Engine::SetSuspended(bool suspended) { impl_->SetSuspended(suspended); }
-void Engine::ShowLockScreen() { impl_->ShowLockScreen(); }
+void Engine::ShowLockScreen(bool ambient) { impl_->ShowLockScreen(ambient); }
 void Engine::ShowPowerMenu() { impl_->ShowPowerMenu(); }
 void Engine::ShowVolume(int percent) { impl_->ShowVolume(percent); }
 void Engine::ShowScreenshotResult(bool success) {
