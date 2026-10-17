@@ -404,7 +404,7 @@ UsbFormatTarget RecoveryUsbFormatTarget(const std::string &path) {
   const std::string supported((std::istreambuf_iterator<char>(filesystems)), {});
   for (const auto &fs : std::vector<std::pair<std::string, std::string>>{
       {"vfat", "/system/bin/mkfs.fat"}, {"exfat", "/system/bin/mkexfatfs"},
-      {"ext4", "/system/bin/mke2fs"}}) {
+      {"ext4", "/system/bin/mke2fs"}, {"f2fs", "/system/bin/make_f2fs"}}) {
     if (!access(fs.second.c_str(), X_OK) && supported.find(fs.first) != std::string::npos)
       result.filesystems.push_back(fs.first);
   }
@@ -458,6 +458,7 @@ static int FormatUsb(const JobRequest &request) {
   const std::string pinned = "/proc/" + std::to_string(getpid()) + "/fd/" + std::to_string(fd.get());
   const std::string command = request.usb_filesystem == "vfat" ? "/system/bin/mkfs.fat -F 32 " :
       request.usb_filesystem == "exfat" ? "/system/bin/mkexfatfs " :
+      request.usb_filesystem == "f2fs" ? "/system/bin/make_f2fs -f " :
       "/system/bin/mke2fs -t ext4 -F ";
   DataManager::SetValue("tw_partition", request.path);
   if (TWFunc::Exec_Cmd(command + pinned) != 0 || fsync(fd.get()) != 0) return finish(1);

@@ -227,7 +227,7 @@ static bool usb_connected = true;
 UsbFormatTarget RecoveryUsbFormatTarget(const std::string &path) {
   if (path != "/usb-otg" || !usb_connected) return {};
   return {true, "USB storage", path, "/dev/block/sda1", "vfat", "usb:1:32000000000", "",
-          32000000000, {"vfat", "exfat", "ext4"}};
+          32000000000, {"vfat", "exfat", "ext4", "f2fs"}};
 }
 std::string RecoveryStorage() { return file_root.empty() ? "/tmp" : file_root; }
 std::string RecoveryBackupRoot() { return backup_root; }
@@ -769,6 +769,14 @@ int main(int argc,char **argv) {
       assert(Find(wipe, "Swipe to format USB"));
       assert(callback_count == 0);
       if (!landscape) save("/tmp/aera-usb-format-review.png");
+      assert(widgets::DismissModal(wipe)); Tick();
+      assert(widgets::DismissModal(wipe)); Tick();
+      lv_obj_send_event(advanced, LV_EVENT_CLICKED, nullptr); Tick();
+      auto *f2fs = Find(wipe, "F2FS"); assert(f2fs);
+      lv_obj_send_event(f2fs, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(Find(wipe, "Review USB format"));
+      assert(Find(wipe, "Swipe to format USB"));
+      assert(callback_count == 0);
       assert(widgets::DismissModal(wipe)); Tick();
       assert(widgets::DismissModal(wipe)); Tick();
       usb_connected = false;

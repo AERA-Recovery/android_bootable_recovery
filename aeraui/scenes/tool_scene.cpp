@@ -542,7 +542,7 @@ void UsbFormatOptions(Tools *state, const std::string &path) {
     lv_label_set_long_mode(info, LV_LABEL_LONG_WRAP);
     for (const auto &fs : target.filesystems) {
       const std::string label = fs == "vfat" ? "FAT32 — files up to 4 GB" :
-          fs == "exfat" ? "exFAT — large files" : "ext4 — Linux filesystem";
+          fs == "exfat" ? "exFAT — large files" : fs == "f2fs" ? "F2FS" : "ext4 — Linux filesystem";
       auto *choice = Button(area, label.c_str(), [state, target, fs] {
         if (state->selected.size() != 1 || !state->selected.count(target.path)) return;
         const auto current = RecoveryUsbFormatTarget(target.path);
