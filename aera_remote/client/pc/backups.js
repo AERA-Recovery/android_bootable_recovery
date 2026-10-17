@@ -25,6 +25,27 @@ function backupChoice(name){return document.querySelector(`input[name="${name}"]
 function backupOperation(){return backupChoice('backupOperation')}
 function appBackup(){return backupChoice('backupKind')==='apps'}
 function computerBackup(){return backupChoice('backupSource')==='computer'}
+async function waitStorageJob(job){
+  updateJob(job);
+  const deadline=Date.now()+120000;
+  while(Date.now()<deadline){
+    await new Promise(resolve=>setTimeout(resolve,500));
+    const info=await api('status');updateInfo(info);updateJob(info.job||{});
+    if(info.job?.id!==job.id)throw new Error('The storage operation changed. Please try again.');
+    if(info.job.phase==='completed')return;
+    if(['failed','cancelled'].includes(info.job.phase))throw new Error(info.job.detail||'Storage is unavailable.');
+  }
+  throw new Error('Storage connection is taking longer than expected. Check the device status.');
+}
+async function prepareBackupStorage(){
+  const path=$('backupStorage').value;
+  if(!path)throw new Error('Select backup storage first.');
+  const storage=(state.info?.backup_storages||state.info?.storages||[]).find(item=>item.path===path);
+  if(storage?.mounted!==false)return;
+  const job=await api('backups',{action:'storage',kind:'recovery',source:'device',storage:path,
+    partitions:[],confirm:true});
+  await waitStorageJob(job);
+}
 function backupBlockBytes(){return Math.min(8388608,Number(state.info?.backup_block_bytes)||524288)}
 function backupOperationLocked(){return ['backup','restore'].includes(state.job?.backup_action)&&['queued','installing'].includes(state.job?.phase)}
 const originalBackupShowTab=showTab;
@@ -122,6 +143,7 @@ function backupBody(action){
     compression:$('backupCompression').checked,partitions:[...backups.selected],folder_ready:!!backups.folder,confirm:true};
 }
 async function startBackupJob(action){
+  if(!computerBackup()&&action!=='storage')await prepareBackupStorage();
   backups.finished='';$('backupResult').textContent='';
   const nativeBackup=action==='backup'&&!appBackup();
   if(nativeBackup&&(!$('backupName').value.trim()||$('backupName').value.trim()===backups.generatedName))nextBackupName();
@@ -137,7 +159,7 @@ async function loadBackup(){
   await startBackupJob(appBackup()?(backupOperation()==='backup'?'apps':'snapshots'):'inspect');
 }
 async function chooseBackupFolder(){
-  if(!computerBackup()){await chooseDeviceBackupFolder($('backupStorage').value);return}
+  if(!computerBackup()){await prepareBackupStorage();await chooseDeviceBackupFolder($('backupStorage').value);return}
   if(!window.showDirectoryPicker)throw new Error('This browser does not support computer folder access. Device storage is still available.');
   const folder=await window.showDirectoryPicker({mode:backupOperation()==='backup'?'readwrite':'read',id:'aera-backups'});
   ++backups.folderRevision;
@@ -245,7 +267,14 @@ async function loadBackupIcons(job){
 }
 const oldBackupInfo=updateInfo;
 updateInfo=function(info){
-  oldBackupInfo(info);options($('backupStorage'),info.storages||[],s=>`${s.name} / ${size(s.free)} free`);
+  oldBackupInfo(info);
+  const previousStorage=$('backupStorage').value;
+  options($('backupStorage'),info.backup_storages||info.storages||[],s=>
+    s.mounted===false?`${s.name} / Not connected`:`${s.name} / ${size(s.free)} free`);
+  if(!previousStorage&&appBackup()&&info.app_vault_storage&&
+      [...$('backupStorage').options].some(item=>item.value===info.app_vault_storage))
+    $('backupStorage').value=info.app_vault_storage;
+  updateNetworkStorage(info);
   if(backups.memoryDevice!==info.device){
     backups.memoryDevice=info.device;
     if(!backups.folder&&!activeJob())refreshRememberedFolder();
@@ -264,6 +293,15 @@ updateInfo=function(info){
 const oldBackupJob=updateJob;
 updateJob=function(job){
   oldBackupJob(job);
+  document.querySelector('.log-title h3').textContent=job.nas_action?'Network storage log':job.save_path?'File transfer log':'Installer output';
+  if(job.nas_action&&state.job?.id===job.id){
+    $('progressLabel').textContent='Network storage';
+    const titles={queued:'Network storage queued',installing:'Updating network storage',
+      completed:'Network storage updated',failed:'Network storage failed'};
+    $('statusTitle').textContent=titles[job.phase]||'Network storage';
+    if(!job.log)$('log').textContent=job.detail||'Updating network storage';
+    if(job.phase==='completed')notice(job.detail,'success');
+  }
   if(!job.backup_action||state.job?.id!==job.id){backupControls();return}
   const titles={backup:'Backing up',restore:'Restoring',apps:'Reading apps',snapshots:'Reading snapshots',inspect:'Reading backup'};
   if(job.phase==='queued')$('statusTitle').textContent='Backup operation queued';
@@ -516,6 +554,9 @@ $('backupRun').onclick=()=>{
   confirmation(restore?'Confirm restore':'Confirm backup',warning,()=>startBackupJob(backupOperation()));
 };
 for(const id of ['backupKind','backupOperation','backupSource','backupUser','backupStorage'])$(id).onchange=()=>{
+  if(id==='backupKind'&&appBackup()&&state.info?.app_vault_storage&&
+      [...$('backupStorage').options].some(option=>option.value===state.info.app_vault_storage))
+    $('backupStorage').value=state.info.app_vault_storage;
   if(id!=='backupUser'){backups.folder=null;backups.path='';backups.nativeFolders=[];backups.restoreRoot=null;$('backupFolderName').textContent='No folder selected'}resetBackupChoices();
 };
 $('backupNative').onchange=async()=>{
@@ -530,6 +571,82 @@ $('backupSelectAll').onclick=()=>{for(const item of visibleBackupChoices())backu
 $('backupSelectNone').onclick=()=>{backups.selected.clear();renderBackupChoices()};
 nextBackupName();
 window.addEventListener('beforeunload',event=>{if(backups.running){event.preventDefault();event.returnValue=''}});
+
+const networkStorage={dirty:false,passwordDirty:false,key:null,signature:''};
+const networkPanel=document.createElement('details');networkPanel.id='networkStorage';
+networkPanel.innerHTML=`<summary>Network storage</summary>
+  <div class="fields">
+    <p id="nasState" class="context-note" role="status">Not connected</p>
+    <div class="pair-fields">
+      <div><label for="nasType">Protocol</label><select id="nasType"><option value="smb">SMB</option><option value="sftp">SFTP</option></select></div>
+      <div><label for="nasHost">Server</label><input id="nasHost" maxlength="128" autocomplete="off"></div>
+      <div><label for="nasUser">Username</label><input id="nasUser" maxlength="128" autocomplete="off"></div>
+      <div id="nasAuthField"><label for="nasAuth">Authentication</label><select id="nasAuth"><option value="password">Password</option><option value="key">Private key</option></select></div>
+      <div><label id="nasPasswordLabel" for="nasPassword">Password</label><input id="nasPassword" type="password" maxlength="254" autocomplete="new-password"></div>
+      <div id="nasShareField"><label for="nasShare">SMB share</label><input id="nasShare" maxlength="128"></div>
+    </div>
+    <div id="nasKeyField" hidden><label for="nasKey">Private key</label><input id="nasKey" type="file"><p id="nasKeyState" class="context-note">No private key saved</p></div>
+    <div><label for="nasPath">Remote folder</label><input id="nasPath" maxlength="256"></div>
+    <label class="arb-consent"><input id="nasCache" type="checkbox"><span>Use device write cache</span></label>
+    <details><summary>Advanced</summary><div class="pair-fields fields">
+      <div id="nasPortField"><label for="nasPort">SFTP port</label><input id="nasPort" type="number" min="1" max="65535" value="22"></div>
+      <div id="nasDomainField"><label for="nasDomain">Workgroup / domain</label><input id="nasDomain" maxlength="128" value="WORKGROUP"></div>
+    </div></details>
+    <div class="actions"><button id="nasSave">Save settings</button><button id="nasConnect" class="primary">Connect</button><button id="nasDisconnect">Disconnect</button></div>
+  </div>`;
+$('backupsPanel').append(networkPanel);
+function networkFields(){
+  const sftp=$('nasType').value==='sftp',key=sftp&&$('nasAuth').value==='key';
+  $('nasAuthField').hidden=!sftp;$('nasKeyField').hidden=!key;
+  $('nasShareField').hidden=sftp;$('nasPortField').hidden=!sftp;$('nasDomainField').hidden=sftp;
+  $('nasPasswordLabel').textContent=key?'Key passphrase (optional)':'Password';
+}
+function updateNetworkStorage(info){
+  const nas=info.nas||{};networkPanel.hidden=!nas.supported;
+  const signature=JSON.stringify(nas);
+  if(!networkStorage.dirty&&signature!==networkStorage.signature){
+    networkStorage.signature=signature;
+    for(const field of ['type','host','user','auth','share','path','port','domain'])
+      $('nas'+field[0].toUpperCase()+field.slice(1)).value=nas[field]||({type:'smb',auth:'password',port:'22',domain:'WORKGROUP'}[field]||'');
+    $('nasCache').checked=nas.cache_mode==='data';
+    $('nasPassword').placeholder=nas.password_saved?'Saved credential':'';
+    $('nasKeyState').textContent=nas.key_available?`Saved: ${nas.key_name||'Private key'}`:'No private key saved';
+    networkFields();
+  }
+  $('nasState').textContent=nas.error||(nas.mounted?'Connected':nas.status||'Not connected');
+  const blocked=!state.connected||activeJob()||!!info.busy;
+  for(const input of networkPanel.querySelectorAll('input,select'))input.disabled=blocked||!!nas.mounted;
+  $('nasConnect').disabled=$('nasSave').disabled=blocked||!!nas.mounted||!!info.locked;
+  $('nasDisconnect').disabled=blocked||!nas.mounted;
+}
+networkPanel.oninput=event=>{
+  networkStorage.dirty=true;if(event.target.id==='nasPassword')networkStorage.passwordDirty=true;
+  networkFields();
+};
+$('nasKey').onchange=()=>{
+  networkStorage.key=$('nasKey').files[0]||null;networkStorage.dirty=true;
+  $('nasKeyState').textContent=networkStorage.key?.name||'No file selected';
+};
+async function networkAction(action){
+  const body={action};
+  if(action!=='disconnect'){
+    for(const field of ['type','host','user','auth','share','path','port','domain'])
+      body[field]=$('nas'+field[0].toUpperCase()+field.slice(1)).value;
+    body.cache_mode=$('nasCache').checked?'data':'off';
+    body.key_name=networkStorage.key?.name||state.info?.nas?.key_name||'';
+    if(networkStorage.passwordDirty)body.password=$('nasPassword').value;
+    if(networkStorage.key){
+      if(networkStorage.key.size>65536)throw new Error('Private key must be smaller than 64 KB.');
+      body.private_key=await networkStorage.key.text();
+    }
+  }
+  const job=await api('nas',body);
+  networkStorage.dirty=false;networkStorage.passwordDirty=false;networkStorage.key=null;
+  networkStorage.signature='';$('nasPassword').value='';$('nasKey').value='';
+  await waitStorageJob(job);
+}
+for(const [id,action] of [['nasSave','save'],['nasConnect','connect'],['nasDisconnect','disconnect']])
+  $(id).onclick=()=>networkAction(action).catch(error=>notice(error.message));
 
 let backupCancellation=null;
 $('backupCancel').onclick=()=>{

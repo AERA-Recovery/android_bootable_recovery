@@ -106,6 +106,22 @@ std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::st
   return targets;
 }
 std::string RecoveryStorage() { return storage; }
+std::vector<BackupStorage> RecoveryBackupStorages() {
+  return {{"Internal storage", storage, true, 10000000000},
+          {"USB storage", storage + "/usb", true, 5000000000}};
+}
+bool RecoveryBackupPathReady(const std::string &) { return true; }
+std::string RecoveryAppVaultStorage() { return storage; }
+NasStatus RecoveryNasStatus() {
+  NasStatus status;
+  status.supported = true;
+  status.config.host = "test-server";
+  status.config.user = "test-user";
+  status.config.password = "never-return-this-secret";
+  status.config.key_name = "id_ed25519";
+  status.key_available = true;
+  return status;
+}
 WifiConnection RecoveryWifiConnection() { return {wifi_connected, "Test network"}; }
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
   if (kind == "backup") return {{"Data", "/data", 2147483648}, {"Boot", "/boot", 67108864}, {"Recovery", "/recovery", 104857600}};

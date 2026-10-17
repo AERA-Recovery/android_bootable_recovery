@@ -529,6 +529,27 @@ class PcConnectionTest(unittest.TestCase):
         self.assertEqual(self.request("/api/log/flash/" + names[-1])[0], 409)
         self.command("idle")
 
+    def test_05b_network_storage_metadata_and_queue(self):
+        self.assertEqual(self.request("/api/nas", {"action": "save"}, token="")[0], 401)
+        status, info = self.request("/api/status")
+        self.assertEqual(status, 200)
+        self.assertTrue(info["nas"]["supported"])
+        self.assertTrue(info["nas"]["password_saved"])
+        self.assertNotIn("never-return-this-secret", json.dumps(info))
+        self.assertNotIn("password", info["nas"])
+        self.assertNotIn("private_key", info["nas"])
+        self.assertGreaterEqual(len(info["backup_storages"]), 2)
+        for action in ({}, {"action": {}}, {"action": "invalid"}, {"action": "save", "host": {}}):
+            self.assertEqual(self.request("/api/nas", action)[0], 400)
+        status, job = self.request("/api/nas", {"action": "save", "type": "sftp", "host": "test-server",
+                                              "password": "secret-test", "private_key": "private-test"})
+        self.assertEqual(status, 200)
+        self.assertNotIn("secret-test", json.dumps(job))
+        self.assertNotIn("private-test", json.dumps(job))
+        self.command("run")
+        self.wait_phase("completed")
+        self.command("hold")
+
     def test_05c_root_and_reboot_are_confirmed_queued_jobs(self):
         self.command("run")
         self.assertEqual(self.request("/api/root", {"action": "patch", "provider": "next", "slot": "b"})[0], 400)
