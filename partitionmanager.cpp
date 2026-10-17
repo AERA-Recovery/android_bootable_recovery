@@ -1765,8 +1765,8 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 	bool nas_backup = false;
 #endif
 #ifdef OF_ENABLE_WLAN
-	if (nas_backup)
-		NasManager::ResetTransferStats();
+	if (nas_backup && !NasManager::ResetTransferStats())
+		return false;
 #endif
 
 	DataManager::SetProgress(0.0);

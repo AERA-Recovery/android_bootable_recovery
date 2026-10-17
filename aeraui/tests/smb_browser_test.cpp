@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
+#include <json/json.h>
 
 static std::string g_executable;
 extern "C" int __real_posix_spawn(pid_t *, const char *,
@@ -20,7 +21,7 @@ extern "C" int __wrap_posix_spawn(pid_t *pid, const char *,
   return __real_posix_spawn(pid, g_executable.c_str(), actions, attributes, arguments, environment);
 }
 
-static int FakeRclone(int argc, char **argv) {
+static int FakeNative(int argc, char **argv) {
   std::string config;
   for (int i = 1; i < argc; ++i) {
     assert(std::string(argv[i]).find("test%password") == std::string::npos);
@@ -30,23 +31,20 @@ static int FakeRclone(int argc, char **argv) {
   assert(stat(config.c_str(), &info) == 0 && (info.st_mode & 0777) == 0600);
   assert(stat(std::filesystem::path(config).parent_path().c_str(), &info) == 0 &&
          (info.st_mode & 0777) == 0700);
-  if (std::string(argv[1]) == "obscure") {
-    std::string input;
-    std::getline(std::cin, input);
-    assert(input == "test%password");
-    std::cout << "encoded-password\n";
-    return 0;
-  }
-  assert(std::string(argv[1]) == "lsjson");
+  assert(std::string(argv[1]) == "list");
   std::ifstream file(config);
   const std::string contents((std::istreambuf_iterator<char>(file)), {});
-  assert(contents.find("pass = encoded-password") != std::string::npos);
-  assert(contents.find("test%password") == std::string::npos);
-  const std::string remote = argv[2];
-  if (remote == "nas:Slow") { std::this_thread::sleep_for(std::chrono::seconds(30)); return 0; }
-  if (remote == "nas:Bad") { std::cerr << "Access denied\n"; return 5; }
-  if (remote == "nas:Hidden/Android/AERA") { std::cout << "[]\n"; return 0; }
-  assert(remote == "nas:");
+  Json::Value profile;
+  file.clear();file.seekg(0);file >> profile;
+  assert(profile["password"].asString() == "test%password");
+  const std::string remote = profile["share"].asString();
+  if (remote == "Slow") { std::this_thread::sleep_for(std::chrono::seconds(30)); return 0; }
+  if (remote == "Bad") { std::cerr << "Access denied\n"; return 5; }
+  if (remote == "Hidden") {
+    assert(profile["path"].asString() == "Android/AERA");
+    std::cout << "[]\n"; return 0;
+  }
+  assert(remote.empty());
   std::cout << R"([{"Name":"Public","IsDir":true}])";
   return 0;
 }
@@ -59,12 +57,9 @@ static size_t TemporaryDirectories() {
 }
 
 int main(int argc, char **argv) {
-  if (argc > 1) return FakeRclone(argc, argv);
+  if (argc > 1) return FakeNative(argc, argv);
   g_executable = std::filesystem::canonical(argv[0]);
   using namespace aeraui;
-  assert(smb::RemotePath("", "") == "nas:");
-  assert(smb::RemotePath("YouKnow", "Android/AERA") == "nas:YouKnow/Android/AERA");
-  assert(smb::RemotePath("Hidden$", "") == "nas:Hidden$");
   smb::Result parsed;
   assert(smb::ParseListing(R"([{"Name":"z","IsDir":true},{"Name":"a","IsDir":true},{"Name":"a","IsDir":true},{"Name":"file","IsDir":false},{"Name":"..","IsDir":true}])", &parsed));
   assert((parsed.directories == std::vector<std::string>{"a", "z"}));

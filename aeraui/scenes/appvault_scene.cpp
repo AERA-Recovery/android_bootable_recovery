@@ -943,6 +943,13 @@ void Worker(State *state, Work work, std::vector<std::string> paths,
     fail("Another app backup or restore is already running.");
     return;
   }
+#ifdef OF_ENABLE_WLAN
+  if (work == Work::kBackup && state->repository.compare(0, 9, "/mnt/nas/") == 0 &&
+      !NasManager::ResetTransferStats()) {
+    fail(NasManager::GetLastError());
+    return;
+  }
+#endif
   appvault::IncrementalApkViews incremental;
   if (work == Work::kBackup || work == Work::kRestore) {
     std::vector<std::string> registered;

@@ -13,7 +13,6 @@ struct Result {
   std::string error;
 };
 
-std::string RemotePath(const std::string &share, const std::string &path);
 bool ParseListing(const std::string &json, Result *result);
 Result List(const NasConfig &config, const std::string &share,
             const std::string &path, const std::atomic<bool> &cancel);

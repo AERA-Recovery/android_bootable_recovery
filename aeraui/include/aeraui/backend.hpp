@@ -479,7 +479,7 @@ FastbootWifiStatus RecoveryFastbootWifiStatus();
 bool RecoverySetFastbootOverWifi(bool enabled);
 bool RecoverySelectFastbootTransport(bool wireless);
 
-// Native presentation of OrangeFox's existing rclone/FUSE NAS manager.
+// Native presentation of AERA's SMB/SFTP FUSE network storage manager.
 struct NasStatus {
   bool supported = false;
   bool mounted = false;

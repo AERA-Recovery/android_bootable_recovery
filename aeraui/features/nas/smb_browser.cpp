@@ -21,7 +21,7 @@ extern char **environ;
 
 namespace aeraui::smb {
 namespace {
-constexpr const char *kRclone = "/system/bin/rclone";
+constexpr const char *kNative = "/system/bin/aera-netfs";
 constexpr size_t kMaxListingBytes = 4 * 1024 * 1024;
 
 struct TemporaryFiles {
@@ -31,7 +31,7 @@ struct TemporaryFiles {
     char pattern[] = "/tmp/aera-smb-XXXXXX";
     if (!mkdtemp(pattern)) return;
     directory = pattern;
-    config = directory + "/rclone.conf";
+    config = directory + "/connection.json";
     input = directory + "/input";
     output = directory + "/output";
     errors = directory + "/errors";
@@ -82,7 +82,7 @@ bool Run(const std::vector<std::string> &arguments, const TemporaryFiles &files,
   if (!code) code = posix_spawn_file_actions_addopen(&actions, STDERR_FILENO,
       files.errors.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
   pid_t child = -1;
-  if (!code) code = posix_spawn(&child, kRclone, &actions, nullptr, argv.data(), environ);
+  if (!code) code = posix_spawn(&child, kNative, &actions, nullptr, argv.data(), environ);
   posix_spawn_file_actions_destroy(&actions);
   if (code != 0) { *error = "Could not start the network storage browser."; return false; }
 
@@ -120,12 +120,6 @@ bool ConfigValue(const std::string &value) {
 }
 }  // namespace
 
-std::string RemotePath(const std::string &share, const std::string &path) {
-  std::string result = "nas:" + share;
-  if (!share.empty() && !path.empty()) result += "/" + path;
-  return result;
-}
-
 bool ParseListing(const std::string &json, Result *result) {
   result->directories.clear();
   Json::Value root;
@@ -162,34 +156,27 @@ Result List(const NasConfig &config, const std::string &share,
     return result;
   }
   TemporaryFiles files;
-  if (files.directory.empty() || !WriteFile(files.config, "") ||
-      !WriteFile(files.input, config.password + "\n")) {
+  if (files.directory.empty() || !WriteFile(files.input, "")) {
     result.error = "Could not prepare the network storage browser.";
     return result;
   }
-  std::string password;
-  if (!config.password.empty()) {
-    if (!Run({kRclone, "obscure", "-", "--config", files.config}, files, cancel, &result.error))
-      return result;
-    password = ReadFile(files.output, 1024);
-    while (!password.empty() && (password.back() == '\n' || password.back() == '\r'))
-      password.pop_back();
-    if (password.empty()) { result.error = "Could not prepare the network storage browser."; return result; }
-  }
-  if (!WriteFile(files.input, "")) {
+  Json::Value settings;
+  settings["version"] = 1;
+  settings["type"] = "smb";
+  settings["host"] = config.host;
+  settings["user"] = config.user;
+  settings["password"] = config.password;
+  settings["domain"] = config.domain;
+  settings["share"] = share;
+  settings["path"] = path;
+  settings["port"] = 445;
+  Json::StreamWriterBuilder writer;
+  writer["indentation"] = "";
+  if (!WriteFile(files.config, Json::writeString(writer, settings))) {
     result.error = "Could not prepare the network storage browser.";
     return result;
   }
-  const std::string settings = "[nas]\ntype = smb\nhost = " + config.host +
-      "\nuser = " + config.user + "\npass = " + password +
-      "\ndomain = " + config.domain + "\n";
-  if (!WriteFile(files.config, settings)) {
-    result.error = "Could not prepare the network storage browser.";
-    return result;
-  }
-  if (!Run({kRclone, "lsjson", RemotePath(share, path), "--config", files.config,
-      "--dirs-only", "--no-modtime", "--no-mimetype", "--contimeout", "5s",
-      "--timeout", "10s", "--retries", "1", "--low-level-retries", "1"},
+  if (!Run({kNative, "list", "--config", files.config},
       files, cancel, &result.error)) return result;
   if (!cancel.load()) ParseListing(ReadFile(files.output, kMaxListingBytes), &result);
   return result;

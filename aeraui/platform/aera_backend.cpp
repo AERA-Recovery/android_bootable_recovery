@@ -1624,7 +1624,7 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
     DataManager::SetValue("tw_partition", "NAS upload");
     DataManager::SetProgress(0.0f);
     SetBackupUploadProgress(0, total);
-    NasManager::ResetTransferStats();
+    if (!NasManager::ResetTransferStats()) return 1;
     uint64_t copied = 0;
     TWFunc::SetPerformanceMode(true);
     bool ok = CopyBackupTree(canonical_backup, destination, total, &copied);
