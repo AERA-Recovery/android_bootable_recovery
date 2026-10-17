@@ -142,9 +142,17 @@ bool RecoverySetKeyboardLayout(KeyboardLayout layout) {
   return layout == KeyboardLayout::kQwerty ||
          layout == KeyboardLayout::kQwertz;
 }
-int RecoveryHomeGridColumns() { return 3; }
+static int home_grid_columns = 3;
+static std::vector<HomePluginPreference> home_layout;
+std::vector<HomePluginPreference> RecoveryHomePluginLayout() { return home_layout; }
+bool RecoverySaveHomePluginLayout(const std::vector<HomePluginPreference> &layout) {
+  if (!save_succeeds) return false;
+  home_layout = layout; return true;
+}
+int RecoveryHomeGridColumns() { return home_grid_columns; }
 bool RecoverySetHomeGridColumns(int columns) {
-  return columns >= 2 && columns <= 5;
+  if (columns < 2 || columns > 5) return false;
+  home_grid_columns = columns; return true;
 }
 DockLayout RecoveryDockLayout() { return dock_layout; }
 bool RecoverySetDockLayout(DockLayout layout) { dock_layout = layout; return true; }
@@ -392,7 +400,8 @@ std::vector<AdbPairedDevice> RecoveryAdbPairedDevices() {
           {"a21c44881e730a56", "Workshop laptop", 0}};
 }
 bool RecoveryForgetAdbDevice(const std::string &) { return true; }
-void SetPluginRequest(const plugins::Request &) {}
+static plugins::Request selected_plugin_request;
+void SetPluginRequest(const plugins::Request &request) { selected_plugin_request = request; }
 void SetSelectedPluginId(const std::string &) {}
 }
 namespace aeraui::plugins {
@@ -1394,6 +1403,159 @@ int main(int argc,char **argv) {
     lv_obj_clean(screen); Tick();
     lv_deinit(); std::filesystem::remove_all(backup_root);
     puts("Advanced payload review: selection, incremental blocking, normal ZIP fallback and no implicit flash passed.");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--home-edit") || !strcmp(argv[1], "--home-drag-stability")) {
+    using namespace widgets;
+    for (int i = 0; i < 30; ++i) {
+      plugins::Plugin plugin;
+      plugin.id = "plugin-" + std::to_string(i); plugin.entry = "main";
+      plugin.name = "Plugin " + std::to_string(i);
+      plugin.description = "Test app description";
+      home_plugins.push_back(plugin);
+    }
+    struct Pointer { int x = 0, y = 0; bool down = false; } pointer;
+    auto *input = lv_indev_create(); lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_user_data(input, &pointer);
+    lv_indev_set_read_cb(input, [](lv_indev_t *i, lv_indev_data_t *data) {
+      auto *p = static_cast<Pointer *>(lv_indev_get_user_data(i));
+      data->point = {p->x, p->y};
+      data->state = p->down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    });
+    auto point = [&](int x, int y, bool down, int ticks = 5) { pointer = {x, y, down}; Tick(ticks); };
+    auto centre = [](lv_obj_t *object) {
+      auto b = Bounds(object); return lv_point_t{(b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2};
+    };
+    auto hold = [&](lv_obj_t *tile) {
+      auto p = centre(tile); point(p.x, p.y, true, 45); assert(PointerDragActive());
+    };
+    if (!strcmp(argv[1], "--home-drag-stability")) {
+      for (int columns : {5, 3}) {
+        home_layout.clear(); RecoverySetHomeGridColumns(columns);
+        auto *home = lv_obj_create(nullptr); BuildHomeScene(home, RecordAction, nullptr);
+        lv_screen_load(home); Tick();
+        auto *tile = Find(home, "Plugin 0"); auto p = centre(tile);
+        hold(tile);
+        auto *page = lv_obj_get_parent(tile);
+        const int original_scroll = lv_obj_get_scroll_y(page);
+        for (int dy : {36, 72, 108, 180, 240, 300, 348, 300, 240, 180, 108, 72, 36, 0}) {
+          point(p.x, p.y + dy, true);
+          if (lv_obj_get_scroll_y(page) != original_scroll)
+            fprintf(stderr, "Native page drift in %dx%d: %d -> %d\n", columns, columns,
+                original_scroll, lv_obj_get_scroll_y(page));
+          assert(lv_obj_get_scroll_y(page) == original_scroll);
+        }
+        auto *ghost = lv_obj_get_child(home, -1);
+        assert(lv_obj_get_user_data(ghost) != &kPersistentModalMarker);
+        assert(!lv_obj_has_flag(ghost, LV_OBJ_FLAG_CLICKABLE));
+        assert(Find(ghost, "Plugin 0"));
+        auto *remove = Find(home, "Remove"); assert(remove);
+        auto trash = centre(remove);
+        point(trash.x, trash.y, true);
+        assert(lv_obj_get_child(home, -1) == ghost);
+        point(trash.x, trash.y, false);
+        assert(Find(home, "Remove plugin?"));
+        assert(DismissModal(home)); Tick();
+        lv_screen_load(screen); lv_obj_delete(home); Tick();
+      }
+      lv_indev_delete(input); lv_deinit(); std::filesystem::remove_all(backup_root);
+      puts("Home drag: no vertical page drift, ghost above toolbar and trash confirmation passed.");
+      return 0;
+    }
+    for (int columns = 2; columns <= 5; ++columns) {
+      home_layout.clear(); RecoverySetHomeGridColumns(columns);
+      interface_size = columns % 2 == 0 ? InterfaceSize::kLarge : InterfaceSize::kNormal;
+      themed_home_icons = columns % 2 == 0;
+      callback_count = 0; selected_plugin_request = {};
+      auto *home = lv_obj_create(nullptr);
+      BuildHomeScene(home, RecordAction, nullptr);
+      lv_screen_load(home); Tick();
+      auto *first = Find(home, "Plugin 0"); assert(first);
+      auto *second = Find(home, "Plugin 1"); assert(second);
+      auto p = centre(first), target = centre(second);
+      // A short tap launches exactly once. Long presses never launch.
+      point(p.x, p.y, true); point(p.x, p.y, false);
+      assert(callback_count == 1); callback_count = 0;
+      hold(first); point(target.x, target.y, true); point(target.x, target.y, false);
+      assert(!PointerDragActive() && callback_count == 0);
+      assert(!home_layout.empty() && home_layout[0].id == "plugin-1" && home_layout[1].id == "plugin-0");
+      auto *done = Find(home, "Done"); assert(done);
+      {
+        assert(lv_obj_get_width(done) >= 300 && lv_obj_get_height(done) >= 100);
+        assert(Find(home, "1 x 2") && Find(home, "1 x 3") && Find(home, "2 x 3"));
+        if (columns == 2) assert(!Find(home, "3 x 1"));
+        else {
+          for (const char *format : {"3 x 1", "3 x 2", "3 x 3"}) assert(Find(home, format));
+          lv_obj_send_event(Find(home, "3 x 1"), LV_EVENT_CLICKED, nullptr); Tick();
+          first = Find(home, "Plugin 0");
+          const int expected_width = columns == 3 ? 1312 :
+              2 * (1312 - 170) / (columns - 1) + 170;
+          // Integer spacing can differ by one pixel depending on the starting column.
+          assert(std::abs(lv_obj_get_width(first) - expected_width) <= 1);
+        }
+        auto *size = Find(home, "2 x 2"); assert(size);
+        lv_obj_send_event(size, LV_EVENT_CLICKED, nullptr); Tick();
+        first = Find(home, "Plugin 0"); assert(first);
+        const int expected_height = columns < 4 ? 666 : columns == 4 ? 516 : 510;
+        assert(lv_obj_get_height(first) == expected_height);
+        assert(home_layout[1].size == 2);
+        save(("/tmp/aera-home-edit-expanded-" + std::to_string(columns) + ".png").c_str());
+        // A failed save restores both dimensions and the previous preference.
+        save_succeeds = false;
+        lv_obj_send_event(Find(home, "1 x 1"), LV_EVENT_CLICKED, nullptr); Tick();
+        save_succeeds = true;
+        assert(Find(home, "Layout unavailable"));
+        first = Find(home, "Plugin 0"); assert(lv_obj_get_height(first) == expected_height);
+        assert(DismissModal(home)); Tick();
+      }
+      assert(DismissModal(home)); Tick();
+      // Loading another Home instance keeps the order and size.
+      lv_screen_load(screen); lv_obj_delete(home); Tick();
+      home = lv_obj_create(nullptr); BuildHomeScene(home, RecordAction, nullptr);
+      lv_screen_load(home); Tick();
+      first = Find(home, "Plugin 1"); second = Find(home, "Plugin 0");
+      assert(centre(first).x < centre(second).x);
+      // Drag to trash opens confirmation, without issuing a removal request.
+      hold(first);
+      auto *trash_label = FindLabelContaining(home, "Remove"); assert(trash_label);
+      auto trash = centre(lv_obj_get_parent(trash_label));
+      point(trash.x, trash.y, true); point(trash.x, trash.y, false); Tick();
+      assert(!PointerDragActive() && callback_count == 0);
+      assert(Find(home, "Remove plugin?"));
+      assert(selected_plugin_request.id.empty());
+      ConfirmSettingsModal(home); Tick();
+      assert(selected_plugin_request.job == plugins::Job::kRemove && selected_plugin_request.id == "plugin-1");
+      assert(callback_count == 1 && last_action == Action::kRunPluginOperation);
+      callback_count = 0;
+      // Holding the edge changes pages without losing the dragged object.
+      hold(Find(home, "Plugin 1"));
+      first = Find(home, "Plugin 1");
+      auto *pager = lv_obj_get_parent(lv_obj_get_parent(first));
+      point(1368, 1480, true, 50);
+      assert(lv_obj_get_scroll_x(pager) > 0 && PointerDragActive());
+      point(280, 1490, true); point(280, 1490, false);
+      assert(!PointerDragActive() && callback_count == 0);
+      assert(home_layout[0].id != "plugin-1");
+      assert(DismissModal(home)); Tick();
+      // Leaving Home mid-drag releases the global gesture claim and timers.
+      hold(Find(home, "Plugin 1"));
+      lv_screen_load(screen); lv_obj_delete(home); Tick();
+      assert(!PointerDragActive());
+      point(0, 0, false);
+    }
+    // Landscape also keeps all plugins accessible through pages.
+    lv_display_set_resolution(display, 3120, 1440);
+    home_layout.clear();
+    auto *home = lv_obj_create(nullptr); BuildHomeScene(home, RecordAction, nullptr);
+    lv_screen_load(home); Tick();
+    hold(Find(home, "Plugin 0"));
+    save("/tmp/aera-home-edit-landscape.png");
+    point(300, 950, false);
+    lv_screen_load(screen); lv_obj_delete(home); Tick();
+    assert(!PointerDragActive());
+    lv_indev_delete(input);
+    lv_deinit(); std::filesystem::remove_all(backup_root);
+    puts("Home plugin taps, reorder, sizes, persistence, trash confirmation and drag teardown passed.");
     return 0;
   }
   if (!strcmp(argv[1], "--home-art")) {

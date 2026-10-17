@@ -20,6 +20,7 @@ add_executable(ui_check ui_check.cpp
   ../scenes/lock_scene.cpp
   ../scenes/package_review.cpp
   ../scenes/launcher_scene.cpp ../components/retroarch_icon.cpp
+  ../components/home_plugin_grid.cpp
   ../components/webkit_icon.cpp
   ../scenes/about_scene.cpp ../components/aera_logo.cpp
   ../components/matrix_engraving.cpp
@@ -44,6 +45,12 @@ target_compile_definitions(ui_check PRIVATE
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
+add_executable(home_layout_test home_layout_test.cpp)
+target_include_directories(home_layout_test PRIVATE ../include)
+target_compile_options(home_layout_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME home_plugin_packing COMMAND home_layout_test)
+add_test(NAME home_plugin_editing COMMAND ui_check --home-edit)
+add_test(NAME home_drag_stability COMMAND ui_check --home-drag-stability)
 add_executable(font_staging_test font_staging_test.cpp)
 target_compile_options(font_staging_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME font_storage_independence COMMAND font_staging_test)

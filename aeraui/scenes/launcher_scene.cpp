@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "scene.hpp"
+#include "home_plugin_grid.hpp"
 
 #include <algorithm>
 #include <string>
@@ -80,14 +81,14 @@ lv_obj_t *AppIconPlate(lv_obj_t *parent, const char *symbol,
     auto *mark = MaterialTerminalIcon(plate, accent, size);
     lv_obj_center(mark);
   } else if (webkit_icon) {
-    auto *mark = WebKitIconPlate(plate, accent, 112);
+    auto *mark = WebKitIconPlate(plate, accent, std::max(112, size * 112 / 144));
     lv_obj_center(mark);
   } else if (retroarch_icon) {
     auto *mark = RetroArchIconPlate(plate, accent, size - 14);
     lv_obj_center(mark);
   } else {
     auto *mark = Label(plate, symbol, &lv_font_montserrat_48, accent);
-    lv_obj_set_style_transform_scale(mark, 352, 0);
+    lv_obj_set_style_transform_scale(mark, 352 * std::max(144, size) / 144, 0);
     lv_obj_center(mark);
   }
   return plate;
@@ -149,37 +150,38 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
                   bool retroarch_icon = false,
                   bool terminal_engraving = false,
                   bool webkit_icon = false,
-                  themed_art::Kind artwork = themed_art::Kind::Tools) {
+                  themed_art::Kind artwork = themed_art::Kind::Tools,
+                  int height = 360) {
   auto *card = lv_button_create(screen);
   Panel(card, 44, kMainPanel);
   Interactive(card, kMainSelected);
   lv_obj_set_pos(card, x, y);
-  lv_obj_set_size(card, width, 360);
+  lv_obj_set_size(card, width, height);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_40, 0);
   OnClick(card, std::move(action));
   if (terminal_engraving) {
     lv_obj_set_style_clip_corner(card, true, 0);
-    AddMatrixEngraving(card, width, 360, kAccent);
+    AddMatrixEngraving(card, width, height, kAccent);
   }
   if (RecoveryThemedHomeIcons()) {
     if (!terminal_engraving) themed_art::Attach(card, artwork);
   } else {
     auto *plate = AppIconPlate(card, icon, accent, 144, retroarch_icon,
                                terminal_engraving, webkit_icon);
-    lv_obj_set_pos(plate, 28, 22);
+    lv_obj_set_pos(plate, 28, 22 + std::max(0, height - 360) / 3);
     MakeDecorationPassThrough(plate);
   }
   // 40 px is the Normal Home identity size. The shared scale maps it down for
   // Small and up to 48 px for Large, keeping all three modes visibly distinct.
   auto *title = Label(card, name, &lv_font_montserrat_40, kText);
-  lv_obj_set_pos(title, 36, 188);
+  lv_obj_set_pos(title, 36, std::max(188, height - 172));
   FitLabelToLines(title, width - 72, 1,
                   {&lv_font_montserrat_40, &lv_font_montserrat_36,
                    &lv_font_montserrat_32, &lv_font_montserrat_28});
   auto *copy = Label(card, description, &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(copy, 36, 250);
+  lv_obj_set_pos(copy, 36, std::max(250, height - 110));
   FitLabelToLines(copy, width - 110, 2,
                   {&lv_font_montserrat_24, &lv_font_montserrat_20,
                    &lv_font_montserrat_18, &lv_font_montserrat_16});
@@ -196,8 +198,7 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
     auto *card = AppCard(parent, x, y, width, icon, plugin.name.c_str(),
                          PluginSummary(plugin), accent, std::move(action),
                          retroarch_icon, false, plugin.entry == "browser",
-                         themed_art::ForPlugin(plugin.id, plugin.entry, plugin.category));
-    lv_obj_set_height(card, height);
+                         themed_art::ForPlugin(plugin.id, plugin.entry, plugin.category), height);
     return card;
   }
   auto *card = lv_button_create(parent);
@@ -249,15 +250,18 @@ lv_obj_t *PluginIconTile(lv_obj_t *parent, int x, int y, int width,
 
   auto *plate = lv_obj_create(card);
   Panel(plate, 38, IconBackground());
-  lv_obj_set_size(plate, width, width);
-  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 0);
+  const int plate_size = std::min({width, height - (dense ? 42 : 70), 384});
+  const int caption_gap = dense ? 28 : 20;
+  const int plate_y = std::max(0, (height - plate_size - (dense ? 70 : 80)) / 2);
+  lv_obj_set_size(plate, plate_size, plate_size);
+  lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, plate_y);
   lv_obj_set_style_border_width(plate, 1, 0);
   lv_obj_set_style_border_color(plate, kMainLine, 0);
   lv_obj_set_style_border_opa(plate, LV_OPA_40, 0);
   if (RecoveryThemedHomeIcons()) {
     themed_art::Attach(plate, themed_art::ForPlugin(plugin.id, plugin.entry, plugin.category));
   } else {
-    auto *art = AppIconPlate(plate, icon, accent, 122, retroarch_icon, false,
+    auto *art = AppIconPlate(plate, icon, accent, 122 * plate_size / 170, retroarch_icon, false,
                            plugin.entry == "browser");
     lv_obj_center(art);
   }
@@ -275,7 +279,7 @@ lv_obj_t *PluginIconTile(lv_obj_t *parent, int x, int y, int width,
                             &lv_font_montserrat_24, &lv_font_montserrat_20,
                             &lv_font_montserrat_18, &lv_font_montserrat_16});
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, dense ? 198 : 190);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, plate_y + plate_size + caption_gap);
   MakeDecorationPassThrough(title);
   return card;
 }
@@ -297,70 +301,27 @@ void MarkIconUpdateAvailable(lv_obj_t *card) {
   MakeDecorationPassThrough(badge);
 }
 
-struct PluginPagerState {
-  lv_obj_t *view = nullptr;
-  lv_obj_t *dots = nullptr;
-  int pages = 0;
-  int page_width = 0;
-};
-
-void UpdatePluginPageDots(PluginPagerState *state) {
-  if (state == nullptr || state->view == nullptr || state->dots == nullptr)
-    return;
-  const int scroll_x = lv_obj_get_scroll_x(state->view);
-  const int offset = scroll_x < 0 ? -scroll_x : scroll_x;
-  const int selected = std::clamp(
-      (offset + state->page_width / 2) / state->page_width,
-      0, state->pages - 1);
-  for (int page = 0; page < state->pages; ++page) {
-    auto *dot = lv_obj_get_child(state->dots, page);
-    if (dot == nullptr) continue;
-    const bool active = page == selected;
-    lv_obj_set_size(dot, active ? 34 : 14, 14);
-    lv_obj_set_style_bg_color(dot, active ? kAccent : kMainLine, 0);
-    lv_obj_set_style_bg_opa(dot, active ? LV_OPA_COVER : LV_OPA_70, 0);
-  }
+Action PluginAction(const plugins::Plugin &plugin) {
+  if (plugin.entry == "browser") return Action::kWeb;
+  if (plugin.entry == "retroarch") return Action::kRetroArch;
+  if (plugin.entry == "doom") return Action::kDoom;
+  if (plugin.entry == "telegram") return Action::kTelegram;
+  if (plugin.entry == "gallery") return Action::kGallery;
+  if (plugin.entry == "media") return Action::kMedia;
+  if (plugin.entry == "streams") return Action::kStreams;
+  if (plugin.entry == "recorder") return Action::kRecorder;
+  if (plugin.entry == "appvault") return Action::kAppVault;
+  return Action::kPluginApp;
 }
 
-void InvalidatePluginPagerGutters(PluginPagerState *state) {
-  auto *screen = lv_obj_get_screen(state->view);
-  lv_area_t screen_area{};
-  lv_area_t pager_area{};
-  lv_obj_get_coords(screen, &screen_area);
-  lv_obj_get_coords(state->view, &pager_area);
-
-  if (pager_area.x1 > screen_area.x1) {
-    lv_area_t left{screen_area.x1, pager_area.y1,
-                   pager_area.x1 - 1, pager_area.y2};
-    lv_obj_invalidate_area(screen, &left);
-  }
-  if (pager_area.x2 < screen_area.x2) {
-    lv_area_t right{pager_area.x2 + 1, pager_area.y1,
-                    screen_area.x2, pager_area.y2};
-    lv_obj_invalidate_area(screen, &right);
-  }
-}
-
-void PluginPagerEvent(lv_event_t *event) {
-  auto *state = static_cast<PluginPagerState *>(lv_event_get_user_data(event));
-  if (lv_event_get_code(event) == LV_EVENT_DELETE) {
-    delete state;
-    return;
-  }
-  if (lv_event_get_code(event) == LV_EVENT_SCROLL ||
-      lv_event_get_code(event) == LV_EVENT_SCROLL_END) {
-    UpdatePluginPageDots(state);
-    // The pager itself invalidates only its own bounds. Explicitly refresh the
-    // two narrow outer gutters while transformed icon glyphs are moving so a
-    // GPU frame cannot retain pixels that crossed the clipping edge.
-    InvalidatePluginPagerGutters(state);
-  }
-  if (lv_event_get_code(event) == LV_EVENT_SCROLL_END) {
-    // Scaled icon glyphs can temporarily extend beyond the pager's invalidated
-    // strip while GPU scrolling. Redraw the containing scene once after the
-    // snap completes so no edge pixels survive outside the viewport.
-    lv_obj_invalidate(lv_obj_get_screen(state->view));
-  }
+const char *PluginIcon(const plugins::Plugin &plugin) {
+  if (plugin.entry == "browser" || plugin.entry == "telegram") return LV_SYMBOL_GPS;
+  if (plugin.entry == "gallery") return LV_SYMBOL_IMAGE;
+  if (plugin.entry == "recorder" || plugin.entry == "streams") return LV_SYMBOL_VIDEO;
+  if (plugin.entry == "appvault") return LV_SYMBOL_SAVE;
+  if (plugin.entry == "retroarch" || plugin.entry == "doom" || plugin.entry == "media")
+    return LV_SYMBOL_PLAY;
+  return GenericPluginIcon(plugin);
 }
 
 }  // namespace
@@ -369,106 +330,47 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   Header(screen, "Home", "Your recovery apps, files and extensions.", callback, context);
   const auto installed = plugins::Installed();
   const auto updates = plugins::AvailableUpdates(installed);
-  const auto has_update = [&](const std::string &id) {
-    return std::any_of(updates.begin(), updates.end(),
-                       [&](const plugins::PluginUpdate &update) {
-                         return update.installed.id == id;
-                       });
-  };
   const bool landscape = lv_obj_get_width(screen) > lv_obj_get_height(screen);
-  if (landscape) {
-    auto *apps = Label(screen, "AERA APPS", &lv_font_montserrat_18, kMuted);
-    lv_obj_set_style_text_letter_space(apps, 3, 0);
-    lv_obj_set_pos(apps, 80, 306);
-
-    int index = 0;
-    auto add = [&](const char *icon, const char *name, const char *description,
-                   lv_color_t accent, Action action, bool retro_icon = false,
-                   const std::string &plugin_id = std::string(),
-                   bool webkit_icon = false,
-                   bool update_available = false) {
-      if (index >= 8) return;
-      constexpr int kWidth = 736;
-      constexpr int kGap = 16;
-      const int column = index % 4;
-      const int row = index / 4;
-      const int x = 64 + column * (kWidth + kGap);
-      const int y = 356 + row * 378;
-      auto artwork = action == Action::kFiles ? themed_art::Kind::Files
-          : action == Action::kPlugins ? themed_art::Kind::Packages : themed_art::Kind::Tools;
-      for (const auto &plugin : installed) {
-        if (plugin.id == plugin_id) {
-          artwork = themed_art::ForPlugin(plugin.id, plugin.entry, plugin.category);
-          break;
-        }
-      }
-      auto *card = AppCard(screen, x, y, kWidth, icon, name, description,
-                           accent, [=] {
-                             if (!plugin_id.empty())
-                               SetSelectedPluginId(plugin_id);
-                             callback(action, context);
-                           },
-                           retro_icon, action == Action::kTerminal,
-                           webkit_icon, artwork);
-      if (update_available) MarkUpdateAvailable(card);
-      AnimateEnter(card, 20 + index * 22, 12);
-      ++index;
-    };
-    add(LV_SYMBOL_DIRECTORY, "Files",
-        "Browse storage, preview images and install ZIPs.", kAccent,
-        Action::kFiles);
-    add(LV_SYMBOL_DOWNLOAD, "Plugin Manager",
-        updates.empty() ? "Discover and install signed AERA extensions."
-                        : i18n::Format("%zu updates available",
-                                       updates.size()).c_str(),
-        kAccent, Action::kPlugins, false, std::string(), false,
-        !updates.empty());
-    add(LV_SYMBOL_EDIT, "Terminal",
-        "A real recovery shell built into AERA.", kAccent,
-        Action::kTerminal);
-    for (const auto &plugin : installed) {
-      if (index >= 8) break;
-      if (plugin.entry == "browser")
-        add(LV_SYMBOL_GPS, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kWeb, false, plugin.id, true,
-            has_update(plugin.id));
-      else if (plugin.entry == "retroarch")
-        add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kRetroArch, true, plugin.id, false,
-            has_update(plugin.id));
-      else if (plugin.entry == "doom")
-        add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kDoom, false, plugin.id, false,
-            has_update(plugin.id));
-      else if (plugin.entry == "telegram")
-        add(LV_SYMBOL_GPS, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kTelegram, false, plugin.id, false,
-            has_update(plugin.id));
-      else if (plugin.entry == "gallery")
-        add(LV_SYMBOL_IMAGE, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kGallery, false, plugin.id, false,
-            has_update(plugin.id));
-      else if (plugin.entry == "media")
-        add(LV_SYMBOL_PLAY, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kMedia, false, plugin.id, false,
-            has_update(plugin.id));
-      else if (plugin.entry == "streams")
-        add(LV_SYMBOL_VIDEO, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kStreams, false, plugin.id, false,
-            has_update(plugin.id));
-      else if (plugin.entry == "recorder")
-        add(LV_SYMBOL_VIDEO, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kRecorder, false, plugin.id, false,
-            has_update(plugin.id));
-      else if (plugin.entry == "appvault")
-        add(LV_SYMBOL_SAVE, plugin.name.c_str(), plugin.description.c_str(),
-            kAccent, Action::kAppVault, false, plugin.id, false,
-            has_update(plugin.id));
-      else if (plugins::IsGeneric(plugin))
-        add(GenericPluginIcon(plugin), plugin.name.c_str(),
-            plugin.description.c_str(), kAccent, Action::kPluginApp, false,
-            plugin.id, false, has_update(plugin.id));
+  const int grid_columns = RecoveryHomeGridColumns();
+  auto factory = [updates, grid_columns](lv_obj_t *parent, const plugins::Plugin &plugin,
+      int x, int y, int width, int height, bool icons, Handler handler) {
+    const char *icon = PluginIcon(plugin);
+    auto *tile = icons
+        ? PluginIconTile(parent, x, y, width, height, icon, plugin, kAccent,
+                         std::move(handler), grid_columns == 5, plugin.entry == "retroarch")
+        : PluginTile(parent, x, y, width, height, icon, plugin, kAccent,
+                     std::move(handler), plugin.entry == "retroarch");
+    if (std::any_of(updates.begin(), updates.end(), [&](const auto &update) {
+          return update.installed.id == plugin.id;
+        })) {
+      if (icons) MarkIconUpdateAvailable(tile);
+      else MarkUpdateAvailable(tile, width < 600);
     }
+    return tile;
+  };
+  auto launch = [callback, context](const plugins::Plugin &plugin) {
+    SetSelectedPluginId(plugin.id);
+    callback(PluginAction(plugin), context);
+  };
+  if (landscape) {
+    auto *apps = Label(screen, "SYSTEM APPS", &lv_font_montserrat_18, kMuted);
+    lv_obj_set_pos(apps, 80, 306);
+    AppCard(screen, 64, 356, 976, LV_SYMBOL_DIRECTORY, "Files",
+            "Browse storage, preview images and install ZIPs.", kAccent,
+            [=] { callback(Action::kFiles, context); }, false, false, false, themed_art::Kind::Files);
+    auto *store = AppCard(screen, 1072, 356, 976, LV_SYMBOL_DOWNLOAD, "Plugin Manager",
+            "Discover and install signed AERA extensions.", kAccent,
+            [=] { callback(Action::kPlugins, context); }, false, false, false, themed_art::Kind::Packages);
+    if (!updates.empty()) MarkUpdateAvailable(store);
+    AppCard(screen, 2080, 356, 976, LV_SYMBOL_EDIT, "Terminal",
+            "A real recovery shell built into AERA.", kAccent,
+            [=] { callback(Action::kTerminal, context); }, false, true);
+    auto *extensions = Label(screen, "INSTALLED PLUGINS", &lv_font_montserrat_18, kMuted);
+    lv_obj_set_pos(extensions, 80, 760);
+    const bool icons = grid_columns >= 4;
+    BuildHomePluginGrid(screen, installed,
+                        {64, 810, 2992, 360, icons ? grid_columns : 4, 1, icons ? 250 : 360, icons},
+                        factory, launch, callback, context);
     Navigation(screen, Action::kBackHome, callback, context);
     return;
   }
@@ -498,127 +400,15 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   auto *extensions = Label(screen, "INSTALLED PLUGINS", &lv_font_montserrat_18, kMuted);
   lv_obj_set_style_text_letter_space(extensions, 3, 0);
   lv_obj_set_pos(extensions, 80, 1320);
-  constexpr int kGridWidth = 1312;
-  const int grid_columns = RecoveryHomeGridColumns();
   const bool icon_grid = grid_columns >= 4;
-  const int grid_rows = icon_grid ? grid_columns : 3;
   const int grid_height = grid_columns == 5 ? 1320 : 1050;
-  const int slots_per_page = grid_columns * grid_rows;
-  const int tile_width = grid_columns == 2 ? 636
-                         : grid_columns == 3 ? 416
-                                             : 170;
-  const int tile_height = grid_columns == 4 ? 250
-                          : grid_columns == 5 ? 240
-                                              : 318;
-  const int gap_x = grid_columns == 2 ? 40 : 32;
-  const int gap_y = icon_grid ? 16 : 30;
-  auto *pager = lv_obj_create(screen);
-  lv_obj_set_pos(pager, 64, 1378);
-  lv_obj_set_size(pager, kGridWidth, grid_height);
-  lv_obj_set_style_bg_opa(pager, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(pager, 0, 0);
-  lv_obj_set_style_pad_all(pager, 0, 0);
-  lv_obj_set_scrollbar_mode(pager, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_scroll_dir(pager, LV_DIR_HOR);
-  lv_obj_set_scroll_snap_x(pager, LV_SCROLL_SNAP_CENTER);
-  lv_obj_add_flag(pager, LV_OBJ_FLAG_SCROLL_ONE);
-  lv_obj_add_flag(pager, LV_OBJ_FLAG_SCROLL_MOMENTUM);
-  lv_obj_remove_flag(pager, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
-  const size_t launchable_count = static_cast<size_t>(std::count_if(
-      installed.begin(), installed.end(),
-      [](const plugins::Plugin &plugin) {
-        return plugins::IsLaunchable(plugin);
-      }));
-  const int page_count = std::max(
-      1, static_cast<int>((launchable_count + slots_per_page - 1) /
-                          slots_per_page));
-  int visible_index = 0;
-  lv_obj_t *page = nullptr;
-  for (const auto &plugin : installed) {
-    Action action = Action::kNone;
-    const char *icon = LV_SYMBOL_GPS;
-    lv_color_t accent = kAccent;
-    if (plugin.entry == "browser") {
-      action = Action::kWeb;
-      accent = kAccent;
-    } else if (plugin.entry == "retroarch") {
-      action = Action::kRetroArch;
-      icon = LV_SYMBOL_PLAY;
-      accent = kAccent;
-    } else if (plugin.entry == "doom") {
-      action = Action::kDoom;
-      icon = LV_SYMBOL_PLAY;
-      accent = kAccent;
-    } else if (plugin.entry == "telegram") {
-      action = Action::kTelegram;
-      icon = LV_SYMBOL_GPS;
-      accent = kAccent;
-    } else if (plugin.entry == "gallery") {
-      action = Action::kGallery;
-      icon = LV_SYMBOL_IMAGE;
-      accent = kAccent;
-    } else if (plugin.entry == "media") {
-      action = Action::kMedia;
-      icon = LV_SYMBOL_PLAY;
-      accent = kAccent;
-    } else if (plugin.entry == "streams") {
-      action = Action::kStreams;
-      icon = LV_SYMBOL_VIDEO;
-      accent = kAccent;
-    } else if (plugin.entry == "recorder") {
-      action = Action::kRecorder;
-      icon = LV_SYMBOL_VIDEO;
-      accent = kAccent;
-    } else if (plugin.entry == "appvault") {
-      action = Action::kAppVault;
-      icon = LV_SYMBOL_SAVE;
-      accent = kAccent;
-    } else if (plugins::IsGeneric(plugin)) {
-      action = Action::kPluginApp;
-      icon = GenericPluginIcon(plugin);
-      accent = kAccent;
-    } else {
-      continue;
-    }
-    const int page_index = visible_index / slots_per_page;
-    const int slot = visible_index % slots_per_page;
-    if (slot == 0) {
-      page = lv_obj_create(pager);
-      Clear(page);
-      lv_obj_set_pos(page, page_index * kGridWidth, 0);
-      lv_obj_set_size(page, kGridWidth, grid_height);
-      lv_obj_add_flag(page, LV_OBJ_FLAG_SNAPPABLE);
-    }
-    const int column = slot % grid_columns;
-    const int row = slot / grid_columns;
-    const int tile_x = icon_grid
-        ? column * (kGridWidth - tile_width) / (grid_columns - 1)
-        : column * (tile_width + gap_x);
-    const int tile_y = icon_grid
-        ? row * (grid_height - tile_height) / (grid_rows - 1)
-        : row * (tile_height + gap_y);
-    auto launch = [=] {
-      if (action == Action::kPluginApp) SetSelectedPluginId(plugin.id);
-      callback(action, context);
-    };
-    auto *card = icon_grid
-        ? PluginIconTile(page, tile_x, tile_y, tile_width, tile_height,
-                         icon, plugin, accent, launch, grid_columns == 5,
-                         plugin.entry == "retroarch")
-        : PluginTile(page, tile_x, tile_y, tile_width, tile_height,
-                     icon, plugin, accent, launch,
-                     plugin.entry == "retroarch");
-    if (has_update(plugin.id)) {
-      if (icon_grid)
-        MarkIconUpdateAvailable(card);
-      else
-        MarkUpdateAvailable(card, tile_width < 600);
-    }
-    AnimateEnter(card, 90 + slot * 18, 10);
-    ++visible_index;
+  const int tile_height = grid_columns == 4 ? 250 : grid_columns == 5 ? 240 : 318;
+  if (!installed.empty()) {
+    BuildHomePluginGrid(screen, installed,
+        {64, 1378, 1312, grid_height, grid_columns, icon_grid ? grid_columns : 3,
+         tile_height, icon_grid}, factory, launch, callback, context);
   }
   if (installed.empty()) {
-    lv_obj_add_flag(pager, LV_OBJ_FLAG_HIDDEN);
     auto *empty = lv_obj_create(screen);
     Panel(empty, 40, kMainSheet);
     lv_obj_set_pos(empty, 64, 1378);
@@ -637,29 +427,6 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_set_size(open, 540, 92);
     lv_obj_set_style_radius(open, 28, 0);
     AnimateEnter(empty, 90, 14);
-  } else if (page_count > 1) {
-    auto *dots = lv_obj_create(screen);
-    Clear(dots);
-    lv_obj_set_pos(dots, 570, 1378 + grid_height + 22);
-    lv_obj_set_size(dots, 300, 42);
-    lv_obj_set_flex_flow(dots, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(dots, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(dots, 14, 0);
-    for (int page_index = 0; page_index < page_count; ++page_index) {
-      auto *dot = lv_obj_create(dots);
-      Clear(dot);
-      lv_obj_set_size(dot, 14, 14);
-      lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-      lv_obj_set_style_bg_color(dot, kMainLine, 0);
-      lv_obj_set_style_bg_opa(dot, LV_OPA_70, 0);
-      MakeDecorationPassThrough(dot);
-    }
-    MakeDecorationPassThrough(dots);
-    auto *pager_state =
-        new PluginPagerState{pager, dots, page_count, kGridWidth};
-    lv_obj_add_event_cb(pager, PluginPagerEvent, LV_EVENT_ALL, pager_state);
-    UpdatePluginPageDots(pager_state);
   }
   Navigation(screen, Action::kBackHome, callback, context);
 }

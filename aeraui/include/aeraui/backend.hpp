@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "aeraui/lock_theme.hpp"
+#include "aeraui/home_layout.hpp"
 
 namespace aeraui {
 enum class Job {
@@ -280,6 +281,8 @@ bool RecoverySetInterfaceSize(InterfaceSize size);
 enum class KeyboardLayout { kQwerty = 0, kQwertz = 1 };
 KeyboardLayout RecoveryKeyboardLayout();
 bool RecoverySetKeyboardLayout(KeyboardLayout layout);
+std::vector<HomePluginPreference> RecoveryHomePluginLayout();
+bool RecoverySaveHomePluginLayout(const std::vector<HomePluginPreference> &layout);
 int RecoveryHomeGridColumns();
 bool RecoverySetHomeGridColumns(int columns);
 enum class DockLayout {

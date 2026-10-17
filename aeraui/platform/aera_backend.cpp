@@ -3774,6 +3774,48 @@ bool RecoverySelectFastbootTransport(bool wireless) {
 #endif
 }
 
+std::vector<HomePluginPreference> RecoveryHomePluginLayout() {
+  if (RecoveryDataLocked()) return {};
+  constexpr const char *path = "/data/media/0/AERA/home_plugins.json";
+  struct stat info{};
+  if (lstat(path, &info) != 0 || !S_ISREG(info.st_mode) ||
+      info.st_size <= 0 || info.st_size > 65536) return {};
+  std::ifstream input(path);
+  Json::CharReaderBuilder reader;
+  Json::Value root;
+  std::string error;
+  if (!Json::parseFromStream(reader, input, &root, &error) ||
+      !root.isObject() || !root["schema"].isInt() || root["schema"].asInt() != 1 ||
+      !root["plugins"].isArray() || root["plugins"].size() > 512) return {};
+  std::vector<HomePluginPreference> result;
+  std::set<std::string> ids;
+  for (const auto &value : root["plugins"]) {
+    if (!value.isObject() || !value["id"].isString() || !value["size"].isInt()) return {};
+    HomePluginPreference item{value["id"].asString(), value["size"].asInt()};
+    if (!ValidHomePluginPreference(item) || !ids.insert(item.id).second) return {};
+    result.push_back(std::move(item));
+  }
+  return result;
+}
+
+bool RecoverySaveHomePluginLayout(const std::vector<HomePluginPreference> &layout) {
+  if (RecoveryDataLocked() || layout.size() > 512) return false;
+  Json::Value root(Json::objectValue);
+  root["schema"] = 1;
+  root["plugins"] = Json::Value(Json::arrayValue);
+  std::set<std::string> ids;
+  for (const auto &item : layout) {
+    if (!ValidHomePluginPreference(item) || !ids.insert(item.id).second) return false;
+    Json::Value value(Json::objectValue);
+    value["id"] = item.id; value["size"] = item.size;
+    root["plugins"].append(value);
+  }
+  if (!TWFunc::Recursive_Mkdir("/data/media/0/AERA", false)) return false;
+  Json::StreamWriterBuilder writer;
+  writer["indentation"] = "";
+  return WriteFileAtomically("/data/media/0/AERA/home_plugins.json", Json::writeString(writer, root));
+}
+
 NasStatus RecoveryNasStatus() {
   NasStatus status;
 #ifdef OF_ENABLE_WLAN

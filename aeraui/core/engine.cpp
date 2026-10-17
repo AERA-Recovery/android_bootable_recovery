@@ -588,12 +588,16 @@ public:
       const plugins::Job completed_job = plugin_job_;
       plugin_running_ = false;
       plugin_task_ = PluginTask::kNone;
-      if (completed == PluginTask::kInteractive &&
-          current_scene_ == Action::kPlugins) {
-        CompletePluginOperation(plugin_scene_, success, message.c_str());
-        if (success && completed_job == plugins::Job::kRefresh &&
-            RecoveryPreference(Preference::kPluginAutoUpdate))
-          BeginAutomaticPluginUpdates();
+      if (completed == PluginTask::kInteractive) {
+        if (current_scene_ == Action::kPlugins) {
+          CompletePluginOperation(plugin_scene_, success, message.c_str());
+          if (success && completed_job == plugins::Job::kRefresh &&
+              RecoveryPreference(Preference::kPluginAutoUpdate))
+            BeginAutomaticPluginUpdates();
+        } else if (on_home_) {
+          ShowHome(false);
+          if (!success) widgets::Sheet(lv_screen_active(), "Operation failed", message);
+        }
       } else if (completed == PluginTask::kBackgroundRefresh) {
         if (success)
           BeginAutomaticPluginUpdates();
@@ -902,7 +906,8 @@ public:
     }
     // Global raw-input consumers live below lock/operation overlays. Keep
     // those consumers from stealing contacts that belong to trusted AERA UI.
-    if (suspended_ || lock_overlay_ != nullptr || power_overlay_ != nullptr ||
+    if (widgets::PointerDragActive() || suspended_ || lock_overlay_ != nullptr ||
+        power_overlay_ != nullptr ||
         !backend_ready_ ||
         operation_running_ || nas_running_ || plugin_running_ ||
         update_installing_ ||
@@ -3207,8 +3212,8 @@ private:
                    PluginTask task = PluginTask::kInteractive) {
     if (plugin_running_ || operation_running_ || wifi_running_ || nas_running_)
       return;
-    if (task == PluginTask::kInteractive ||
-        (task == PluginTask::kAutomaticInstall && current_scene_ == Action::kPlugins))
+    if ((task == PluginTask::kInteractive || task == PluginTask::kAutomaticInstall) &&
+        current_scene_ == Action::kPlugins)
       SetPluginBusy(plugin_scene_, request);
     plugin_progress_.value.store(0);
     plugin_progress_.downloaded_bytes.store(0);

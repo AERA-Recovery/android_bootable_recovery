@@ -18,6 +18,11 @@ inline char kModalMarker;
 // Long-lived overlays such as the Media viewer own timers and reusable child
 // objects. Back must ask them to close instead of deleting their subtree.
 inline char kPersistentModalMarker;
+// Claimed only after an actual long press; normal edge gestures stay unchanged.
+inline lv_obj_t *kPointerDragOwner = nullptr;
+inline bool PointerDragActive() {
+  return kPointerDragOwner != nullptr && lv_obj_is_valid(kPointerDragOwner);
+}
 inline int kPreviousNavigationIndex = -1;
 
 inline lv_color_t IconBackground() {

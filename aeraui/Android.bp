@@ -47,6 +47,7 @@ cc_library_static {
     recovery_available: true,
     srcs: [
         "components/aera_logo.cpp",
+        "components/home_plugin_grid.cpp",
         "components/android_icon.cpp",
         "components/matrix_engraving.cpp",
         "components/picture_decode.cpp",
