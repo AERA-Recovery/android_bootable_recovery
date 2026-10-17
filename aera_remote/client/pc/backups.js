@@ -572,7 +572,7 @@ $('backupSelectNone').onclick=()=>{backups.selected.clear();renderBackupChoices(
 nextBackupName();
 window.addEventListener('beforeunload',event=>{if(backups.running){event.preventDefault();event.returnValue=''}});
 
-const networkStorage={dirty:false,passwordDirty:false,key:null,signature:''};
+const networkStorage={dirty:false,passwordDirty:false,key:null,signature:'',type:null,drafts:{}};
 const networkPanel=document.createElement('details');networkPanel.id='networkStorage';
 networkPanel.innerHTML=`<summary>Network storage</summary>
   <div class="fields">
@@ -601,17 +601,25 @@ function networkFields(){
   $('nasShareField').hidden=sftp;$('nasPortField').hidden=!sftp;$('nasDomainField').hidden=sftp;
   $('nasPasswordLabel').textContent=key?'Key passphrase (optional)':'Password';
 }
+function showNetworkProfile(nas){
+  for(const field of ['type','host','user','auth','share','path','port','domain'])
+    $('nas'+field[0].toUpperCase()+field.slice(1)).value=nas[field]||({type:'smb',auth:'password',port:'22',domain:'WORKGROUP'}[field]||'');
+  networkStorage.type=$('nasType').value;
+  networkStorage.passwordDirty=!!nas.passwordDirty;
+  networkStorage.key=nas.key||null;
+  $('nasPassword').value=nas.passwordDirty?nas.password||'':'';
+  $('nasKey').value='';
+  $('nasCache').checked=nas.cache_mode==='data';
+  $('nasPassword').placeholder=nas.password_saved?'Saved credential':'';
+  $('nasKeyState').textContent=nas.key?.name||(nas.key_available?`Saved: ${nas.key_name||'Private key'}`:'No private key saved');
+  networkFields();
+}
 function updateNetworkStorage(info){
   const nas=info.nas||{};networkPanel.hidden=!nas.supported;
   const signature=JSON.stringify(nas);
   if(!networkStorage.dirty&&signature!==networkStorage.signature){
     networkStorage.signature=signature;
-    for(const field of ['type','host','user','auth','share','path','port','domain'])
-      $('nas'+field[0].toUpperCase()+field.slice(1)).value=nas[field]||({type:'smb',auth:'password',port:'22',domain:'WORKGROUP'}[field]||'');
-    $('nasCache').checked=nas.cache_mode==='data';
-    $('nasPassword').placeholder=nas.password_saved?'Saved credential':'';
-    $('nasKeyState').textContent=nas.key_available?`Saved: ${nas.key_name||'Private key'}`:'No private key saved';
-    networkFields();
+    showNetworkProfile(nas);
   }
   $('nasState').textContent=nas.error||(nas.mounted?'Connected':nas.status||'Not connected');
   const blocked=!state.connected||activeJob()||!!info.busy;
@@ -620,6 +628,18 @@ function updateNetworkStorage(info){
   $('nasDisconnect').disabled=blocked||!nas.mounted;
 }
 networkPanel.oninput=event=>{
+  if(event.target.id==='nasType'){
+    const type=$('nasType').value,previous={type:networkStorage.type};
+    for(const field of ['host','user','auth','share','path','port','domain'])
+      previous[field]=$('nas'+field[0].toUpperCase()+field.slice(1)).value;
+    previous.cache_mode=$('nasCache').checked?'data':'off';
+    previous.password=$('nasPassword').value;previous.passwordDirty=networkStorage.passwordDirty;
+    previous.password_saved=!!$('nasPassword').placeholder;previous.key=networkStorage.key;
+    previous.key_name=networkStorage.key?.name||state.info?.nas?.profiles?.[networkStorage.type]?.key_name||'';
+    previous.key_available=!!state.info?.nas?.key_available;
+    networkStorage.drafts[networkStorage.type]=previous;
+    showNetworkProfile(networkStorage.drafts[type]||state.info?.nas?.profiles?.[type]||{type,port:type==='smb'?'445':'22'});
+  }
   networkStorage.dirty=true;if(event.target.id==='nasPassword')networkStorage.passwordDirty=true;
   networkFields();
 };
@@ -633,7 +653,7 @@ async function networkAction(action){
     for(const field of ['type','host','user','auth','share','path','port','domain'])
       body[field]=$('nas'+field[0].toUpperCase()+field.slice(1)).value;
     body.cache_mode=$('nasCache').checked?'data':'off';
-    body.key_name=networkStorage.key?.name||state.info?.nas?.key_name||'';
+    body.key_name=networkStorage.key?.name||state.info?.nas?.profiles?.[body.type]?.key_name||'';
     if(networkStorage.passwordDirty)body.password=$('nasPassword').value;
     if(networkStorage.key){
       if(networkStorage.key.size>65536)throw new Error('Private key must be smaller than 64 KB.');
@@ -641,6 +661,7 @@ async function networkAction(action){
     }
   }
   const job=await api('nas',body);
+  if(body.type)delete networkStorage.drafts[body.type];
   networkStorage.dirty=false;networkStorage.passwordDirty=false;networkStorage.key=null;
   networkStorage.signature='';$('nasPassword').value='';$('nasKey').value='';
   await waitStorageJob(job);

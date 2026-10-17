@@ -125,6 +125,11 @@ NasStatus RecoveryNasStatus() {
 WifiConnection RecoveryWifiConnection() { return {wifi_connected, "Test network"}; }
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
   if (kind == "backup") return {{"Data", "/data", 2147483648}, {"Boot", "/boot", 67108864}, {"Recovery", "/recovery", 104857600}};
+NasConfig RecoverySavedNasConfig(const std::string &protocol) {
+  auto config = RecoveryNasStatus().config;
+  config.type = protocol;
+  return config;
+}
   return {{"USB storage", storage + "/usb"}};
 }
 std::vector<Volume> RecoveryImageVolumes() {

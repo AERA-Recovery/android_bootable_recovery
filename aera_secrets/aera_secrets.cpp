@@ -442,36 +442,60 @@ bool AeraSecrets::UsePrimaryWlan(const std::string& connected_ssid) {
   return changed;
 }
 
-bool AeraSecrets::SetNasPassword(const std::string& password) {
-  if (password.empty()) return ClearNasPassword();
+bool AeraSecrets::SetNasPassword(const std::string& password, const std::string& protocol) {
+  if (!protocol.empty() && protocol != "smb" && protocol != "sftp") return false;
+  if (password.empty()) return ClearNasPassword(protocol);
   std::lock_guard<std::mutex> guard(g_lock);
   Json::Value root = ReadDocument(kCredentialPath);
-  if (!Seal(password, &root["nas_password"])) return false;
+  const auto slot = protocol.empty() ? "nas_password" : "nas_password_" + protocol;
+  if (!Seal(password, &root[slot])) return false;
   return WriteDocument(kCredentialPath, std::move(root));
 }
 
-bool AeraSecrets::ClearNasPassword() {
+bool AeraSecrets::ClearNasPassword(const std::string& protocol) {
+  if (!protocol.empty() && protocol != "smb" && protocol != "sftp") return false;
   std::lock_guard<std::mutex> guard(g_lock);
   Json::Value root = ReadDocument(kCredentialPath);
-  root.removeMember("nas_password");
+  root.removeMember(protocol.empty() ? "nas_password" : "nas_password_" + protocol);
   return WriteDocument(kCredentialPath, std::move(root));
 }
 
-bool AeraSecrets::GetNasPassword(std::string& password) {
+bool AeraSecrets::GetNasPassword(std::string& password, const std::string& protocol) {
   password.clear();
+  if (!protocol.empty() && protocol != "smb" && protocol != "sftp") return false;
   std::lock_guard<std::mutex> guard(g_lock);
   Json::Value root = ReadDocument(kCredentialPath);
   bool used_legacy = false;
-  if (!Open(root["nas_password"], &password, &used_legacy) || password.empty())
+  const auto slot = protocol.empty() ? "nas_password" : "nas_password_" + protocol;
+  if (!Open(root[slot], &password, &used_legacy) || password.empty())
     return false;
-  if (used_legacy && Seal(password, &root["nas_password"]))
+  if (used_legacy && Seal(password, &root[slot]))
     WriteDocument(kCredentialPath, std::move(root));
   return true;
 }
 
 bool AeraSecrets::HasNasPassword() {
   std::string password;
-  return GetNasPassword(password);
+  const bool found = GetNasPassword(password) || GetNasPassword(password, "smb") ||
+      GetNasPassword(password, "sftp");
+  OPENSSL_cleanse(password.data(), password.size());
+  return found;
+}
+
+bool AeraSecrets::MigrateNasPassword(const std::string& protocol) {
+  if (protocol != "smb" && protocol != "sftp") return false;
+  std::lock_guard<std::mutex> guard(g_lock);
+  Json::Value root = ReadDocument(kCredentialPath);
+  if (!root.isMember("nas_password")) return true;
+  const auto slot = "nas_password_" + protocol;
+  if (!root.isMember(slot)) {
+    std::string password;
+    const bool sealed = Open(root["nas_password"], &password) && Seal(password, &root[slot]);
+    OPENSSL_cleanse(password.data(), password.size());
+    if (!sealed) return false;
+  }
+  root.removeMember("nas_password");
+  return WriteDocument(kCredentialPath, std::move(root));
 }
 
 bool AeraSecrets::SetNasPrivateKey(const std::string& key) {

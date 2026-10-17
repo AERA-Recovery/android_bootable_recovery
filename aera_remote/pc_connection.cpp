@@ -2547,6 +2547,17 @@ void RefreshPlatformInfo() {
   for (const auto &target : aeraui::RecoveryBackupStorages()) {
     Json::Value item;
     item["name"] = target.name; item["path"] = target.path;
+  for (const auto *protocol : {"smb", "sftp"}) {
+    const auto profile = aeraui::RecoverySavedNasConfig(protocol);
+    auto &item = network["profiles"][protocol];
+    item["type"] = profile.type; item["host"] = profile.host;
+    item["port"] = profile.port; item["user"] = profile.user;
+    item["share"] = profile.share; item["path"] = profile.path;
+    item["domain"] = profile.domain; item["cache_mode"] = profile.cache_mode;
+    item["auth"] = profile.auth; item["key_name"] = profile.key_name;
+    item["password_saved"] = !profile.password.empty();
+    item["key_available"] = nas.key_available;
+  }
     item["mounted"] = target.mounted; item["free"] = Json::UInt64(target.free_bytes);
     info["backup_storages"].append(item);
   }

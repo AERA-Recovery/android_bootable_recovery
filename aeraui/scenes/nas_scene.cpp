@@ -491,9 +491,7 @@ void SelectProtocol(NasUi *state, const char *type) {
     return;
   }
   if (state->snapshot.config.type == type) return;
-  NasConfig config = state->snapshot.config;
-  config.type = type;
-  if (config.type == "sftp") config.port = "22";
+  NasConfig config = RecoverySavedNasConfig(type);
   if (SaveConfig(state, config)) Populate(state);
 }
 

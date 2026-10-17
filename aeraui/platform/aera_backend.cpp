@@ -1525,10 +1525,10 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
     const auto current = RecoveryNasStatus();
     if (!current.supported || current.mounted || RecoveryDataLocked()) return 1;
     auto config = request.nas_config;
-    if (!request.nas_password_update && config.host == current.config.host &&
-        config.user == current.config.user && config.type == current.config.type &&
-        config.auth == current.config.auth)
-      config.password = current.config.password;
+    const auto remembered = RecoverySavedNasConfig(config.type);
+    if (!request.nas_password_update && config.host == remembered.host &&
+        config.user == remembered.user && config.auth == remembered.auth)
+      config.password = remembered.password;
     if (!request.nas_private_key.empty() &&
         !RecoveryImportNasKey(request.nas_private_key, config.key_name, &error)) {
       DataManager::SetValue("tw_file_progress", error); return 1;
@@ -3197,9 +3197,18 @@ bool SaveAeraPreferences(bool require_early) {
   return !require_early || early_saved;
 }
 
-bool LoadNasProfile(NasConfig *config) {
+bool LoadNasProfile(NasConfig *config, const std::string &protocol = "") {
   if (config == nullptr) return false;
-  std::ifstream input(kNasProfilePath);
+  if (!protocol.empty() && protocol != "smb" && protocol != "sftp") return false;
+  const auto path = protocol.empty() ? std::string(kNasProfilePath)
+      : std::string(kNasProfilePath) + "." + protocol;
+  std::ifstream input(path);
+  if (!input && !protocol.empty()) {
+    NasConfig legacy;
+    if (!LoadNasProfile(&legacy) || legacy.type != protocol) return false;
+    *config = std::move(legacy);
+    return true;
+  }
   if (!input) return false;
   std::string line;
   while (std::getline(input, line)) {
@@ -3219,14 +3228,32 @@ bool LoadNasProfile(NasConfig *config) {
     else if (key == "auth") config->auth = value;
     else if (key == "key_name") config->key_name = value;
   }
-  return !config->host.empty();
+  if (config->type != "smb" && config->type != "sftp") return false;
+  if (!protocol.empty() && config->type != protocol) return false;
+  if (protocol.empty()) {
+    // The legacy password belongs only to the profile recorded alongside it.
+    if (!AeraSecrets::MigrateNasPassword(config->type)) return false;
+  }
+  return true;
 }
 
 bool SaveNasProfile(const NasConfig &config) {
   constexpr const char *directory = "/data/media/0/AERA";
   // OrangeFox's Recursive_Mkdir returns 1 on success and 0 on failure.
   if (!TWFunc::Recursive_Mkdir(directory, false)) return false;
-  const std::string temporary = std::string(kNasProfilePath) + ".tmp";
+  NasConfig previous;
+  if (LoadNasProfile(&previous) && previous.type != config.type) {
+    const auto previous_path = std::string(kNasProfilePath) + "." + previous.type;
+    if (access(previous_path.c_str(), F_OK) != 0) {
+      std::ifstream legacy(kNasProfilePath);
+      std::ostringstream contents;
+      contents << legacy.rdbuf();
+      if (!legacy.good() || !WriteFileAtomically(previous_path, contents.str()))
+        return false;
+    }
+  }
+  const std::string profile = std::string(kNasProfilePath) + "." + config.type;
+  const std::string temporary = profile + ".tmp";
   std::ofstream output(temporary, std::ios::out | std::ios::trunc);
   if (!output) return false;
   output << "type=" << config.type << '\n'
@@ -3242,10 +3269,13 @@ bool SaveNasProfile(const NasConfig &config) {
   output.flush();
   if (!output) return false;
   output.close();
-  if (rename(temporary.c_str(), kNasProfilePath) != 0) return false;
-  chmod(kNasProfilePath, 0600);
-  aera::shared_storage::Normalize(kNasProfilePath);
-  return true;
+  if (rename(temporary.c_str(), profile.c_str()) != 0) return false;
+  chmod(profile.c_str(), 0600);
+  aera::shared_storage::Normalize(profile);
+  std::ifstream saved(profile);
+  std::ostringstream content;
+  content << saved.rdbuf();
+  return saved.good() && WriteFileAtomically(kNasProfilePath, content.str());
 }
 
 std::string ReadText(const std::string &path) {
@@ -3774,7 +3804,7 @@ NasStatus RecoveryNasStatus() {
   status.config.password = DataManager::GetStrValue(TW_NAS_PASS);
   if (status.config.password.empty()) {
     std::string saved_password;
-    if (AeraSecrets::GetNasPassword(saved_password)) {
+    if (AeraSecrets::GetNasPassword(saved_password, status.config.type)) {
       status.config.password = saved_password;
       // NasManager consumes the session value; the persistent copy remains in
       // the encrypted secret store rather than the plain settings map.
@@ -3803,6 +3833,21 @@ bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
   return false;
 #else
   const auto invalid = [](const std::string &value, size_t maximum) {
+NasConfig RecoverySavedNasConfig(const std::string &protocol) {
+  NasConfig config;
+  config.type = protocol == "smb" ? "smb" : "sftp";
+  config.port = config.type == "smb" ? "445" : "22";
+  config.share = "Backups";
+  config.domain = "WORKGROUP";
+  config.cache_mode = "off";
+  config.auth = "password";
+#ifdef OF_ENABLE_WLAN
+  LoadNasProfile(&config, config.type);
+  AeraSecrets::GetNasPassword(config.password, config.type);
+#endif
+  return config;
+}
+
     return value.size() > maximum || value.find('\n') != std::string::npos ||
            value.find('\r') != std::string::npos;
   };
@@ -3848,8 +3893,8 @@ bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
   // Keep the live value for NasManager, but never mark it persistent here.
   saved &= DataManager::SetValue(TW_NAS_PASS, config.password) == 0;
   const bool secret_saved = config.password.empty()
-      ? AeraSecrets::ClearNasPassword()
-      : AeraSecrets::SetNasPassword(config.password);
+      ? AeraSecrets::ClearNasPassword(config.type)
+      : AeraSecrets::SetNasPassword(config.password, config.type);
   if (!secret_saved) {
     if (error) *error = "Could not save the password to AERA's encrypted credential store.";
     return false;

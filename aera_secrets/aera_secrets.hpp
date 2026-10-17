@@ -33,9 +33,10 @@ class AeraSecrets {
   // Returns whether the connected network's cached credentials changed.
   static bool UsePrimaryWlan(const std::string& connected_ssid = "");
 
-  static bool SetNasPassword(const std::string& password);
-  static bool ClearNasPassword();
-  static bool GetNasPassword(std::string& password);
+  static bool SetNasPassword(const std::string& password, const std::string& protocol = "");
+  static bool ClearNasPassword(const std::string& protocol = "");
+  static bool GetNasPassword(std::string& password, const std::string& protocol = "");
+  static bool MigrateNasPassword(const std::string& protocol);
   static bool HasNasPassword();
   static bool SetNasPrivateKey(const std::string& key);
   static bool GetNasPrivateKey(std::string& key);

@@ -28,6 +28,11 @@ bool Attach(lv_obj_t *, bool) { return false; }
 
 namespace aeraui {
 NasStatus RecoveryNasStatus() { return g_status; }
+NasConfig RecoverySavedNasConfig(const std::string &protocol) {
+  auto config = g_status.config;
+  config.type = protocol;
+  return config;
+}
 std::vector<BackupStorage> RecoveryBackupStorages() {
   return {{"Internal storage", g_key_root, true, 1000000000}};
 }

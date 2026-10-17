@@ -493,6 +493,7 @@ enum class NasOperation { kMountAndUse, kUse, kUnmount };
 struct NasRequest { NasOperation operation = NasOperation::kMountAndUse; };
 NasStatus RecoveryNasStatus();
 bool RecoverySetNasConfig(const NasConfig &config, std::string *error);
+NasConfig RecoverySavedNasConfig(const std::string &protocol);
 bool RecoveryImportNasKey(const std::string &key, const std::string &name,
                           std::string *error);
 int RecoveryRunNas(const NasRequest &request);
