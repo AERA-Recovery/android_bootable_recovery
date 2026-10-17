@@ -35,6 +35,9 @@
 #include "../twcommon.h"
 #include "../twrp-functions.hpp"
 #include "../variables.h"
+#include "../aera_secrets/aera_secrets.hpp"
+#include "../aera_remote/backup_cancel.hpp"
+#include <openssl/crypto.h>
 
 const std::string NasManager::Mount_Point = TW_NAS_MOUNT_POINT;
 const std::string NasManager::Config_Dir = "/tmp/of_nas";
@@ -414,7 +417,8 @@ static bool RcloneRCResetStatsLocal() {
 	return RcloneRCPost("/core/stats-reset", response);
 }
 
-static bool WaitForCacheToDrain(const std::string& path, int max_seconds, bool update_progress, uint64_t expected_upload_bytes) {
+static bool WaitForCacheToDrain(const std::string& path, int max_seconds, bool update_progress,
+                               uint64_t expected_upload_bytes, const std::atomic<bool>* cancel = nullptr) {
 	if (path.empty())
 		return true;
 
@@ -428,6 +432,8 @@ static bool WaitForCacheToDrain(const std::string& path, int max_seconds, bool u
 	}
 
 	for (int i = 0; max_seconds <= 0 || i <= max_seconds; ++i) {
+		if (cancel && (cancel->load() || aera::pc::BackupCancelRequested())) return false;
+		if (!NasManager::IsMounted()) return false;
 		uint64_t cache_bytes = GetDirectoryBytes(path);
 		have_rc_stats = false;
 		RcloneRCStats stats;
@@ -736,7 +742,7 @@ bool NasManager::RcloneObscure(const std::string& input, std::string& output) {
 	setenv("LD_LIBRARY_PATH", "/system/lib64:/vendor/lib64:/sbin", 1);
 	setenv("HOME", Config_Dir.c_str(), 1);
 
-	if (!EnsureDirectory(Config_Dir, 0777))
+	if (!EnsureDirectory(Config_Dir, 0700))
 		return false;
 
 	// Prevent rclone obscure from trying to locate a home/config directory and
@@ -854,8 +860,21 @@ bool NasManager::BuildRcloneConfig() {
 
 		cfg << "port = " << GetValue(TW_NAS_PORT, "22") << "\n";
 
-		if (!obscure_pass.empty())
+		if (GetValue("aera_nas_auth", "password") == "key") {
+			std::string key;
+			const std::string key_path = Config_Dir + "/sftp.key";
+			if (!AeraSecrets::GetNasPrivateKey(key)) {
+				SetError("No saved SFTP private key. Import a private key first.");
+				return false;
+			}
+			const bool saved = WriteFile(key_path, key, 0600);
+			OPENSSL_cleanse(key.data(), key.size());
+			if (!saved) return false;
+			cfg << "key_file = " << key_path << "\nkey_use_agent = false\n";
+			if (!obscure_pass.empty()) cfg << "key_file_pass = " << obscure_pass << "\n";
+		} else if (!obscure_pass.empty()) {
 			cfg << "pass = " << obscure_pass << "\n";
+		}
 
 		cfg << "shell_type = unix\n";
 	} else {
@@ -902,7 +921,7 @@ bool NasManager::Mount() {
 	if (!IsFuseAvailable())
 		return false;
 
-	if (!EnsureDirectory(Config_Dir, 0777))
+	if (!EnsureDirectory(Config_Dir, 0700))
 		return false;
 
 	if (!EnsureDirectory(Mount_Point, 0777))
@@ -1078,6 +1097,7 @@ bool NasManager::Unmount() {
 
 	DataManager::SetValue(TW_NAS_MOUNTED, 0);
 	DataManager::SetValue(TW_NAS_STATUS_TEXT, "NAS unmounted");
+	unlink((Config_Dir + "/sftp.key").c_str());
 	return true;
 }
 
@@ -1099,12 +1119,13 @@ bool NasManager::ResetTransferStats() {
 	return true;
 }
 
-bool NasManager::WaitForPendingUploads(int max_seconds, uint64_t expected_upload_bytes) {
+bool NasManager::WaitForPendingUploads(int max_seconds, uint64_t expected_upload_bytes,
+                                      const std::atomic<bool>* cancel) {
 	last_error.clear();
 	DataManager::SetValue(TW_NAS_LAST_ERROR, "");
 
 	if (!IsMounted())
-		return true;
+		return false;
 
 	std::string cache_mode = GetConfiguredCacheMode();
 	if (cache_mode != Nas_Cache_Mode_Data)
@@ -1112,7 +1133,7 @@ bool NasManager::WaitForPendingUploads(int max_seconds, uint64_t expected_upload
 
 	DataManager::SetValue(TW_NAS_STATUS_TEXT, "Waiting for NAS cache upload to finish");
 
-	if (!WaitForCacheToDrain(Data_Cache_Dir, max_seconds, true, expected_upload_bytes)) {
+	if (!WaitForCacheToDrain(Data_Cache_Dir, max_seconds, true, expected_upload_bytes, cancel)) {
 		SetError("NAS data cache still contains files. Upload may still be running.");
 		return false;
 	}

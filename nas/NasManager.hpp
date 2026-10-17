@@ -10,6 +10,7 @@
 #define __OF_NAS_MANAGER_HPP
 
 #include <string>
+#include <atomic>
 #include <sys/stat.h>
 #include <stdint.h>
 #include <vector>
@@ -30,7 +31,8 @@ public:
 	static bool SelectAsStorage();
 	static bool RefreshStatus();
 	static bool ResetTransferStats();
-	static bool WaitForPendingUploads(int max_seconds = 1800, uint64_t expected_upload_bytes = 0);
+	static bool WaitForPendingUploads(int max_seconds = 1800, uint64_t expected_upload_bytes = 0,
+	                                 const std::atomic<bool>* cancel = nullptr);
 	static std::string GetLastError();
 
 private:

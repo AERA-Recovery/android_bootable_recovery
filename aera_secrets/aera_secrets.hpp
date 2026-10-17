@@ -37,6 +37,8 @@ class AeraSecrets {
   static bool ClearNasPassword();
   static bool GetNasPassword(std::string& password);
   static bool HasNasPassword();
+  static bool SetNasPrivateKey(const std::string& key);
+  static bool GetNasPrivateKey(std::string& key);
 
   static bool AddAdbDevice(const std::string& key,
                            const std::string& name = "");

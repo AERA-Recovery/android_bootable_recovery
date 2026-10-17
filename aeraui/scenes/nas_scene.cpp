@@ -7,9 +7,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <dirent.h>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <sys/stat.h>
 #include <thread>
+#include <vector>
 
 #include "nas/smb_browser.hpp"
 #include "phone_keyboard.hpp"
@@ -185,7 +189,9 @@ void EditField(NasUi *state, Field field, bool browse_after = false) {
   lv_obj_set_size(sheet, 1312, 1260);
   lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -64);
   lv_obj_set_style_pad_all(sheet, 48, 0);
-  auto *title = Label(sheet, FieldTitle(field), &lv_font_montserrat_48, kText);
+  auto *title = Label(sheet, field == Field::kPassword && state->snapshot.config.type == "sftp" &&
+      state->snapshot.config.auth == "key"
+      ? "Key passphrase" : FieldTitle(field), &lv_font_montserrat_48, kText);
   lv_obj_set_width(title, 1180);
   auto *hint = Label(sheet,
       field == Field::kPassword ? "The value is hidden while you type."
@@ -464,7 +470,9 @@ void AddField(NasUi *state, int x, int y, Field field) {
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
   OnClick(card, [state, field] { EditField(state, field); });
-  auto *name = Label(card, FieldTitle(field), &lv_font_montserrat_24, kMuted);
+  auto *name = Label(card, field == Field::kPassword && state->snapshot.config.type == "sftp" &&
+      state->snapshot.config.auth == "key"
+      ? "Key passphrase" : FieldTitle(field), &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(name, 30, 26);
   auto *copy = Label(card, value.c_str(), &lv_font_montserrat_32, kText);
   lv_obj_set_pos(copy, 30, 78);
@@ -560,6 +568,92 @@ void AddCacheCard(NasUi *state, int x, int y) {
   AnimateEnter(card, 20 + static_cast<uint32_t>(y / 10), 9);
 }
 
+void ChoosePrivateKey(NasUi *state, const std::string &path = {}) {
+  if (state->busy || state->snapshot.mounted) return;
+  auto *overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  MainBackground(overlay);
+  auto *title = Label(overlay, "Select a private key", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 80, 150);
+  auto *where = Label(overlay, path.empty() ? "Choose storage" : path.c_str(),
+                       &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(where, 80, 230);
+  lv_obj_set_width(where, lv_obj_get_width(state->screen) - 160);
+  lv_label_set_long_mode(where, LV_LABEL_LONG_DOT);
+  auto *list = lv_obj_create(overlay);
+  Clear(list);
+  lv_obj_set_pos(list, 64, 300);
+  lv_obj_set_size(list, lv_obj_get_width(state->screen) - 128,
+                       lv_obj_get_height(state->screen) - 510);
+  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  struct Entry { std::string name, path; bool directory; };
+  std::vector<Entry> entries;
+  if (path.empty()) {
+    for (const auto &storage : RecoveryBackupStorages())
+      if (storage.mounted) entries.push_back({storage.name, storage.path, true});
+  } else {
+    std::string parent;
+    bool storage_root = false;
+    for (const auto &storage : RecoveryBackupStorages())
+      if (storage.path == path) storage_root = true;
+    const auto separator = path.find_last_of('/');
+    if (!storage_root && separator != std::string::npos && separator > 0)
+      parent = path.substr(0, separator);
+    entries.push_back({parent.empty() ? "Choose storage" : "..", parent, true});
+    if (DIR *directory = opendir(path.c_str())) {
+      while (const auto *item = readdir(directory)) {
+        const std::string name = item->d_name;
+        if (name == "." || name == ".." || entries.size() >= 1024) continue;
+        const std::string child = path + "/" + name;
+        struct stat info{};
+        if (lstat(child.c_str(), &info) != 0) continue;
+        if (S_ISDIR(info.st_mode) || (S_ISREG(info.st_mode) && info.st_size > 0 && info.st_size <= 65536))
+          entries.push_back({name, child, S_ISDIR(info.st_mode)});
+      }
+      closedir(directory);
+    }
+    std::sort(entries.begin() + 1, entries.end(), [](const Entry &a, const Entry &b) {
+      return a.directory != b.directory ? a.directory : a.name < b.name;
+    });
+  }
+  int y = 0;
+  for (const auto &entry : entries) {
+    Row(list, y, entry.directory ? LV_SYMBOL_DIRECTORY : LV_SYMBOL_FILE,
+        entry.name, entry.directory ? "" : "Private key", [state, overlay, entry] {
+          if (entry.directory) {
+            ChoosePrivateKey(state, entry.path);
+            lv_obj_delete_async(overlay);
+            return;
+          }
+          std::ifstream file(entry.path, std::ios::binary);
+          std::string key(65537, '\0');
+          file.read(&key[0], key.size());
+          key.resize(static_cast<size_t>(file.gcount()));
+          std::string error;
+          const bool imported = !file.bad() && RecoveryImportNasKey(key, entry.name, &error);
+          std::fill(key.begin(), key.end(), '\0');
+          if (!imported) {
+            Sheet(state->screen, "Invalid network storage setting",
+                  error.empty() ? "Could not read the private key." : error);
+            return;
+          }
+          auto config = state->snapshot.config;
+          config.key_name = entry.name; config.auth = "key";
+          if (SaveConfig(state, config)) {
+            lv_obj_delete_async(overlay); Populate(state);
+          }
+        });
+    y += 190;
+  }
+  auto *close = Button(overlay, "Cancel", [overlay] { lv_obj_delete_async(overlay); });
+  lv_obj_set_size(close, lv_obj_get_width(state->screen) - 128, 112);
+  lv_obj_align(close, LV_ALIGN_BOTTOM_MID, 0, -90);
+}
+
 void Populate(NasUi *state) {
   if (state == nullptr || state->scene.list == nullptr) return;
   lv_obj_clean(state->scene.list);
@@ -587,6 +681,25 @@ void Populate(NasUi *state) {
   AnimateEnter(protocol, 10, 9);
 
   int y = 190;
+  if (state->snapshot.config.type == "sftp") {
+    const bool key = state->snapshot.config.auth == "key";
+    Row(state->scene.list, y, LV_SYMBOL_SETTINGS, "Authentication",
+        key ? "Private key" : "Password", [state] {
+          if (state->snapshot.mounted || state->busy) return;
+          auto config = state->snapshot.config;
+          config.auth = config.auth == "key" ? "password" : "key";
+          config.password.clear();
+          if (SaveConfig(state, config)) Populate(state);
+        });
+    y += 180;
+    if (key) {
+      Row(state->scene.list, y, LV_SYMBOL_FILE, "Private key",
+          state->snapshot.key_available ? (state->snapshot.config.key_name.empty() ?
+              "Private key" : state->snapshot.config.key_name) : "Not set",
+          [state] { ChoosePrivateKey(state); });
+      y += 180;
+    }
+  }
   AddField(state, 0, y, Field::kHost);
   AddField(state, 672, y, Field::kUser);
   y += 180;

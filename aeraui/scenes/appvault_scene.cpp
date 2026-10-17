@@ -46,6 +46,9 @@
 #include "backup/incremental_apks.hpp"
 #include "ui_components.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
+#ifdef OF_ENABLE_WLAN
+#include "../../nas/NasManager.hpp"
+#endif
 
 namespace aeraui {
 namespace {
@@ -68,7 +71,8 @@ enum class Work {
   kBackup,
   kRefresh,
   kRestore,
-  kDiscover
+  kDiscover,
+  kStorage
 };
 
 struct AppIcon {
@@ -118,6 +122,8 @@ struct State {
   lv_obj_t *backup = nullptr;
   lv_obj_t *refresh_button = nullptr;
   lv_obj_t *restore = nullptr;
+  lv_obj_t *storage_button = nullptr;
+  lv_obj_t *storage_label = nullptr;
   lv_timer_t *timer = nullptr;
   web::Preparation preparation;
   std::thread prepare_thread;
@@ -134,9 +140,12 @@ struct State {
   std::atomic<uint64_t> work_files_done{0};
   std::atomic<uint64_t> work_files_total{0};
   std::atomic<bool> work_success{false};
+  std::atomic<bool> waiting_for_nas{false};
   std::mutex result_mutex;
   std::string runtime;
   std::string repository = kDefaultRepository;
+  std::string storage_root;
+  std::string pending_storage;
   std::string result;
   std::string latest_id;
   std::string latest_time;
@@ -490,7 +499,7 @@ bool ValidRepository(const std::string &path) {
 }
 
 bool MakeDirectories(const std::string &path) {
-  if (!ValidRepository(path)) return false;
+  if (!ValidRepository(path) || !RecoveryBackupPathReady(path)) return false;
   std::string current;
   size_t start = 1;
   while (start <= path.size()) {
@@ -878,6 +887,17 @@ void LoadSnapshotDisplays(State *state) {
 void Worker(State *state, Work work, std::vector<std::string> paths,
             int user_id) {
   state->work = work;
+  if (work == Work::kStorage) {
+    std::string error;
+    const bool okay = RecoveryPrepareBackupStorage(state->pending_storage, &error);
+    {
+      std::lock_guard<std::mutex> lock(state->result_mutex);
+      state->result = okay ? "Ready" : error;
+    }
+    state->work_success.store(okay);
+    state->done.store(true, std::memory_order_release);
+    return;
+  }
   if (work == Work::kDiscover) {
     auto apps = DiscoverApps(state->cancel, user_id);
     {
@@ -912,6 +932,11 @@ void Worker(State *state, Work work, std::vector<std::string> paths,
     state->work_progress.store(0);
     state->done.store(true, std::memory_order_release);
   };
+  if ((!state->storage_root.empty() &&
+       !RecoveryPrepareBackupStorage(state->storage_root, &output)) ||
+      !RecoveryBackupPathReady(state->repository)) {
+    fail("Storage unavailable"); return;
+  }
   static std::mutex app_transfer_mutex;
   std::unique_lock<std::mutex> app_transfer_lock(app_transfer_mutex, std::defer_lock);
   if ((work == Work::kBackup || work == Work::kRestore) && !app_transfer_lock.try_lock()) {
@@ -1039,6 +1064,22 @@ void Worker(State *state, Work work, std::vector<std::string> paths,
                  std::string(kTag) + "," + UserTag(user_id)};
   }
   int result = RunRestic(state, arguments, output);
+#ifdef OF_ENABLE_WLAN
+  if (!result && work == Work::kBackup &&
+      state->repository.compare(0, 9, "/mnt/nas/") == 0) {
+    state->waiting_for_nas.store(true);
+    state->work_progress.store(99);
+    if (state->remote_progress)
+      state->remote_progress({99, "Waiting for NAS upload to finish...", {}, 0, 0, {}});
+    if (!NasManager::WaitForPendingUploads(1800, 0, &state->cancel) ||
+        !RecoveryBackupPathReady(state->repository)) {
+      state->waiting_for_nas.store(false);
+      fail("NAS upload did not complete. Check the connection and retry the backup.");
+      return;
+    }
+    state->waiting_for_nas.store(false);
+  }
+#endif
   if (!result && work == Work::kRestore) {
     if (state->cancel.load()) { result = -1; output = "App restore cancelled."; }
     else {
@@ -1197,7 +1238,8 @@ void RenderApps(State *state) {
 }
 
 void SetActions(State *state, bool enabled) {
-  for (auto *button : {state->backup, state->refresh_button, state->restore}) {
+  for (auto *button : {state->backup, state->refresh_button, state->restore,
+                       state->storage_button}) {
     if (!button) continue;
     if (enabled) lv_obj_remove_state(button, LV_STATE_DISABLED);
     else lv_obj_add_state(button, LV_STATE_DISABLED);
@@ -1208,6 +1250,46 @@ void SetActions(State *state, bool enabled) {
     else
       lv_obj_add_state(state->user_button, LV_STATE_DISABLED);
   }
+}
+
+void ChooseStorage(State *state) {
+  if (state->busy.load()) return;
+  auto *overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  MainBackground(overlay);
+  auto *title = Label(overlay, "Choose storage", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 80, 180);
+  const int height = lv_obj_get_height(state->screen);
+  auto *list = lv_obj_create(overlay);
+  Clear(list);
+  lv_obj_set_pos(list, 64, 300);
+  lv_obj_set_size(list, lv_obj_get_width(state->screen) - 128, height - 520);
+  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  int y = 0;
+  for (const auto &storage : RecoveryBackupStorages()) {
+    Row(list, y, LV_SYMBOL_DRIVE, storage.name, storage.path,
+        [state, overlay, storage] {
+          if (state->worker.joinable()) state->worker.join();
+          state->pending_storage = storage.path;
+          state->work = Work::kStorage;
+          state->done.store(false);
+          state->cancel.store(false);
+          state->busy.store(true);
+          SetActions(state, false);
+          i18n::BindLabel(state->status, "Mounting storage");
+          state->worker = std::thread(Worker, state, Work::kStorage,
+                                      std::vector<std::string>{}, state->user_id);
+          lv_obj_delete_async(overlay);
+        });
+    y += 190;
+  }
+  auto *close = Button(overlay, "Cancel", [overlay] { lv_obj_delete_async(overlay); });
+  lv_obj_set_size(close, lv_obj_get_width(state->screen) - 128, 112);
+  lv_obj_align(close, LV_ALIGN_BOTTOM_MID, 0, -100);
 }
 
 void StartDiscovery(State *state) {
@@ -1601,7 +1683,7 @@ void Poll(State *state) {
     const unsigned progress = state->work_progress.load();
     lv_bar_set_value(state->progress, progress, LV_ANIM_ON);
     if (state->work == Work::kBackup || state->work == Work::kRestore) {
-      const char *base = state->work == Work::kBackup
+      const char *base = state->waiting_for_nas.load() ? "Waiting for NAS upload to finish..." : state->work == Work::kBackup
           ? "Backing up selected apps…" : "Restoring latest snapshot…";
       const std::string status = i18n::Format(
           "%s %u%%", i18n::Translate(base), progress);
@@ -1630,11 +1712,24 @@ void Poll(State *state) {
     }
     state->busy.store(false);
     SetActions(state, true);
+    if (state->work == Work::kStorage && state->work_success.load()) {
+      state->storage_root = state->pending_storage;
+      state->repository = state->storage_root + "/AERA/AppBackupVault";
+      lv_label_set_text(state->storage_label, state->repository.c_str());
+      DropSnapshotIcons(state);
+      state->snapshot_items.clear();
+      state->snapshots = 0;
+      state->latest_id.clear();
+      state->latest_time.clear();
+      state->restore_snapshot.clear();
+      RecoveryRememberAppVaultStorage(state->storage_root);
+    }
     lv_bar_set_value(state->progress, state->work_progress.load(), LV_ANIM_ON);
     if (state->work_success.load()) {
       i18n::BindLabel(state->status, result.c_str());
     } else {
-      const char *failure = state->work == Work::kBackup ? "App backup failed" :
+      const char *failure = state->work == Work::kStorage ? "Storage unavailable" :
+          state->work == Work::kBackup ? "App backup failed" :
           state->work == Work::kRestore ? "App restore failed" :
           state->work == Work::kDiscover ? "Could not read user apps" :
           "Could not read snapshots";
@@ -1687,6 +1782,7 @@ bool RunAppVaultRemote(const JobRequest &request, Json::Value &result,
                       const std::function<void(const AppVaultProgress &)> &progress) {
   State state;
   state.user_id = request.backup_user; state.repository = request.path;
+  if (request.backup_source == "device") state.storage_root = request.backup_storage;
   state.remote_progress = progress;
   const auto users = RecoveryAndroidUsers();
   if (RecoveryDataLocked() || std::none_of(users.begin(), users.end(), [&](const AndroidUser &user) {
@@ -1769,6 +1865,8 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   state->screen = screen;
   state->callback = callback;
   state->context = context;
+  state->storage_root = RecoveryAppVaultStorage();
+  state->repository = state->storage_root + "/AERA/AppBackupVault";
   for (const auto &user : RecoveryAndroidUsers())
     if (user.decrypted) state->users.push_back(user);
   const auto owner = std::find_if(
@@ -1808,10 +1906,15 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
       Label(hero, "Backup location", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(location_title, 40, 218);
   auto *location =
-      Label(hero, kDefaultRepository, &lv_font_montserrat_32, kText);
+      Label(hero, state->repository.c_str(), &lv_font_montserrat_32, kText);
+  state->storage_label = location;
   lv_obj_set_pos(location, 40, 266);
-  lv_obj_set_width(location, landscape ? 820 : 1210);
+  lv_obj_set_width(location, landscape ? 650 : 1030);
   lv_label_set_long_mode(location, LV_LABEL_LONG_DOT);
+  state->storage_button = Button(hero, LV_SYMBOL_DIRECTORY,
+                                [state] { ChooseStorage(state); });
+  lv_obj_set_pos(state->storage_button, landscape ? 720 : 1100, 222);
+  lv_obj_set_size(state->storage_button, 132, 110);
   auto *protection =
       Label(hero, "Encrypted recovery snapshots", &lv_font_montserrat_24, kGreen);
   lv_obj_set_pos(protection, 40, 334);

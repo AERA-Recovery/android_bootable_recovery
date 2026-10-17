@@ -10,6 +10,7 @@
 #include "aeraui/features/update/payload_parallel.hpp"
 #include "aeraui/features/update/payload_otaripper_batch.hpp"
 #include <android-base/unique_fd.h>
+#include <openssl/crypto.h>
 
 #include <algorithm>
 #include <atomic>
@@ -860,7 +861,16 @@ int RecoveryRunPcBackup(const JobRequest &request) {
   };
   if (request.backup_kind != "recovery" && !apps) return fail("Unknown backup type.");
   if (request.backup_action != "apps" && request.backup_action != "inspect" &&
-      request.backup_action != "snapshots" && !backup && !restore) return fail("Unknown backup operation.");
+      request.backup_action != "snapshots" && request.backup_action != "storage" &&
+      !backup && !restore) return fail("Unknown backup operation.");
+  if (!computer || (restore && request.backup_method == "transfer")) {
+    std::string error;
+    if (!RecoveryPrepareBackupStorage(request.backup_storage, &error)) return fail(error);
+  }
+  if (request.backup_action == "storage") {
+    result["detail"] = "Storage ready";
+    UpdateBackupResult(result); return 0;
+  }
   if (computer && request.backup_action != "apps") {
     if (PartitionManager.Find_Partition_By_Path(storage::kMount)) return fail("Computer storage is already in use.");
     RecoveryEnsurePcStorage(); virtual_storage = true;
@@ -997,6 +1007,79 @@ bool RecoverySetStorage(const std::string &path) {
   if (found == volumes.end() || !PartitionManager.Mount_By_Path(path, true)) return false;
   DataManager::SetValue("tw_storage_path", path);
   return true;
+}
+
+std::vector<BackupStorage> RecoveryBackupStorages() {
+  std::vector<BackupStorage> result;
+  std::set<std::string> seen;
+  const auto nas = RecoveryNasStatus();
+  for (const auto &volume : RecoveryVolumes("storage")) {
+    if (volume.path == "/pc" || volume.path == "/storage") continue;
+    auto *part = PartitionManager.Find_Partition_By_Path(volume.path);
+    const bool network = volume.path == "/mnt/nas";
+    if (!part || (network ? (!nas.supported || nas.config.host.empty()) :
+        (!part->Is_Present || (part->Get_Mount_Point() == "/data" && RecoveryDataLocked()))))
+      continue;
+    char canonical[PATH_MAX]{};
+    const std::string identity = realpath(volume.path.c_str(), canonical) ? canonical : volume.path;
+    if (!seen.insert(identity).second) continue;
+    const bool mounted = network ? nas.mounted : part->Is_Mounted();
+    struct statvfs info{};
+    const uint64_t free = mounted && statvfs(volume.path.c_str(), &info) == 0
+        ? uint64_t(info.f_bavail) * info.f_frsize : 0;
+    result.push_back({volume.name, volume.path, mounted, free});
+  }
+  return result;
+}
+
+bool RecoveryBackupPathReady(const std::string &path) {
+  auto *part = PartitionManager.Find_Partition_By_Path(path);
+  if (!part || !part->Is_Mounted() ||
+      (part->Get_Mount_Point() == "/data" && RecoveryDataLocked())) return false;
+#ifdef OF_ENABLE_WLAN
+  if (PartitionManager.Is_NAS_Path(path) && !NasManager::IsMounted()) return false;
+#endif
+  return true;
+}
+
+bool RecoveryPrepareBackupStorage(const std::string &path, std::string *error) {
+  const auto storages = RecoveryBackupStorages();
+  if (std::none_of(storages.begin(), storages.end(),
+      [&](const BackupStorage &item) {
+        if (item.path == path) return true;
+        char left[PATH_MAX]{}, right[PATH_MAX]{};
+        return realpath(item.path.c_str(), left) && realpath(path.c_str(), right) &&
+            !strcmp(left, right);
+      }) ||
+      !PartitionManager.Mount_By_Path(path, true) || !RecoveryBackupPathReady(path) ||
+      access(path.c_str(), R_OK | W_OK) != 0) {
+    if (error) *error = "Storage unavailable";
+    return false;
+  }
+  struct statvfs info{};
+  if (statvfs(path.c_str(), &info) != 0 || (info.f_flag & ST_RDONLY)) {
+    if (error) *error = "Storage unavailable";
+    return false;
+  }
+  return true;
+}
+
+std::string RecoveryAppVaultStorage() {
+  LoadAeraPreferencesIfAvailable();
+  const auto path = DataManager::GetStrValue("aera_appvault_storage");
+  if (!path.empty()) return path;
+  for (const auto &storage : RecoveryBackupStorages()) {
+    auto *part = PartitionManager.Find_Partition_By_Path(storage.path);
+    if (part && part->Get_Mount_Point() == "/data") return storage.path;
+  }
+  return "/sdcard";
+}
+
+bool RecoveryRememberAppVaultStorage(const std::string &path) {
+  if (path.empty() || path.front() != '/' || path.size() > 1024 ||
+      path.find_first_of("\r\n") != std::string::npos) return false;
+  DataManager::SetValue("aera_appvault_storage", path);
+  return SaveAeraPreferences();
 }
 
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder) {
@@ -1434,6 +1517,30 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
   }
   if (request.job == Job::kInstall) return aeraui_install_package(request.path.c_str());
   if (request.job == Job::kPcBackupOperation) return RecoveryRunPcBackup(request);
+  if (request.job == Job::kNetworkStorage) {
+    std::string error;
+    if (request.nas_action == "disconnect")
+      return RecoveryRunNas({NasOperation::kUnmount});
+    const auto current = RecoveryNasStatus();
+    if (!current.supported || current.mounted || RecoveryDataLocked()) return 1;
+    auto config = request.nas_config;
+    if (!request.nas_password_update && config.host == current.config.host &&
+        config.user == current.config.user && config.type == current.config.type &&
+        config.auth == current.config.auth)
+      config.password = current.config.password;
+    if (!request.nas_private_key.empty() &&
+        !RecoveryImportNasKey(request.nas_private_key, config.key_name, &error)) {
+      DataManager::SetValue("tw_file_progress", error); return 1;
+    }
+    if (!RecoverySetNasConfig(config, &error)) {
+      DataManager::SetValue("tw_file_progress", error); return 1;
+    }
+    if (request.nas_action == "save") return 0;
+    if (request.nas_action != "connect") return 1;
+    const int result = RecoveryRunNas({NasOperation::kMountAndUse});
+    if (result) DataManager::SetValue("tw_file_progress", RecoveryNasStatus().error);
+    return result;
+  }
   if (request.job == Job::kRootOperation) {
     if (!root::Enabled()) return 1;
     root::Request operation;
@@ -2981,6 +3088,8 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "pc_auto_enable") DataManager::SetValue("aera_pc_auto_enable", value);
     else if (key == "update_nightly")
       DataManager::SetValue("aera_update_nightly", value);
+    else if (key == "appvault_storage" && ValidPlainText(value, 1024, true))
+      DataManager::SetValue("aera_appvault_storage", value);
     else if (key == "browser_homepage") DataManager::SetValue("aera_browser_homepage", value);
     else if (key == "browser_zoom") DataManager::SetValue("aera_browser_zoom", value);
     else if (key == "browser_cookies")
@@ -3019,6 +3128,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "plugin_auto_update=" << DataManager::GetIntValue("aera_plugin_auto_update") << '\n'
          << "pc_auto_enable=" << DataManager::GetIntValue("aera_pc_auto_enable") << '\n'
          << "update_nightly=" << DataManager::GetIntValue("aera_update_nightly") << '\n'
+         << "appvault_storage=" << DataManager::GetStrValue("aera_appvault_storage") << '\n'
          << "recents=" << DataManager::GetIntValue("aera_recents_enabled") << '\n'
          << "lock_theme=" << EncodeLockTheme(RecoveryLockTheme()) << '\n'
          << "timezone=" << DataManager::GetStrValue(TW_TIME_ZONE_VAR) << '\n'
@@ -3105,6 +3215,8 @@ bool LoadNasProfile(NasConfig *config) {
     else if (key == "user") config->user = value;
     else if (key == "domain") config->domain = value;
     else if (key == "cache") config->cache_mode = value;
+    else if (key == "auth") config->auth = value;
+    else if (key == "key_name") config->key_name = value;
   }
   return !config->host.empty();
 }
@@ -3123,7 +3235,9 @@ bool SaveNasProfile(const NasConfig &config) {
          << "path=" << config.path << '\n'
          << "user=" << config.user << '\n'
          << "domain=" << config.domain << '\n'
-         << "cache=" << config.cache_mode << '\n';
+         << "cache=" << config.cache_mode << '\n'
+         << "auth=" << config.auth << '\n'
+         << "key_name=" << config.key_name << '\n';
   output.flush();
   if (!output) return false;
   output.close();
@@ -3641,6 +3755,8 @@ NasStatus RecoveryNasStatus() {
       DataManager::SetValue(TW_NAS_USER, remembered.user);
       DataManager::SetValue(TW_NAS_DOMAIN, remembered.domain);
       DataManager::SetValue(TW_NAS_CACHE_MODE, remembered.cache_mode);
+      DataManager::SetValue("aera_nas_auth", remembered.auth);
+      DataManager::SetValue("aera_nas_key_name", remembered.key_name);
     }
   }
   status.mounted = NasManager::IsMounted();
@@ -3666,6 +3782,11 @@ NasStatus RecoveryNasStatus() {
   }
   status.config.domain = DataManager::GetStrValue(TW_NAS_DOMAIN);
   status.config.cache_mode = DataManager::GetStrValue(TW_NAS_CACHE_MODE);
+  status.config.auth = DataManager::GetStrValue("aera_nas_auth") == "key" ? "key" : "password";
+  status.config.key_name = DataManager::GetStrValue("aera_nas_key_name");
+  std::string private_key;
+  status.key_available = AeraSecrets::GetNasPrivateKey(private_key);
+  OPENSSL_cleanse(private_key.data(), private_key.size());
   if (status.config.type != "smb") status.config.type = "sftp";
   if (status.config.port.empty()) status.config.port = "22";
   if (status.config.share.empty()) status.config.share = "Backups";
@@ -3688,7 +3809,8 @@ bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
     if (error) *error = "Choose either SFTP or SMB.";
     return false;
   }
-  if (invalid(config.host, 128) || invalid(config.user, 128) ||
+  if ((config.auth != "password" && config.auth != "key") || invalid(config.key_name, 128) ||
+      invalid(config.host, 128) || invalid(config.user, 128) ||
       invalid(config.password, 254) || invalid(config.share, 128) ||
       invalid(config.path, 256) || invalid(config.domain, 128)) {
     if (error) *error = "A field is too long or contains a line break.";
@@ -3720,6 +3842,8 @@ bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
   saved &= DataManager::SetValue(TW_NAS_USER, config.user) == 0;
   saved &= DataManager::SetValue(TW_NAS_DOMAIN, config.domain) == 0;
   saved &= DataManager::SetValue(TW_NAS_CACHE_MODE, config.cache_mode) == 0;
+  saved &= DataManager::SetValue("aera_nas_auth", config.auth) == 0;
+  saved &= DataManager::SetValue("aera_nas_key_name", config.key_name) == 0;
   // Keep the live value for NasManager, but never mark it persistent here.
   saved &= DataManager::SetValue(TW_NAS_PASS, config.password) == 0;
   const bool secret_saved = config.password.empty()
@@ -3735,6 +3859,21 @@ bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
   }
   return true;
 #endif
+}
+
+bool RecoveryImportNasKey(const std::string &key, const std::string &name,
+                          std::string *error) {
+  if (key.empty() || key.size() > 65536 || key.find('\0') != std::string::npos ||
+      name.empty() || name.size() > 128 || name.find_first_of("\r\n/") != std::string::npos ||
+      key.find("-----BEGIN ") != 0 || key.find("PRIVATE KEY-----") == std::string::npos) {
+    if (error) *error = "Select an OpenSSH or PEM private key, not a public key or PuTTY PPK file.";
+    return false;
+  }
+  if (!AeraSecrets::SetNasPrivateKey(key)) {
+    if (error) *error = "Could not save the private key to AERA's encrypted credential store.";
+    return false;
+  }
+  return true;
 }
 
 int RecoveryRunNas(const NasRequest &request) {

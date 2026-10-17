@@ -7,6 +7,9 @@
 #include <cassert>
 #include <chrono>
 #include <cstring>
+#include <fstream>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <thread>
 #include <vector>
 #include <png.h>
@@ -17,13 +20,20 @@ static std::atomic<bool> g_slow{false};
 static std::atomic<int> g_active{0};
 static std::atomic<int> g_cancelled{0};
 static int g_actions = 0;
+static std::string g_key_root = "/sdcard";
 
 namespace aeraui::wallpaper {
-bool Attach(lv_obj_t *) { return false; }
+bool Attach(lv_obj_t *, bool) { return false; }
 }
 
 namespace aeraui {
 NasStatus RecoveryNasStatus() { return g_status; }
+std::vector<BackupStorage> RecoveryBackupStorages() {
+  return {{"Internal storage", g_key_root, true, 1000000000}};
+}
+bool RecoveryImportNasKey(const std::string &, const std::string &, std::string *) {
+  g_status.key_available = true; return true;
+}
 bool RecoverySetNasConfig(const NasConfig &config, std::string *) {
   g_status.config = config;
   return true;
@@ -100,7 +110,7 @@ static void CheckButton(lv_obj_t *button) {
   assert(inner.y1 >= outer.y1 && inner.y2 <= outer.y2);
 }
 
-int main(int argc, char **) {
+int main(int argc, char **argv) {
   const bool preview = argc > 1;
   lv_init();
   i18n::Initialize("en");
@@ -111,6 +121,49 @@ int main(int argc, char **) {
     lv_display_flush_ready(value);
   });
   auto *home = lv_screen_active();
+  if (argc > 1 && !strcmp(argv[1], "--keys")) {
+    char folder[] = "/tmp/aera-nas-key-picker-XXXXXX";
+    assert(mkdtemp(folder)); g_key_root = folder;
+    const auto nested = g_key_root + "/nested";
+    const auto key = g_key_root + "/id_ed25519";
+    assert(!mkdir(nested.c_str(), 0700));
+    std::ofstream(key) << "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n";
+    for (bool landscape : {false, true}) for (int size : {0, 3}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      design::ApplyInterfaceSize(size);
+      g_status = {}; g_status.supported = true;
+      g_status.config.type = "sftp"; g_status.config.auth = "key";
+      auto *screen = lv_obj_create(nullptr);
+      BuildNasScene(screen, [](Action, void *) {}, nullptr);
+      lv_screen_load(screen); Tick();
+      Click(screen, "Not set");
+      assert(Find(screen, i18n::Translate("Select a private key")));
+      Click(screen, "Internal storage", false);
+      Click(screen, "nested", false);
+      Click(screen, "..", false);
+      CheckButton(Find(screen, "id_ed25519"));
+      Click(screen, "id_ed25519", false);
+      assert(g_status.key_available && g_status.config.key_name == "id_ed25519");
+      assert(!Find(screen, i18n::Translate("Select a private key")));
+      assert(Find(screen, i18n::Translate("Key passphrase")));
+      Click(screen, "SMB", false);
+      assert(g_status.config.type == "smb");
+      assert(Find(screen, i18n::Translate("Password")));
+      assert(!Find(screen, i18n::Translate("Key passphrase")));
+      Click(screen, "Password");
+      assert(!Find(screen, i18n::Translate("Key passphrase")));
+      Click(screen, "Cancel");
+      Click(screen, "SFTP", false);
+      assert(Find(screen, i18n::Translate("Key passphrase")));
+      g_status.config.password = "old-key-passphrase";
+      Click(screen, "Authentication");
+      assert(g_status.config.auth == "password" && g_status.config.password.empty());
+      lv_screen_load(home); lv_obj_delete(screen); Tick();
+    }
+    unlink(key.c_str()); rmdir(nested.c_str()); rmdir(folder);
+    lv_deinit(); puts("SFTP key picker: navigation, import and authentication switching passed");
+    return 0;
+  }
   for (const char *language : {"en", "de_DE"}) {
     if (preview && !strcmp(language, "en")) continue;
     i18n::SetLanguage(language);

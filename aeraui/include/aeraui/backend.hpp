@@ -23,7 +23,8 @@ enum class Job {
   kClearSnapshotCow,
   kRootOperation,
   kPcBackupOperation,
-  kFormatUsb
+  kFormatUsb,
+  kNetworkStorage
 };
 struct Volume {
   std::string name;
@@ -38,6 +39,19 @@ struct AndroidUser {
   std::string name;
   int credential_type = 0;
   bool decrypted = false;
+};
+struct NasConfig {
+  std::string type = "sftp";
+  std::string host;
+  std::string port = "22";
+  std::string share = "Backups";
+  std::string path;
+  std::string user;
+  std::string password;
+  std::string domain = "WORKGROUP";
+  std::string cache_mode = "off";
+  std::string auth = "password";
+  std::string key_name;
 };
 struct JobRequest {
   Job job = Job::kInstall;
@@ -58,6 +72,9 @@ struct JobRequest {
   std::string backup_action, backup_kind, backup_source, backup_method;
   std::string backup_storage, backup_snapshot;
   int backup_user = 0;
+  NasConfig nas_config;
+  std::string nas_action, nas_private_key;
+  bool nas_password_update = false;
   std::string payload_manifest_hash;
   std::string payload_slot;
   bool payload_arb_acknowledged = false;
@@ -80,6 +97,16 @@ inline bool SnapshotCowCleanupAuthorized(const JobRequest &request) {
 }
 // Implemented beside the stock GUI bridge, using the same recovery backend.
 std::vector<Volume> RecoveryVolumes(const std::string &kind);
+struct BackupStorage {
+  std::string name, path;
+  bool mounted = false;
+  uint64_t free_bytes = 0;
+};
+std::vector<BackupStorage> RecoveryBackupStorages();
+bool RecoveryPrepareBackupStorage(const std::string &path, std::string *error);
+bool RecoveryBackupPathReady(const std::string &path);
+std::string RecoveryAppVaultStorage();
+bool RecoveryRememberAppVaultStorage(const std::string &path);
 struct UsbFormatTarget {
   bool available = false;
   std::string name, path, block, filesystem, identity, error;
@@ -453,21 +480,11 @@ bool RecoverySetFastbootOverWifi(bool enabled);
 bool RecoverySelectFastbootTransport(bool wireless);
 
 // Native presentation of OrangeFox's existing rclone/FUSE NAS manager.
-struct NasConfig {
-  std::string type = "sftp";
-  std::string host;
-  std::string port = "22";
-  std::string share = "Backups";
-  std::string path;
-  std::string user;
-  std::string password;
-  std::string domain = "WORKGROUP";
-  std::string cache_mode = "off";
-};
 struct NasStatus {
   bool supported = false;
   bool mounted = false;
   bool selected = false;
+  bool key_available = false;
   std::string status;
   std::string error;
   NasConfig config;
@@ -476,5 +493,7 @@ enum class NasOperation { kMountAndUse, kUse, kUnmount };
 struct NasRequest { NasOperation operation = NasOperation::kMountAndUse; };
 NasStatus RecoveryNasStatus();
 bool RecoverySetNasConfig(const NasConfig &config, std::string *error);
+bool RecoveryImportNasKey(const std::string &key, const std::string &name,
+                          std::string *error);
 int RecoveryRunNas(const NasRequest &request);
 }  // namespace aeraui

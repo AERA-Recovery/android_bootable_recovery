@@ -474,6 +474,21 @@ bool AeraSecrets::HasNasPassword() {
   return GetNasPassword(password);
 }
 
+bool AeraSecrets::SetNasPrivateKey(const std::string& key) {
+  std::lock_guard<std::mutex> guard(g_lock);
+  Json::Value root = ReadDocument(kCredentialPath);
+  if (key.empty()) root.removeMember("nas_private_key");
+  else if (!Seal(key, &root["nas_private_key"])) return false;
+  return WriteDocument(kCredentialPath, std::move(root));
+}
+
+bool AeraSecrets::GetNasPrivateKey(std::string& key) {
+  key.clear();
+  std::lock_guard<std::mutex> guard(g_lock);
+  const auto root = ReadDocument(kCredentialPath);
+  return Open(root["nas_private_key"], &key) && !key.empty();
+}
+
 bool AeraSecrets::AddAdbDevice(const std::string& key,
                                const std::string& name) {
   if (KeyToken(key).empty()) return false;
