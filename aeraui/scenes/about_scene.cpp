@@ -222,7 +222,7 @@ void Contributor(lv_obj_t *parent, int x, int y, int width,
   AnimateEnter(card, delay, 12);
 }
 
-void IdentityRow(lv_obj_t *parent, int x, int y, int width,
+lv_obj_t *IdentityRow(lv_obj_t *parent, int x, int y, int width,
                  const char *label, const std::string &value) {
   auto *caption = Kicker(parent, label, kMuted);
   lv_obj_set_pos(caption, x, y);
@@ -230,6 +230,32 @@ void IdentityRow(lv_obj_t *parent, int x, int y, int width,
   lv_obj_set_pos(text, x, y + 42);
   lv_obj_set_width(text, width);
   lv_label_set_long_mode(text, LV_LABEL_LONG_DOT);
+  return text;
+}
+
+void DeveloperEntrance(lv_obj_t *label, ActionCallback callback, void *context) {
+  struct Taps {
+    unsigned count = 0;
+    uint32_t previous = 0;
+    bool opened = false;
+  };
+  auto *taps = new Taps;
+  lv_obj_add_flag(label, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_pad_ver(label, 14, 0);
+  lv_obj_add_event_cb(label, [](lv_event_t *event) {
+    delete static_cast<Taps *>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, taps);
+  OnClick(label, [taps, callback, context] {
+    if (taps->opened) return;
+    const uint32_t now = lv_tick_get();
+    if (now - taps->previous > 1500) taps->count = 0;
+    taps->previous = now;
+    if (++taps->count == 7 && callback) {
+      taps->opened = true;
+      ArmDeveloperEntryGuard();
+      callback(Action::kDeveloperSettings, context);
+    }
+  });
 }
 
 void BrandHero(lv_obj_t *parent, int x, int y, int width, int height,
@@ -336,7 +362,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_set_style_border_opa(identity, LV_OPA_30, 0);
     IdentityRow(identity, 38, 38, 520, "MAINTAINER", maintainer);
     IdentityRow(identity, 650, 38, 240, "VERSION", version);
-    IdentityRow(identity, 982, 38, 300, "BUILD", build_identity);
+    DeveloperEntrance(IdentityRow(identity, 982, 38, 300, "BUILD", build_identity), callback, context);
     IdentityRow(identity, 1374, 38, 360, "DEVICE", device);
     IdentityRow(identity, 1810, 38, 150, "SLOT", slot);
     auto *foundation = Label(identity,
@@ -366,7 +392,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_set_pos(identity_title, 38, 30);
     IdentityRow(identity, 38, 98, 1236, "MAINTAINER", maintainer);
     IdentityRow(identity, 38, 224, 530, "VERSION", version);
-    IdentityRow(identity, 696, 224, 520, "BUILD", build_identity);
+    DeveloperEntrance(IdentityRow(identity, 696, 224, 520, "BUILD", build_identity), callback, context);
     IdentityRow(identity, 38, 362, 530, "DEVICE", device);
     IdentityRow(identity, 696, 362, 520, "ACTIVE SLOT", slot);
     AnimateEnter(identity, 102, 10);

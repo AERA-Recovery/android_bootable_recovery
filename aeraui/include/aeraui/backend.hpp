@@ -6,8 +6,16 @@
 #include <vector>
 #include "aeraui/lock_theme.hpp"
 #include "aeraui/home_layout.hpp"
+#include "aeraui/kernel_settings.hpp"
 
 namespace aeraui {
+std::vector<kernel::Setting> RecoveryDeveloperSettings();
+bool RecoverySetDeveloperSetting(const std::string &id, const std::string &value,
+                                 bool remember, std::string *error);
+bool RecoveryResetDeveloperSettings(std::string *error);
+void RecoveryPollDeveloperSettings();
+void RecoverySkipDeveloperSettings();
+bool RecoveryExportDeveloperSettings(std::string *path, std::string *error);
 enum class Job {
   kInstall,
   kSideload,

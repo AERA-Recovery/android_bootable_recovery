@@ -3515,6 +3515,10 @@ UserDecryptRequest GetUserDecryptRequest() {
 }
 
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void *context) {
+  if (tool == Action::kDeveloperSettings) {
+    BuildDeveloperScene(screen, callback, context);
+    return;
+  }
   auto *state = new Tools;
   state->screen = screen;
   state->tool = tool;

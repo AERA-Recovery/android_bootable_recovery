@@ -35,8 +35,10 @@
 #include <sys/mount.h>
 #include <sys/ioctl.h>
 #include <linux/fs.h>
+#include <linux/input.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/utsname.h>
 #include <sys/sysmacros.h>
 #include <mntent.h>
 #include <unistd.h>
@@ -121,6 +123,8 @@ int aeraui::RecoveryDecrypt(const std::string &credential, int user_id) {
 namespace aeraui {
 namespace {
 void LoadAeraPreferencesIfAvailable();
+bool WriteFileAtomically(const std::string &path, const std::string &contents);
+kernel::Settings gDeveloperSettings;
 bool SaveAeraPreferences(bool require_early = false);
 bool ResetAeraSettings(bool theme);
 bool ResetAeraThemeSection(ThemeSection section);
@@ -2361,6 +2365,104 @@ bool RecoverySetPcAutoEnable(bool enabled) {
 bool RecoveryResetThemeSettings() { return ResetAeraSettings(true); }
 bool RecoveryResetThemeSection(ThemeSection section) { return ResetAeraThemeSection(section); }
 bool RecoveryResetPreferences() { return ResetAeraSettings(false); }
+std::vector<kernel::Setting> RecoveryDeveloperSettings() {
+  LoadAeraPreferencesIfAvailable();
+  kernel::Overrides values;
+  if (kernel::Decode(DataManager::GetStrValue("aera_developer_settings"), &values))
+    gDeveloperSettings.Load(values);
+  return gDeveloperSettings.Discover();
+}
+bool RecoverySetDeveloperSetting(const std::string &id, const std::string &value,
+                                 bool remember, std::string *error) {
+  RecoveryDeveloperSettings();
+  if (value.empty()) {
+    if (!gDeveloperSettings.Reset(id, error)) return false;
+    remember = true;
+  } else {
+    if (!gDeveloperSettings.Apply(id, value, error)) return false;
+    if (remember) gDeveloperSettings.Remember(id, value);
+    else gDeveloperSettings.SessionOnly(id);
+  }
+  if (remember) {
+    DataManager::SetValue("aera_developer_settings", kernel::Encode(gDeveloperSettings.Saved()), 1);
+    if (!RecoveryAutoSavePreferences()) {
+      if (error) *error = "Applied for this session, but settings storage could not be saved.";
+      return false;
+    }
+  }
+  return true;
+}
+bool RecoveryResetDeveloperSettings(std::string *error) {
+  RecoveryDeveloperSettings();
+  const bool restored = gDeveloperSettings.ResetAll(error);
+  DataManager::SetValue("aera_developer_settings", kernel::Encode(gDeveloperSettings.Saved()), 1);
+  const bool saved = RecoveryAutoSavePreferences();
+  if (!saved && error) *error = "Settings storage could not be saved.";
+  return restored && saved;
+}
+void RecoverySkipDeveloperSettings() {
+  gDeveloperSettings.Skip();
+  const int fd = open("/tmp/aera-disable-developer-settings", O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+  if (fd >= 0) close(fd);
+}
+bool RecoveryExportDeveloperSettings(std::string *path, std::string *error) {
+  const auto values = RecoveryDeveloperSettings();
+  const auto directory = TWFunc::get_log_dir();
+  if (!TWFunc::Recursive_Mkdir(directory, false)) {
+    if (error) *error = "Log storage is not available.";
+    return false;
+  }
+  std::ostringstream output;
+  utsname kernel{}; uname(&kernel);
+  output << "AERA developer settings\nDevice: " << RecoveryDevice()
+         << "\nKernel: " << kernel.release << "\n\n";
+  for (const auto &value : values)
+    output << value.device << " / " << value.name << "\nNode: " << value.path
+           << "\nActive: " << value.current << "\nInitial: " << value.baseline
+           << "\nSaved: " << value.saved << "\nStatus: " << value.status << "\n\n";
+  *path = directory + "/developer-settings.txt";
+  if (!WriteFileAtomically(*path, output.str())) {
+    if (error) *error = "Could not save the developer settings report.";
+    return false;
+  }
+  return true;
+}
+void RecoveryPollDeveloperSettings() {
+  using Clock = std::chrono::steady_clock;
+  static auto first = Clock::now(), last = first;
+  static bool started = false;
+  const auto now = Clock::now();
+  if (now - last < std::chrono::seconds(2)) return;
+  last = now;
+  if (access("/tmp/aera-disable-developer-settings", F_OK) == 0) gDeveloperSettings.Skip();
+  if (gDeveloperSettings.Skipped()) return;
+  LoadAeraPreferencesIfAvailable();
+  kernel::Overrides values;
+  if (!kernel::Decode(DataManager::GetStrValue("aera_developer_settings"), &values)) return;
+  gDeveloperSettings.Load(values);
+  if (gDeveloperSettings.Saved().empty()) return;
+  if (!started) {
+    // Query key state without consuming evdev events used by the UI. Holding
+    // Volume Down at startup bypasses saved tuning for this recovery session.
+    auto *dir = opendir("/dev/input");
+    if (dir) {
+      while (const auto *entry = readdir(dir)) {
+        if (strncmp(entry->d_name, "event", 5)) continue;
+        const int fd = open((std::string("/dev/input/") + entry->d_name).c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0) continue;
+        unsigned char keys[(KEY_MAX + 8) / 8]{};
+        if (ioctl(fd, EVIOCGKEY(sizeof(keys)), keys) >= 0 &&
+            (keys[KEY_VOLUMEDOWN / 8] & (1U << (KEY_VOLUMEDOWN % 8))))
+          RecoverySkipDeveloperSettings();
+        close(fd);
+      }
+      closedir(dir);
+    }
+    if (gDeveloperSettings.Skipped() || now - first < std::chrono::seconds(4)) return;
+    started = true;
+  }
+  gDeveloperSettings.Poll();
+}
 int RecoveryDefaultHapticDuration(Haptic haptic) {
   return DefaultHapticDuration(haptic);
 }
@@ -2442,6 +2544,7 @@ bool PrepareEarlyPreferencesRoot() {
 #endif
 
 struct EarlyUiPreferences {
+  std::string developer_settings = "1";
   std::string wallpaper_layout;
   std::string lock_theme;
   int clock24;
@@ -2563,6 +2666,9 @@ EarlyUiPreferences DefaultEarlyUiPreferences() {
 
 EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   EarlyUiPreferences preferences{};
+  kernel::Overrides developer;
+  if (kernel::Decode(DataManager::GetStrValue("aera_developer_settings"), &developer))
+    preferences.developer_settings = kernel::Encode(developer);
   preferences.clock24 = DataManager::GetIntValue("tw_military_time") != 0 ? 1 : 0;
   preferences.timezone = DataManager::GetStrValue(TW_TIME_ZONE_VAR);
   if (!ValidPlainText(preferences.timezone, 96)) preferences.timezone = "UTC0";
@@ -2763,7 +2869,11 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
                      const std::string& value, bool* recognized = nullptr) {
   if (recognized != nullptr) *recognized = true;
   int parsed = 0;
-  if (key == "wallpaper_layout") {
+  if (key == "developer_settings") {
+    kernel::Overrides parsed;
+    if (!kernel::Decode(value, &parsed)) return false;
+    preferences->developer_settings = kernel::Encode(parsed);
+  } else if (key == "wallpaper_layout") {
     preferences->wallpaper_layout = EncodeWallpaperLayout(DecodeWallpaperLayout(value));
   } else if (key == "clock24") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
@@ -2910,6 +3020,7 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
 }
 
 void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
+  DataManager::SetValue("aera_developer_settings", preferences.developer_settings);
   DataManager::SetValue("aera_wallpaper_layout", preferences.wallpaper_layout);
   DataManager::SetValue("tw_military_time", preferences.clock24);
   DataManager::SetValue(TW_TIME_ZONE_VAR, preferences.timezone);
@@ -3011,6 +3122,7 @@ bool WriteFileAtomically(const std::string& path, const std::string& contents) {
 std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   std::ostringstream output;
   output << "schema=1\n"
+         << "developer_settings=" << preferences.developer_settings << '\n'
          << "clock24=" << preferences.clock24 << '\n'
          << "timezone=" << preferences.timezone << '\n'
          << "brightness=" << preferences.brightness << '\n'
@@ -3216,6 +3328,7 @@ bool SaveAeraPreferences(bool require_early) {
   if (!TWFunc::Recursive_Mkdir(directory, false)) return false;
   std::ostringstream output;
   output << "clock24=" << DataManager::GetIntValue("tw_military_time") << '\n'
+         << "developer_settings=" << CaptureCurrentEarlyUiPreferences().developer_settings << '\n'
          << "hidden=" << DataManager::GetIntValue("tw_hidden_files") << '\n'
          << "compression=" << DataManager::GetIntValue(TW_USE_COMPRESSION_VAR) << '\n'
          << "sha256=" << DataManager::GetIntValue(TW_USE_SHA2) << '\n'

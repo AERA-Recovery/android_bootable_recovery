@@ -59,6 +59,25 @@ static int haptic_durations[] = {40, 40, 160};
 static InterfaceSize interface_size = InterfaceSize::kNormal;
 static DockLayout dock_layout = DockLayout::kGlass;
 static std::string active_slot = "A";
+static std::vector<kernel::Setting> developer_settings;
+std::vector<kernel::Setting> aeraui::RecoveryDeveloperSettings() { return developer_settings; }
+bool aeraui::RecoverySetDeveloperSetting(const std::string &id, const std::string &value, bool remember, std::string *) {
+  for (auto &setting : developer_settings) if (setting.id == id) {
+    setting.current = value.empty() ? setting.baseline : value;
+    if (remember || value.empty()) setting.saved = value;
+    return true;
+  }
+  return false;
+}
+bool aeraui::RecoveryResetDeveloperSettings(std::string *) {
+  for (auto &setting : developer_settings) { setting.current = setting.baseline; setting.saved.clear(); }
+  return true;
+}
+void aeraui::RecoveryPollDeveloperSettings() {}
+void aeraui::RecoverySkipDeveloperSettings() {}
+bool aeraui::RecoveryExportDeveloperSettings(std::string *path, std::string *) {
+  *path = "/tmp/developer-settings.txt"; return true;
+}
 static bool wifi_auto_enable = false;
 static bool wifi_auto_connect = false;
 static WifiStatusDisplay wifi_display;
@@ -2003,6 +2022,82 @@ int main(int argc,char **argv) {
     lv_indev_delete(input);
     lv_deinit(); std::filesystem::remove_all(backup_root);
     puts("Home plugin taps, reorder, sizes, persistence, trash confirmation and drag teardown passed.");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--developer-settings")) {
+    developer_settings = {
+      {"net.tcp", "Network", "TCP", "Congestion control", "/proc/test", "cubic", "cubic", "", "", {"reno", "cubic", "bbr"}, 0, 0, true},
+      {"net.buffer", "Network", "Socket buffers", "wmem_max", "/proc/test2", "262144", "262144", "", "", {}, 4096, 67108864, true},
+      {"disk", "Storage", "sda / Test UFS", "I/O scheduler", "/sys/test", "mq-deadline", "mq-deadline", "", "", {"none", "mq-deadline", "kyber", "bfq"}, 0, 0, true},
+      {"cpu", "CPU", "CPU 0 1 2 3", "Governor", "/sys/cpu", "schedutil", "schedutil", "", "", {"schedutil", "performance"}, 0, 0, true},
+      {"gpu", "GPU", "Qualcomm GPU", "max frequency (Hz)", "/sys/gpu", "800000000", "800000000", "", "", {"400000000", "800000000"}, 0, 0, true}
+    };
+    for (bool landscape : {false, true})
+    for (int size : {0, 1, 3}) {
+      design::ApplyInterfaceSize(size); interface_size = static_cast<InterfaceSize>(size);
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *about = lv_obj_create(nullptr);
+      BuildAboutScene(about, RecordAction, nullptr); lv_screen_load(about); Tick();
+      auto *build = FindLabel(about, "Stable · Unofficial"); assert(build);
+      callback_count = 0;
+      for (int i = 0; i < 6; ++i) lv_obj_send_event(build, LV_EVENT_CLICKED, nullptr);
+      assert(callback_count == 0);
+      lv_obj_send_event(build, LV_EVENT_CLICKED, nullptr);
+      assert(callback_count == 1 && last_action == Action::kDeveloperSettings);
+      for (int i = 0; i < 3; ++i)
+        lv_obj_send_event(build, LV_EVENT_CLICKED, nullptr);
+      assert(callback_count == 1 && last_action == Action::kDeveloperSettings);
+      lv_screen_load(screen); lv_obj_delete(about);
+      auto *page = lv_obj_create(nullptr);
+      BuildToolScene(page, Action::kDeveloperSettings, RecordAction, nullptr); lv_screen_load(page);
+      auto *guard = lv_obj_get_child(page, -1);
+      assert(lv_obj_get_user_data(guard) == &widgets::kModalMarker);
+      Tick(20);
+      assert(lv_obj_get_child(page, -1) == guard);
+      Tick(20);
+      assert(lv_obj_get_user_data(lv_obj_get_child(page, -1)) != &widgets::kModalMarker);
+      auto count_home = [](auto &&self, lv_obj_t *root) -> unsigned {
+        unsigned count = lv_obj_check_type(root, &lv_label_class) &&
+            !strcmp(lv_label_get_text(root), "Home");
+        for (uint32_t i = 0; i < lv_obj_get_child_count(root); ++i)
+          count += self(self, lv_obj_get_child(root, i));
+        return count;
+      };
+      assert(count_home(count_home, page) == 1);
+      auto *setting = Find(page, "Congestion control"); assert(setting);
+      lv_obj_send_event(setting, LV_EVENT_CLICKED, nullptr); Tick();
+      auto *remember = Find(page, "Restore at startup"); assert(remember);
+      auto *toggle = FindType(remember, &lv_switch_class); assert(toggle);
+      assert(lv_obj_has_state(toggle, LV_STATE_CHECKED));
+      lv_obj_send_event(remember, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(!lv_obj_has_state(toggle, LV_STATE_CHECKED));
+      auto *bbr = Find(page, "bbr"); assert(bbr);
+      lv_obj_send_event(bbr, LV_EVENT_CLICKED, nullptr);
+      auto *apply = Find(page, "Apply"); assert(apply); AssertInside(apply, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      if (size == 1) save(landscape ? "/tmp/aera-developer-choice-landscape.png" : "/tmp/aera-developer-choice-portrait.png");
+      lv_obj_send_event(apply, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(developer_settings[0].current == "bbr" && developer_settings[0].saved.empty());
+      setting = Find(page, "wmem_max"); assert(setting);
+      lv_obj_send_event(setting, LV_EVENT_CLICKED, nullptr); Tick();
+      auto *input = FindType(page, &lv_textarea_class); assert(input);
+      auto *keyboard = FindType(page, &lv_keyboard_class); assert(keyboard);
+      AssertInside(keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      assert(!Overlaps(input, keyboard));
+      auto *cancel = Find(page, "Cancel"); assert(cancel); assert(!Overlaps(cancel, keyboard));
+      if (size == 1) save(landscape ? "/tmp/aera-developer-number-landscape.png" : "/tmp/aera-developer-number-portrait.png");
+      lv_obj_send_event(cancel, LV_EVENT_CLICKED, nullptr); Tick();
+      for (const char *category : {"Storage", "CPU", "GPU", "Memory"}) {
+        auto *tab = Find(page, category); assert(tab);
+        AssertContained(tab, lv_obj_get_parent(tab));
+        lv_obj_send_event(tab, LV_EVENT_CLICKED, nullptr);
+        assert(last_action == Action::kDeveloperSettings);
+      }
+      lv_obj_send_event(Find(page, "Network"), LV_EVENT_CLICKED, nullptr);
+      if (size == 1) save(landscape ? "/tmp/aera-developer-landscape.png" : "/tmp/aera-developer-portrait.png");
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+    }
+    lv_deinit(); std::filesystem::remove_all(backup_root);
+    puts("Developer entry, categories, session-only choice and numeric editor layouts passed.");
     return 0;
   }
   if (!strcmp(argv[1], "--slot-warning")) {

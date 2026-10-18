@@ -663,6 +663,8 @@ public:
     PollAutomaticUpdates();
     PollPcConnection();
     PollAutomaticNas();
+    if (backend_ready_ && !fastboot_mode_ && CanReboot())
+      RecoveryPollDeveloperSettings();
     PollUsbAttachment();
     PollRecentsHold();
     if (suspended_) return 250;
@@ -2911,6 +2913,7 @@ private:
         action == Action::kThemeWallpaper || action == Action::kThemeHome ||
         action == Action::kThemeTypography || action == Action::kThemeNavigation ||
         action == Action::kThemeLock ||
+        action == Action::kDeveloperSettings ||
         action == Action::kWifi || action == Action::kUsers ||
         action == Action::kPcConnection;
     if (action == Action::kOpenReboot || action == Action::kBackHome ||
