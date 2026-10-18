@@ -763,7 +763,12 @@ endif
 # Ship the terminfo database so terminal apps (vi/htop/less/...) work in the
 # AERA terminal, which advertises TERM=xterm-256color.
 # This is independent of the nano editor; copy it whenever the source exists.
+# Keep this the only full-database installer: nano/bash post-install commands
+# must not copy the database while this step replaces it. Wait for libncurses'
+# recovery Xterm subset to finish before replacing that shared destination.
 ifneq ($(wildcard external/libncurses/lib/terminfo),)
+	LOCAL_REQUIRED_MODULES += libncurses-terminfo-x-xterm_recovery
+	LOCAL_ADDITIONAL_DEPENDENCIES += $(shell find external/libncurses/lib/terminfo -type f -o -type l)
 	LOCAL_POST_INSTALL_CMD += \
 	mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/etc/; \
 	rm -rf $(TARGET_RECOVERY_ROOT_OUT)/system/etc/terminfo; \
@@ -780,6 +785,14 @@ endif
 # Darth9
 
 include $(BUILD_PHONY_PACKAGE)
+
+# Soong's multi-source prebuilt has no single installed-module file for Make
+# to order against. Wait for every recovery Xterm entry explicitly instead.
+# Keep this order-only: copying the database also updates these destination
+# mtimes and must not make the phony timestamp perpetually out of date.
+ifneq ($(wildcard external/libncurses/lib/terminfo),)
+$(LOCAL_INSTALLED_MODULE): | $(addprefix $(TARGET_RECOVERY_ROOT_OUT)/system/etc/terminfo/x/,$(notdir $(wildcard external/libncurses/lib/terminfo/x/xterm*)))
+endif
 
 # recovery-persist (system partition dynamic executable run after /data mounts)
 # ===============================
