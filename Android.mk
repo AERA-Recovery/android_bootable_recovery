@@ -736,7 +736,7 @@ ifeq ($(BOARD_CACHEIMAGE_PARTITION_SIZE),)
     TWRP_REQUIRED_MODULES += recovery-persist recovery-refresh
 endif
 
-LOCAL_REQUIRED_MODULES += $(TWRP_REQUIRED_MODULES) aera-browser-jail aera_htop
+LOCAL_REQUIRED_MODULES += $(TWRP_REQUIRED_MODULES) aera-browser-jail aera_htop aera-artillery-audio
 
 include $(BUILD_EXECUTABLE)
 

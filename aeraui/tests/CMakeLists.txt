@@ -22,7 +22,8 @@ add_executable(ui_check ui_check.cpp
   ../scenes/launcher_scene.cpp ../components/retroarch_icon.cpp
   ../components/home_plugin_grid.cpp
   ../components/webkit_icon.cpp
-  ../scenes/about_scene.cpp ../components/aera_logo.cpp
+  ../scenes/about_scene.cpp ../scenes/artillery_scene.cpp
+  ../features/artillery/game.cpp ../components/aera_logo.cpp
   ../components/matrix_engraving.cpp
   ../scenes/home_scene.cpp ../features/files/file_manager.cpp
   ../components/text_edit.cpp
@@ -45,6 +46,10 @@ target_compile_definitions(ui_check PRIVATE
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
+add_executable(artillery_test artillery_test.cpp ../features/artillery/game.cpp)
+target_compile_options(artillery_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME artillery_physics_and_unlock COMMAND artillery_test)
+add_test(NAME artillery_ui_and_lifetime COMMAND ui_check --artillery)
 add_executable(home_layout_test home_layout_test.cpp)
 target_include_directories(home_layout_test PRIVATE ../include)
 target_compile_options(home_layout_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

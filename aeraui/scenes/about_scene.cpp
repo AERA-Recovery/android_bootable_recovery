@@ -5,16 +5,164 @@
 #include "scene.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 #include "aera_logo.hpp"
 #include "matrix_engraving.hpp"
 #include "ui_components.hpp"
+#include "artillery/game.hpp"
+#include "artillery/sound.hpp"
 
 namespace aeraui {
 namespace {
 using namespace design;
 using namespace widgets;
+
+struct ArtilleryEntrance {
+  lv_obj_t *screen = nullptr, *logo = nullptr, *overlay = nullptr;
+  ActionCallback callback = nullptr;
+  void* context = nullptr;
+  artillery::TapSequence taps;
+  artillery::Sound sound;
+  lv_timer_t* idle = nullptr;
+  int progress = 0, cx = 0, cy = 0, radius = 0;
+  bool running = false, dispatched = false;
+  ~ArtilleryEntrance() {
+    lv_anim_delete(this, nullptr);
+    if (idle) lv_timer_delete(idle);
+  }
+};
+
+void DrawEntrance(lv_event_t* event) {
+  const auto* state = static_cast<ArtilleryEntrance*>(lv_event_get_user_data(event));
+  auto* layer = lv_event_get_layer(event);
+  const float t = state->progress / 1000.0f;
+  for (int ring = 0; ring < 3; ++ring) {
+    const float phase = std::clamp((t - 0.06f - ring * 0.065f) / 0.82f, 0.0f, 1.0f);
+    if (phase <= 0 || phase >= 1) continue;
+    const float radius = 42 + state->radius * (1 - (1 - phase) * (1 - phase));
+    // Segment the wave: oversized rounded borders overflow the software
+    // renderer's circle-mask cache on displays with a large logical canvas.
+    lv_draw_line_dsc_t wave;
+    lv_draw_line_dsc_init(&wave);
+    wave.width = 4 + static_cast<int>((1 - phase) * (ring ? 8 : 17));
+    wave.color = ring == 1 ? kAmber : kAccent;
+    wave.opa = static_cast<lv_opa_t>((ring ? 130 : 190) * (1 - phase));
+    wave.round_start = wave.round_end = 0;
+    wave.p1.x = state->cx + radius;
+    wave.p1.y = state->cy;
+    for (int segment = 1; segment <= 96; ++segment) {
+      const float angle = segment * 6.2831853f / 96;
+      wave.p2.x = state->cx + std::cos(angle) * radius;
+      wave.p2.y = state->cy + std::sin(angle) * radius;
+      lv_draw_line(layer, &wave);
+      wave.p1 = wave.p2;
+    }
+  }
+  if (t <= 0.02f || t >= 0.65f) return;
+  const float spread = std::min(1.0f, t / 0.5f);
+  for (int spark = 0; spark < 22; ++spark) {
+    const float angle = spark * 6.2831853f / 22;
+    const float distance = 30 + spread * (210 + (spark * 47) % 240);
+    const float tail = std::min(distance - 20, 20 + (1 - spread) * 85);
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.p1.x = state->cx + std::cos(angle) * (distance - tail);
+    line.p1.y = state->cy + std::sin(angle) * (distance - tail);
+    line.p2.x = state->cx + std::cos(angle) * distance;
+    line.p2.y = state->cy + std::sin(angle) * distance;
+    line.color = spark % 3 ? kAmber : kAccent;
+    line.width = spark % 3 ? 4 : 6;
+    line.opa = static_cast<lv_opa_t>(210 * std::max(0.0f, 1 - t / 0.65f));
+    line.round_start = line.round_end = 1;
+    lv_draw_line(layer, &line);
+  }
+}
+
+void EntranceProgress(void* data, int32_t value) {
+  auto* state = static_cast<ArtilleryEntrance*>(data);
+  state->progress = value;
+  const float t = value / 1000.0f;
+  const float recoil = t < 0.16f ? t / 0.16f :
+      t < 0.38f ? 1 - (t - 0.16f) / 0.22f : 0;
+  const int scale = LV_SCALE_NONE - static_cast<int>(recoil * 15);
+  lv_obj_set_style_transform_scale(state->logo, scale, 0);
+  lv_obj_set_style_translate_y(state->logo, static_cast<int>(recoil * 28), 0);
+  lv_obj_set_style_translate_x(state->logo,
+      static_cast<int>(std::sin(t * 23) * recoil * 12), 0);
+  lv_obj_set_style_bg_opa(state->overlay,
+      static_cast<lv_opa_t>(std::min(90, value * 90 / 650)), 0);
+  lv_obj_invalidate(state->overlay);
+}
+
+void BeginEntrance(ArtilleryEntrance* state) {
+  if (state->running || !state->callback) return;
+  state->running = true;
+  if (state->idle) lv_timer_pause(state->idle);
+  lv_obj_update_layout(state->screen);
+  lv_area_t logo;
+  lv_obj_get_coords(state->logo, &logo);
+  lv_obj_set_style_transform_pivot_x(state->logo, lv_area_get_width(&logo) / 2, 0);
+  lv_obj_set_style_transform_pivot_y(state->logo, lv_area_get_height(&logo) / 2, 0);
+  state->cx = (logo.x1 + logo.x2) / 2;
+  state->cy = (logo.y1 + logo.y2) / 2;
+  const int width = lv_obj_get_width(state->screen), height = lv_obj_get_height(state->screen);
+  state->radius = static_cast<int>(std::hypot(
+      std::max(state->cx, width - state->cx), std::max(state->cy, height - state->cy)));
+  state->overlay = lv_obj_create(state->screen);
+  Clear(state->overlay);
+  lv_obj_set_size(state->overlay, width, height);
+  lv_obj_set_pos(state->overlay, 0, 0);
+  lv_obj_set_style_bg_color(state->overlay, kCanvas, 0);
+  lv_obj_add_flag(state->overlay, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(state->overlay, DrawEntrance, LV_EVENT_DRAW_MAIN, state);
+  state->sound.Play('s');
+  RecoveryVibrate(Haptic::kAction);
+  lv_anim_t animation;
+  lv_anim_init(&animation);
+  lv_anim_set_var(&animation, state);
+  lv_anim_set_exec_cb(&animation, EntranceProgress);
+  lv_anim_set_values(&animation, 0, 1000);
+  lv_anim_set_duration(&animation, 640);
+  lv_anim_set_completed_cb(&animation, [](lv_anim_t* animation) {
+    auto* state = static_cast<ArtilleryEntrance*>(animation->var);
+    if (state->dispatched || lv_screen_active() != state->screen) return;
+    state->dispatched = true;
+    const auto callback = state->callback;
+    void* context = state->context;
+    callback(Action::kArtillery, context);
+  });
+  lv_anim_start(&animation);
+}
+
+void AttachArtilleryEntrance(lv_obj_t* logo, ActionCallback callback, void* context) {
+  auto* state = new ArtilleryEntrance;
+  state->screen = lv_obj_get_screen(logo);
+  state->logo = logo;
+  state->callback = callback;
+  state->context = context;
+  lv_obj_add_event_cb(state->screen, [](lv_event_t* event) {
+    delete static_cast<ArtilleryEntrance*>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, state);
+  OnClick(logo, [state] {
+    if (state->running) return;
+    const bool launch = state->taps.Tap(lv_tick_get());
+    // Silently prepare during the taps so the opening report is not delayed
+    // by audio initialization. Abandoned tap sequences release it promptly.
+    state->sound.Prepare();
+    if (!state->idle) {
+      state->idle = lv_timer_create([](lv_timer_t* timer) {
+        auto* state = static_cast<ArtilleryEntrance*>(lv_timer_get_user_data(timer));
+        if (!state->running) state->sound.Stop();
+        lv_timer_pause(timer);
+      }, 1000, state);
+    }
+    lv_timer_reset(state->idle);
+    lv_timer_resume(state->idle);
+    if (launch) BeginEntrance(state);
+  });
+}
 
 std::string OrUnknown(std::string value) {
   return value.empty() ? "Unknown" : value;
@@ -85,7 +233,7 @@ void IdentityRow(lv_obj_t *parent, int x, int y, int width,
 }
 
 void BrandHero(lv_obj_t *parent, int x, int y, int width, int height,
-               bool landscape) {
+               bool landscape, ActionCallback callback, void *context) {
   auto *hero = lv_obj_create(parent);
   Panel(hero, 46, kMainSheet);
   lv_obj_set_pos(hero, x, y);
@@ -109,6 +257,8 @@ void BrandHero(lv_obj_t *parent, int x, int y, int width, int height,
   lv_obj_set_size(logo_crop, crop_width, crop_height);
   lv_obj_align(logo_crop, LV_ALIGN_CENTER, 0, landscape ? -104 : -92);
   lv_obj_set_style_clip_corner(logo_crop, true, 0);
+  lv_obj_add_flag(logo_crop, LV_OBJ_FLAG_CLICKABLE);
+  AttachArtilleryEntrance(logo_crop, callback, context);
 
   auto *white = BrandLayer(logo_crop, &assets::kAeraBrandWhite,
                            logo_scale, kText);
@@ -121,6 +271,7 @@ void BrandHero(lv_obj_t *parent, int x, int y, int width, int height,
   constexpr int kSegmentHeight = 121;
   auto *segment_crop = lv_obj_create(logo_crop);
   Clear(segment_crop);
+  lv_obj_remove_flag(segment_crop, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_pos(segment_crop, kSegmentX * logo_scale / LV_SCALE_NONE,
                  kSegmentY * logo_scale / LV_SCALE_NONE);
   lv_obj_set_size(segment_crop,
@@ -167,7 +318,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   const std::string maintainer = OrUnknown(RecoveryMaintainer());
 
   if (landscape) {
-    BrandHero(content, 0, 0, 980, 842, true);
+    BrandHero(content, 0, 0, 980, 842, true, callback, context);
 
     auto *credits = Kicker(content, "THE PEOPLE BEHIND AERA", kAccent);
     lv_obj_set_pos(credits, 1040, 4);
@@ -195,7 +346,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_set_width(foundation, 1920);
     AnimateEnter(identity, 95, 10);
   } else {
-    BrandHero(content, 0, 0, 1312, 716, false);
+    BrandHero(content, 0, 0, 1312, 716, false, callback, context);
 
     auto *credits = Kicker(content, "THE PEOPLE BEHIND AERA", kAccent);
     lv_obj_set_pos(credits, 18, 782);

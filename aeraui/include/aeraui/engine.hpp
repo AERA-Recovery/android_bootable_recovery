@@ -76,6 +76,7 @@ enum class Action {
     kStatusBar,
     kTemperatures,
     kLockScreenshot,
+    kArtillery,
 };
 
 enum class DecryptionCompletion {

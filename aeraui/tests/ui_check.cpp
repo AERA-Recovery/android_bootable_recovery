@@ -577,6 +577,107 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--artillery")) {
+    for (bool landscape : {false, true}) {
+      const int width = landscape ? 3168 : 1440;
+      const int height = landscape ? 1440 : 3168;
+      lv_display_set_resolution(display, width, height);
+      for (int density : {0, 1, 2, 3}) {
+        interface_size = static_cast<InterfaceSize>(density);
+        design::ApplyInterfaceSize(density);
+        auto* page = lv_obj_create(nullptr);
+        BuildArtilleryScene(page, RecordAction, nullptr);
+        lv_screen_load(page); Tick(2);
+        auto* cpu = Find(page, "vs CPU");
+        auto* two = Find(page, "2 players");
+        assert(cpu && two);
+        lv_obj_send_event(two, LV_EVENT_CLICKED, nullptr); Tick(2);
+        auto* fire = Find(page, LV_SYMBOL_PLAY "  Fire");
+        assert(fire && !lv_obj_has_state(fire, LV_STATE_DISABLED));
+        auto* easy = Find(page, "Easy");
+        auto* classic = Find(page, "Classic");
+        assert(easy && classic);
+        for (auto* button : {fire, cpu, two, easy, classic, Find(page, LV_SYMBOL_REFRESH),
+                             Find(page, LV_SYMBOL_VOLUME_MAX)}) {
+          assert(button);
+          AssertInside(button, width, height);
+          AssertContained(lv_obj_get_child(button, 0), button);
+        }
+        assert(!Overlaps(fire, two));
+        assert(!Overlaps(cpu, two));
+        assert(!Overlaps(easy, classic) && !Overlaps(easy, cpu));
+        lv_obj_send_event(classic, LV_EVENT_CLICKED, nullptr); Tick(2);
+        lv_obj_send_event(easy, LV_EVENT_CLICKED, nullptr); Tick(2);
+        if (density == 1)
+          save(landscape ? "/tmp/aera-artillery-landscape.png" : "/tmp/aera-artillery-portrait.png", 2);
+        lv_obj_send_event(fire, LV_EVENT_CLICKED, nullptr); Tick(8);
+        assert(lv_obj_has_state(fire, LV_STATE_DISABLED));
+        lv_obj_send_event(Find(page, LV_SYMBOL_VOLUME_MAX), LV_EVENT_CLICKED, nullptr);
+        assert(Find(page, LV_SYMBOL_MUTE));
+        lv_obj_send_event(Find(page, LV_SYMBOL_REFRESH), LV_EVENT_CLICKED, nullptr); Tick(2);
+        assert(!lv_obj_has_state(fire, LV_STATE_DISABLED));
+        lv_screen_load(screen); lv_obj_delete(page); Tick(4);
+      }
+    }
+    design::ApplyInterfaceSize(1);
+    for (bool landscape : {false, true}) {
+    lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+    auto* about = lv_obj_create(nullptr);
+    BuildAboutScene(about, RecordAction, nullptr);
+    lv_screen_load(about); Tick();
+    // Only the visible logo's crop owns the unlock callback, not the hero card.
+    lv_obj_t* logo = nullptr;
+    const auto locate = [&](auto&& self, lv_obj_t* object) -> void {
+      if (lv_obj_has_flag(object, LV_OBJ_FLAG_CLICKABLE) &&
+          lv_obj_get_child_count(object) == 2 &&
+          lv_obj_check_type(lv_obj_get_child(object, 0), &lv_image_class)) logo = object;
+      for (uint32_t i = 0; i < lv_obj_get_child_count(object); ++i)
+        self(self, lv_obj_get_child(object, i));
+    };
+    locate(locate, about);
+    assert(logo);
+    last_action = Action::kNone;
+    for (int i = 0; i < 6; ++i) {
+      lv_obj_send_event(logo, LV_EVENT_CLICKED, nullptr);
+      lv_tick_inc(120);
+      assert(last_action == Action::kNone);
+    }
+    const int before_entrance = callback_count;
+    lv_obj_send_event(logo, LV_EVENT_CLICKED, nullptr);
+    assert(last_action == Action::kNone);
+    for (int i = 0; i < 14; ++i) lv_obj_send_event(logo, LV_EVENT_CLICKED, nullptr);
+    Tick(12);
+    assert(last_action == Action::kNone);
+    assert(lv_obj_get_style_translate_y(logo, LV_PART_MAIN) > 0);
+    save(landscape ? "/tmp/aera-artillery-entrance-landscape.png" :
+                    "/tmp/aera-artillery-entrance-portrait.png", 0);
+    Tick(36);
+    assert(last_action == Action::kArtillery);
+    assert(callback_count == before_entrance + 1);
+    assert(lv_obj_get_style_translate_y(logo, LV_PART_MAIN) == 0);
+    lv_screen_load(screen); lv_obj_delete(about); Tick(4);
+    for (bool destroy_early : {false, true}) {
+      about = lv_obj_create(nullptr);
+      BuildAboutScene(about, RecordAction, nullptr);
+      lv_screen_load(about); Tick();
+      logo = nullptr;
+      locate(locate, about);
+      assert(logo);
+      last_action = Action::kNone;
+      for (int i = 0; i < 7; ++i) lv_obj_send_event(logo, LV_EVENT_CLICKED, nullptr);
+      Tick(8);
+      lv_screen_load(screen);
+      if (destroy_early) lv_obj_delete(about);
+      Tick(50);
+      assert(last_action == Action::kNone);
+      if (!destroy_early) lv_obj_delete(about);
+      Tick(4);
+    }
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("Artillery: portrait/landscape, all densities, controls, audio fallback, cleanup and About unlock passed");
+    return 0;
+  }
   if (!strcmp(argv[1], "--lock-theme")) {
     LockTheme settings; settings.owner="AERA user's phone";settings.blur=45;
     settings.wallpaper="/sdcard/My wallpaper.png";

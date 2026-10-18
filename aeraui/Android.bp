@@ -41,6 +41,14 @@ cc_binary {
     cflags: ["-Wall", "-Wextra", "-Werror"],
 }
 
+cc_binary {
+    name: "aera-artillery-audio",
+    recovery: true,
+    srcs: ["features/artillery/audio_main.cpp"],
+    cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}
+
 cc_library_static {
     name: "libaeraui",
     defaults: ["aeraui_defaults"],
@@ -61,6 +69,7 @@ cc_library_static {
         "core/gpu_renderer.cpp",
         "core/runner.cpp",
         "core/status_bar.cpp",
+        "features/artillery/game.cpp",
         "features/backup/android_packages_xml.cpp",
         "features/backup/app_registration.cpp",
         "features/backup/app_registration_io.cpp",
@@ -98,6 +107,7 @@ cc_library_static {
         "localization/i18n.cpp",
         "platform/unencrypted_users.cpp",
         "scenes/about_scene.cpp",
+        "scenes/artillery_scene.cpp",
         "scenes/appvault_scene.cpp",
         "scenes/boot_scene.cpp",
         "scenes/browser_scene.cpp",

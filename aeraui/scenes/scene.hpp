@@ -159,6 +159,7 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
 void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback,
                            void *context);
 void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context);
+void BuildArtilleryScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
                         void *context);
 void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
