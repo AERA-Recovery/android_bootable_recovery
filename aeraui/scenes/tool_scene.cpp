@@ -2530,7 +2530,7 @@ void BuildThemeLock(Tools *state) {
       editor->Save();
       RefreshTheme(state);
     });
-    if (editor->theme.aod) range("AOC brightness", &LockTheme::aod_brightness, 1, 100);
+    if (editor->theme.aod) range("AOD brightness", &LockTheme::aod_brightness, 1, 100);
     choices("Unlock gesture", &LockTheme::unlock, {"Slider", "Swipe up", "Hold"});
     choices("Slide / hold unlock animation", &LockTheme::animation, {"None", "Fade"});
     auto *owner = Button(state->list, "Edit owner text", [editor] { EditLockText(editor, false); });

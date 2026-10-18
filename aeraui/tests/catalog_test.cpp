@@ -19,6 +19,22 @@ int main(int argc, char **argv) {
   Json::Value catalog;
   source >> catalog;
   assert(catalog["schema"].asInt() == 1);
+  const char *required_theme_tags[]{
+    "Swipe up to unlock", "Hold to unlock", "Unlock gesture", "Slider",
+    "Swipe up", "Hold", "AOD brightness", "Always-on clock", "Clock style",
+    "Clock position", "Clock colour", "Date style", "Date position",
+    "Surface style", "Solid", "Frosted", "Outline", "Elevated",
+    "Typography", "Density", "Wallpaper", "Lock screen", "Text Only",
+    "Choose lock-screen wallpaper", "Edit owner text",
+    "Dim clock on black. Uses more power than screen off. Wake with Power."
+  };
+  for (const auto *tag : required_theme_tags) {
+    assert(catalog["strings"].isMember(tag));
+    for (const auto &language : catalog["languages"]) {
+      assert(catalog["strings"][tag].isMember(language.asString()));
+      assert(!catalog["strings"][tag][language.asString()].asString().empty());
+    }
+  }
   lv_init();
   lv_display_create(1440, 3168);
   aeraui::i18n::Initialize("en");
