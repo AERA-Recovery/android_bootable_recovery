@@ -2005,6 +2005,67 @@ int main(int argc,char **argv) {
     puts("Home plugin taps, reorder, sizes, persistence, trash confirmation and drag teardown passed.");
     return 0;
   }
+  if (!strcmp(argv[1], "--slot-warning")) {
+    const char *ack_text = "I understand the risks and have checked the target slot.";
+    for (const char *language : {"en", "de_DE"})
+    for (bool landscape : {false, true})
+    for (int size : {0, 1, 3}) {
+      i18n::SetLanguage(language);
+      design::ApplyInterfaceSize(size);
+      interface_size = static_cast<InterfaceSize>(size);
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      for (const char *source : {"A", "B"}) {
+        active_slot = source;
+        const std::string target = active_slot == "A" ? "B" : "A";
+        callback_count = 0;
+        auto *page = lv_obj_create(nullptr);
+        BuildRebootScene(page, RecordAction, nullptr);
+        lv_screen_load(page); Tick();
+        auto open = [&] {
+          auto *button = Find(page, i18n::Format("Slot %s", target.c_str()).c_str()); assert(button);
+          lv_obj_send_event(button, LV_EVENT_CLICKED, nullptr); Tick();
+          auto *warning = FindLabel(page, i18n::Translate("Android, recovery and fastboot may become inaccessible. Unbricking may require service tools and erase your data."));
+          assert(warning);
+          auto *ack = Find(page, i18n::Translate(ack_text)); assert(ack);
+          auto *check = FindType(ack, &lv_checkbox_class); assert(check);
+          assert(!lv_obj_has_state(check, LV_STATE_CHECKED));
+          auto *caption = FindLabel(page, i18n::Translate("Swipe to change slot")); assert(caption);
+          return lv_obj_get_parent(caption);
+        };
+        auto *slider = open();
+        assert(lv_obj_has_state(slider, LV_STATE_DISABLED));
+        auto *cancel = Find(page, i18n::Translate("Cancel")); assert(cancel);
+        lv_obj_send_event(cancel, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(active_slot == source && callback_count == 0);
+        slider = open();
+        // Even a direct confirmation callback cannot bypass acknowledgement.
+        auto *overlay = lv_obj_get_parent(lv_obj_get_parent(slider));
+        widgets::SheetState *review = nullptr;
+        for (uint32_t i = 0; i < lv_obj_get_event_count(overlay); ++i) {
+          auto *event = lv_obj_get_event_dsc(overlay, i);
+          if (lv_event_dsc_get_user_data(event))
+            review = static_cast<widgets::SheetState *>(lv_event_dsc_get_user_data(event));
+        }
+        assert(review && review->confirm);
+        review->confirm();
+        assert(active_slot == source && callback_count == 0);
+        auto *ack = Find(page, i18n::Translate(ack_text)); assert(ack);
+        lv_obj_send_event(ack, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(!lv_obj_has_state(slider, LV_STATE_DISABLED));
+        lv_obj_send_event(ack, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(lv_obj_has_state(slider, LV_STATE_DISABLED));
+        lv_obj_send_event(ack, LV_EVENT_CLICKED, nullptr); Tick();
+        if (active_slot == "A" && size == 1 && !strcmp(language, "en"))
+          save(landscape ? "/tmp/aera-slot-warning-landscape.png" : "/tmp/aera-slot-warning-portrait.png");
+        ConfirmSettingsModal(page); Tick();
+        assert(active_slot == target && callback_count == 1 && last_action == Action::kOpenReboot);
+        lv_screen_load(screen); lv_obj_delete(page); Tick();
+      }
+    }
+    lv_deinit(); std::filesystem::remove_all(backup_root);
+    puts("Slot risk warning, acknowledgement, cancellation and explicit confirmation passed.");
+    return 0;
+  }
   if (!strcmp(argv[1], "--home-art")) {
     for (const char *entry : {"retroarch", "browser", "telegram", "gallery", "media",
                              "recorder", "streams", "doom", "appvault", "main"}) {

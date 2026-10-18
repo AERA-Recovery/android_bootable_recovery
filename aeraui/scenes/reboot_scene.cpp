@@ -3,6 +3,7 @@
 #include "ui_components.hpp"
 #include "power_transition.hpp"
 #include <cctype>
+#include <memory>
 
 namespace aeraui {
 void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) {
@@ -43,8 +44,8 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
                         &lv_font_montserrat_48, kText);
   lv_obj_set_pos(current, 158, 78);
   auto *hint = Label(slot_card,
-      "The selected slot is used the next time Android starts.",
-      &lv_font_montserrat_24, kMuted);
+      "Switching slots can brick your device.",
+      &lv_font_montserrat_24, kRed);
   lv_obj_set_pos(hint, 34, 154);
   lv_obj_set_width(hint, 1220);
 
@@ -63,13 +64,81 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
       const std::string detail = i18n::Format(
           "AERA will mark Slot %s active. This does not reboot the device yet.",
           slot.c_str());
+      struct Review {
+        bool acknowledged = false;
+        lv_obj_t *slider = nullptr;
+      };
+      auto review = std::make_shared<Review>();
       Sheet(screen, title.c_str(), detail.c_str(), [=] {
+        if (!review->acknowledged) return;
         if (RecoverySetActiveSlot(slot)) {
           callback(Action::kOpenReboot, context);
         } else {
           i18n::BindLabel(feedback,
                             "Could not change the active boot slot.");
         }
+      }, 1640, false, SheetPresentation::kStandard, "Swipe to change slot",
+      [review, detail](lv_obj_t *body) {
+        lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(body, 28, 0);
+        auto text = [body](const char *copy, lv_color_t color) {
+          auto *label = Label(body, copy, &lv_font_montserrat_32, color);
+          lv_obj_set_width(label, LV_PCT(100));
+          lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        };
+        text("Switching slots can brick your device.", kRed);
+        text("The other slot may be empty, incomplete or incompatible. Changing slots does not copy or repair Android or firmware.", kText);
+        text("Android, recovery and fastboot may become inaccessible. Unbricking may require service tools and erase your data.", kText);
+        text("Only continue if you know the target slot is complete and compatible. Do not switch slots just to experiment.", kMutedStrong);
+        text(detail.c_str(), kMutedStrong);
+        auto *ack = lv_button_create(body);
+        Panel(ack, 24, kMainPanel);
+        Interactive(ack, kMainSelected);
+        lv_obj_set_size(ack, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_all(ack, 24, 0);
+        lv_obj_set_style_pad_column(ack, 24, 0);
+        lv_obj_set_style_min_height(ack, 128, 0);
+        lv_obj_set_flex_flow(ack, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(ack, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                             LV_FLEX_ALIGN_CENTER);
+        auto *check = lv_checkbox_create(ack);
+        lv_checkbox_set_text(check, "");
+        lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        lv_obj_set_style_size(check, 42, 42, LV_PART_INDICATOR);
+        lv_obj_set_style_text_font(check, UiFont(&lv_font_montserrat_32), LV_PART_MAIN);
+        lv_obj_set_style_pad_all(check, 20, LV_PART_INDICATOR);
+        lv_obj_set_style_radius(check, 12, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(check, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(check, kInset, LV_PART_INDICATOR);
+        lv_obj_set_style_border_width(check, 2, LV_PART_INDICATOR);
+        lv_obj_set_style_border_color(check, kMutedStrong, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(check, kRed, LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_text_color(check, lv_color_white(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_image_src(check, LV_SYMBOL_OK, LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_image_recolor(check, lv_color_white(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_image_opa(check, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
+        auto *label = Label(ack, "I understand the risks and have checked the target slot.",
+                            &lv_font_montserrat_28, kText);
+        lv_obj_set_width(label, 0);
+        lv_obj_set_flex_grow(label, 1);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        OnClick(ack, [review, check] {
+          review->acknowledged = !review->acknowledged;
+          if (review->acknowledged) lv_obj_add_state(check, LV_STATE_CHECKED);
+          else lv_obj_remove_state(check, LV_STATE_CHECKED);
+          if (review->slider) {
+            if (review->acknowledged) lv_obj_remove_state(review->slider, LV_STATE_DISABLED);
+            else lv_obj_add_state(review->slider, LV_STATE_DISABLED);
+            lv_obj_set_style_opa(review->slider,
+                review->acknowledged ? LV_OPA_COVER : LV_OPA_40, 0);
+          }
+        });
+      }, [review](lv_obj_t *slider, lv_obj_t *) {
+        review->slider = slider;
+        lv_obj_add_state(slider, LV_STATE_DISABLED);
+        lv_obj_set_style_opa(slider, LV_OPA_40, 0);
+        lv_obj_set_style_border_color(slider, kRed, 0);
       });
     }, selected);
     lv_obj_set_pos(button, 34 + index * 630, 212);

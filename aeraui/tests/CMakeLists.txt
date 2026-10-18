@@ -17,6 +17,7 @@ find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
 add_executable(ui_check ui_check.cpp
+  ../scenes/reboot_scene.cpp ../components/power_transition.cpp
   ../scenes/lock_scene.cpp
   ../scenes/package_review.cpp
   ../scenes/launcher_scene.cpp ../components/retroarch_icon.cpp
@@ -116,6 +117,7 @@ add_test(NAME settings_autosave_and_reset COMMAND ui_check --settings)
 add_test(NAME lock_screen_customisation COMMAND ui_check --lock-theme)
 add_test(NAME themed_home_artwork COMMAND ui_check --art)
 add_test(NAME themed_home_layout COMMAND ui_check --home-art)
+add_test(NAME manual_slot_switch_warning COMMAND ui_check --slot-warning)
 add_test(NAME pc_connection_settings_layout COMMAND ui_check --pc-settings)
 add_test(NAME settings_navigation_and_language_viewport COMMAND ui_check --settings-navigation)
 add_test(NAME preferences_layout COMMAND ui_check --preferences-layout)
