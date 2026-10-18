@@ -3151,8 +3151,10 @@ void LoadAeraPreferencesIfAvailable() {
   ApplyEarlyUiPreferences(full_ui);
   loaded = true;
   gPrimaryWifiPreferencesLoaded = true;
+#ifdef OF_ENABLE_WLAN
   if (AeraSecrets::UsePrimaryWlan(DataManager::GetStrValue("wlan_connected_name")))
     DataManager::SetValue("aera_wlan_reconnect", 1);
+#endif
   ApplyEarlyUiSideEffects();
   if (!SaveEarlyUiPreferences()) LOGERR("AERA: could not refresh the early UI preference cache.\n");
   if (!SaveEarlyWifiPreferences()) LOGERR("AERA: could not refresh the early WLAN cache.\n");
@@ -4008,6 +4010,12 @@ bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
 
 bool RecoveryImportNasKey(const std::string &key, const std::string &name,
                           std::string *error) {
+#ifndef OF_ENABLE_WLAN
+  (void)key;
+  (void)name;
+  if (error) *error = "This recovery was built without network storage support.";
+  return false;
+#else
   if (key.empty() || key.size() > 65536 || key.find('\0') != std::string::npos ||
       name.empty() || name.size() > 128 || name.find_first_of("\r\n/") != std::string::npos ||
       key.find("-----BEGIN ") != 0 || key.find("PRIVATE KEY-----") == std::string::npos) {
@@ -4019,6 +4027,7 @@ bool RecoveryImportNasKey(const std::string &key, const std::string &name,
     return false;
   }
   return true;
+#endif
 }
 
 int RecoveryRunNas(const NasRequest &request) {
