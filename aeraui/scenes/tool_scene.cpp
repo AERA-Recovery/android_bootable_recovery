@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include "scene.hpp"
+#include "aeraui/screen_timeout.hpp"
 #include "phone_keyboard.hpp"
 #include "picture_decode.hpp"
 #include "ui_components.hpp"
@@ -2704,7 +2705,9 @@ void BuildPreferences(Tools *state) {
     auto *title = Label(heading, "Screen-off timeout", &lv_font_montserrat_32, kText);
     lv_obj_set_flex_grow(title, 1);
     lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
-    auto *value = Label(heading, (std::to_string(RecoveryScreenTimeout()) + " s").c_str(),
+    const std::string timeout_text = RecoveryScreenTimeout() == 0 ? i18n::Translate("Never") :
+        std::to_string(RecoveryScreenTimeout()) + " s";
+    auto *value = Label(heading, timeout_text.c_str(),
                         &lv_font_montserrat_32, kAccent);
     lv_obj_set_width(value, 146);
     lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_RIGHT, 0);
@@ -2714,15 +2717,15 @@ void BuildPreferences(Tools *state) {
     auto *slider = lv_slider_create(track);
     lv_obj_set_size(slider, LV_PCT(96), 24);
     lv_obj_center(slider);
-    lv_slider_set_range(slider, 30, 300);
-    lv_slider_set_value(slider, RecoveryScreenTimeout(), LV_ANIM_OFF);
+    lv_slider_set_range(slider, 0, 10);
+    lv_slider_set_value(slider, ScreenTimeoutPosition(RecoveryScreenTimeout()), LV_ANIM_OFF);
     RangeSlider(slider);
     lv_obj_add_event_cb(slider, [](lv_event_t *event) {
       const auto code = lv_event_get_code(event);
       if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
-      const int seconds = lv_slider_get_value(lv_event_get_target_obj(event));
-      lv_label_set_text(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),
-                        (std::to_string(seconds) + " s").c_str());
+      const int seconds = ScreenTimeoutSeconds(lv_slider_get_value(lv_event_get_target_obj(event)));
+      const std::string text = seconds == 0 ? i18n::Translate("Never") : std::to_string(seconds) + " s";
+      lv_label_set_text(static_cast<lv_obj_t *>(lv_event_get_user_data(event)), text.c_str());
       if (code == LV_EVENT_RELEASED) RecoverySetScreenTimeout(seconds);
     }, LV_EVENT_ALL, value);
     lv_obj_add_event_cb(slider, [](lv_event_t *event) {

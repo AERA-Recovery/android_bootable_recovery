@@ -1,4 +1,5 @@
 #include "scene.hpp"
+#include <aeraui/screen_timeout.hpp>
 #include "ui_components.hpp"
 #include "pc_transfer_banner.hpp"
 #include "hardware_keyboard.hpp"
@@ -1687,16 +1688,23 @@ int main(int argc,char **argv) {
     assert(autosave_count == 2);
     auto *timeout = FindPreferenceEntry(prefs, "Screen-off timeout"); assert(timeout);
     auto *timeout_slider = FindType(timeout, &lv_slider_class); assert(timeout_slider);
-    assert(lv_slider_get_min_value(timeout_slider) == 30);
-    assert(lv_slider_get_max_value(timeout_slider) == 300);
-    assert(lv_slider_get_value(timeout_slider) == 60);
-    lv_slider_set_value(timeout_slider, 300, LV_ANIM_OFF);
+    assert(lv_slider_get_min_value(timeout_slider) == 0);
+    assert(lv_slider_get_max_value(timeout_slider) == 10);
+    assert(lv_slider_get_value(timeout_slider) == 1);
+    lv_slider_set_value(timeout_slider, 9, LV_ANIM_OFF);
     lv_obj_send_event(timeout_slider, LV_EVENT_VALUE_CHANGED, nullptr);
     assert(Find(timeout, "300 s"));
     assert(screen_timeout == 60);
     lv_obj_send_event(timeout_slider, LV_EVENT_RELEASED, nullptr);
     assert(screen_timeout == 300);
     assert(autosave_count == 3);
+    lv_slider_set_value(timeout_slider, 10, LV_ANIM_OFF);
+    lv_obj_send_event(timeout_slider, LV_EVENT_VALUE_CHANGED, nullptr);
+    assert(Find(timeout, "Never"));
+    assert(screen_timeout == 300);
+    lv_obj_send_event(timeout_slider, LV_EVENT_RELEASED, nullptr);
+    assert(screen_timeout == 0);
+    assert(autosave_count == 4);
     lv_obj_send_event(FindPreferenceEntry(prefs, "Haptics"), LV_EVENT_CLICKED, nullptr);
     Tick(2);
     save("/tmp/aera-preferences-haptics-host.png");

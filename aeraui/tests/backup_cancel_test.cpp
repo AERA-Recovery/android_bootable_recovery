@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "../../aera_remote/backup_cancel.hpp"
+#include "../include/aeraui/screen_timeout.hpp"
 #include <cassert>
 #include <poll.h>
 #include <sys/wait.h>
@@ -11,6 +12,14 @@ bool BackupCancelRequested() { return active.load() && cancelled.load(); }
 }
 
 int main() {
+  assert(aeraui::ValidScreenTimeout(0));
+  assert(!aeraui::ValidScreenTimeout(29));
+  assert(!aeraui::ValidScreenTimeout(301));
+  assert(aeraui::ScreenTimeoutPosition(0) == 10);
+  assert(aeraui::ScreenTimeoutSeconds(10) == 0);
+  assert(aeraui::ScreenTimeoutSeconds(9) == 300);
+  for (int i = 0; i <= 10; ++i)
+    assert(aeraui::ScreenTimeoutPosition(aeraui::ScreenTimeoutSeconds(i)) == i);
   using namespace aera::pc;
   int channel[2]; assert(pipe(channel) == 0);
   const auto child = fork(); assert(child >= 0);

@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include <aeraui/backend.hpp>
+#include <aeraui/screen_timeout.hpp>
 #include "../../aera_remote/backup_cancel.hpp"
 #include "aeraui/features/update/payload_inspector.hpp"
 #include "aeraui/features/update/payload_arb.hpp"
@@ -1930,11 +1931,11 @@ bool RecoveryScreenTimeoutSupported() {
 int RecoveryScreenTimeout() {
   LoadAeraPreferencesIfAvailable();
   const int seconds = DataManager::GetIntValue("tw_screen_timeout_secs");
-  return seconds >= 30 && seconds <= 300 ? seconds : 60;
+  return ValidScreenTimeout(seconds) ? seconds : 60;
 }
 void RecoverySetScreenTimeout(int seconds) {
   if (RecoveryScreenTimeoutSupported())
-    DataManager::SetValue("tw_screen_timeout_secs", std::clamp(seconds, 30, 300));
+    DataManager::SetValue("tw_screen_timeout_secs", seconds == 0 ? 0 : std::clamp(seconds, 30, 300));
 }
 int RecoveryBrightness() {
   LoadAeraPreferencesIfAvailable();
@@ -2516,7 +2517,7 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   if (!ValidPlainText(preferences.timezone, 96)) preferences.timezone = "UTC0";
   preferences.brightness = DataManager::GetIntValue("tw_brightness_pct");
   const int timeout = DataManager::GetIntValue("tw_screen_timeout_secs");
-  preferences.screen_timeout = timeout >= 30 && timeout <= 300 ? timeout : 60;
+  preferences.screen_timeout = ValidScreenTimeout(timeout) ? timeout : 60;
   if (preferences.brightness < 10 || preferences.brightness > 100) preferences.brightness = 100;
   preferences.accent = DataManager::GetStrValue("aera_theme_accent");
   if (!ValidAccent(preferences.accent)) preferences.accent = "16c8ff";
@@ -2684,7 +2685,7 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
     if (!ValidPlainText(value, 96)) return false;
     preferences->timezone = value;
   } else if (key == "screen_timeout") {
-    if (!ParseInteger(value, 30, 300, &parsed)) return false;
+    if (!ParseInteger(value, 0, 300, &parsed) || !ValidScreenTimeout(parsed)) return false;
     preferences->screen_timeout = parsed;
   } else if (key == "brightness") {
     if (!ParseInteger(value, 10, 100, &parsed)) return false;
