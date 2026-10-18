@@ -13,12 +13,14 @@
 struct nf_file {
     struct nf_file *next;
     void *remote;
-    char *path;
+    char *path, *cancel_path;
     int flags, cache_fd, dirty, error;
     char cache_path[PATH_MAX], manifest[PATH_MAX];
     unsigned char *write_buffer, *read_buffer;
     size_t write_count, read_count;
     uint64_t write_offset, read_offset, size;
+    uint64_t uploaded;
+    int uploading;
 };
 struct filesystem {
     struct nf_config *config;
@@ -37,9 +39,13 @@ static int healthy(void) {
 static void status_update(int force) {
     if (!*fs.config->status_file || (!force && nf_now()-fs.status_time<0.25)) return;
     fs.status_time=nf_now();
-    uint64_t pending=fs.retained,files=fs.retained_files;
+    uint64_t pending=fs.retained,files=fs.retained_files,uploading=0,uploaded=0,total=0;
     for (struct nf_file *f=fs.files;f;f=f->next) {
-        if (f->dirty) { pending+=f->cache_fd>=0 ? f->size : f->write_count; ++files; }
+        if (f->dirty) {
+            pending+=f->cache_fd>=0 ? f->size-(f->uploading ? f->uploaded : 0) : f->write_count;
+            ++files;
+        }
+        if (f->uploading) { ++uploading;uploaded+=f->uploaded;total+=f->size; }
     }
     struct json_object *root=json_object_new_object();
     json_object_object_add(root,"version",json_object_new_int(1));
@@ -48,6 +54,9 @@ static void status_update(int force) {
     json_object_object_add(root,"read",json_object_new_uint64(fs.read));
     json_object_object_add(root,"pending_bytes",json_object_new_uint64(pending));
     json_object_object_add(root,"pending_files",json_object_new_uint64(files));
+    json_object_object_add(root,"uploading_files",json_object_new_uint64(uploading));
+    json_object_object_add(root,"uploading_bytes",json_object_new_uint64(uploaded));
+    json_object_object_add(root,"uploading_total",json_object_new_uint64(total));
     json_object_object_add(root,"retained_files",json_object_new_uint64(fs.retained_files));
     json_object_object_add(root,"write_errors",json_object_new_uint64(fs.write_errors));
     json_object_object_add(root,"connected",json_object_new_boolean(healthy()==0));
@@ -95,9 +104,23 @@ static unsigned char *allocate_buffer(void) {
 static void free_buffer(unsigned char **buffer) {
     if (*buffer) { free(*buffer);*buffer=NULL;fs.memory-=NF_WINDOW; }
 }
+static int upload_cancelled(const struct nf_file *f) {
+    char path[PATH_MAX],scope[PATH_MAX];
+    if (!*fs.config->status_file ||
+        snprintf(path,sizeof(path),"%s.cancel",fs.config->status_file)>=(int)sizeof(path)) return 0;
+    int fd=open(path,O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
+    if (fd<0) return 0;
+    ssize_t n=read(fd,scope,sizeof(scope)-1);close(fd);
+    if (n<=0) return 0;
+    scope[n]=0;scope[strcspn(scope,"\r\n")]=0;
+    size_t length=strlen(scope);
+    return length && scope[0]=='/' && !strncmp(f->cancel_path,scope,length) &&
+        (length==1 || f->cancel_path[length]==0 || f->cancel_path[length]=='/');
+}
 static int drain(struct nf_file *f) {
     if (f->error) return f->error;
     if (!f->write_count) return 0;
+    if (upload_cancelled(f)) return file_error(f,-ECANCELED);
     int rc=healthy();
     if (!rc) rc=fs.ops->write(&fs.remote,f->remote,f->write_buffer,f->write_count,f->write_offset);
     if (rc<0 || (size_t)rc!=f->write_count) return file_error(f,rc);
@@ -112,11 +135,14 @@ static int flush_file(struct nf_file *f) {
     if (healthy()) return file_error(f,-ENOTCONN);
     int rc=0;
     if (f->cache_fd>=0) {
+        if (upload_cancelled(f)) return file_error(f,-ECANCELED);
+        f->uploading=1;f->uploaded=0;status_update(1);
         unsigned char *buffer=allocate_buffer();
-        if (!buffer) return file_error(f,-ENOMEM);
+        if (!buffer) { f->uploading=0;return file_error(f,-ENOMEM); }
         if (fsync(f->cache_fd)) rc=-errno;
         if (!rc) rc=fs.ops->truncate(&fs.remote,f->path,f->remote,0);
         for (uint64_t offset=0;!rc && offset<f->size;) {
+            if (upload_cancelled(f)) { rc=-ECANCELED;break; }
             size_t count=f->size-offset>NF_WINDOW ? NF_WINDOW : (size_t)(f->size-offset);
             ssize_t n=pread(f->cache_fd,buffer,count,(off_t)offset);
             if (n<0 && errno==EINTR) continue;
@@ -124,17 +150,20 @@ static int flush_file(struct nf_file *f) {
             int sent=fs.ops->write(&fs.remote,f->remote,buffer,(size_t)n,offset);
             if (sent!=n) { rc=sent<0 ? sent : -EIO;break; }
             offset+=(uint64_t)n;
+            f->uploaded=offset;
             fs.written+=(uint64_t)n;
             status_update(0);
         }
         free_buffer(&buffer);
     } else rc=drain(f);
+    status_update(1);
     if (!rc) rc=fs.ops->flush(&fs.remote,f->remote);
     if (!rc) {
         struct stat st;
         rc=fs.ops->stat(&fs.remote,f->path,&st,f->remote);
         if (!rc && (uint64_t)st.st_size!=f->size) rc=-EIO;
     }
+    f->uploading=0;
     if (rc) return file_error(f,rc);
     f->dirty=0;
     free_buffer(&f->write_buffer);
@@ -188,8 +217,9 @@ static int open_file(const char *path,mode_t mode,struct fuse_file_info *info,in
     char remote[8192]={0};
     int rc=nf_path(fs.config,path,remote,sizeof(remote));
     f->path=strdup(remote);
+    f->cancel_path=strdup(path);
     f->flags=info->flags|(create ? O_CREAT : 0);
-    if (!f->path) rc=-ENOMEM;
+    if (!f->path || !f->cancel_path) rc=-ENOMEM;
     if (!rc) rc=fs.ops->open(&fs.remote,f->path,f->flags,mode,&f->remote);
     if (!rc) {
         struct stat st;
@@ -203,7 +233,7 @@ static int open_file(const char *path,mode_t mode,struct fuse_file_info *info,in
         if (f->cache_fd>=0) close(f->cache_fd);
         if (*f->cache_path) unlink(f->cache_path);
         if (*f->manifest) unlink(f->manifest);
-        free(f->path);free(f);return rc;
+        free(f->path);free(f->cancel_path);free(f);return rc;
     }
     f->dirty=writable && (f->flags&(O_CREAT|O_TRUNC));
     f->next=fs.files;fs.files=f;
@@ -316,14 +346,16 @@ static int nf_release(const char *p,struct fuse_file_info *info) {
     if (!rc && closed && (f->flags&O_ACCMODE)!=O_RDONLY) rc=file_error(f,closed);
     if (f->cache_fd>=0) {
         close(f->cache_fd);
-        if (!rc) { unlink(f->cache_path);unlink(f->manifest); }
+        if (!rc || (rc==-ECANCELED && upload_cancelled(f))) {
+            unlink(f->cache_path);unlink(f->manifest);
+        }
         else { fs.retained+=f->size;++fs.retained_files; }
     }
     struct nf_file **link=&fs.files;
     while (*link && *link!=f) link=&(*link)->next;
     if (*link) *link=f->next;
     free_buffer(&f->write_buffer);free_buffer(&f->read_buffer);
-    free(f->path);free(f);status_update(1);
+    free(f->path);free(f->cancel_path);free(f);status_update(1);
     return rc;
 }
 static int flush_path(const char *path,int descendants) {

@@ -1765,7 +1765,7 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 	bool nas_backup = false;
 #endif
 #ifdef OF_ENABLE_WLAN
-	if (nas_backup && !NasManager::ResetTransferStats())
+	if (nas_backup && !NasManager::ResetTransferStats(part_settings.Backup_Folder))
 		return false;
 #endif
 
@@ -1775,7 +1775,7 @@ int TWPartitionManager::Run_Backup(bool adbbackup) {
 	end_pos = Backup_List.find(";", start_pos);
 	while (end_pos != string::npos && start_pos < Backup_List.size()) {
 		if (Check_Backup_Cancel())
-			return -1;
+			return false;
 		backup_path = Backup_List.substr(start_pos, end_pos - start_pos);
 		part_settings.Part = Find_Partition_By_Path(backup_path);
 		if (part_settings.Part != NULL) {

@@ -42,6 +42,7 @@
 #include <unistd.h>
 
 #include <cutils/properties.h>
+#include <private/android_filesystem_config.h>
 #include <android-base/properties.h>
 
 #include "data.hpp"
@@ -1631,7 +1632,7 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
     DataManager::SetValue("tw_partition", "NAS upload");
     DataManager::SetProgress(0.0f);
     SetBackupUploadProgress(0, total);
-    if (!NasManager::ResetTransferStats()) return 1;
+    if (!NasManager::ResetTransferStats(destination)) return 1;
     uint64_t copied = 0;
     TWFunc::SetPerformanceMode(true);
     bool ok = CopyBackupTree(canonical_backup, destination, total, &copied);
@@ -1815,8 +1816,20 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
       DataManager::SetValue(TW_SKIP_DIGEST_GENERATE_VAR,
                             request.digest && RecoveryPreference(Preference::kBackupChecksums) ? 0 : 1);
       DataManager::SetValue("tw_encrypt_backup", 0);
-      if (PartitionManager.Check_Backup_Name(backup_name, true, true) == 0)
-        result = PartitionManager.Run_Backup(false) ? 0 : 1;
+      if (PartitionManager.Check_Backup_Name(backup_name, true, true) == 0) {
+        const std::string folder = RecoveryBackupRoot() + "/" + backup_name;
+        if (TWFunc::Create_Dir_Recursive(folder, 0777, AID_MEDIA_RW, AID_MEDIA_RW)) {
+          const std::string marker_path = folder + "/.aera-incomplete";
+          const int marker = open(marker_path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+          if (marker >= 0) {
+            if (close(marker) == 0) {
+              const int complete = PartitionManager.Run_Backup(false);
+              if (complete == 1 && !aera::pc::BackupCancelRequested() && unlink(marker_path.c_str()) == 0)
+                result = 0;
+            }
+          }
+        }
+      }
     }
   } else if (request.job == Job::kRestore) {
     DataManager::SetValue("tw_restore", request.path);
@@ -1840,7 +1853,23 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
   return result;
 }
 
+NasTransferProgress RecoveryNasTransferProgress() {
+#ifdef OF_ENABLE_WLAN
+  const auto progress = NasManager::GetTransferProgress();
+  return {progress.active, progress.confirming, progress.uploaded, progress.total,
+          progress.pending, progress.bytes_per_second};
+#else
+  return {};
+#endif
+}
+void RecoveryCancelNasWrites() {
+#ifdef OF_ENABLE_WLAN
+  NasManager::CancelPendingUploads();
+#endif
+}
 int RecoveryProgress() {
+  const auto nas = RecoveryNasTransferProgress();
+  if (nas.active && nas.total) return std::min(99, static_cast<int>(nas.uploaded * 100 / nas.total));
   const auto payload = gPayloadProgress.Read();
   if (payload.available) return aeraui::payload::OverallProgress(payload);
   int raw = std::clamp(atoi(DataManager::GetStrValue("ui_progress").c_str()), 0, 100);
@@ -1854,6 +1883,13 @@ int RecoveryProgress() {
   return raw;
 }
 std::string RecoveryOperationDetail() {
+  const auto nas = RecoveryNasTransferProgress();
+  if (nas.active) {
+    std::ostringstream output;
+    output << "NAS upload\n" << nas.uploaded / 1000000 << " MB of " << nas.total / 1000000
+           << " MB\n" << nas.pending / 1000000 << " MB pending";
+    return output.str();
+  }
   std::string text = DataManager::GetStrValue("tw_operation");
   const auto partition = DataManager::GetStrValue("tw_partition");
   if (!partition.empty()) text += " / " + partition;

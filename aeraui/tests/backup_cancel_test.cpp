@@ -20,6 +20,23 @@ int main() {
   assert(aeraui::ScreenTimeoutSeconds(9) == 300);
   for (int i = 0; i <= 10; ++i)
     assert(aeraui::ScreenTimeoutPosition(aeraui::ScreenTimeoutSeconds(i)) == i);
+  aera::backup::Control control;
+  assert(!control.Active() && !control.Requested());
+  const auto backup = control.Begin(false);
+  assert(control.Active() && !control.Requested());
+  assert(control.Request(backup, false));
+  assert(control.Requested());
+  control.Finish(backup);
+  assert(!control.Active() && !control.Requested());
+  assert(control.Snapshot().requested);
+  const auto restore = control.Begin(true);
+  assert(!control.Request(backup, true));
+  assert(!control.Request(restore, false));
+  control.Finish(backup);
+  assert(control.Active());
+  assert(control.Request(restore, true));
+  control.Finish(restore);
+  assert(!control.Request(restore, true));
   using namespace aera::pc;
   int channel[2]; assert(pipe(channel) == 0);
   const auto child = fork(); assert(child >= 0);

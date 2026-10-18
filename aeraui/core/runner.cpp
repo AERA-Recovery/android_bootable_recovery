@@ -521,7 +521,7 @@ RunResult RunLoop(bool fastboot_mode = false,
                                     toward_fastboot ? "fastboot" : "recovery");
             }
         }
-        if (hardware.screen_off && aera::pc::NeedsUiAttention()) {
+        if (hardware.screen_off && (engine.NeedsWake() || aera::pc::NeedsUiAttention())) {
             engine.ShowLockScreen();
             engine.SetSuspended(false);
             aeraScreenTimer.Wake();
@@ -564,6 +564,7 @@ RunResult RunLoop(bool fastboot_mode = false,
             action = cli_transition_action;
             cli_transition_action = Action::kNone;
         }
+        if (action != Action::kNone && !engine.CanReboot()) action = Action::kNone;
         if (action != Action::kNone) {
             __android_log_print(ANDROID_LOG_INFO, kLogTag, "scene requested action %d",
                                 static_cast<int>(action));

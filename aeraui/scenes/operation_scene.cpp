@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "scene.hpp"
+#include "../../aera_remote/backup_cancel.hpp"
 #include "../../aera_remote/pc_connection.hpp"
 
 #include <algorithm>
@@ -633,7 +634,8 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_style_bg_opa(result.progress, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_obj_set_style_border_width(result.progress, 0, LV_PART_MAIN);
 
-  if (result.indeterminate_progress || (request.job == Job::kPcBackupOperation &&
+  if (result.indeterminate_progress || request.job == Job::kBackup ||
+      request.job == Job::kUploadBackup || request.job == Job::kRestore || (request.job == Job::kPcBackupOperation &&
       request.backup_source == "computer" &&
       (request.backup_action == "backup" || request.backup_action == "restore"))) {
     result.progress_pulse = lv_obj_create(card);
@@ -670,8 +672,9 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
 
   const bool network = request.job == Job::kUploadBackup ||
       request.path.find("/mnt/nas") != std::string::npos;
-  if (request.job == Job::kPcBackupOperation && request.backup_source == "computer" &&
-      (request.backup_action == "backup" || request.backup_action == "restore")) {
+  if (request.job == Job::kBackup || request.job == Job::kUploadBackup || request.job == Job::kRestore ||
+      (request.job == Job::kPcBackupOperation &&
+      (request.backup_action == "backup" || request.backup_action == "restore"))) {
     result.transfer_speed = Label(card, "0.0 MB/s", &lv_font_montserrat_32, kAccent);
     lv_obj_set_pos(result.transfer_speed, 48, 600);
     lv_obj_set_width(result.transfer_speed, 1216);
@@ -853,11 +856,11 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_style_text_align(result.done_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_add_flag(result.done, LV_OBJ_FLAG_HIDDEN);
 
-  if (request.job == Job::kSideload || (request.job == Job::kPcBackupOperation &&
+  if (backup || request.job == Job::kSideload || (request.job == Job::kPcBackupOperation &&
       (request.backup_action == "backup" || request.backup_action == "restore"))) {
     result.cancel = Button(
         screen, request.job == Job::kSideload ? "Cancel sideload" :
-            request.backup_action == "restore" ? "Cancel restore" : "Cancel backup",
+            request.job == Job::kRestore || request.backup_action == "restore" ? "Cancel restore" : "Cancel backup",
         [callback, context, job = request.job] {
           callback(job == Job::kSideload ? Action::kCancelSideload : Action::kCancelPcBackup, context);
         });
@@ -885,21 +888,26 @@ OperationScene BuildOperationScene(lv_obj_t *screen, const char *path,
 }
 
 void RefreshOperationScene(const OperationScene &scene) {
-  const auto statistics = scene.transfer_speed ? aera::pc::GetBackupTransferStatistics()
+  const auto nas = scene.completed ? NasTransferProgress{} : RecoveryNasTransferProgress();
+  const auto statistics = scene.job == Job::kPcBackupOperation ? aera::pc::GetBackupTransferStatistics()
                                                : aera::pc::BackupTransferStatistics{};
+  const auto cancellation = aera::backup::Operations().Snapshot();
+  const bool cancelling = cancellation.active && cancellation.requested && !scene.completed;
   const bool sideload = scene.job == Job::kSideload;
   const auto sideload_status = sideload ? RecoverySideloadStatus()
                                        : SideloadStatus{};
-  const int progress = sideload && sideload_status.total_bytes > 0
+  const int progress = nas.active && nas.total > 0
+      ? static_cast<int>(std::min<uint64_t>(99, nas.uploaded * 100 / nas.total))
+      : sideload && sideload_status.total_bytes > 0
       ? std::clamp(static_cast<int>(
             sideload_status.received_bytes * 100ULL /
             sideload_status.total_bytes), 0, 100)
       : RecoveryProgress();
-  const bool indeterminate = statistics.finalizing || (scene.indeterminate_progress &&
+  const bool indeterminate = nas.confirming || statistics.finalizing || (scene.indeterminate_progress &&
       (sideload ? sideload_status.total_bytes == 0 : progress <= 0));
   lv_bar_set_value(scene.progress, indeterminate ? 0 : progress, LV_ANIM_ON);
   i18n::BindLabel(scene.percent, indeterminate
-      ? (statistics.finalizing ? "Working..." : sideload ? "Waiting" : "Installing")
+      ? (statistics.finalizing || nas.confirming ? "Working..." : sideload ? "Waiting" : "Installing")
       : (std::to_string(progress) + "%").c_str());
   if (scene.progress_pulse && indeterminate) {
     if (lv_obj_has_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN))
@@ -910,7 +918,7 @@ void RefreshOperationScene(const OperationScene &scene) {
     lv_obj_add_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
   }
 
-  const unsigned seconds = lv_tick_elaps(scene.started) / 1000;
+  const unsigned seconds = (scene.completed ? scene.elapsed_ms : lv_tick_elaps(scene.started)) / 1000;
   const std::string elapsed =
       i18n::Format("%u:%02u elapsed", seconds / 60, seconds % 60);
   i18n::BindLabel(scene.elapsed, elapsed.c_str());
@@ -919,9 +927,8 @@ void RefreshOperationScene(const OperationScene &scene) {
   const auto explained_job = scene.job == Job::kPcBackupOperation
       ? (scene.pc_restore ? Job::kRestore : Job::kBackup) : scene.job;
   auto friendly = Explain(raw, explained_job, progress);
-  if (scene.job == Job::kPcBackupOperation && scene.cancel) {
-    const auto cancellation = aera::pc::GetBackupCancellation();
-    if (cancellation.requested) lv_obj_add_state(scene.cancel, LV_STATE_DISABLED);
+  if (scene.cancel && cancelling) {
+    lv_obj_add_state(scene.cancel, LV_STATE_DISABLED);
   }
   if (scene.pc_app_backup) {
     const auto lines = Lines(raw);
@@ -1105,7 +1112,14 @@ void RefreshOperationScene(const OperationScene &scene) {
     friendly.title = "Saving file on computer";
     friendly.explanation = "Keep the browser open while the computer finishes saving.";
   }
-  if (scene.job == Job::kPcBackupOperation && aera::pc::GetBackupCancellation().requested)
+  if (nas.active) {
+    friendly.title = "Uploading to Network Storage";
+    friendly.explanation = nas.confirming ? "Finishing up" : "Keep the device powered on until the operation completes.";
+    friendly.amount = i18n::Format("%.1f MB / %.1f MB", nas.uploaded / 1000000.0, nas.total / 1000000.0);
+    friendly.files = i18n::Format("%.1f MB", nas.pending / 1000000.0);
+    friendly.activity = friendly.explanation;
+  }
+  if (cancelling)
     friendly.title = "Cancelling...";
   i18n::BindLabel(scene.status, friendly.title.c_str());
   i18n::BindLabel(scene.detail, friendly.explanation.c_str());
@@ -1114,8 +1128,11 @@ void RefreshOperationScene(const OperationScene &scene) {
       friendly.amount.empty() ? "Working..." : friendly.amount.c_str());
   i18n::BindLabel(scene.files, friendly.files.c_str());
   if (scene.transfer_speed) {
+    const bool visible = !scene.completed && (nas.active || scene.job == Job::kPcBackupOperation);
+    if (visible) lv_obj_remove_flag(scene.transfer_speed, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(scene.transfer_speed, LV_OBJ_FLAG_HIDDEN);
     char rate[64];
-    snprintf(rate, sizeof(rate), "%.1f MB/s", statistics.bytes_per_second / 1000000.0);
+    snprintf(rate, sizeof(rate), "%.1f MB/s", (nas.active ? nas.bytes_per_second : statistics.bytes_per_second) / 1000000.0);
     i18n::BindLabel(scene.transfer_speed, rate);
   }
   if (scene.activity_summary &&
@@ -1155,8 +1172,10 @@ void RefreshOperationScene(const OperationScene &scene) {
   }
 }
 
-void CompleteOperationScene(const OperationScene &scene, bool success,
-                            const char *detail) {
+void CompleteOperationScene(OperationScene &scene, bool success,
+                            const char *detail, uint32_t elapsed_ms) {
+  scene.elapsed_ms = elapsed_ms == UINT32_MAX ? lv_tick_elaps(scene.started) : elapsed_ms;
+  scene.completed = true;
   const bool sideload_cancelled =
       scene.job == Job::kSideload &&
       RecoverySideloadStatus().cancel_requested;
@@ -1191,7 +1210,7 @@ void CompleteOperationScene(const OperationScene &scene, bool success,
     lv_obj_add_flag(scene.progress_pulse, LV_OBJ_FLAG_HIDDEN);
   }
   i18n::BindLabel(scene.status,
-      scene.job == Job::kPcBackupOperation && aera::pc::GetBackupCancellation().requested ? "Operation cancelled" :
+      scene.cancelled || (scene.job == Job::kPcBackupOperation && aera::pc::GetBackupCancellation().requested) ? "Operation cancelled" :
       sideload_cancelled ? "Sideload cancelled" :
       success ? "Operation complete" : "Operation stopped");
   lv_obj_set_style_text_color(scene.status, result_color, 0);

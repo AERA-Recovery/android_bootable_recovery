@@ -2768,7 +2768,7 @@ void UpdateBackupResult(const Json::Value &result) {
   if (g_transfer.phase == "installing" && g_transfer.request.job == aeraui::Job::kPcBackupOperation)
     g_transfer.backup_result = result;
 }
-bool BackupOperationActive() { return g_backup_active.load(); }
+bool BackupOperationActive() { return g_backup_active.load() || backup::Operations().Active(); }
 BackupTransferStatistics GetBackupTransferStatistics() {
   std::lock_guard<std::mutex> guard(g_lock);
   if (g_transfer.request.job != aeraui::Job::kPcBackupOperation ||
@@ -2777,7 +2777,9 @@ BackupTransferStatistics GetBackupTransferStatistics() {
   const auto statistics = storage::Channel().Statistics();
   return {statistics.bytes, statistics.bytes_per_second, statistics.finalizing, statistics.waiting_seconds};
 }
-bool BackupCancelRequested() { return g_backup_active.load() && g_backup_cancel.load(); }
+bool BackupCancelRequested() {
+  return (g_backup_active.load() && g_backup_cancel.load()) || backup::Operations().Requested();
+}
 BackupCancellation GetBackupCancellation() {
   std::lock_guard<std::mutex> guard(g_lock);
   BackupCancellation result;
@@ -2795,6 +2797,9 @@ bool CancelBackup(const std::string &id, bool acknowledge_partial_restore) {
       (g_transfer.phase != "queued" && g_transfer.phase != "installing") ||
       (g_transfer.request.backup_action != "backup" && g_transfer.request.backup_action != "restore") ||
       (g_transfer.request.backup_action == "restore" && !acknowledge_partial_restore)) return false;
+  const auto operation = backup::Operations().Snapshot();
+  if (operation.active) backup::Operations().Request(operation.token, acknowledge_partial_restore);
+  aeraui::RecoveryCancelNasWrites();
   g_transfer.cancel_requested = true; g_backup_cancel.store(true);
   g_transfer.detail = "Cancellation requested. Waiting for the worker to stop.";
   storage::Channel().Stop();
@@ -2910,9 +2915,9 @@ void UpdateInstall(int, const std::string &, const std::string &) {}
 void CompleteInstall(const std::string &, int) {}
 void UpdateRootInspection(const aeraui::root::Progress &) {}
 void UpdateBackupResult(const Json::Value &) {}
-bool BackupOperationActive() { return false; }
+bool BackupOperationActive() { return backup::Operations().Active(); }
 BackupTransferStatistics GetBackupTransferStatistics() { return {}; }
-bool BackupCancelRequested() { return false; }
+bool BackupCancelRequested() { return backup::Operations().Requested(); }
 BackupCancellation GetBackupCancellation() { return {}; }
 bool CancelBackup(const std::string &, bool) { return false; }
 void UpdateInstallerPrompt(const aeraui::InstallerPrompt &) {}

@@ -48,6 +48,7 @@
 #include "../../aera_rpc/aera_channel.hpp"
 #include "../../aera_remote/aera_remote.hpp"
 #include "../../aera_remote/pc_connection.hpp"
+#include "../../aera_remote/backup_cancel.hpp"
 #include "../../aera_rpc/aera_dispatcher.hpp"
 
 extern "C" int aeraui_install_package(const char *path);
@@ -492,8 +493,6 @@ public:
   uint32_t RunFrame() {
     if (!initialized_)
       return kFrameIntervalMs;
-    if (suspended_)
-      return 250;
 #ifndef TW_OEM_BUILD
     const int rpc_fd = aera::rpc::Channel::InputFd();
     if (rpc_fd >= 0) {
@@ -511,10 +510,14 @@ public:
     recorder::Poll();
     if (fastboot_mode_) PollFastbootTelemetry();
     if (operation_complete_.exchange(false, std::memory_order_acq_rel)) {
+      if (operation_visible_ && suspended_) wake_requested_ = true;
       if (operation_thread_.joinable())
         operation_thread_.join();
       const auto cancellation = aera::pc::GetBackupCancellation();
-      const bool pc_cancelled = operation_scene_.job == Job::kPcBackupOperation && cancellation.requested;
+      const auto local = aera::backup::Operations().Snapshot();
+      const bool pc_cancelled = backup_token_ && ((local.token == backup_token_ && local.requested) ||
+          (operation_scene_.job == Job::kPcBackupOperation && cancellation.requested));
+      operation_scene_.cancelled = pc_cancelled;
       const bool success = operation_result_.load(std::memory_order_acquire) == 0 && !pc_cancelled;
       if (!pc_job_id_.empty()) {
         aera::pc::UpdateInstallerPresentation(RecoveryInstallerPresentation());
@@ -532,13 +535,14 @@ public:
             RecoverySideloadStatus().cancel_requested;
         CompleteOperationScene(
             operation_scene_, success,
-            pc_cancelled ? (cancellation.restore
+            pc_cancelled ? (operation_scene_.job == Job::kRestore || local.restore
                 ? "Stopping a restore may leave incomplete data. Complete a full restore before booting Android."
                 : "An unfinished backup cannot be restored.") : sideload_cancelled
                 ? "ADB sideload was cancelled. Normal ADB has been restored."
                 : success
                       ? "The requested operation completed. Review its output below."
-                      : "The backend reported an error. Review the recovery log below.");
+                      : "The backend reported an error. Review the recovery log below.",
+            static_cast<uint32_t>(operation_finished_ms_.load(std::memory_order_acquire) - operation_started_ms_));
       }
       operation_running_ = false;
     }
@@ -656,6 +660,7 @@ public:
     PollPcConnection();
     PollUsbAttachment();
     PollRecentsHold();
+    if (suspended_) return 250;
     const uint32_t next = lv_timer_handler();
 #ifndef TW_OEM_BUILD
     // Capture only after LVGL has flushed and DRM exposes the newly presented
@@ -1092,6 +1097,7 @@ public:
   void SetSuspended(bool suspended) {
     if (suspended) ResetKeyboard();
     suspended_ = suspended;
+    if (!suspended) wake_requested_ = false;
     SetMouseConnected(mouse_connected_);
     if (suspended_ && mouse_device_) {
       mouse_pressed_ = false; lv_indev_reset(mouse_device_, nullptr);
@@ -1116,9 +1122,17 @@ public:
     lock_overlay_ = BuildLockScene(lv_layer_top(), HandleSceneAction, this,false,nullptr,ambient);
   }
 
+  bool CanReboot() const {
+    return !operation_running_ && !nas_running_ && !plugin_running_ && !decrypt_running_ &&
+        !aera::backup::Operations().Active();
+  }
+  bool NeedsWake() const {
+    return wake_requested_ || (operation_visible_ && (operation_complete_.load(std::memory_order_acquire) ||
+        (operation_running_ && RecoveryInstallerPrompt().active)));
+  }
   void ShowPowerMenu() {
     ResetKeyboard();
-    if (!initialized_ || power_overlay_ != nullptr || suspended_) return;
+    if (!initialized_ || power_overlay_ != nullptr || suspended_ || !CanReboot()) return;
     CancelEdgeSwipe();
     CancelRecentsSwipe();
     pointer_.pressed = false;
@@ -1190,6 +1204,7 @@ public:
                      190 + row * 246);
       lv_obj_set_size(button, button_width, button_height);
       widgets::OnClick(button, [this, destination] {
+        if (!CanReboot()) { DismissPowerMenu(); return; }
         const bool power_off = destination.action == Action::kPowerOff;
         const std::string transition_title = power_off
             ? "Powering off"
@@ -2486,25 +2501,31 @@ private:
       return;
     }
 
-    if (action == Action::kCancelPcBackup && self->operation_running_ &&
-        self->operation_scene_.job == Job::kPcBackupOperation) {
-      const auto pending = aera::pc::GetBackupCancellation();
-      if (!pending.active || pending.requested || self->PcBlockedByModal()) return;
+    if (action == Action::kCancelPcBackup && self->operation_running_) {
+      const auto pending = aera::backup::Operations().Snapshot();
+      if (!pending.active || pending.token != self->backup_token_ ||
+          pending.requested || self->PcBlockedByModal()) return;
+      auto cancel = [self, token = pending.token, restore = pending.restore] {
+        if (!aera::backup::Operations().Request(token, restore)) return;
+        RecoveryCancelNasWrites();
+        if (self->operation_scene_.job == Job::kPcBackupOperation) {
+          const auto pc = aera::pc::GetBackupCancellation();
+          if (pc.active) aera::pc::CancelBackup(pc.id, restore);
+        }
+      };
       auto *screen = lv_screen_active();
       if (pending.restore) {
         widgets::Sheet(screen, "Cancel restore",
             "Stopping a restore may leave incomplete data. Complete a full restore before booting Android.",
-            [screen, id = pending.id] {
-              const auto current = aera::pc::GetBackupCancellation();
-              if (!current.active || current.id != id || current.requested) return;
+            [screen, token = pending.token, cancel] {
+              const auto current = aera::backup::Operations().Snapshot();
+              if (!current.active || current.token != token || current.requested) return;
               widgets::Sheet(screen, "Confirm restore cancellation",
                   "Stopping a restore may leave incomplete data. Complete a full restore before booting Android.",
-                  [id] { aera::pc::CancelBackup(id, true); });
+                  cancel);
             });
       } else {
-        widgets::Sheet(screen, "Cancel backup",
-            "An unfinished backup cannot be restored.",
-            [id = pending.id] { aera::pc::CancelBackup(id, false); });
+        widgets::Sheet(screen, "Cancel backup", "An unfinished backup cannot be restored.", cancel);
       }
       return;
     }
@@ -3149,7 +3170,14 @@ private:
   void StartJob(const JobRequest &request) {
     if (operation_running_ || wifi_running_ || nas_running_ || plugin_running_)
       return;
+    DismissPowerMenu();
     operation_visible_ = request.show_on_device;
+    operation_started_ms_ = MonotonicMilliseconds();
+    const bool backup = request.job == Job::kBackup || request.job == Job::kRestore ||
+        request.job == Job::kUploadBackup || (request.job == Job::kPcBackupOperation &&
+        (request.backup_action == "backup" || request.backup_action == "restore"));
+    backup_token_ = backup ? aera::backup::Operations().Begin(
+        request.job == Job::kRestore || request.backup_action == "restore") : 0;
     if (operation_visible_) {
       current_tool_ = Action::kNone;
       on_home_ = false;
@@ -3172,6 +3200,8 @@ private:
       if (request.present_before_run)
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
       const int result = RecoveryRunJob(request);
+      operation_finished_ms_.store(MonotonicMilliseconds(), std::memory_order_release);
+      if (backup_token_) aera::backup::Operations().Finish(backup_token_);
       operation_result_.store(result, std::memory_order_release);
       operation_complete_.store(true, std::memory_order_release);
     });
@@ -3856,6 +3886,9 @@ private:
   std::thread update_thread_;
   std::atomic<int> operation_result_{-1};
   std::atomic<bool> operation_complete_{false};
+  bool wake_requested_ = false;
+  std::atomic<uint64_t> operation_finished_ms_{0};
+  uint64_t operation_started_ms_ = 0, backup_token_ = 0;
   std::atomic<int> decrypt_result_{-1};
   std::atomic<bool> decrypt_complete_{false};
   std::atomic<int> wifi_result_{-1};
@@ -3999,6 +4032,8 @@ void Engine::ResetKeyboard() { impl_->ResetKeyboard(); }
 void Engine::SetSuspended(bool suspended) { impl_->SetSuspended(suspended); }
 void Engine::ShowLockScreen(bool ambient) { impl_->ShowLockScreen(ambient); }
 void Engine::ShowPowerMenu() { impl_->ShowPowerMenu(); }
+bool Engine::CanReboot() const { return impl_->CanReboot(); }
+bool Engine::NeedsWake() const { return impl_->NeedsWake(); }
 void Engine::ShowVolume(int percent) { impl_->ShowVolume(percent); }
 void Engine::ShowScreenshotResult(bool success) {
   impl_->ShowScreenshotResult(success);

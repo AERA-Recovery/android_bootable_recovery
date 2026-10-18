@@ -1,4 +1,5 @@
 #include "scene.hpp"
+#include "../../aera_remote/backup_cancel.hpp"
 #include <aeraui/screen_timeout.hpp>
 #include "ui_components.hpp"
 #include "pc_transfer_banner.hpp"
@@ -295,6 +296,9 @@ std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::st
 }
 std::string installer_status;
 int RecoveryProgress() { return recovery_progress; }
+static NasTransferProgress nas_progress;
+NasTransferProgress RecoveryNasTransferProgress() { return nas_progress; }
+void RecoveryCancelNasWrites() {}
 std::string operation_detail = "Backing up / Boot\n38MB of 100MB (38%)";
 std::string RecoveryOperationDetail() { return operation_detail; }
 std::string RecoveryInstallerStatus() { return installer_status; }
@@ -1091,6 +1095,41 @@ int main(int argc,char **argv) {
     assert(!key(KEY_ESC));
     lv_deinit();std::filesystem::remove_all(backup_root);
     puts("Physical keyboard UI: typing, modifiers, repeat, editing, submit, focus, deletion and modal isolation passed.");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--backup-controls")) {
+    assert(i18n::SetLanguage("en"));
+    for (const auto job : {Job::kBackup, Job::kRestore, Job::kUploadBackup}) {
+      lv_obj_clean(screen);
+      JobRequest request; request.job = job; request.path = "/mnt/nas/AERA/BACKUPS/test";
+      auto operation = BuildJobScene(screen, request, RecordAction, nullptr);
+      assert(operation.cancel);
+      assert(Find(operation.cancel, job == Job::kRestore ? "Cancel restore" : "Cancel backup"));
+      const auto token = aera::backup::Operations().Begin(job == Job::kRestore);
+      nas_progress = {true, false, 50000000, 100000000, 50000000, 25000000};
+      RefreshOperationScene(operation); Tick(2);
+      assert(!strcmp(lv_label_get_text(operation.status), "Uploading to Network Storage"));
+      assert(!strcmp(lv_label_get_text(operation.percent), "50%"));
+      assert(!strcmp(lv_label_get_text(operation.transfer_speed), "25.0 MB/s"));
+      nas_progress.uploaded = nas_progress.total; nas_progress.confirming = true;
+      RefreshOperationScene(operation);
+      assert(!strcmp(lv_label_get_text(operation.percent), "Working..."));
+      assert(!lv_obj_has_flag(operation.progress_pulse, LV_OBJ_FLAG_HIDDEN));
+      assert(aera::backup::Operations().Request(token, true));
+      RefreshOperationScene(operation);
+      assert(lv_obj_has_state(operation.cancel, LV_STATE_DISABLED));
+      assert(!strcmp(lv_label_get_text(operation.status), "Cancelling..."));
+      aera::backup::Operations().Finish(token);
+      nas_progress = {};
+      operation.cancelled = true;
+      CompleteOperationScene(operation, false, "Cancelled", 173000);
+      assert(!strcmp(lv_label_get_text(operation.elapsed), "2:53 elapsed"));
+      lv_tick_inc(3600000);
+      RefreshOperationScene(operation);
+      assert(!strcmp(lv_label_get_text(operation.elapsed), "2:53 elapsed"));
+    }
+    lv_deinit(); std::filesystem::remove_all(backup_root);
+    puts("Native backup/restore controls, NAS upload/confirmation and frozen elapsed duration passed.");
     return 0;
   }
   if (!strcmp(argv[1], "--pc-backup-progress")) {

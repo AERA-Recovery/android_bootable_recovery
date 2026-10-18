@@ -186,6 +186,12 @@ struct SideloadStatus {
 SideloadStatus RecoverySideloadStatus();
 bool RecoveryCancelSideload();
 int RecoveryProgress();
+struct NasTransferProgress {
+  bool active = false, confirming = false;
+  uint64_t uploaded = 0, total = 0, pending = 0, bytes_per_second = 0;
+};
+NasTransferProgress RecoveryNasTransferProgress();
+void RecoveryCancelNasWrites();
 std::string RecoveryOperationDetail();
 std::string RecoveryInstallerStatus();
 struct InstallerPresentation {

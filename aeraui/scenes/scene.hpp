@@ -52,7 +52,8 @@ struct OperationScene {
   lv_obj_t *installer_prompt_message = nullptr;
   lv_obj_t *installer_prompt_accept = nullptr;
   lv_obj_t *installer_prompt_decline = nullptr;
-  uint32_t started = 0;
+  uint32_t started = 0, elapsed_ms = 0;
+  bool completed = false, cancelled = false;
   unsigned installer_lines = 0;
   Job job = Job::kInstall;
   bool pc_restore = false;
@@ -172,8 +173,8 @@ const char *GetSelectedPackagePath();
 void SetSelectedPackagePath(const char *path);
 OperationScene BuildOperationScene(lv_obj_t *screen, const char *path,
                                    ActionCallback callback, void *context);
-void CompleteOperationScene(const OperationScene &scene, bool success,
-                            const char *detail);
+void CompleteOperationScene(OperationScene &scene, bool success,
+                            const char *detail, uint32_t elapsed_ms = UINT32_MAX);
 DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
                                bool file_based, int user_id,
                                int pattern_grid_size,

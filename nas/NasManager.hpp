@@ -16,7 +16,13 @@ public:
     static bool Unmount();
     static bool SelectAsStorage();
     static bool RefreshStatus();
-    static bool ResetTransferStats();
+    struct TransferProgress {
+        bool active = false, confirming = false;
+        uint64_t uploaded = 0, total = 0, pending = 0, bytes_per_second = 0;
+    };
+    static TransferProgress GetTransferProgress();
+    static void CancelPendingUploads();
+    static bool ResetTransferStats(const std::string& root = Mount_Point);
     static bool WaitForPendingUploads(int max_seconds = 1800, uint64_t expected_upload_bytes = 0,
                                      const std::atomic<bool>* cancel = nullptr);
     static std::string GetLastError();

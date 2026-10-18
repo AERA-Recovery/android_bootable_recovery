@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <fstream>
+#include <mutex>
 #include <json/json.h>
 #include <limits.h>
 #include <openssl/crypto.h>
@@ -38,7 +39,14 @@ const std::string kStats = NasManager::Config_Dir + "/status.json";
 pid_t child_pid = -1;
 uint64_t baseline_errors = 0, baseline_bytes = 0;
 pid_t baseline_pid = -1;
-struct Stats { uint64_t bytes=0,pending=0,files=0,retained=0,errors=0; pid_t pid=-1; };
+std::mutex transfer_mutex;
+uint64_t transfer_token = 0, sample_bytes = 0, sample_rate = 0;
+std::string cancel_scope;
+std::chrono::steady_clock::time_point sample_time;
+struct Stats {
+    uint64_t bytes=0,pending=0,files=0,retained=0,errors=0,uploading=0,uploaded=0,total=0;
+    pid_t pid=-1;
+};
 bool HelperAlive(pid_t pid) {
     if (pid <= 1 || kill(pid,0)) return false;
     std::ifstream in("/proc/" + std::to_string(pid) + "/comm");
@@ -61,6 +69,9 @@ bool ReadStats(Stats& stats) {
     stats.files=root["pending_files"].asUInt64();
     stats.retained=root["retained_files"].asUInt64();
     stats.errors=root["write_errors"].asUInt64();
+    stats.uploading=root.get("uploading_files",Json::UInt64(0)).asUInt64();
+    stats.uploaded=root.get("uploading_bytes",Json::UInt64(0)).asUInt64();
+    stats.total=root.get("uploading_total",Json::UInt64(0)).asUInt64();
     return HelperAlive(stats.pid);
 }
 std::string CacheMode() {
@@ -205,7 +216,7 @@ bool NasManager::Mount() {
             return false;
         }
     }
-    unlink(kStats.c_str());unlink(Log_File.c_str());
+    unlink(kStats.c_str());unlink((kStats+".cancel").c_str());unlink(Log_File.c_str());
     if (!BuildNativeConfig() || !RunDetached({Native_Binary,"mount","--config",Config_File,Mount_Point})) return false;
     for (int i=0;i<300;++i) {
         Stats stats;
@@ -226,20 +237,49 @@ bool NasManager::Mount() {
     SetError(log.empty() ? "Native NAS mount did not become ready. Check server, credentials and Wi-Fi." : Trim(log));
     return false;
 }
-bool NasManager::ResetTransferStats() {
+bool NasManager::ResetTransferStats(const std::string& root) {
     last_error.clear();DataManager::SetValue(TW_NAS_LAST_ERROR,"");
     if (!IsMounted()) return true;
     Stats stats;
     if (!ReadStats(stats)) {SetError("Native NAS backend is not responding.");return false;}
     if (stats.pending || stats.files) {SetError("A previous NAS upload has not completed.");return false;}
+    const auto operation=aera::backup::Operations().Snapshot();
+    std::lock_guard<std::mutex> guard(transfer_mutex);
     baseline_errors=stats.errors;baseline_bytes=stats.bytes;baseline_pid=stats.pid;
+    transfer_token=operation.active ? operation.token : 0;
+    cancel_scope=root.compare(0,Mount_Point.size(),Mount_Point)==0 ? root.substr(Mount_Point.size()) : "/";
+    if (cancel_scope.empty()) cancel_scope="/";
+    unlink((kStats+".cancel").c_str());
+    sample_bytes=stats.bytes;sample_rate=0;sample_time=std::chrono::steady_clock::now();
     return true;
+}
+NasManager::TransferProgress NasManager::GetTransferProgress() {
+    const auto operation=aera::backup::Operations().Snapshot();
+    if (!operation.active) return {};
+    std::lock_guard<std::mutex> guard(transfer_mutex);
+    if (operation.token!=transfer_token) return {};
+    Stats stats;
+    if (!ReadStats(stats) || stats.pid!=baseline_pid || !stats.uploading) return {};
+    const auto now=std::chrono::steady_clock::now();
+    const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(now-sample_time).count();
+    if (ms>=250) {
+        sample_rate=stats.bytes>=sample_bytes ? (stats.bytes-sample_bytes)*1000/static_cast<uint64_t>(ms) : 0;
+        sample_bytes=stats.bytes;sample_time=now;
+    }
+    return {true,stats.uploaded>=stats.total,
+            stats.uploaded,stats.total,stats.pending,sample_rate};
+}
+void NasManager::CancelPendingUploads() {
+    const auto operation=aera::backup::Operations().Snapshot();
+    std::lock_guard<std::mutex> guard(transfer_mutex);
+    if (!operation.active || operation.token!=transfer_token) return;
+    WriteFile(kStats+".cancel",cancel_scope+"\n",0600);
 }
 bool NasManager::WaitForPendingUploads(int max_seconds,uint64_t expected_upload_bytes,const std::atomic<bool>* cancel) {
     last_error.clear();DataManager::SetValue(TW_NAS_LAST_ERROR,"");
     const auto start=std::chrono::steady_clock::now();
     for (;;) {
-        if (cancel && (cancel->load() || aera::pc::BackupCancelRequested())) {SetError("NAS upload cancelled.");return false;}
+        if ((cancel && cancel->load()) || aera::pc::BackupCancelRequested()) {SetError("NAS upload cancelled.");return false;}
         Stats stats;
         if (!IsMounted() || !ReadStats(stats)) {SetError("NAS disconnected before all writes were confirmed.");return false;}
         if (stats.pid!=baseline_pid || stats.errors>baseline_errors) {SetError("NAS reported a write/flush failure. Do not use the unfinished backup.");return false;}
@@ -273,7 +313,7 @@ bool NasManager::Unmount() {
     if (HelperAlive(stats.pid)) kill(stats.pid,SIGTERM);
     if (child_pid>0) waitpid(child_pid,nullptr,WNOHANG);
     child_pid=-1;
-    unlink(Config_File.c_str());unlink((Config_Dir+"/sftp.key").c_str());unlink(kStats.c_str());
+    unlink(Config_File.c_str());unlink((Config_Dir+"/sftp.key").c_str());unlink(kStats.c_str());unlink((kStats+".cancel").c_str());
     DataManager::SetValue(TW_NAS_MOUNTED,0);
     DataManager::SetValue(TW_NAS_STATUS_TEXT,"NAS unmounted");
     return true;

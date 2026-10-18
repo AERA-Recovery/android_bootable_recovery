@@ -154,6 +154,8 @@ class Engine final {
     void SetSuspended(bool suspended);
     void ShowLockScreen(bool ambient = false);
     void ShowPowerMenu();
+    bool CanReboot() const;
+    bool NeedsWake() const;
     void ShowVolume(int percent);
     void ShowScreenshotResult(bool success);
 

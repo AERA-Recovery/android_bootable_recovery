@@ -79,6 +79,7 @@ bool wifi_connected = false;
 std::string wifi_address = "127.0.0.2";
 }
 namespace aeraui {
+void RecoveryCancelNasWrites() {}
 void RecoveryEnsurePcStorage() {}
 bool AppVaultInstalled() { return app_vault_installed; }
 std::vector<AndroidUser> RecoveryAndroidUsers() {
