@@ -49,6 +49,7 @@
 #include "../../aera_remote/aera_remote.hpp"
 #include "../../aera_remote/pc_connection.hpp"
 #include "../../aera_remote/backup_cancel.hpp"
+#include <aeraui/nas_auto_connect.hpp>
 #include "../../aera_rpc/aera_dispatcher.hpp"
 
 extern "C" int aeraui_install_package(const char *path);
@@ -581,7 +582,9 @@ public:
     if (nas_complete_.exchange(false, std::memory_order_acq_rel)) {
       if (nas_thread_.joinable()) nas_thread_.join();
       const bool success = nas_result_.load(std::memory_order_acquire) == 0;
-      CompleteNasOperation(nas_scene_, success);
+      if (nas_report_state_ && current_scene_ == Action::kNas && nas_scene_.state == nas_report_state_)
+        CompleteNasOperation(nas_scene_, success);
+      nas_report_state_ = nullptr;
       nas_running_ = false;
     }
     if (plugin_complete_.exchange(false, std::memory_order_acq_rel)) {
@@ -658,6 +661,7 @@ public:
     }
     PollAutomaticUpdates();
     PollPcConnection();
+    PollAutomaticNas();
     PollUsbAttachment();
     PollRecentsHold();
     if (suspended_) return 250;
@@ -727,7 +731,7 @@ public:
       return;
     }
     if (lock_overlay_ != nullptr || !backend_ready_ || decryption_active_ ||
-        operation_running_ || nas_running_ || plugin_running_)
+        operation_running_ || (nas_running_ && nas_interactive_) || plugin_running_)
       return;
     if (widgets::DismissModal(lv_screen_active())) return;
     if (fastboot_mode_) {
@@ -2537,7 +2541,7 @@ private:
       return;
     }
 
-    if (self->operation_running_ || self->nas_running_ || self->plugin_running_ ||
+    if (self->operation_running_ || (self->nas_running_ && self->nas_interactive_) || self->plugin_running_ ||
         (self->update_running_ &&
          self->update_task_ == UpdateTask::kDownload)) return;
     self->CancelEdgeSwipe();
@@ -3223,10 +3227,37 @@ private:
     });
   }
 
+  void PollAutomaticNas() {
+    const uint32_t now = MonotonicMilliseconds();
+    if (now - last_nas_auto_poll_ < 2000) return;
+    last_nas_auto_poll_ = now;
+    if (!interactive_ready_ || decryption_active_ || decrypt_running_ ||
+        operation_running_ || wifi_running_ || nas_running_ || plugin_running_ ||
+        update_running_ || fastboot_mode_ || PcBlockedByModal() ||
+        current_scene_ == Action::kAppVault || current_scene_ == Action::kRootManager) return;
+    const auto wifi = RecoveryWifiConnection();
+    const auto nas = RecoveryNasStatus();
+    const auto &config = nas.config;
+    if (nas.manual_disconnect != nas_manual_disconnect_) {
+      nas_manual_disconnect_ = nas.manual_disconnect;
+      nas_auto_connect_.Suppress();
+    }
+    const bool enabled = nas.supported && config.auto_connect && !config.host.empty() &&
+        !config.wifi_ssid.empty() && wifi.connected && wifi.ssid == config.wifi_ssid;
+    const std::string profile = config.type + "\n" + config.host + "\n" + config.port +
+        "\n" + config.share + "\n" + config.path + "\n" + config.user;
+    if (nas_auto_connect_.Ready(wifi.connected ? wifi.ssid : "", profile, enabled, nas.mounted, now))
+      StartNas({NasOperation::kMount, false});
+  }
+
   void StartNas(const NasRequest &request) {
     if (nas_running_ || operation_running_ || wifi_running_ || plugin_running_)
       return;
-    SetNasBusy(nas_scene_, request);
+    if (request.interactive && request.operation == NasOperation::kUnmount)
+      nas_auto_connect_.Suppress();
+    nas_interactive_ = request.interactive;
+    nas_report_state_ = request.interactive && current_scene_ == Action::kNas ? nas_scene_.state : nullptr;
+    if (nas_report_state_) SetNasBusy(nas_scene_, request);
     nas_running_ = true;
     nas_result_.store(-1, std::memory_order_release);
     nas_complete_.store(false, std::memory_order_release);
@@ -3875,6 +3906,11 @@ private:
   DecryptScene decrypt_scene_{};
   WifiScene wifi_scene_{};
   NasScene nas_scene_{};
+  NasAutoConnectPolicy nas_auto_connect_;
+  uint32_t last_nas_auto_poll_ = 0;
+  uint64_t nas_manual_disconnect_ = 0;
+  void *nas_report_state_ = nullptr;
+  bool nas_interactive_ = true;
   PluginScene plugin_scene_{};
   UpdateScene update_scene_{};
   std::string selected_package_;

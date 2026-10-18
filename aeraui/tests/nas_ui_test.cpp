@@ -28,6 +28,7 @@ bool Attach(lv_obj_t *, bool) { return false; }
 
 namespace aeraui {
 NasStatus RecoveryNasStatus() { return g_status; }
+WifiConnection RecoveryWifiConnection() { return {true, "Home Wi-Fi", -50}; }
 NasConfig RecoverySavedNasConfig(const std::string &protocol) {
   auto config = g_status.config;
   config.type = protocol;
@@ -59,7 +60,7 @@ namespace aeraui::smb {
 Result List(const NasConfig &, const std::string &share, const std::string &path,
             const std::atomic<bool> &cancel) {
   ++g_active;
-  for (int i = 0; i < (g_slow ? 100 : 3); ++i) {
+  for (int i = 0; g_slow || i < 3; ++i) {
     if (cancel.load()) { ++g_cancelled; --g_active; return {}; }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
@@ -187,6 +188,11 @@ int main(int argc, char **argv) {
         BuildNasScene(screen, [](Action, void *) { ++g_actions; }, nullptr);
         lv_screen_load(screen);
         Tick();
+        assert(!g_status.config.auto_connect);
+        Click(screen, "Auto-connect");
+        assert(g_status.config.auto_connect && g_status.config.wifi_ssid == "Home Wi-Fi");
+        Click(screen, "Auto-connect");
+        assert(!g_status.config.auto_connect && g_status.config.wifi_ssid == "Home Wi-Fi");
         auto save = [&](const char *name) {
           if (!preview) return;
           png_image image{};
@@ -240,11 +246,16 @@ int main(int argc, char **argv) {
         assert(Find(screen, i18n::Translate("Write cache")));
         g_slow = true;
         Click(screen, "Browse folders");
+        for (int i = 0; !g_active.load() && i < 500; ++i)
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        assert(g_active.load());
         lv_screen_load(home);
         lv_obj_delete(screen);
         Tick();
+        for (int i = 0; g_active.load() && i < 500; ++i)
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        assert(!g_active.load());
         g_slow = false;
-        while (g_active.load()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
     }
   }

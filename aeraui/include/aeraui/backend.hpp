@@ -53,6 +53,8 @@ struct NasConfig {
   std::string cache_mode = "off";
   std::string auth = "password";
   std::string key_name;
+  bool auto_connect = false;
+  std::string wifi_ssid;
 };
 struct JobRequest {
   Job job = Job::kInstall;
@@ -495,12 +497,16 @@ struct NasStatus {
   bool mounted = false;
   bool selected = false;
   bool key_available = false;
+  uint64_t manual_disconnect = 0;
   std::string status;
   std::string error;
   NasConfig config;
 };
-enum class NasOperation { kMountAndUse, kUse, kUnmount };
-struct NasRequest { NasOperation operation = NasOperation::kMountAndUse; };
+enum class NasOperation { kMountAndUse, kUse, kUnmount, kMount };
+struct NasRequest {
+  NasOperation operation = NasOperation::kMountAndUse;
+  bool interactive = true;
+};
 NasStatus RecoveryNasStatus();
 NasConfig RecoverySavedNasConfig(const std::string &protocol);
 bool RecoverySetNasConfig(const NasConfig &config, std::string *error);

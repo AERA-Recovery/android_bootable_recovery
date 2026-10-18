@@ -26,7 +26,7 @@ using namespace widgets;
 
 NasRequest gRequest;
 
-enum class Field { kHost, kPort, kUser, kPassword, kShare, kPath, kDomain };
+enum class Field { kHost, kPort, kUser, kPassword, kShare, kPath, kDomain, kWifiNetwork };
 struct FolderPicker;
 
 struct NasUi {
@@ -77,6 +77,7 @@ const char *FieldTitle(Field field) {
     case Field::kShare: return "SMB share name";
     case Field::kPath: return "Remote folder or path";
     case Field::kDomain: return "SMB domain or workgroup";
+    case Field::kWifiNetwork: return "Wi-Fi network";
   }
   return "Network storage";
 }
@@ -90,6 +91,7 @@ std::string FieldValue(const NasConfig &config, Field field) {
     case Field::kShare: return config.share;
     case Field::kPath: return config.path;
     case Field::kDomain: return config.domain;
+    case Field::kWifiNetwork: return config.wifi_ssid;
   }
   return {};
 }
@@ -104,6 +106,7 @@ void SetField(NasConfig *config, Field field, const std::string &value) {
     case Field::kShare: config->share = value; break;
     case Field::kPath: config->path = value; break;
     case Field::kDomain: config->domain = value; break;
+    case Field::kWifiNetwork: config->wifi_ssid = value; break;
   }
 }
 
@@ -112,11 +115,13 @@ uint32_t FieldLimit(Field field) {
     case Field::kPassword: return 254;
     case Field::kPath: return 256;
     case Field::kPort: return 5;
+    case Field::kWifiNetwork: return 32;
     default: return 128;
   }
 }
 
 void Populate(NasUi *state);
+void DeferredPopulate(void *state) { Populate(static_cast<NasUi *>(state)); }
 void OpenBrowser(NasUi *state, const std::string &share = {},
                  const std::string &path = {});
 
@@ -160,6 +165,7 @@ void SetActivity(NasUi *state, bool active) {
 std::string BusyTitle(const NasUi *state) {
   const char *base = "Updating storage";
   switch (state->running) {
+    case NasOperation::kMount:
     case NasOperation::kMountAndUse: base = "Mounting storage"; break;
     case NasOperation::kUse: base = "Selecting storage"; break;
     case NasOperation::kUnmount: base = "Unmounting storage"; break;
@@ -679,6 +685,30 @@ void Populate(NasUi *state) {
   AnimateEnter(protocol, 10, 9);
 
   int y = 190;
+  SettingsRow(state->scene.list, y, "Auto-connect", "Wi-Fi network",
+      state->snapshot.config.auto_connect,
+      [state](bool enabled) {
+        if (state->busy) return false;
+        auto config = state->snapshot.config;
+        if (enabled && config.wifi_ssid.empty()) {
+          const auto wifi = RecoveryWifiConnection();
+          if (!wifi.connected) {
+            Sheet(state->screen, "Connect Wi-Fi first", "Wi-Fi network");
+            return false;
+          }
+          config.wifi_ssid = wifi.ssid;
+        }
+        config.auto_connect = enabled;
+        if (!SaveConfig(state, config)) return false;
+        lv_async_call(DeferredPopulate, state);
+        return true;
+      }, state->scene.detail);
+  y += 180;
+  auto *network = Row(state->scene.list, y, LV_SYMBOL_WIFI, "Wi-Fi network", "",
+      [state] { EditField(state, Field::kWifiNetwork); });
+  lv_label_set_text(lv_obj_get_child(network, 3),
+      state->snapshot.config.wifi_ssid.empty() ? i18n::Translate("Not set") : state->snapshot.config.wifi_ssid.c_str());
+  y += 180;
   if (state->snapshot.config.type == "sftp") {
     const bool key = state->snapshot.config.auth == "key";
     Row(state->scene.list, y, LV_SYMBOL_SETTINGS, "Authentication",
@@ -762,6 +792,7 @@ void Refresh(NasUi *state) {
   if (detail.empty()) detail = status.mounted ? "/mnt/nas" :
       "Configure an SFTP or SMB connection below.";
   i18n::BindLabel(state->scene.detail, detail.c_str());
+  lv_obj_set_style_text_color(state->scene.detail, kMutedStrong, 0);
   SetActivity(state, state->busy);
   lv_obj_set_style_border_color(state->hero,
       status.mounted ? kGreen : state->busy ? kAccent : kMainLine, 0);
@@ -801,6 +832,7 @@ NasScene BuildNasScene(lv_obj_t *screen, ActionCallback callback,
   state->snapshot = RecoveryNasStatus();
   lv_obj_add_event_cb(screen, [](lv_event_t *event) {
     auto *state = static_cast<NasUi *>(lv_event_get_user_data(event));
+    lv_async_call_cancel(DeferredPopulate, state);
     if (state->timer != nullptr) lv_timer_delete(state->timer);
     if (state->picker) {
       state->picker->owner = nullptr;

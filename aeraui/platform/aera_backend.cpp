@@ -125,6 +125,7 @@ bool SaveAeraPreferences(bool require_early = false);
 bool ResetAeraSettings(bool theme);
 int DefaultHapticDuration(Haptic haptic);
 std::atomic<bool> gSideloadActive{false};
+std::atomic<uint64_t> gNasManualDisconnect{0};
 std::atomic<bool> gSideloadCancelRequested{false};
 std::atomic<uint64_t> gSideloadReceivedBytes{0};
 std::atomic<uint64_t> gSideloadTotalBytes{0};
@@ -1534,6 +1535,8 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
     if (!current.supported || current.mounted || RecoveryDataLocked()) return 1;
     auto config = request.nas_config;
     const auto remembered = RecoverySavedNasConfig(config.type);
+    config.auto_connect = remembered.auto_connect;
+    config.wifi_ssid = remembered.wifi_ssid;
     if (!request.nas_password_update && config.host == remembered.host &&
         config.user == remembered.user && config.auth == remembered.auth)
       config.password = remembered.password;
@@ -3270,6 +3273,8 @@ bool LoadNasProfile(NasConfig *config, const std::string &protocol = "") {
     else if (key == "cache") config->cache_mode = value;
     else if (key == "auth") config->auth = value;
     else if (key == "key_name") config->key_name = value;
+    else if (key == "auto_connect") config->auto_connect = value == "1";
+    else if (key == "wifi_ssid") config->wifi_ssid = value;
   }
   if (config->type != "smb" && config->type != "sftp") return false;
   if (!protocol.empty() && config->type != protocol) return false;
@@ -3308,7 +3313,9 @@ bool SaveNasProfile(const NasConfig &config) {
          << "domain=" << config.domain << '\n'
          << "cache=" << config.cache_mode << '\n'
          << "auth=" << config.auth << '\n'
-         << "key_name=" << config.key_name << '\n';
+         << "key_name=" << config.key_name << '\n'
+         << "auto_connect=" << (config.auto_connect ? 1 : 0) << '\n'
+         << "wifi_ssid=" << config.wifi_ssid << '\n';
   output.flush();
   if (!output) return false;
   output.close();
@@ -3855,6 +3862,7 @@ bool RecoverySaveHomePluginLayout(const std::vector<HomePluginPreference> &layou
 
 NasStatus RecoveryNasStatus() {
   NasStatus status;
+  status.manual_disconnect = gNasManualDisconnect.load();
 #ifdef OF_ENABLE_WLAN
   status.supported = true;
   NasManager::RefreshStatus();
@@ -3873,6 +3881,8 @@ NasStatus RecoveryNasStatus() {
       DataManager::SetValue(TW_NAS_CACHE_MODE, remembered.cache_mode);
       DataManager::SetValue("aera_nas_auth", remembered.auth);
       DataManager::SetValue("aera_nas_key_name", remembered.key_name);
+      DataManager::SetValue("aera_nas_auto_connect", remembered.auto_connect ? 1 : 0);
+      DataManager::SetValue("aera_nas_wifi_ssid", remembered.wifi_ssid);
     }
   }
   status.mounted = NasManager::IsMounted();
@@ -3900,6 +3910,8 @@ NasStatus RecoveryNasStatus() {
   status.config.cache_mode = DataManager::GetStrValue(TW_NAS_CACHE_MODE);
   status.config.auth = DataManager::GetStrValue("aera_nas_auth") == "key" ? "key" : "password";
   status.config.key_name = DataManager::GetStrValue("aera_nas_key_name");
+  status.config.auto_connect = DataManager::GetIntValue("aera_nas_auto_connect") == 1;
+  status.config.wifi_ssid = DataManager::GetStrValue("aera_nas_wifi_ssid");
   std::string private_key;
   status.key_available = AeraSecrets::GetNasPrivateKey(private_key);
   OPENSSL_cleanse(private_key.data(), private_key.size());
@@ -3943,7 +3955,7 @@ bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
   if ((config.auth != "password" && config.auth != "key") || invalid(config.key_name, 128) ||
       invalid(config.host, 128) || invalid(config.user, 128) ||
       invalid(config.password, 254) || invalid(config.share, 128) ||
-      invalid(config.path, 256) || invalid(config.domain, 128)) {
+      invalid(config.path, 256) || invalid(config.domain, 128) || invalid(config.wifi_ssid, 32)) {
     if (error) *error = "A field is too long or contains a line break.";
     return false;
   }
@@ -3975,6 +3987,8 @@ bool RecoverySetNasConfig(const NasConfig &config, std::string *error) {
   saved &= DataManager::SetValue(TW_NAS_CACHE_MODE, config.cache_mode) == 0;
   saved &= DataManager::SetValue("aera_nas_auth", config.auth) == 0;
   saved &= DataManager::SetValue("aera_nas_key_name", config.key_name) == 0;
+  saved &= DataManager::SetValue("aera_nas_auto_connect", config.auto_connect ? 1 : 0) == 0;
+  saved &= DataManager::SetValue("aera_nas_wifi_ssid", config.wifi_ssid) == 0;
   // Keep the live value for NasManager, but never mark it persistent here.
   saved &= DataManager::SetValue(TW_NAS_PASS, config.password) == 0;
   const bool secret_saved = config.password.empty()
@@ -4017,11 +4031,15 @@ int RecoveryRunNas(const NasRequest &request) {
     case NasOperation::kMountAndUse:
       result = NasManager::Mount() && NasManager::SelectAsStorage();
       break;
+    case NasOperation::kMount:
+      result = NasManager::Mount();
+      break;
     case NasOperation::kUse:
       result = NasManager::SelectAsStorage();
       break;
     case NasOperation::kUnmount:
       result = NasManager::Unmount();
+      if (result) ++gNasManualDisconnect;
       break;
   }
   NasManager::RefreshStatus();
