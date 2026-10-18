@@ -522,8 +522,10 @@ RunResult RunLoop(bool fastboot_mode = false,
             }
         }
         if (hardware.screen_off && (engine.NeedsWake() || aera::pc::NeedsUiAttention())) {
-            engine.ShowLockScreen();
-            engine.SetSuspended(false);
+            if (!engine.WakeForOperation()) {
+                engine.ShowLockScreen();
+                engine.SetSuspended(false);
+            }
             aeraScreenTimer.Wake();
             hardware.screen_off = false;
         }

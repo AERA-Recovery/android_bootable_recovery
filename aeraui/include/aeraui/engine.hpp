@@ -156,6 +156,7 @@ class Engine final {
     void ShowPowerMenu();
     bool CanReboot() const;
     bool NeedsWake() const;
+    bool WakeForOperation();
     void ShowVolume(int percent);
     void ShowScreenshotResult(bool success);
 

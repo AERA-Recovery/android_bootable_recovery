@@ -511,7 +511,8 @@ public:
     recorder::Poll();
     if (fastboot_mode_) PollFastbootTelemetry();
     if (operation_complete_.exchange(false, std::memory_order_acq_rel)) {
-      if (operation_visible_ && suspended_) wake_requested_ = true;
+      if (operation_visible_ && (suspended_ || (lock_overlay_ && lock_ambient_)))
+        wake_requested_ = true;
       if (operation_thread_.joinable())
         operation_thread_.join();
       const auto cancellation = aera::pc::GetBackupCancellation();
@@ -1133,6 +1134,18 @@ public:
   bool NeedsWake() const {
     return wake_requested_ || (operation_visible_ && (operation_complete_.load(std::memory_order_acquire) ||
         (operation_running_ && RecoveryInstallerPrompt().active)));
+  }
+  bool WakeForOperation() {
+    if (!backend_ready_ || !interactive_ready_ || decryption_active_ || decrypt_running_ ||
+        !NeedsWake()) return false;
+    if (lock_overlay_) {
+      auto *lock = lock_overlay_;
+      lock_overlay_ = nullptr;
+      lock_ambient_ = false;
+      lv_obj_delete(lock);
+    }
+    SetSuspended(false);
+    return true;
   }
   void ShowPowerMenu() {
     ResetKeyboard();
@@ -4070,6 +4083,7 @@ void Engine::ShowLockScreen(bool ambient) { impl_->ShowLockScreen(ambient); }
 void Engine::ShowPowerMenu() { impl_->ShowPowerMenu(); }
 bool Engine::CanReboot() const { return impl_->CanReboot(); }
 bool Engine::NeedsWake() const { return impl_->NeedsWake(); }
+bool Engine::WakeForOperation() { return impl_->WakeForOperation(); }
 void Engine::ShowVolume(int percent) { impl_->ShowVolume(percent); }
 void Engine::ShowScreenshotResult(bool success) {
   impl_->ShowScreenshotResult(success);
