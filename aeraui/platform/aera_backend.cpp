@@ -123,6 +123,7 @@ namespace {
 void LoadAeraPreferencesIfAvailable();
 bool SaveAeraPreferences(bool require_early = false);
 bool ResetAeraSettings(bool theme);
+bool ResetAeraThemeSection(ThemeSection section);
 int DefaultHapticDuration(Haptic haptic);
 std::atomic<bool> gSideloadActive{false};
 std::atomic<uint64_t> gNasManualDisconnect{0};
@@ -2155,6 +2156,14 @@ LockTheme RecoveryLockTheme() {
   LoadAeraPreferencesIfAvailable();
   return DecodeLockTheme(DataManager::GetStrValue("aera_lock_theme"));
 }
+WallpaperLayout RecoveryWallpaperLayout() {
+  LoadAeraPreferencesIfAvailable();
+  return DecodeWallpaperLayout(DataManager::GetStrValue("aera_wallpaper_layout"));
+}
+bool RecoverySetWallpaperLayout(const WallpaperLayout &layout) {
+  return ValidWallpaperLayout(layout) &&
+      DataManager::SetValue("aera_wallpaper_layout", EncodeWallpaperLayout(layout), 1) == 0;
+}
 bool RecoverySetLockTheme(const LockTheme &theme) {
   return ValidLockTheme(theme) &&
       DataManager::SetValue("aera_lock_theme", EncodeLockTheme(theme), 1) == 0;
@@ -2350,6 +2359,7 @@ bool RecoverySetPcAutoEnable(bool enabled) {
   return false;
 }
 bool RecoveryResetThemeSettings() { return ResetAeraSettings(true); }
+bool RecoveryResetThemeSection(ThemeSection section) { return ResetAeraThemeSection(section); }
 bool RecoveryResetPreferences() { return ResetAeraSettings(false); }
 int RecoveryDefaultHapticDuration(Haptic haptic) {
   return DefaultHapticDuration(haptic);
@@ -2432,6 +2442,7 @@ bool PrepareEarlyPreferencesRoot() {
 #endif
 
 struct EarlyUiPreferences {
+  std::string wallpaper_layout;
   std::string lock_theme;
   int clock24;
   std::string timezone;
@@ -2502,6 +2513,7 @@ bool ValidAccent(const std::string& value) {
 
 EarlyUiPreferences DefaultEarlyUiPreferences() {
   EarlyUiPreferences preferences{};
+  preferences.wallpaper_layout = EncodeWallpaperLayout({});
   preferences.clock24 = 0;
   preferences.timezone = DataManager::GetStrValue(TW_TIME_ZONE_VAR);
   if (!ValidPlainText(preferences.timezone, 96)) preferences.timezone = "UTC0";
@@ -2597,6 +2609,7 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.dock_hide_apps = DataManager::GetIntValue("aera_dock_hide_apps") != 0 ? 1 : 0;
   preferences.recents = DataManager::GetIntValue("aera_recents_enabled") != 0 ? 1 : 0;
   preferences.lock_theme = EncodeLockTheme(DecodeLockTheme(DataManager::GetStrValue("aera_lock_theme")));
+  preferences.wallpaper_layout = EncodeWallpaperLayout(DecodeWallpaperLayout(DataManager::GetStrValue("aera_wallpaper_layout")));
   preferences.haptic_touch = std::clamp(DataManager::GetIntValue("tw_button_vibrate"), 0, 300);
   preferences.haptic_keyboard = std::clamp(DataManager::GetIntValue("tw_keyboard_vibrate"), 0, 300);
   preferences.haptic_action = std::clamp(DataManager::GetIntValue("tw_action_vibrate"), 0, 500);
@@ -2648,32 +2661,44 @@ int DefaultHapticDuration(Haptic haptic) {
   return 0;
 }
 
-bool ResetAeraSettings(bool theme) {
+bool ResetAeraThemeSection(ThemeSection section) {
   LoadAeraPreferencesIfAvailable();
   const auto &defaults = gEarlyDefaults;
   bool restored = true;
   auto set = [&restored](const char *key, const auto &value) {
     restored &= DataManager::SetValue(key, value, 1) == 0;
   };
-  // Reset only the selected settings group; keep language, network and plugins.
-  if (theme) {
+  switch (section) {
+  case ThemeSection::kAppearance:
     set("aera_theme_accent", defaults.accent);
     set("aera_theme_mode", defaults.theme);
-    set("aera_wallpaper_path", std::string());
     set("aera_surface_style", defaults.surface_style);
+    break;
+  case ThemeSection::kWallpaper:
+    set("aera_wallpaper_path", std::string());
+    set("aera_wallpaper_layout", defaults.wallpaper_layout);
+    break;
+  case ThemeSection::kHome:
     set("aera_tinted_icon_backgrounds", defaults.tinted_icon_backgrounds);
     set("aera_themed_home_icons", defaults.themed_home_icons);
-    set("aera_interface_size", defaults.interface_size);
-    set("aera_keyboard_layout", defaults.keyboard_layout);
     set("aera_home_grid_columns", defaults.home_grid_columns);
+    break;
+  case ThemeSection::kTypography:
+    set("aera_interface_size", defaults.interface_size);
+    set("aera_ui_font", std::string());
+    break;
+  case ThemeSection::kNavigation:
     set("aera_dock_layout", defaults.dock_layout);
     set("aera_dock_transparency", defaults.dock_transparency);
     set("aera_dock_blur", defaults.dock_blur);
     set("aera_dock_hide_apps", defaults.dock_hide_apps);
-    set("aera_ui_font", std::string());
+    break;
+  case ThemeSection::kLock:
     set("aera_lock_theme", defaults.lock_theme);
-  } else {
-    set("tw_military_time", defaults.clock24);
+    break;
+  case ThemeSection::kStatusBar:
+    set("aera_wifi_show_speed", defaults.wifi_show_speed);
+    set("aera_wifi_show_name", defaults.wifi_show_name);
     set("aera_battery_style", defaults.battery_style);
     set("aera_battery_circle_size", defaults.battery_circle_size);
     set("aera_battery_percentage", defaults.battery_percentage);
@@ -2691,6 +2716,27 @@ bool ResetAeraSettings(bool theme) {
     set("aera_temperature_battery_hot", defaults.temperature.battery_hot);
     set("aera_temperature_size", defaults.temperature.size);
     set("aera_temperature_position", defaults.temperature.position);
+    break;
+  }
+  return restored;
+}
+
+bool ResetAeraSettings(bool theme) {
+  LoadAeraPreferencesIfAvailable();
+  const auto &defaults = gEarlyDefaults;
+  bool restored = true;
+  auto set = [&restored](const char *key, const auto &value) {
+    restored &= DataManager::SetValue(key, value, 1) == 0;
+  };
+  // Theme resets include status indicators; preferences retain their own layout.
+  if (theme) {
+    for (auto section : {ThemeSection::kAppearance, ThemeSection::kWallpaper,
+         ThemeSection::kHome, ThemeSection::kTypography, ThemeSection::kNavigation,
+         ThemeSection::kStatusBar, ThemeSection::kLock})
+      restored &= ResetAeraThemeSection(section);
+  } else {
+    set("tw_military_time", defaults.clock24);
+    set("aera_keyboard_layout", defaults.keyboard_layout);
     set(TW_TIME_ZONE_VAR, defaults.timezone);
     set("aera_recents_enabled", defaults.recents);
     set("tw_hidden_files", 0);
@@ -2717,7 +2763,9 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
                      const std::string& value, bool* recognized = nullptr) {
   if (recognized != nullptr) *recognized = true;
   int parsed = 0;
-  if (key == "clock24") {
+  if (key == "wallpaper_layout") {
+    preferences->wallpaper_layout = EncodeWallpaperLayout(DecodeWallpaperLayout(value));
+  } else if (key == "clock24") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->clock24 = parsed;
   } else if (key == "timezone") {
@@ -2862,6 +2910,7 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
 }
 
 void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
+  DataManager::SetValue("aera_wallpaper_layout", preferences.wallpaper_layout);
   DataManager::SetValue("tw_military_time", preferences.clock24);
   DataManager::SetValue(TW_TIME_ZONE_VAR, preferences.timezone);
   DataManager::SetValue("tw_brightness_pct", preferences.brightness);
@@ -2967,6 +3016,7 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "brightness=" << preferences.brightness << '\n'
          << "screen_timeout=" << preferences.screen_timeout << '\n'
          << "accent=" << preferences.accent << '\n'
+         << "wallpaper_layout=" << preferences.wallpaper_layout << '\n'
          << "theme=" << preferences.theme << '\n'
          << "surface_style=" << preferences.surface_style << '\n'
          << "tinted_icon_backgrounds="
@@ -3205,6 +3255,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "language=" << RecoveryLanguage() << '\n'
          << "ui_font=" << RecoveryUiFont() << '\n'
          << "wallpaper=" << RecoveryWallpaperPath() << '\n'
+         << "wallpaper_layout=" << EncodeWallpaperLayout(RecoveryWallpaperLayout()) << '\n'
          << "browser_homepage=" << RecoveryBrowserHomepage() << '\n'
          << "browser_zoom=" << RecoveryBrowserZoom() << '\n'
          << "browser_cookies="

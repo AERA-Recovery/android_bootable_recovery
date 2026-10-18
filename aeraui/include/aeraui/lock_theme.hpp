@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string>
 #include <algorithm>
+#include "wallpaper_layout.hpp"
 
 namespace aeraui {
 struct LockTheme {
@@ -24,6 +25,7 @@ struct LockTheme {
   bool charging = false, wifi = false, battery = false, activity = false;
   bool flashlight = false, screenshot = false, minimal = false;
   std::string owner, wallpaper;
+  WallpaperLayout wallpaper_layout;
 };
 inline bool ValidLockTheme(const LockTheme &t) {
   auto text = [](const std::string &s, size_t limit) {
@@ -36,7 +38,7 @@ inline bool ValidLockTheme(const LockTheme &t) {
       t.date_placement>=0 && t.date_placement<=2 && t.aod_brightness>=1 && t.aod_brightness<=100 && t.placement >= 0 && t.placement <= 2 &&
       t.colour >= 0 && t.colour <= 2 && t.rgb <= 0xffffff && t.dim >= 0 && t.dim <= 90 &&
       t.blur >= 0 && t.blur <= 100 && t.unlock >= 0 && t.unlock <= 2 &&
-      t.animation >= 0 && t.animation <= 1 && t.clock_size>=60 && t.clock_size<=180 && text(t.owner, 160) && text(t.wallpaper, 4096);
+      t.animation >= 0 && t.animation <= 1 && t.clock_size>=60 && t.clock_size<=180 && text(t.owner, 160) && text(t.wallpaper, 4096) && ValidWallpaperLayout(t.wallpaper_layout);
 }
 inline std::string EncodeLockTheme(const LockTheme &t) {
   std::ostringstream s;
@@ -46,7 +48,8 @@ inline std::string EncodeLockTheme(const LockTheme &t) {
     << ' ' << t.flashlight << ' ' << t.screenshot << ' ' << t.minimal
     << ' ' << std::quoted(t.owner) << ' ' << std::quoted(t.wallpaper) << ' ' << t.clock_size
     << ' ' << t.date_style << ' ' << t.date_size << ' ' << t.date_colour << ' ' << t.aod
-    << ' ' << t.date_placement << ' ' << t.aod_brightness;
+    << ' ' << t.date_placement << ' ' << t.aod_brightness
+    << ' ' << std::quoted(EncodeWallpaperLayout(t.wallpaper_layout));
   return s.str();
 }
 inline LockTheme DecodeLockTheme(const std::string &value) {
@@ -59,6 +62,11 @@ inline LockTheme DecodeLockTheme(const std::string &value) {
   if(version>=2 && !(s>>t.clock_size)) return {};
   if(version>=3 && !(s>>t.date_style>>t.date_size>>t.date_colour>>t.aod)) return {};
   if(version>=4 && !(s>>t.date_placement>>t.aod_brightness)) return {};
+  if (version >= 4) {
+    // Optional tail keeps existing v4 themes and older readers compatible.
+    std::string layout;
+    if (s >> std::quoted(layout)) t.wallpaper_layout = DecodeWallpaperLayout(layout);
+  }
   if(version<3 && t.clock>2)t.clock=0;
   if(t.animation>=2 && t.animation<=5)t.animation=1;
   if(!ValidLockTheme(t)) return {};

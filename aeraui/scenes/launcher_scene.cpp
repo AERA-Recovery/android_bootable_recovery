@@ -153,7 +153,7 @@ lv_obj_t *AppCard(lv_obj_t *screen, int x, int y, int width,
                   themed_art::Kind artwork = themed_art::Kind::Tools,
                   int height = 360) {
   auto *card = lv_button_create(screen);
-  Panel(card, 44, kMainPanel);
+  Panel(card, 44, IconBackground());
   Interactive(card, kMainSelected);
   lv_obj_set_pos(card, x, y);
   lv_obj_set_size(card, width, height);
@@ -202,7 +202,7 @@ lv_obj_t *PluginTile(lv_obj_t *parent, int x, int y, int width, int height,
     return card;
   }
   auto *card = lv_button_create(parent);
-  Panel(card, 34, kMainSheet);
+  Panel(card, 34, RecoveryTintedIconBackgrounds() ? IconBackground() : kMainSheet);
   Interactive(card, kMainSelected);
   lv_obj_set_pos(card, x, y);
   lv_obj_set_size(card, width, height);
@@ -325,6 +325,63 @@ const char *PluginIcon(const plugins::Plugin &plugin) {
 }
 
 }  // namespace
+
+void BuildHomeAppearancePreview(lv_obj_t *parent) {
+  lv_obj_update_layout(parent);
+  const bool landscape = Landscape(lv_obj_get_screen(parent));
+  // A bounded sample uses the same artwork and icon surfaces as Home, without
+  // scaling a large widget tree or changing the surrounding settings layout.
+  const int width = std::min(int(lv_obj_get_width(parent)) - 48, 960);
+  const int left = (lv_obj_get_width(parent) - width) / 2;
+  const int gap = 16, system_columns = landscape ? 3 : 2;
+  const int system_width = (width - gap * (system_columns - 1)) / system_columns;
+  auto tile = [&](int x, int y, int w, int h, const char *name,
+                  const char *symbol, themed_art::Kind kind, bool icons) {
+    auto *card = lv_obj_create(parent);
+    Clear(card);
+    lv_obj_set_pos(card, left + x, y);
+    lv_obj_set_size(card, w, h);
+    auto *plate = lv_obj_create(card);
+    Panel(plate, 16, IconBackground());
+    const int art_size = std::min(w, h - 34);
+    lv_obj_set_size(plate, icons ? art_size : w, icons ? art_size : h);
+    lv_obj_align(plate, LV_ALIGN_TOP_MID, 0, 0);
+    if (RecoveryThemedHomeIcons()) themed_art::Attach(plate, kind);
+    else {
+      auto *icon = Label(plate, symbol, &lv_font_montserrat_36, kAccent);
+      lv_obj_align(icon, icons ? LV_ALIGN_CENTER : LV_ALIGN_TOP_MID, 0, icons ? 0 : 18);
+    }
+    auto *title = Label(card, name, &lv_font_montserrat_24, kText);
+    FitLabelToLines(title, std::max(1, w - 16), 1,
+                    {&lv_font_montserrat_24, &lv_font_montserrat_20,
+                     &lv_font_montserrat_18, &lv_font_montserrat_16});
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(title, LV_ALIGN_BOTTOM_MID, 0, icons ? 0 : -12);
+  };
+  tile(0, 0, system_width, 128, "Files", LV_SYMBOL_DIRECTORY,
+       themed_art::Kind::Files, false);
+  tile(system_width + gap, 0, system_width, 128, "Plugin Manager", LV_SYMBOL_DOWNLOAD,
+       themed_art::Kind::Packages, false);
+  if (landscape)
+    tile(2 * (system_width + gap), 0, system_width, 128, "Terminal", LV_SYMBOL_EDIT,
+         themed_art::Kind::Tools, false);
+  auto installed = plugins::Installed();
+  installed.erase(std::remove_if(installed.begin(), installed.end(),
+      [](const auto &plugin) { return !plugins::IsLaunchable(plugin); }), installed.end());
+  const int grid = RecoveryHomeGridColumns();
+  const int columns = landscape && grid < 4 ? 4 : grid;
+  const int tile_height = 128;
+  const int tile_width = (width - gap * (columns - 1)) / columns;
+  const size_t count = std::min(installed.size(), static_cast<size_t>(columns * 2));
+  for (size_t i = 0; i < count; ++i) {
+    const auto &plugin = installed[i];
+    const int x = int(i % columns) * (tile_width + gap);
+    const int y = 148 + int(i / columns) * (tile_height + gap);
+    tile(x, y, tile_width, tile_height, plugin.name.c_str(), PluginIcon(plugin),
+         themed_art::ForPlugin(plugin.id, plugin.entry, plugin.category), grid >= 4);
+  }
+  MakeDecorationPassThrough(parent);
+}
 
 void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   Header(screen, "Home", "Your recovery apps, files and extensions.", callback, context);

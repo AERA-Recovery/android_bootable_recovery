@@ -2907,7 +2907,10 @@ private:
         action == Action::kMounts || action == Action::kLogs ||
         action == Action::kPreferences || action == Action::kLanguage ||
         action == Action::kStatusBar || action == Action::kTemperatures ||
-        action == Action::kTheme ||
+        action == Action::kTheme || action == Action::kThemeAppearance ||
+        action == Action::kThemeWallpaper || action == Action::kThemeHome ||
+        action == Action::kThemeTypography || action == Action::kThemeNavigation ||
+        action == Action::kThemeLock ||
         action == Action::kWifi || action == Action::kUsers ||
         action == Action::kPcConnection;
     if (action == Action::kOpenReboot || action == Action::kBackHome ||

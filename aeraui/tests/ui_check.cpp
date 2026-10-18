@@ -12,6 +12,7 @@
 #include "update/payload_arb.hpp"
 #include "update/payload_full_flash.hpp"
 #include "picture_viewer.hpp"
+#include "picture_decode.hpp"
 #include "browser/runtime.hpp"
 #include "browser/protocol.hpp"
 #include <cassert>
@@ -112,7 +113,15 @@ bool RecoverySetAppearanceMode(AppearanceMode mode) {
   light_mode = mode == AppearanceMode::kLight;
   return true;
 }
-std::string RecoveryWallpaperPath() { return {}; }
+static std::string wallpaper_path;
+static WallpaperLayout wallpaper_layout;
+std::string RecoveryWallpaperPath() { return wallpaper_path; }
+WallpaperLayout RecoveryWallpaperLayout() { return wallpaper_layout; }
+bool RecoverySetWallpaperLayout(const WallpaperLayout &layout) {
+  if (!ValidWallpaperLayout(layout)) return false;
+  wallpaper_layout = layout;
+  return true;
+}
 static LockTheme lock_theme;
 WifiConnection RecoveryWifiConnection() { return {}; }
 LockTheme RecoveryLockTheme() { return lock_theme; }
@@ -123,7 +132,7 @@ bool RecoverySetLockTheme(const LockTheme &theme) {
 bool RecoveryFlashlightSupported() { return true; }
 bool RecoveryFlashlightEnabled() { return false; }
 bool RecoverySetFlashlight(bool) { return true; }
-bool RecoverySetWallpaperPath(const std::string &) { return true; }
+bool RecoverySetWallpaperPath(const std::string &path) { wallpaper_path = path; return true; }
 SurfaceStyle RecoverySurfaceStyle() { return SurfaceStyle::kSolid; }
 static bool themed_home_icons = false;
 bool RecoveryThemedHomeIcons() { return themed_home_icons; }
@@ -131,8 +140,11 @@ bool RecoverySetThemedHomeIcons(bool enabled) { themed_home_icons = enabled; ret
 bool RecoverySetSurfaceStyle(SurfaceStyle style) {
   return static_cast<int>(style) >= 0 && static_cast<int>(style) <= 3;
 }
-bool RecoveryTintedIconBackgrounds() { return false; }
-bool RecoverySetTintedIconBackgrounds(bool) { return true; }
+static bool tinted_icon_backgrounds = false;
+bool RecoveryTintedIconBackgrounds() { return tinted_icon_backgrounds; }
+bool RecoverySetTintedIconBackgrounds(bool enabled) {
+  tinted_icon_backgrounds = enabled; return true;
+}
 std::string RecoveryUiFont() { return {}; }
 bool RecoverySetUiFont(const std::string &) { return true; }
 InterfaceSize RecoveryInterfaceSize() { return interface_size; }
@@ -190,6 +202,22 @@ bool RecoveryResetThemeSettings() {
   accent_color = design::kDefaultAccentRgb;
   light_mode = false;
   interface_size = InterfaceSize::kNormal;
+  wallpaper_path.clear();
+  wallpaper_layout = {};
+  return true;
+}
+bool RecoveryResetThemeSection(ThemeSection section) {
+  switch (section) {
+    case ThemeSection::kAppearance:
+      accent_color = design::kDefaultAccentRgb;
+      light_mode = false;
+      break;
+    case ThemeSection::kHome: themed_home_icons = false; break;
+    case ThemeSection::kWallpaper: wallpaper_path.clear(); wallpaper_layout = {}; break;
+    case ThemeSection::kTypography: interface_size = InterfaceSize::kNormal; break;
+    case ThemeSection::kLock: lock_theme = {}; break;
+    default: break;
+  }
   return true;
 }
 bool RecoveryResetPreferences() {
@@ -490,9 +518,13 @@ static lv_area_t Bounds(lv_obj_t *object) {
 static lv_obj_t *FindPreferenceEntry(lv_obj_t *screen, const char *title) {
   auto *item = FindLabel(screen, title);
   auto *reset = Find(screen, i18n::Translate("Reset preferences"));
+  if (!reset) reset = Find(screen, i18n::Translate("Reset theme settings"));
   if (!item || !reset) return nullptr;
   auto *list = lv_obj_get_parent(reset);
-  while (item && lv_obj_get_parent(item) != list) item = lv_obj_get_parent(item);
+  while (item && lv_obj_get_parent(item) != list) {
+    if (lv_obj_check_type(item, &lv_button_class)) return item;
+    item = lv_obj_get_parent(item);
+  }
   return item;
 }
 static bool Overlaps(lv_obj_t *left, lv_obj_t *right, int gap = 0) {
@@ -678,6 +710,240 @@ int main(int argc,char **argv) {
     puts("Artillery: portrait/landscape, all densities, controls, audio fallback, cleanup and About unlock passed");
     return 0;
   }
+  if (!strcmp(argv[1], "--wallpaper-layout")) {
+    WallpaperLayout settings;
+    auto fill = WallpaperPlacement(100, 200, 200, 100, settings);
+    assert(fill.width == 400 && fill.height == 200 && fill.x == -150 && fill.y == 0);
+    settings.mode = WallpaperMode::kFit;
+    auto fit = WallpaperPlacement(100, 200, 200, 100, settings);
+    assert(fit.width == 100 && fit.height == 50 && fit.y == 75);
+    settings.mode = WallpaperMode::kCenter;
+    auto center = WallpaperPlacement(100, 200, 200, 100, settings);
+    assert(center.width == 200 && center.height == 100 && center.x == -50 && center.y == 50);
+    settings.mode = WallpaperMode::kStretch;
+    auto stretch = WallpaperPlacement(100, 200, 200, 100, settings);
+    assert(stretch.width == 100 && stretch.height == 200 && stretch.x == 0);
+    settings = {WallpaperMode::kCustom, 200, 0, 1000};
+    auto custom = WallpaperPlacement(100, 200, 200, 100, settings);
+    assert(custom.width == 800 && custom.height == 400 && custom.x == 0 && custom.y == -200);
+    assert(EncodeWallpaperLayout(DecodeWallpaperLayout(EncodeWallpaperLayout(settings))) == EncodeWallpaperLayout(settings));
+    assert(DecodeWallpaperLayout("1 99 100 500 500").mode == WallpaperMode::kFill);
+    assert(DecodeWallpaperLayout("1 4 900 500 500").zoom == 100);
+    assert(DecodeWallpaperLayout("1 4 150 0 1000 garbage").zoom == 100);
+    LockTheme lock;
+    lock.wallpaper_layout = settings;
+    const auto encoded = EncodeLockTheme(lock);
+    assert(EncodeLockTheme(DecodeLockTheme(encoded)) == encoded);
+    const auto old_tail = encoded.rfind(" \"1 "); assert(old_tail != std::string::npos);
+    assert(DecodeLockTheme(encoded.substr(0, old_tail)).wallpaper_layout.mode == WallpaperMode::kFill);
+    std::vector<unsigned char> pixels(240 * 120 * 4, 255);
+    for (int y = 0; y < 120; ++y) for (int x = 0; x < 240; ++x) {
+      auto *pixel = pixels.data() + (y * 240 + x) * 4;
+      pixel[0] = x < 80 ? 255 : 0;
+      pixel[1] = x >= 80 && x < 160 ? 255 : 0;
+      pixel[2] = x >= 160 ? 255 : 0;
+    }
+    png_image source{}; source.version = PNG_IMAGE_VERSION;
+    source.width = 240; source.height = 120; source.format = PNG_FORMAT_RGBA;
+    const std::string path = backup_root + "/wallpaper-layout.png";
+    assert(png_image_write_to_file(&source, path.c_str(), 0, pixels.data(), 0, nullptr));
+    auto picture = std::make_shared<PictureData>();
+    DecodePictureThumbnail(path, 120, 120, *picture);
+    assert(picture->pixels && picture->original_width == 240 && picture->original_height == 120);
+    auto *target = lv_obj_create(screen);
+    widgets::Clear(target); lv_obj_set_size(target, 100, 220);
+    lv_obj_set_style_radius(target, 8, 0);
+    auto sample = [&](WallpaperLayout layout, int x, int y) {
+      lv_obj_clean(target);
+      assert(wallpaper::AttachPreview(target, picture, layout));
+      auto *image = FindType(target, &lv_image_class); assert(image);
+      const auto *data = static_cast<const lv_image_dsc_t *>(lv_image_get_src(image));
+      const auto *pixel = data->data + (y * 100 + x) * 4;
+      return std::vector<unsigned char>(pixel, pixel + 4);
+    };
+    assert(sample({}, 50, 110)[1] == 255);
+    assert(sample({WallpaperMode::kFit}, 50, 50)[3] == 0);
+    assert(sample({WallpaperMode::kCustom, 100, 0, 500}, 50, 110)[2] == 255);
+    assert(sample({WallpaperMode::kCustom, 100, 1000, 500}, 50, 110)[0] == 255);
+    assert(sample({WallpaperMode::kStretch}, 10, 110)[2] == 255);
+    assert(sample({WallpaperMode::kStretch}, 90, 110)[0] == 255);
+    assert(sample({}, 0, 0)[3] == 0);
+    lv_color_t previous_generation{};
+    bool first_generation = true;
+    for (auto mode : {WallpaperMode::kFill, WallpaperMode::kFit,
+         WallpaperMode::kCenter, WallpaperMode::kStretch, WallpaperMode::kCustom}) {
+      lv_obj_clean(target);
+      WallpaperLayout layout;
+      layout.mode = mode;
+      assert(wallpaper::AttachPreview(target, picture, layout));
+      auto *image = FindType(target, &lv_image_class); assert(image);
+      lv_draw_image_dsc_t draw;
+      lv_draw_image_dsc_init(&draw);
+      lv_obj_init_draw_image_dsc(image, LV_PART_MAIN, &draw);
+      assert(draw.recolor_opa == LV_OPA_TRANSP);
+      if (!first_generation) assert(!lv_color_eq(previous_generation, draw.recolor));
+      previous_generation = draw.recolor;
+      first_generation = false;
+    }
+    lv_obj_delete(target);
+    RecoverySetWallpaperPath(path);
+    assert(wallpaper::Load(path));
+    for (bool landscape : {false, true}) for (int size : {0, 1, 3}) {
+      interface_size = static_cast<InterfaceSize>(size); design::ApplyInterfaceSize(size);
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *page = lv_obj_create(nullptr);
+      BuildToolScene(page, Action::kThemeWallpaper, RecordAction, nullptr);
+      lv_screen_load(page); Tick(2);
+      auto *adjust = Find(page, "Adjust image"); assert(adjust);
+      const auto before = EncodeWallpaperLayout(RecoveryWallpaperLayout());
+      const int saves = autosave_count;
+      lv_obj_send_event(adjust, LV_EVENT_CLICKED, nullptr); Tick(2);
+      lv_obj_t *overlay = nullptr;
+      for (uint32_t i = 0; i < lv_obj_get_child_count(page); ++i)
+        if (lv_obj_get_user_data(lv_obj_get_child(page, i)) == &widgets::kModalMarker)
+          overlay = lv_obj_get_child(page, i);
+      assert(overlay);
+      for (const char *mode : {"Fill", "Fit", "Centre", "Stretch", "Custom crop"}) {
+        auto *button = Find(overlay, mode); assert(button);
+        lv_obj_send_event(button, LV_EVENT_CLICKED, nullptr); Tick(1);
+        assert(EncodeWallpaperLayout(RecoveryWallpaperLayout()) == before);
+        assert(autosave_count == saves);
+      }
+      auto *slider = FindType(overlay, &lv_slider_class); assert(slider);
+      lv_slider_set_value(slider, 225, LV_ANIM_OFF);
+      lv_obj_send_event(slider, LV_EVENT_VALUE_CHANGED, nullptr);
+      assert(FindLabel(overlay, "225%"));
+      if (size == 1) save(landscape ? "/tmp/aera-wallpaper-editor-landscape.png" : "/tmp/aera-wallpaper-editor-portrait.png", 2);
+      lv_obj_send_event(Find(overlay, "Cancel"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      assert(EncodeWallpaperLayout(RecoveryWallpaperLayout()) == before);
+      if (!landscape && size == 1) {
+        lv_obj_send_event(adjust, LV_EVENT_CLICKED, nullptr); Tick(2);
+        for (uint32_t i = 0; i < lv_obj_get_child_count(page); ++i)
+          if (lv_obj_get_user_data(lv_obj_get_child(page, i)) == &widgets::kModalMarker)
+            overlay = lv_obj_get_child(page, i);
+        lv_obj_send_event(Find(overlay, "Custom crop"), LV_EVENT_CLICKED, nullptr); Tick(2);
+        auto *zoom = FindType(overlay, &lv_slider_class); assert(zoom);
+        lv_slider_set_value(zoom, 225, LV_ANIM_OFF);
+        lv_obj_send_event(zoom, LV_EVENT_VALUE_CHANGED, nullptr);
+        lv_obj_t *crop = nullptr;
+        for (uint32_t i = 0; i < lv_obj_get_child_count(overlay); ++i) {
+          auto *child = lv_obj_get_child(overlay, i);
+          if (lv_obj_get_style_clip_corner(child, LV_PART_MAIN) &&
+              lv_obj_get_style_radius(child, LV_PART_MAIN) == 32) crop = child;
+        }
+        assert(crop);
+        const auto bounds = Bounds(crop);
+        struct Pointer { lv_point_t point; lv_indev_state_t state; } pointer{
+            {(bounds.x1 + bounds.x2) / 2, (bounds.y1 + bounds.y2) / 2}, LV_INDEV_STATE_RELEASED};
+        auto *input = lv_indev_create();
+        lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
+        lv_indev_set_display(input, display);
+        lv_indev_set_user_data(input, &pointer);
+        lv_indev_set_read_cb(input, [](lv_indev_t *input, lv_indev_data_t *data) {
+          auto *pointer = static_cast<Pointer *>(lv_indev_get_user_data(input));
+          data->point = pointer->point;
+          data->state = pointer->state;
+        });
+        pointer.state = LV_INDEV_STATE_PRESSED; Tick(5);
+        pointer.point.x -= 120; Tick(5);
+        pointer.state = LV_INDEV_STATE_RELEASED; Tick(5);
+        lv_indev_delete(input);
+        lv_obj_send_event(Find(overlay, "Apply"), LV_EVENT_CLICKED, nullptr); Tick(2);
+        assert(RecoveryWallpaperLayout().mode == WallpaperMode::kCustom);
+        assert(RecoveryWallpaperLayout().zoom == 225 && RecoveryWallpaperLayout().x > 500);
+        // Continue the ordinary apply check from the same saved baseline.
+        wallpaper_layout = DecodeWallpaperLayout(before);
+        --autosave_count;
+      }
+      lv_obj_send_event(adjust, LV_EVENT_CLICKED, nullptr); Tick(2);
+      for (uint32_t i = 0; i < lv_obj_get_child_count(page); ++i)
+        if (lv_obj_get_user_data(lv_obj_get_child(page, i)) == &widgets::kModalMarker)
+          overlay = lv_obj_get_child(page, i);
+      auto *fit_button = Find(overlay, "Fit"); assert(fit_button);
+      lv_obj_send_event(fit_button, LV_EVENT_CLICKED, nullptr);
+      lv_obj_send_event(Find(overlay, "Apply"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      assert(RecoveryWallpaperLayout().mode == WallpaperMode::kFit);
+      assert(autosave_count == saves + 1);
+      assert(RecoveryLockTheme().wallpaper_layout.mode == WallpaperMode::kFill);
+      lv_screen_load(screen); lv_obj_delete(page);
+    }
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Wallpaper geometry, pixels, backwards compatibility and editor apply/cancel/drag passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--theme-categories")) {
+    const std::pair<const char *, Action> categories[]{
+      {"Colors & style", Action::kThemeAppearance}, {"Wallpaper", Action::kThemeWallpaper},
+      {"Home & icons", Action::kThemeHome}, {"Text & size", Action::kThemeTypography},
+      {"Navigation dock", Action::kThemeNavigation}, {"Status bar", Action::kStatusBar},
+      {"Lock screen", Action::kThemeLock}};
+    for (const char *language : {"en", "de_DE"})
+    for (bool landscape : {false, true})
+    for (int size = 0; size < 4; ++size) {
+      assert(i18n::SetLanguage(language));
+      interface_size = static_cast<InterfaceSize>(size);
+      design::ApplyInterfaceSize(size);
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *overview = lv_obj_create(nullptr);
+      BuildToolScene(overview, Action::kTheme, RecordAction, nullptr);
+      lv_screen_load(overview); Tick(2);
+      assert(!Find(overview, i18n::Translate("Keyboard layout")));
+      assert(!FindType(overview, &lv_switch_class));
+      assert(!FindType(overview, &lv_slider_class));
+      assert(!FindLabel(overview, "AERA"));
+      assert(!FindLabel(overview, i18n::Translate("Graphite")));
+      for (const auto &[name, action] : categories) {
+        auto *entry = FindPreferenceEntry(overview, i18n::Translate(name)); assert(entry);
+        lv_obj_send_event(entry, LV_EVENT_CLICKED, nullptr);
+        assert(last_action == action);
+        assert(lv_obj_get_width(entry) <= lv_obj_get_width(lv_obj_get_parent(entry)));
+      }
+      if (size == 1 && !strcmp(language, "en"))
+        save(landscape ? "/tmp/aera-theme-overview-landscape.png" : "/tmp/aera-theme-overview-portrait.png");
+      lv_screen_load(screen); lv_obj_delete(overview);
+      for (const auto &[name, action] : categories) {
+        auto *page = lv_obj_create(nullptr);
+        BuildToolScene(page, action, RecordAction, nullptr);
+        lv_screen_load(page); Tick(2);
+        auto *back = FindLabel(page, i18n::Translate("Theme Engine")); assert(back);
+        while (back && !lv_obj_check_type(back, &lv_button_class)) back = lv_obj_get_parent(back);
+        assert(back);
+        assert(lv_obj_is_visible(back));
+        AssertInside(back, lv_obj_get_width(page), lv_obj_get_height(page));
+        lv_obj_send_event(back, LV_EVENT_CLICKED, nullptr);
+        assert(last_action == Action::kBack);
+        if (action == Action::kThemeAppearance) {
+            auto *caption = FindLabel(page, i18n::Translate("Preview")); assert(caption);
+            auto *preview = lv_obj_get_parent(caption);
+            assert(FindType(preview, &lv_switch_class));
+            assert(FindType(preview, &lv_slider_class));
+            auto passive = [&](auto &&self, lv_obj_t *object) -> void {
+              assert(!lv_obj_has_flag(object, LV_OBJ_FLAG_CLICKABLE));
+              for (uint32_t i = 0; i < lv_obj_get_child_count(object); ++i)
+                self(self, lv_obj_get_child(object, i));
+            };
+            passive(passive, preview);
+        }
+        if (action == Action::kThemeLock) {
+          for (const auto *tab : {"Clock", "Date", "Wallpaper", "Behavior"}) {
+            auto *button = Find(page, i18n::Translate(tab)); assert(button);
+            AssertContained(button, lv_obj_get_parent(button));
+            lv_obj_send_event(button, LV_EVENT_CLICKED, nullptr);
+            assert(last_action == Action::kThemeLock);
+          }
+        }
+        if (size == 1 && !strcmp(language, "en"))
+          save((std::string("/tmp/aera-theme-") + std::to_string(static_cast<int>(action)) +
+              (landscape ? "-landscape.png" : "-portrait.png")).c_str());
+        lv_screen_load(screen); lv_obj_delete(page);
+      }
+    }
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Theme categories, editor pages, lock tabs and responsive layouts passed");
+    return 0;
+  }
   if (!strcmp(argv[1], "--lock-theme")) {
     LockTheme settings; settings.owner="AERA user's phone";settings.blur=45;
     settings.wallpaper="/sdcard/My wallpaper.png";
@@ -707,15 +973,21 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&lock_image,lock_wallpaper.c_str(),0,lock_pixels,0,nullptr));
     assert(wallpaper::Load(lock_wallpaper));
     auto *page=lv_obj_create(nullptr);
-    BuildToolScene(page,Action::kTheme,RecordAction,nullptr);
+    BuildToolScene(page,Action::kThemeLock,RecordAction,nullptr);
     lv_screen_load(page);Tick();
     auto *title=FindLabel(page,"Lock screen");assert(title);
-    auto *section=lv_obj_get_parent(title);
-    auto *preview_image=FindType(section,&lv_image_class);assert(preview_image);
+    auto *section=page;
+    lv_obj_t *lock_preview = nullptr;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(page); ++i) {
+      auto *child = lv_obj_get_child(page, i);
+      if (lv_obj_get_width(child) == 280) lock_preview = child;
+    }
+    assert(lock_preview);
+    auto *preview_image=FindType(lock_preview,&lv_image_class);assert(preview_image);
     const auto *rounded=static_cast<const lv_image_dsc_t *>(lv_image_get_src(preview_image));
     assert(rounded->data[3]==0);
     assert(rounded->data[(rounded->header.h/2*rounded->header.w+rounded->header.w/2)*4+3]==255);
-    lv_obj_scroll_to_y(lv_obj_get_parent(section),lv_obj_get_y(section),LV_ANIM_OFF);Tick();
+    Tick();
     save("/tmp/aera-lock-theme-preview.png");
     auto *analogue=Find(page,"Analogue");assert(analogue);
     lv_obj_send_event(analogue,LV_EVENT_CLICKED,nullptr);
@@ -956,7 +1228,7 @@ int main(int argc,char **argv) {
         battery_circle_size = kBatteryCircleSizeDefault;
         battery_percentage = true;
         auto *prefs = lv_obj_create(nullptr);
-        BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
+        BuildToolScene(prefs, Action::kTheme, RecordAction, nullptr);
         lv_screen_load(prefs); Tick();
         auto *entry = FindPreferenceEntry(prefs, i18n::Translate("Status bar")); assert(entry);
         lv_obj_send_event(entry, LV_EVENT_CLICKED, nullptr);
@@ -1754,6 +2026,55 @@ int main(int argc,char **argv) {
       assert(Find(home, "AERA main"));
       save(themed ? "/tmp/aera-home-themed.png" : "/tmp/aera-home-classic.png");
       lv_screen_load(screen); lv_obj_delete(home);
+      for (int columns : {2, 3, 4, 5}) {
+        RecoverySetHomeGridColumns(columns);
+        for (bool tinted : {false, true}) {
+          RecoverySetTintedIconBackgrounds(tinted);
+          auto *actual = lv_obj_create(nullptr);
+          BuildHomeScene(actual, RecordAction, nullptr);
+          lv_screen_load(actual); Tick(2);
+          auto *plugin = Find(actual, "AERA browser"); assert(plugin);
+          auto *surface = columns >= 4 ? lv_obj_get_child(plugin, 0) : plugin;
+          const lv_color_t neutral = columns == 3 ? design::kMainSheet : design::kMainPanel;
+          assert(lv_color_eq(lv_obj_get_style_bg_color(surface, LV_PART_MAIN),
+                             tinted ? design::kAccentSoft : neutral));
+          auto *files = Find(actual, "Files"); assert(files);
+          assert(lv_color_eq(lv_obj_get_style_bg_color(files, LV_PART_MAIN),
+                             tinted ? design::kAccentSoft : design::kMainPanel));
+          if (columns == 3 && tinted)
+            save(themed ? "/tmp/aera-home-themed-tinted.png" : "/tmp/aera-home-classic-tinted.png", 2);
+          lv_screen_load(screen); lv_obj_delete(actual);
+        }
+      }
+      RecoverySetTintedIconBackgrounds(false);
+      int first_settings_y = -1;
+      for (int columns : {2, 3, 4, 5}) {
+        RecoverySetHomeGridColumns(columns);
+        auto *preview_page = lv_obj_create(nullptr);
+        BuildToolScene(preview_page, Action::kThemeHome, RecordAction, nullptr);
+        lv_screen_load(preview_page); Tick(2);
+        assert(Find(preview_page, "Files"));
+        assert(Find(preview_page, "AERA browser"));
+        auto *caption = FindLabel(preview_page, "Preview"); assert(caption);
+        auto *frame = lv_obj_get_parent(caption);
+        assert(lv_obj_get_height(frame) == 530);
+        assert(lv_obj_get_style_border_width(frame, LV_PART_MAIN) > 0);
+        auto *styles = FindLabel(preview_page, "Home icon style"); assert(styles);
+        lv_area_t bounds; lv_obj_get_coords(styles, &bounds);
+        if (first_settings_y < 0) first_settings_y = bounds.y1;
+        assert(bounds.y1 == first_settings_y);
+        auto *tile = Find(preview_page, "AERA browser");
+        auto *grid = lv_obj_get_parent(tile);
+        auto passive = [&](auto &&self, lv_obj_t *object) -> void {
+          assert(!lv_obj_has_flag(object, LV_OBJ_FLAG_CLICKABLE));
+          for (uint32_t i = 0; i < lv_obj_get_child_count(object); ++i)
+            self(self, lv_obj_get_child(object, i));
+        };
+        passive(passive, grid);
+        assert(home_layout.empty());
+        if (columns == 3) save(themed ? "/tmp/aera-theme-home-themed.png" : "/tmp/aera-theme-home-classic.png", 2);
+        lv_screen_load(screen); lv_obj_delete(preview_page);
+      }
     }
     lv_deinit();
     std::filesystem::remove_all(backup_root);
@@ -1915,37 +2236,50 @@ int main(int argc,char **argv) {
     assert(wallpaper::Load(portrait_path));
     assert(wallpaper::PreviewHeight(260, 172) == 520);
     auto *theme = lv_obj_create(nullptr);
-    BuildToolScene(theme, Action::kTheme, RecordAction, nullptr);
+    BuildToolScene(theme, Action::kThemeWallpaper, RecordAction, nullptr);
     lv_screen_load(theme); Tick();
     auto *choose_wallpaper = Find(theme, "Choose image"); assert(choose_wallpaper);
-    auto *wallpaper_card = lv_obj_get_parent(choose_wallpaper);
-    auto *preview_image = FindType(wallpaper_card, &lv_image_class); assert(preview_image);
-    assert(lv_image_get_inner_align(preview_image) == LV_IMAGE_ALIGN_CONTAIN);
-    assert(lv_obj_get_width(lv_obj_get_parent(preview_image)) == 260);
-    assert(lv_obj_get_height(lv_obj_get_parent(preview_image)) == 520);
-    assert(lv_obj_get_height(wallpaper_card) == 568);
-    assert(lv_obj_get_height(choose_wallpaper) == 108);
-    assert(lv_obj_get_height(Find(theme, "Reset wallpaper")) == 108);
-    auto *surface_title = FindLabel(theme, "Surface style"); assert(surface_title);
-    assert(lv_obj_get_y(surface_title) >= lv_obj_get_y(wallpaper_card) + lv_obj_get_height(wallpaper_card));
-    assert(!Find(theme, "Save theme"));
-    assert(Find(theme, "Reset theme settings"));
+    auto *preview_image = FindType(lv_obj_get_parent(choose_wallpaper), &lv_image_class); assert(preview_image);
+    assert(lv_image_get_inner_align(preview_image) == LV_IMAGE_ALIGN_STRETCH);
+    assert(std::abs(lv_obj_get_height(lv_obj_get_parent(preview_image)) - 760) <= 3);
+    assert(lv_obj_get_height(choose_wallpaper) == 124);
+    assert(!Find(theme, "Surface style"));
+    assert(Find(theme, "Reset section"));
+    lv_screen_load(screen); lv_obj_delete(theme);
+    theme = lv_obj_create(nullptr);
+    BuildToolScene(theme, Action::kThemeHome, RecordAction, nullptr);
+    lv_screen_load(theme); Tick();
     assert(!RecoveryThemedHomeIcons());
     const int before_icons = autosave_count;
     lv_obj_send_event(Find(theme, "Themed"), LV_EVENT_CLICKED, nullptr);
     Tick(2);
     assert(RecoveryThemedHomeIcons());
     assert(autosave_count == before_icons + 1);
+    assert(last_action == Action::kThemeHome);
+    lv_screen_load(screen); lv_obj_delete(theme);
+    theme = lv_obj_create(nullptr);
+    BuildToolScene(theme, Action::kThemeAppearance, RecordAction, nullptr);
+    lv_screen_load(theme); Tick();
     const int before = autosave_count;
     auto *preset = Find(theme, "Violet"); assert(preset);
     lv_obj_send_event(preset, LV_EVENT_CLICKED, nullptr);
     assert(autosave_count == before + 1);
     assert(accent_color == 0xa991ff);
     save("/tmp/aera-theme-autosave.png");
-    lv_obj_send_event(Find(theme, "Reset theme settings"), LV_EVENT_CLICKED, nullptr);
-    assert(autosave_count == before + 1);
+    lv_obj_send_event(Find(theme, "Reset section"), LV_EVENT_CLICKED, nullptr);
     ConfirmSettingsModal(theme); Tick(2);
+    assert(accent_color == design::kDefaultAccentRgb);
+    assert(RecoveryThemedHomeIcons());
+    assert(last_action == Action::kThemeAppearance);
     assert(autosave_count == before + 2);
+    lv_screen_load(screen); lv_obj_delete(theme);
+    theme = lv_obj_create(nullptr);
+    BuildToolScene(theme, Action::kTheme, RecordAction, nullptr);
+    lv_screen_load(theme); Tick();
+    lv_obj_send_event(Find(theme, "Reset theme settings"), LV_EVENT_CLICKED, nullptr);
+    assert(autosave_count == before + 2);
+    ConfirmSettingsModal(theme); Tick(2);
+    assert(autosave_count == before + 3);
     assert(accent_color == design::kDefaultAccentRgb);
     assert(!RecoveryThemedHomeIcons());
     assert(last_action == Action::kTheme);
@@ -2073,7 +2407,7 @@ int main(int argc,char **argv) {
             BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
             lv_screen_load(prefs); Tick(1);
             std::vector<const char *> titles{
-                "Language", "Brightness", "24-hour clock", "Time zone", "Gesture navigation"};
+                "Language", "Keyboard layout", "Brightness", "24-hour clock", "Time zone", "Gesture navigation"};
             if (haptics) titles.push_back("Haptics");
             titles.push_back("Show hidden files");
             titles.push_back("Verify ZIP signatures");

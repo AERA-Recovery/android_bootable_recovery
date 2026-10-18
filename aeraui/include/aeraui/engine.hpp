@@ -77,6 +77,12 @@ enum class Action {
     kTemperatures,
     kLockScreenshot,
     kArtillery,
+    kThemeAppearance,
+    kThemeWallpaper,
+    kThemeHome,
+    kThemeTypography,
+    kThemeNavigation,
+    kThemeLock,
 };
 
 enum class DecryptionCompletion {

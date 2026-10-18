@@ -327,6 +327,8 @@ target_compile_options(status_gesture_test PRIVATE -UNDEBUG)
 target_link_libraries(status_gesture_test PRIVATE lvgl PNG::PNG Threads::Threads jsoncpp_static ZLIB::ZLIB)
 add_test(NAME status_gesture_cancellation COMMAND status_gesture_test)
 add_test(NAME status_bar_display_settings COMMAND ui_check --status-bar-settings)
+add_test(NAME theme_engine_categories_and_layout COMMAND ui_check --theme-categories)
+add_test(NAME wallpaper_layout_and_editor COMMAND ui_check --wallpaper-layout)
 
 add_executable(temperature_reader_test temperature_reader_test.cpp)
 target_include_directories(temperature_reader_test PRIVATE ../include)

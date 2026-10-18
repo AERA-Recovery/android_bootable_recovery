@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wallpaper.hpp"
+#include "aeraui/backend.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -14,6 +15,7 @@ namespace {
 
 std::shared_ptr<PictureData> gPicture;
 std::string gPath;
+uint32_t gImageGeneration = 0;
 
 struct Instance {
   std::shared_ptr<PictureData> picture;
@@ -70,34 +72,45 @@ int PreviewHeight(int width, int fallback) {
       gPicture->width));
 }
 
-static bool AttachPicture(lv_obj_t *target, std::shared_ptr<PictureData> picture, bool contain) {
+static bool AttachPicture(lv_obj_t *target, std::shared_ptr<PictureData> picture,
+                          const WallpaperLayout &layout, bool contain = false) {
   if (!target || !picture || !picture->pixels) return false;
-  // Bake rounded preview corners into alpha. Some hardware drawing paths do
-  // not apply a parent's corner clip to a scaled image child.
-  const int radius=lv_obj_get_style_radius(target,LV_PART_MAIN);
-  if(radius>0 && !contain) {
-    lv_obj_update_layout(target);
-    const int w=lv_obj_get_width(target),h=lv_obj_get_height(target);
-    if(w>0 && h>0 && w<=1024 && h<=2048) {
-      auto rounded=std::make_shared<PictureData>();
-      rounded->width=w;rounded->height=h;
-      rounded->pixels=static_cast<uint8_t *>(malloc(size_t(w)*h*4));
-      if(rounded->pixels) {
-        const double scale=std::max(double(w)/picture->width,double(h)/picture->height);
-        const double ox=(picture->width-w/scale)/2,oy=(picture->height-h/scale)/2;
-        const double r=std::min({radius,w/2,h/2});
-        for(int y=0;y<h;++y) for(int x=0;x<w;++x) {
-          const int sx=std::clamp(int(ox+(x+0.5)/scale),0,int(picture->width)-1);
-          const int sy=std::clamp(int(oy+(y+0.5)/scale),0,int(picture->height)-1);
-          auto *out=rounded->pixels+(size_t(y)*w+x)*4;
-          const auto *in=picture->pixels+(size_t(sy)*picture->width+sx)*4;
-          std::copy(in,in+4,out);
-          const double dx=std::max({r-(x+0.5),(x+0.5)-(w-r),0.0});
-          const double dy=std::max({r-(y+0.5),(y+0.5)-(h-r),0.0});
-          out[3]=uint8_t(in[3]*std::clamp(r+0.5-std::hypot(dx,dy),0.0,1.0));
-        }
-        picture=std::move(rounded);
+  lv_obj_update_layout(target);
+  const int w = lv_obj_get_width(target), h = lv_obj_get_height(target);
+  if (w <= 0 || h <= 0) return false;
+  const int source_w = picture->original_width ? picture->original_width : picture->width;
+  const int source_h = picture->original_height ? picture->original_height : picture->height;
+  const double native_scale = std::min(
+      double(w) / std::max(1, lv_display_get_horizontal_resolution(nullptr)),
+      double(h) / std::max(1, lv_display_get_vertical_resolution(nullptr)));
+  auto settings = layout;
+  if (contain) settings.mode = WallpaperMode::kFit;
+  auto bounds = WallpaperPlacement(w, h, source_w, source_h, settings, native_scale);
+  // Bake small rounded previews because not every GPU clips scaled children
+  // to the parent's rounded corners. The full-screen wallpaper stays GPU-scaled.
+  const int radius = lv_obj_get_style_radius(target, LV_PART_MAIN);
+  if (radius > 0 && !contain && w <= 1024 && h <= 2048) {
+    auto rounded = std::make_shared<PictureData>();
+    rounded->width = w; rounded->height = h;
+    rounded->pixels = static_cast<uint8_t *>(calloc(size_t(w) * h, 4));
+    if (rounded->pixels) {
+      const double r = std::min({radius, w / 2, h / 2});
+      for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+        if (x < bounds.x || y < bounds.y || x >= bounds.x + bounds.width ||
+            y >= bounds.y + bounds.height) continue;
+        const int sx = std::clamp(int(int64_t(x - bounds.x) * picture->width / bounds.width),
+                                  0, int(picture->width) - 1);
+        const int sy = std::clamp(int(int64_t(y - bounds.y) * picture->height / bounds.height),
+                                  0, int(picture->height) - 1);
+        auto *out = rounded->pixels + (size_t(y) * w + x) * 4;
+        const auto *in = picture->pixels + (size_t(sy) * picture->width + sx) * 4;
+        std::copy(in, in + 4, out);
+        const double dx = std::max({r - (x + 0.5), (x + 0.5) - (w - r), 0.0});
+        const double dy = std::max({r - (y + 0.5), (y + 0.5) - (h - r), 0.0});
+        out[3] = uint8_t(in[3] * std::clamp(r + 0.5 - std::hypot(dx, dy), 0.0, 1.0));
       }
+      picture = std::move(rounded);
+      bounds = {0, 0, w, h};
     }
   }
   auto *instance = new Instance;
@@ -113,10 +126,15 @@ static bool AttachPicture(lv_obj_t *target, std::shared_ptr<PictureData> picture
   descriptor.data = instance->picture->pixels;
 
   auto *image = lv_image_create(target);
-  lv_obj_set_pos(image, 0, 0);
-  lv_obj_set_size(image, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_pos(image, bounds.x, bounds.y);
+  lv_obj_set_size(image, bounds.width, bounds.height);
   lv_image_set_src(image, &descriptor);
-  lv_image_set_inner_align(image, contain ? LV_IMAGE_ALIGN_CONTAIN : LV_IMAGE_ALIGN_COVER);
+  // The GLES cache also retains textures independently of lv_image_cache_drop.
+  // A recycled descriptor address must not reuse another crop's old pixels.
+  // Zero-opacity recolor adds an immutable generation to its draw cache key.
+  lv_obj_set_style_image_recolor(image, lv_color_hex(++gImageGeneration), 0);
+  lv_obj_set_style_image_recolor_opa(image, LV_OPA_TRANSP, 0);
+  lv_image_set_inner_align(image, LV_IMAGE_ALIGN_STRETCH);
   lv_image_set_antialias(image, true);
   lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(image, LV_OBJ_FLAG_SCROLLABLE);
@@ -126,10 +144,16 @@ static bool AttachPicture(lv_obj_t *target, std::shared_ptr<PictureData> picture
 }
 
 bool Attach(lv_obj_t *target, bool contain) {
-  return AttachPicture(target, gPicture, contain);
+  return AttachPicture(target, gPicture, RecoveryWallpaperLayout(), contain);
 }
 
-bool AttachLock(lv_obj_t *target, const std::string &path, int blur) {
+bool AttachPreview(lv_obj_t *target, std::shared_ptr<PictureData> picture,
+                   const WallpaperLayout &layout) {
+  return AttachPicture(target, std::move(picture), layout);
+}
+
+bool AttachLock(lv_obj_t *target, const std::string &path, int blur,
+                const WallpaperLayout &layout) {
   static std::string custom_path;
   static std::shared_ptr<PictureData> custom, softened, previous;
   static int previous_blur = -1;
@@ -146,15 +170,17 @@ bool AttachLock(lv_obj_t *target, const std::string &path, int blur) {
   }
   if (!source || !source->pixels) return false;
   blur = std::clamp(blur, 0, 100);
-  if (!blur) return AttachPicture(target, source, false);
+  if (!blur) return AttachPicture(target, source, layout);
   if (previous != source || previous_blur != blur) {
     auto image = std::make_shared<PictureData>();
     const double ratio = std::min(1.0, 768.0 / std::max(source->width, source->height));
     const int w = std::max(1, int(source->width * ratio));
     const int h = std::max(1, int(source->height * ratio));
     image->width = w; image->height = h;
+    image->original_width = source->original_width ? source->original_width : source->width;
+    image->original_height = source->original_height ? source->original_height : source->height;
     image->pixels = static_cast<uint8_t *>(malloc(size_t(w) * h * 4));
-    if (!image->pixels) return AttachPicture(target, source, false);
+    if (!image->pixels) return AttachPicture(target, source, layout);
     for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x)
       for (int c = 0; c < 4; ++c)
         image->pixels[(y*w+x)*4+c] = source->pixels[
@@ -182,7 +208,7 @@ bool AttachLock(lv_obj_t *target, const std::string &path, int blur) {
     }
     softened = image; previous = source; previous_blur = blur;
   }
-  return AttachPicture(target, softened, false);
+  return AttachPicture(target, softened, layout);
 }
 
 }  // namespace aeraui::wallpaper

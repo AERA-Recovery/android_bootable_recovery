@@ -59,6 +59,8 @@ void Png(FILE *file, PictureData &out, uint32_t max_width,
     return;
   }
   image.format = PNG_FORMAT_BGRA;
+  out.original_width = image.width;
+  out.original_height = image.height;
   const bool scale = max_width && max_height &&
       (image.width > max_width || image.height > max_height);
   if (!scale) {
@@ -156,6 +158,8 @@ void ProgressiveJpeg(FILE *file, PictureData &out, uint32_t max_width,
   decoder.mem->max_memory_to_use = 96 * 1024 * 1024;
   jpeg_stdio_src(&decoder, file);
   jpeg_read_header(&decoder, TRUE);
+  out.original_width = decoder.image_width;
+  out.original_height = decoder.image_height;
   if (!decoder.image_width || !decoder.image_height ||
       decoder.image_width > 16384 || decoder.image_height > 16384 ||
       uint64_t(decoder.image_width) * decoder.image_height > 64 * 1024 * 1024) {
@@ -237,6 +241,8 @@ void Jpeg(FILE *file, PictureData &out, uint32_t max_width,
   while ((decoder.width + input.step - 1) / input.step > width_limit ||
          (decoder.height + input.step - 1) / input.step > height_limit)
     input.step *= 2;
+  out.original_width = decoder.width;
+  out.original_height = decoder.height;
   if (Allocate(out, (decoder.width + input.step - 1) / input.step,
                     (decoder.height + input.step - 1) / input.step) &&
       jd_decomp(&decoder, WriteJpeg, 0) != JDR_OK)

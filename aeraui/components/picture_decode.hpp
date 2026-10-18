@@ -9,6 +9,7 @@ namespace aeraui {
 struct PictureData {
   std::atomic<bool> ready{false}, cancelled{false};
   uint32_t width = 0, height = 0;
+  uint32_t original_width = 0, original_height = 0;
   uint8_t *pixels = nullptr; // BGRA, owned here until viewer and worker exit.
   std::string error;
   ~PictureData() { free(pixels); }

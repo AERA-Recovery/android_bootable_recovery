@@ -15,6 +15,7 @@
 #include <cstring>
 #include <dirent.h>
 #include <memory>
+#include <map>
 #include <set>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
@@ -54,6 +55,7 @@ struct Tools {
   lv_obj_t *battery_preview_classic = nullptr, *battery_preview_percentage = nullptr;
   lv_obj_t *battery_preview_body = nullptr, *battery_preview_tip = nullptr;
   int battery_saved_size = kBatteryCircleSizeDefault;
+  int lock_tab = 0;
 };
 
 lv_obj_t *WorkflowModeCard(lv_obj_t *parent, int x, int y, int width,
@@ -63,6 +65,7 @@ lv_obj_t *WorkflowModeCard(lv_obj_t *parent, int x, int y, int width,
 void RestoreFolders(Tools *state);
 std::string SnapshotCowDetail(const SnapshotCowStatus &status);
 void ConfirmSnapshotCowCleanup(Tools *state);
+void OpenWallpaperEditor(Tools *state, const std::string &path, bool lock);
 
 void Open(Tools *state, Action action) { state->callback(action, state->context); }
 bool AutoSaveSettings(Tools *state) {
@@ -71,12 +74,13 @@ bool AutoSaveSettings(Tools *state) {
         "Changes still apply to this session. Unlock and mount settings storage, then try again.");
   return false;
 }
-int theme_scroll_restore = -1;
+std::map<Action, int> theme_scroll_positions;
+int selected_lock_tab = 0;
 void RefreshTheme(Tools *state) {
   if (!AutoSaveSettings(state)) return;
   if (state != nullptr && state->list != nullptr)
-    theme_scroll_restore = lv_obj_get_scroll_y(state->list);
-  Open(state, Action::kTheme);
+    theme_scroll_positions[state->tool] = lv_obj_get_scroll_y(state->list);
+  Open(state, state->tool);
 }
 
 struct WallpaperEntry {
@@ -321,33 +325,8 @@ void OpenWallpaperPicker(Tools *tools, const std::string &requested = {}, bool l
         lv_obj_delete_async(overlay);
         return;
       }
-      std::string error;
-      if (lock) {
-        PictureData picture;
-        DecodePictureThumbnail(entry.path, 1440, 3168, picture);
-        if (!picture.pixels) {
-          Sheet(tools->screen, "Wallpaper unavailable", picture.error);
-          return;
-        }
-        auto theme = RecoveryLockTheme();
-        theme.wallpaper = entry.path;
-        if (!RecoverySetLockTheme(theme)) return;
-        AutoSaveSettings(tools);
-        lv_obj_delete_async(overlay);
-        RefreshTheme(tools);
-        return;
-      }
-      if (!wallpaper::Load(entry.path, &error)) {
-        Sheet(tools->screen, "Wallpaper unavailable", error);
-        return;
-      }
-      if (!RecoverySetWallpaperPath(entry.path)) {
-        Sheet(tools->screen, "Wallpaper unavailable",
-              "The selected wallpaper path could not be stored.");
-        return;
-      }
+      OpenWallpaperEditor(tools, entry.path, lock);
       lv_obj_delete_async(overlay);
-      RefreshTheme(tools);
     });
     lv_obj_set_pos(row, 0, y);
     lv_obj_set_size(row, list_width, 150);
@@ -1696,919 +1675,870 @@ void EditLockText(const std::shared_ptr<LockEditor> &editor, bool colour) {
   lv_obj_set_pos(cancel, 680, 390); lv_obj_set_size(cancel, 580, 112);
 }
 
-int BuildLockEditor(Tools *tools, int top) {
-  auto *section = lv_obj_create(tools->list); Clear(section);
-  lv_obj_set_pos(section, 16, top); lv_obj_set_width(section, 1280);
-  auto *heading = Label(section, "Lock screen", &lv_font_montserrat_40, kText);
-  lv_obj_set_pos(heading, 0, 0);
-  auto *copy = Label(section, "Personalise your lock screen. Storage unlock is unchanged.", &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(copy, 0, 66); lv_obj_set_width(copy, 1280);
-  auto *preview = lv_obj_create(section); Clear(preview);
-  const int pw = 520, ph = pw * 3168 / 1440;
-  lv_obj_set_size(preview, pw, ph); lv_obj_set_pos(preview, (1280-pw)/2, 130);
-  lv_obj_set_style_radius(preview, 44, 0); lv_obj_set_style_clip_corner(preview, true, 0);
-  lv_obj_set_style_border_width(preview, 3, 0);lv_obj_set_style_border_color(preview, kMainLine, 0);
+const char *AppearanceName() {
+  switch (RecoveryAppearanceMode()) {
+    case AppearanceMode::kLight: return "Light";
+    case AppearanceMode::kAmoled: return "AMOLED";
+    default: return "Graphite";
+  }
+}
+
+const char *DockName() {
+  static const char *names[]{"Glass", "Compact", "Minimal", "Icons only", "Text Only"};
+  return names[std::clamp(static_cast<int>(RecoveryDockLayout()), 0, kDockLayoutMax)];
+}
+
+void ThemePage(Tools *state, const char *title) {
+  Header(state->screen, title, "", state->callback, state->context);
+  const int top = Landscape(state->screen) ? 330 : 410;
+  state->list = Scroll(state->screen, top,
+      std::max(1, static_cast<int>(lv_obj_get_height(state->screen)) -
+          top - NavigationHeight(state->screen) - 28));
+  lv_obj_set_flex_flow(state->list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(state->list, 22, 0);
+  lv_obj_set_style_pad_all(state->list, 12, 0);
+  lv_obj_set_style_pad_bottom(state->list, 36, 0);
+  lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_ACTIVE);
+  if (state->tool != Action::kTheme)
+    PreferenceEntry(state, LV_SYMBOL_LEFT, "Theme Engine", "",
+                    [state] { Open(state, Action::kBack); }, true);
+}
+
+void RestoreThemeScroll(Tools *state) {
+  lv_obj_update_layout(state->list);
+  const auto previous = theme_scroll_positions.find(state->tool);
+  if (previous != theme_scroll_positions.end())
+    lv_obj_scroll_to_y(state->list, previous->second, LV_ANIM_OFF);
+  lv_obj_add_event_cb(state->list, [](lv_event_t *event) {
+    auto *tools = static_cast<Tools *>(lv_event_get_user_data(event));
+    theme_scroll_positions[tools->tool] =
+        lv_obj_get_scroll_y(lv_event_get_target_obj(event));
+  }, LV_EVENT_SCROLL, state);
+}
+
+lv_obj_t *ThemeGroup(lv_obj_t *parent, const char *title, int columns = 2) {
+  auto *section = lv_obj_create(parent);
+  Clear(section);
+  PreferenceColumn(section, 18);
+  lv_obj_set_style_pad_top(section, 12, 0);
+  auto *label = Label(section, title, &lv_font_montserrat_32, kAccent);
+  lv_obj_set_width(label, LV_PCT(100));
+  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+  auto *choices = lv_obj_create(section);
+  Clear(choices);
+  lv_obj_set_size(choices, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(choices, LV_FLEX_FLOW_ROW_WRAP);
+  lv_obj_set_style_pad_row(choices, 18, 0);
+  lv_obj_set_style_pad_column(choices, 18, 0);
+  // The percentage width is resolved after the parent has its final layout.
+  lv_obj_set_user_data(choices, reinterpret_cast<void *>(static_cast<intptr_t>(columns)));
+  return choices;
+}
+
+lv_obj_t *ThemeChoice(lv_obj_t *parent, const char *name,
+                       const std::string &description, bool selected,
+                       Handler action, const char *symbol = nullptr) {
+  const int columns = static_cast<int>(reinterpret_cast<intptr_t>(lv_obj_get_user_data(parent)));
+  auto *choice = lv_button_create(parent);
+  Panel(choice, 28, kMainPanel);
+  Interactive(choice, kMainSelected);
+  lv_obj_set_style_transform_scale(choice, 256, LV_STATE_PRESSED);
+  lv_obj_set_width(choice, LV_PCT(columns == 3 ? 32 : columns == 1 ? 100 : 49));
+  lv_obj_set_height(choice, LV_SIZE_CONTENT);
+  lv_obj_set_style_min_height(choice, description.empty() ? 130 : 188, 0);
+  lv_obj_set_style_pad_all(choice, 28, 0);
+  lv_obj_set_style_pad_row(choice, 16, 0);
+  lv_obj_set_flex_flow(choice, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_border_color(choice, selected ? kAccent : kMainLine, 0);
+  lv_obj_set_style_border_width(choice, selected ? 3 : 1, 0);
+  auto *heading = lv_obj_create(choice);
+  Clear(heading);
+  lv_obj_add_flag(heading, LV_OBJ_FLAG_EVENT_BUBBLE);
+  lv_obj_set_size(heading, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(heading, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(heading, 16, 0);
+  if (symbol) Label(heading, symbol, &lv_font_montserrat_32, kAccent);
+  auto *text = Label(heading, name, &lv_font_montserrat_32, kText);
+  lv_obj_set_width(text, 0);
+  lv_obj_set_flex_grow(text, 1);
+  lv_label_set_long_mode(text, LV_LABEL_LONG_WRAP);
+  auto *check = Label(heading, LV_SYMBOL_OK, &lv_font_montserrat_24, kAccent);
+  lv_obj_set_style_opa(check, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+  if (!description.empty()) {
+    auto *detail = Label(choice, description.c_str(), &lv_font_montserrat_24, kMuted);
+    lv_obj_set_width(detail, LV_PCT(100));
+    lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
+  }
+  OnClick(choice, std::move(action));
+  return choice;
+}
+
+void ThemeRange(Tools *state, lv_obj_t *parent, const char *title, int value,
+                 int minimum, int maximum,
+                 std::function<void(int, bool)> change) {
+  auto *section = lv_obj_create(parent);
+  Clear(section);
+  PreferenceColumn(section, 34);
+  lv_obj_set_style_pad_all(section, 28, 0);
+  auto *heading = lv_obj_create(section);
+  Clear(heading);
+  lv_obj_set_size(heading, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(heading, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(heading, 24, 0);
+  auto *label = Label(heading, title, &lv_font_montserrat_32, kText);
+  lv_obj_set_width(label, 0);
+  lv_obj_set_flex_grow(label, 1);
+  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+  auto *amount = Label(heading, (std::to_string(value) + "%").c_str(),
+                       &lv_font_montserrat_28, kAccent);
+  auto *slider = lv_slider_create(section);
+  RangeSlider(slider);
+  lv_obj_set_size(slider, LV_PCT(100), 24);
+  lv_slider_set_range(slider, minimum, maximum);
+  lv_slider_set_value(slider, value, LV_ANIM_OFF);
+  struct Binding {
+    Tools *tools;
+    lv_obj_t *amount;
+    int saved;
+    std::function<void(int, bool)> change;
+  };
+  auto *binding = new Binding{state, amount, value, std::move(change)};
+  lv_obj_add_event_cb(slider, [](lv_event_t *event) {
+    auto *binding = static_cast<Binding *>(lv_event_get_user_data(event));
+    const auto code = lv_event_get_code(event);
+    if (code == LV_EVENT_DELETE) { delete binding; return; }
+    if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED &&
+        code != LV_EVENT_PRESS_LOST) return;
+    auto *slider = lv_event_get_target_obj(event);
+    const int value = code == LV_EVENT_PRESS_LOST ? binding->saved : lv_slider_get_value(slider);
+    if (code == LV_EVENT_PRESS_LOST) lv_slider_set_value(slider, value, LV_ANIM_OFF);
+    lv_label_set_text_fmt(binding->amount, "%d%%", value);
+    binding->change(value, code == LV_EVENT_RELEASED);
+    if (code == LV_EVENT_RELEASED) {
+      binding->saved = value;
+      AutoSaveSettings(binding->tools);
+    }
+  }, LV_EVENT_ALL, binding);
+}
+
+struct WallpaperEditor {
+  Tools *tools;
+  lv_obj_t *overlay{}, *preview{}, *controls{}, *zoom_controls{}, *slider{}, *amount{};
+  std::shared_ptr<PictureData> picture;
+  std::vector<lv_obj_t *> choices;
+  std::string path;
+  bool lock = false, dragging = false;
+  WallpaperLayout layout;
+  lv_point_t origin{};
+  int origin_x = 500, origin_y = 500;
+  uint32_t last_render = 0;
+
+  void Render() {
+    lv_obj_clean(preview);
+    wallpaper::AttachPreview(preview, picture, layout);
+    for (size_t i = 0; i < choices.size(); ++i) {
+      const bool selected = static_cast<int>(layout.mode) == static_cast<int>(i);
+      lv_obj_set_style_border_color(choices[i], selected ? kAccent : kMainLine, 0);
+      lv_obj_set_style_border_width(choices[i], selected ? 3 : 1, 0);
+      auto *check = lv_obj_get_child(lv_obj_get_child(choices[i], 0), -1);
+      lv_obj_set_style_opa(check, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    }
+    lv_obj_set_flag(zoom_controls, LV_OBJ_FLAG_HIDDEN, layout.mode != WallpaperMode::kCustom);
+    lv_slider_set_value(slider, layout.zoom, LV_ANIM_OFF);
+    lv_label_set_text_fmt(amount, "%d%%", layout.zoom);
+    lv_obj_update_layout(controls);
+    const int position = lv_obj_get_scroll_y(controls);
+    const int maximum = position + lv_obj_get_scroll_bottom(controls);
+    lv_obj_scroll_to_y(controls, std::clamp(position, 0, std::max(0, maximum)), LV_ANIM_OFF);
+    last_render = lv_tick_get();
+  }
+};
+
+void OpenWallpaperEditor(Tools *state, const std::string &path, bool lock) {
+  auto picture = std::make_shared<PictureData>();
+  const int limit = std::max(lv_display_get_horizontal_resolution(nullptr),
+                             lv_display_get_vertical_resolution(nullptr));
+  DecodePictureThumbnail(path, limit, limit, *picture);
+  if (!picture->pixels) {
+    Sheet(state->screen, "Wallpaper unavailable", picture->error);
+    return;
+  }
+  auto editor = std::make_shared<WallpaperEditor>();
+  editor->tools = state;
+  editor->path = path;
+  editor->lock = lock;
+  editor->picture = std::move(picture);
+  const auto theme = RecoveryLockTheme();
+  const std::string previous_path = lock ? theme.wallpaper : RecoveryWallpaperPath();
+  editor->layout = path == previous_path ?
+      (lock ? theme.wallpaper_layout : RecoveryWallpaperLayout()) : WallpaperLayout{};
+  auto *overlay = lv_obj_create(state->screen);
+  editor->overlay = overlay;
+  Clear(overlay);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  Header(overlay, "Wallpaper", "", nullptr, nullptr);
+  for (int i = static_cast<int>(lv_obj_get_child_count(overlay)) - 1; i >= 0; --i) {
+    auto *child = lv_obj_get_child(overlay, i);
+    if (lv_obj_check_type(child, &lv_image_class)) lv_obj_delete(child);
+  }
+  lv_obj_set_style_bg_image_src(overlay, nullptr, 0);
+  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  const bool landscape = Landscape(state->screen);
+  const int width = lv_obj_get_width(state->screen), height = lv_obj_get_height(state->screen);
+  const int top = landscape ? 330 : 400;
+  const double ratio = double(width) / height;
+  const int preview_height = std::min(landscape ? height - top - 180 : height * 34 / 100,
+      static_cast<int>((landscape ? std::min(1024, width * 44 / 100) : width - 160) / ratio));
+  const int preview_width = static_cast<int>(preview_height * ratio);
+  auto *preview = lv_obj_create(overlay);
+  editor->preview = preview;
+  Clear(preview);
+  lv_obj_set_pos(preview, landscape ? 64 : (width - preview_width) / 2, top);
+  lv_obj_set_size(preview, preview_width, preview_height);
+  lv_obj_set_style_bg_color(preview, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(preview, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(preview, 32, 0);
+  lv_obj_set_style_clip_corner(preview, true, 0);
+  lv_obj_set_style_border_width(preview, 2, 0);
+  lv_obj_set_style_border_color(preview, kMainLine, 0);
   lv_obj_set_style_border_post(preview, true, 0);
-  lv_obj_update_layout(preview);
-  auto editor = std::make_shared<LockEditor>(LockEditor{tools, preview, RecoveryLockTheme()});
-  editor->Refresh();
-  int y = 130 + ph + 60;
-  auto *wallpaper = Button(section, "Choose lock-screen wallpaper", [tools]{OpenWallpaperPicker(tools,{},true);});
-  Panel(wallpaper,24,kMainPanel);Interactive(wallpaper,kMainSelected);
-  lv_obj_set_pos(wallpaper,0,y);lv_obj_set_size(wallpaper,820,108);
-  auto *reset = Button(section,"Use main wallpaper",[editor]{editor->theme.wallpaper.clear();editor->Save();editor->Refresh();});
-  Panel(reset,24,kMainPanel);Interactive(reset,kMainSelected);
-  lv_obj_set_pos(reset,840,y);lv_obj_set_size(reset,440,108);y+=156;
-  auto range = [&](const char *title,int LockTheme::*member,int maximum,int minimum=0) {
-    auto *card=lv_obj_create(section);Panel(card,32,kMainPanel);
-    lv_obj_set_pos(card,0,y);lv_obj_set_size(card,1280,220);
-    auto *label=Label(card,title,&lv_font_montserrat_32,kText);lv_obj_set_pos(label,36,24);
-    auto *copy=Label(card,member==&LockTheme::date_size?"Resize the date independently of the clock":member==&LockTheme::clock_size?"Resize your chosen clock style":member==&LockTheme::dim?"Darken the wallpaper behind the clock":"Soften the wallpaper without blurring the clock",&lv_font_montserrat_24,kMuted);
-    lv_obj_set_pos(copy,36,76);
-    auto *amount=Label(card,"",&lv_font_montserrat_24,kAccent);
-    lv_label_set_text_fmt(amount,"%d%%",editor->theme.*member);
-    lv_obj_align(amount,LV_ALIGN_TOP_RIGHT,-38,34);
-    auto *slider=lv_slider_create(card);RangeSlider(slider);
-    lv_obj_set_pos(slider,52,166);lv_obj_set_size(slider,1176,20);
-    lv_slider_set_range(slider,minimum,maximum);lv_slider_set_value(slider,editor->theme.*member,LV_ANIM_OFF);
-    struct Binding {std::shared_ptr<LockEditor> editor;int LockTheme::*member;lv_obj_t *amount;};
-    auto *binding=new Binding{editor,member,amount};
-    lv_obj_add_event_cb(slider,[](lv_event_t *e){
-      auto *b=static_cast<Binding *>(lv_event_get_user_data(e));
-      auto code=lv_event_get_code(e);
-      if(code==LV_EVENT_DELETE){delete b;return;}
-      if(code==LV_EVENT_VALUE_CHANGED) {
-        b->editor->theme.*(b->member)=lv_slider_get_value(lv_event_get_target_obj(e));
-        lv_label_set_text_fmt(b->amount,"%d%%",b->editor->theme.*(b->member));
-        b->editor->Refresh();
-      }
-      if(code==LV_EVENT_RELEASED) b->editor->Save();
-    },LV_EVENT_ALL,binding);
-    y+=240;
-  };
-  range("Wallpaper dimming",&LockTheme::dim,90);
-  range("Wallpaper blur",&LockTheme::blur,100);
-  auto choices = [&](const char *title, int LockTheme::*member, std::initializer_list<const char *> names) {
-    auto *label = Label(section, title, &lv_font_montserrat_32, kText);
-    lv_obj_set_pos(label, 0, y); y+=64;
-    auto buttons = std::make_shared<std::vector<lv_obj_t *>>();
-    const int count = names.size(), width = (1280-(count-1)*16)/count;
-    int index=0;
-    for (auto name : names) {
-      const int selected=index++;
-      auto *button = Button(section, name, [editor, member, selected, buttons] {
-        editor->theme.*member=selected;
-        for (size_t i=0;i<buttons->size();++i) {
-          lv_obj_set_style_border_color((*buttons)[i], i==static_cast<size_t>(selected)?kAccent:kMainLine,0);
-          lv_obj_set_style_border_width((*buttons)[i], i==static_cast<size_t>(selected)?3:RecoverySurfaceStyle()==SurfaceStyle::kOutline?2:1,0);
-        }
-        editor->Save(); editor->Refresh();
-      });
-      Panel(button,24,kMainPanel); Interactive(button,kMainSelected);
-      lv_obj_set_pos(button, selected*(width+16), y);lv_obj_set_size(button, width, 108);
-      lv_obj_set_style_border_width(button, editor->theme.*member==selected?3:RecoverySurfaceStyle()==SurfaceStyle::kOutline?2:1,0);
-      lv_obj_set_style_border_color(button, editor->theme.*member==selected?kAccent:kMainLine,0);
-      buttons->push_back(button);
+  lv_obj_add_flag(preview, LV_OBJ_FLAG_CLICKABLE);
+  struct DragBinding { std::shared_ptr<WallpaperEditor> editor; };
+  auto *drag = new DragBinding{editor};
+  lv_obj_add_event_cb(preview, [](lv_event_t *event) {
+    auto *binding = static_cast<DragBinding *>(lv_event_get_user_data(event));
+    auto editor = binding->editor;
+    const auto code = lv_event_get_code(event);
+    if (code == LV_EVENT_DELETE) {
+      if (kPointerDragOwner == editor->preview) kPointerDragOwner = nullptr;
+      delete binding;
+      return;
     }
-    y+=156;
-  };
-  choices("Clock style", &LockTheme::clock, {"Classic","Analogue","Stacked"});
-  choices("Clock position", &LockTheme::placement, {"Top","Centre","Bottom"});
-  range("Clock size",&LockTheme::clock_size,180,60);
-  auto *colour_title=Label(section,"Clock colour",&lv_font_montserrat_32,kText);
-  lv_obj_set_pos(colour_title,0,y);y+=64;
-  auto colour_cards=std::make_shared<std::vector<lv_obj_t *>>();
-  auto update_colours=[editor,colour_cards] {
-    for(size_t i=0;i<colour_cards->size();++i) {
-      bool active=editor->theme.colour==static_cast<int>(i);
-      auto *card=(*colour_cards)[i];
-      lv_obj_set_style_border_width(card,active?4:RecoverySurfaceStyle()==SurfaceStyle::kOutline?2:1,0);
-      lv_obj_set_style_border_color(card,active?kAccent:kMainLine,0);
+    auto *input = lv_indev_active();
+    if (code == LV_EVENT_PRESSED && editor->layout.mode == WallpaperMode::kCustom && input) {
+      editor->dragging = true;
+      lv_indev_get_point(input, &editor->origin);
+      editor->origin_x = editor->layout.x;
+      editor->origin_y = editor->layout.y;
+      kPointerDragOwner = editor->preview;
+    } else if (code == LV_EVENT_PRESSING && editor->dragging && input) {
+      lv_point_t point{};
+      lv_indev_get_point(input, &point);
+      const int w = lv_obj_get_width(editor->preview), h = lv_obj_get_height(editor->preview);
+      const auto &picture = editor->picture;
+      const auto bounds = WallpaperPlacement(w, h,
+          picture->original_width ? picture->original_width : picture->width,
+          picture->original_height ? picture->original_height : picture->height,
+          editor->layout);
+      if (bounds.width > w) editor->layout.x = std::clamp(int(std::lround(editor->origin_x -
+          (point.x - editor->origin.x) * 1000.0 / (bounds.width - w))), 0, 1000);
+      if (bounds.height > h) editor->layout.y = std::clamp(int(std::lround(editor->origin_y -
+          (point.y - editor->origin.y) * 1000.0 / (bounds.height - h))), 0, 1000);
+      if (lv_tick_elaps(editor->last_render) >= 32) editor->Render();
+    } else if ((code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) && editor->dragging) {
+      editor->dragging = false;
+      if (kPointerDragOwner == editor->preview) kPointerDragOwner = nullptr;
+      editor->Render();
     }
+  }, LV_EVENT_ALL, drag);
+  const int controls_top = landscape ? top : top + preview_height + 28;
+  const int controls_x = landscape ? preview_width + 112 : 64;
+  auto *controls = Scroll(overlay, controls_top, height - controls_top - 192);
+  editor->controls = controls;
+  lv_obj_set_x(controls, controls_x);
+  lv_obj_set_width(controls, width - controls_x - 64);
+  lv_obj_set_flex_flow(controls, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_all(controls, 12, 0);
+  lv_obj_set_style_pad_row(controls, 24, 0);
+  auto *modes = ThemeGroup(controls, "Wallpaper layout");
+  const char *names[]{"Fill", "Fit", "Centre", "Stretch", "Custom crop"};
+  for (int i = 0; i < 5; ++i)
+    editor->choices.push_back(ThemeChoice(modes, names[i], "",
+        static_cast<int>(editor->layout.mode) == i, [editor, i] {
+      editor->layout.mode = static_cast<WallpaperMode>(i);
+      editor->Render();
+    }));
+  auto *zoom = lv_obj_create(controls);
+  editor->zoom_controls = zoom;
+  Clear(zoom);
+  PreferenceColumn(zoom, 32);
+  lv_obj_set_style_pad_all(zoom, 24, 0);
+  auto *heading = lv_obj_create(zoom);
+  Clear(heading);
+  lv_obj_set_size(heading, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(heading, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(heading, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(heading, 28, 0);
+  auto *title = Label(heading, "Zoom", &lv_font_montserrat_32, kText);
+  lv_obj_set_width(title, 0); lv_obj_set_flex_grow(title, 1);
+  editor->amount = Label(heading, "", &lv_font_montserrat_28, kAccent);
+  auto *reset = Button(heading, LV_SYMBOL_REFRESH, [editor] {
+    editor->layout.zoom = 100;
+    editor->layout.x = editor->layout.y = 500;
+    editor->Render();
+  });
+  lv_obj_set_size(reset, 104, 104);
+  lv_obj_set_style_pad_left(reset, 20, 0);
+  auto *slider = lv_slider_create(zoom);
+  editor->slider = slider;
+  RangeSlider(slider);
+  lv_obj_set_size(slider, LV_PCT(100), 24);
+  lv_slider_set_range(slider, 100, 400);
+  struct ZoomBinding { std::shared_ptr<WallpaperEditor> editor; };
+  auto *zoom_binding = new ZoomBinding{editor};
+  lv_obj_add_event_cb(slider, [](lv_event_t *event) {
+    auto *binding = static_cast<ZoomBinding *>(lv_event_get_user_data(event));
+    const auto code = lv_event_get_code(event);
+    if (code == LV_EVENT_DELETE) { delete binding; return; }
+    if (code != LV_EVENT_VALUE_CHANGED) return;
+    binding->editor->layout.zoom = lv_slider_get_value(lv_event_get_target_obj(event));
+    binding->editor->Render();
+  }, LV_EVENT_ALL, zoom_binding);
+  auto *commands = lv_obj_create(overlay);
+  Clear(commands);
+  lv_obj_set_pos(commands, 64, height - 148);
+  lv_obj_set_size(commands, width - 128, 112);
+  lv_obj_set_flex_flow(commands, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(commands, 24, 0);
+  auto *cancel = Button(commands, "Cancel", [overlay] { lv_obj_delete_async(overlay); });
+  auto *apply = Button(commands, "Apply", [editor] {
+    auto *state = editor->tools;
+    if (editor->lock) {
+      auto theme = RecoveryLockTheme();
+      theme.wallpaper = editor->path;
+      theme.wallpaper_layout = editor->layout;
+      if (!RecoverySetLockTheme(theme)) return;
+    } else {
+      std::string error;
+      if (!wallpaper::Load(editor->path, &error)) {
+        Sheet(editor->overlay, "Wallpaper unavailable", error);
+        return;
+      }
+      const auto previous_path = RecoveryWallpaperPath();
+      const auto previous_layout = RecoveryWallpaperLayout();
+      if (!RecoverySetWallpaperPath(editor->path) || !RecoverySetWallpaperLayout(editor->layout)) {
+        RecoverySetWallpaperPath(previous_path);
+        RecoverySetWallpaperLayout(previous_layout);
+        wallpaper::Load(previous_path);
+        return;
+      }
+    }
+    if (!AutoSaveSettings(state)) return;
+    theme_scroll_positions[state->tool] = lv_obj_get_scroll_y(state->list);
+    lv_obj_delete_async(editor->overlay);
+    Open(state, state->tool);
+  }, true);
+  for (auto *button : {cancel, apply}) {
+    lv_obj_set_size(button, 0, 112);
+    lv_obj_set_flex_grow(button, 1);
+  }
+  lv_obj_update_layout(overlay);
+  editor->Render();
+}
+
+void ApplyCurrentTheme() {
+  ApplyAppearanceMode(static_cast<int>(RecoveryAppearanceMode()));
+  ApplySurfaceStyle(static_cast<int>(RecoverySurfaceStyle()));
+  ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
+  ApplyAccent(RecoveryAccentColor());
+  RefreshStatusBars();
+  lv_obj_report_style_change(nullptr);
+}
+
+void ThemeReset(Tools *state, ThemeSection section) {
+  auto *reset = Button(state->list, "Reset section", [state, section] {
+    Sheet(state->screen, "Reset section", "Restore defaults for this section?",
+          [state, section] {
+      if (!RecoveryResetThemeSection(section)) {
+        Sheet(state->screen, "Theme unavailable", "AERA could not restore every theme setting.");
+        return;
+      }
+      if (section == ThemeSection::kTypography) fonts::SelectUiFont({}, {});
+      if (section == ThemeSection::kWallpaper)
+        wallpaper::Clear();
+      state->battery_saved_size = RecoveryBatteryCircleSize();
+      ApplyCurrentTheme();
+      theme_scroll_positions[state->tool] = 0;
+      if (AutoSaveSettings(state)) Open(state, state->tool);
+    }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
+  });
+  lv_obj_set_size(reset, LV_PCT(100), 124);
+}
+
+void ThemePreview(Tools *state) {
+  auto *preview = lv_obj_create(state->list);
+  Clear(preview);
+  lv_obj_remove_flag(preview, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(preview, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(preview, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_radius(preview, 28, 0);
+  lv_obj_set_style_bg_color(preview, kMainSheet, 0);
+  lv_obj_set_style_bg_opa(preview, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(preview, 2, 0);
+  lv_obj_set_style_border_color(preview, kMainLine, 0);
+  lv_obj_set_style_pad_all(preview, 24, 0);
+  lv_obj_set_style_pad_row(preview, 24, 0);
+  Label(preview, "Preview", &lv_font_montserrat_28, kMutedStrong);
+  auto *sample = lv_obj_create(preview);
+  Clear(sample);
+  lv_obj_set_size(sample, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(sample, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(sample, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                       LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(sample, 28, 0);
+  auto *swatch = lv_obj_create(sample);
+  Clear(swatch);
+  lv_obj_remove_flag(swatch, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(swatch, 96, 96);
+  lv_obj_set_style_radius(swatch, 16, 0);
+  lv_obj_set_style_bg_color(swatch, Color(RecoveryAccentColor()), 0);
+  lv_obj_set_style_bg_opa(swatch, LV_OPA_COVER, 0);
+  auto *text = lv_obj_create(sample);
+  Clear(text);
+  lv_obj_remove_flag(text, LV_OBJ_FLAG_CLICKABLE);
+  PreferenceColumn(text, 12);
+  lv_obj_set_width(text, 0);
+  lv_obj_set_flex_grow(text, 1);
+  for (const auto *name : {AppearanceName(), AccentName(RecoveryAccentColor())}) {
+    auto *label = Label(text, name, &lv_font_montserrat_32, kText);
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+  }
+  auto *toggle = lv_switch_create(sample);
+  StyleSwitch(toggle, true);
+  auto *controls = lv_obj_create(preview);
+  Clear(controls);
+  lv_obj_set_size(controls, LV_PCT(100), 110);
+  lv_obj_set_flex_flow(controls, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(controls, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                       LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(controls, 48, 0);
+  lv_obj_set_style_pad_hor(controls, 12, 0);
+  auto *slider = lv_slider_create(controls);
+  RangeSlider(slider);
+  lv_obj_set_size(slider, 0, 24);
+  lv_obj_set_flex_grow(slider, 1);
+  lv_slider_set_value(slider, 65, LV_ANIM_OFF);
+  auto *button = Button(controls, "AERA", [] {}, true);
+  lv_obj_set_size(button, 300, 104);
+  auto passive = [](auto &&self, lv_obj_t *object) -> void {
+    lv_obj_remove_flag(object, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(object, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(object); ++i)
+      self(self, lv_obj_get_child(object, i));
   };
-  for(int i=0;i<3;++i) {
-    auto *card=lv_button_create(section);Panel(card,32,kMainPanel);Interactive(card,kMainSelected);
-    lv_obj_set_pos(card,(i%4)*320,y+(i/4)*220);lv_obj_set_size(card,304,190);
-    colour_cards->push_back(card);
-    const uint32_t rgb=i==0?RecoveryAccentColor():i==1?0xffffff:editor->theme.rgb;
-    auto *dot=i==2?HueSaturationDisk(card,72):lv_obj_create(card);
-    if(i!=2) {Clear(dot);lv_obj_set_size(dot,72,72);lv_obj_set_style_radius(dot,LV_RADIUS_CIRCLE,0);
-      lv_obj_set_style_bg_color(dot,Color(rgb),0);lv_obj_set_style_bg_opa(dot,LV_OPA_COVER,0);}
-    lv_obj_set_pos(dot,24,24);lv_obj_remove_flag(dot,LV_OBJ_FLAG_CLICKABLE);
-    auto *name=Label(card,i==0?"Follow accent":i==1?"White":"User select",&lv_font_montserrat_24,kText);
-    lv_obj_set_pos(name,24,116);
-    OnClick(card,[editor,i,rgb,update_colours] {
-      if(i==2) {
-        OpenAccentPicker(editor->tools,[editor,update_colours](uint32_t colour) {
-          editor->theme.colour=2;editor->theme.rgb=colour;editor->Save();editor->Refresh();update_colours();
-        },editor->theme.rgb);
-      } else {
-        editor->theme.colour=i<2?i:2;editor->theme.rgb=rgb;
-        editor->Save();editor->Refresh();update_colours();
-      }
-    });
-  }
-  update_colours();y+=220+16;
-  choices("Date style",&LockTheme::date_style,{"Full","Short","Numeric","Stacked","Hidden"});
-  range("Date size",&LockTheme::date_size,200,60);
-  choices("Date colour",&LockTheme::date_colour,{"White","Clock colour","Accent"});
-  choices("Date position",&LockTheme::date_placement,{"Below clock","Above clock","Bottom"});
-  auto *aod=lv_button_create(section);Panel(aod,32,kMainPanel);Interactive(aod,kMainSelected);
-  lv_obj_set_pos(aod,0,y);lv_obj_set_size(aod,1280,editor->theme.aod?320:160);
-  auto *aod_label=Label(aod,"Always-on clock",&lv_font_montserrat_32,kText);lv_obj_set_pos(aod_label,36,24);
-  auto *aod_hint=Label(aod,"Dim clock on black. Uses more power than screen off. Wake with Power.",&lv_font_montserrat_24,kMuted);
-  lv_obj_set_pos(aod_hint,36,88);lv_obj_set_width(aod_hint,1120);
-  auto *aod_switch=lv_switch_create(aod);StyleSwitch(aod_switch,editor->theme.aod);lv_obj_align(aod_switch,LV_ALIGN_TOP_RIGHT,-36,24);
-  // Only the heading toggles AOC; dragging its brightness must not toggle it.
-  auto *aod_header=lv_obj_create(aod);Clear(aod_header);lv_obj_set_size(aod_header,1280,150);
-  lv_obj_add_flag(aod_header,LV_OBJ_FLAG_CLICKABLE);
-  OnClick(aod_header,[editor]{editor->theme.aod=!editor->theme.aod;editor->Save();RefreshTheme(editor->tools);});
-  if(editor->theme.aod) {
-    auto *title=Label(aod,"AOC brightness",&lv_font_montserrat_28,kText);lv_obj_set_pos(title,36,165);
-    auto *amount=Label(aod,"",&lv_font_montserrat_24,kAccent);
-    lv_label_set_text_fmt(amount,"%d%%",editor->theme.aod_brightness);lv_obj_align(amount,LV_ALIGN_TOP_RIGHT,-38,165);
-    auto *slider=lv_slider_create(aod);RangeSlider(slider);lv_obj_set_pos(slider,52,254);lv_obj_set_size(slider,1176,20);
-    lv_slider_set_range(slider,1,100);lv_slider_set_value(slider,editor->theme.aod_brightness,LV_ANIM_OFF);
-    struct AocBinding {std::shared_ptr<LockEditor> editor;lv_obj_t *amount;};
-    auto *binding=new AocBinding{editor,amount};
-    lv_obj_add_event_cb(slider,[](lv_event_t *e){
-      auto *b=static_cast<AocBinding *>(lv_event_get_user_data(e));
-      if(lv_event_get_code(e)==LV_EVENT_DELETE){delete b;return;}
-      if(lv_event_get_code(e)==LV_EVENT_VALUE_CHANGED){
-        b->editor->theme.aod_brightness=lv_slider_get_value(lv_event_get_target_obj(e));
-        lv_label_set_text_fmt(b->amount,"%d%%",b->editor->theme.aod_brightness);
-      }
-      if(lv_event_get_code(e)==LV_EVENT_RELEASED)b->editor->Save();
-    },LV_EVENT_ALL,binding);
-  }
-  y+=editor->theme.aod?344:184;
-  choices("Unlock gesture", &LockTheme::unlock, {"Slider","Swipe up","Hold"});
-  choices("Slide / hold unlock animation", &LockTheme::animation, {"None","Fade"});
-  auto *owner=Button(section,"Edit owner text",[editor]{EditLockText(editor,false);});
-  Panel(owner,24,kMainPanel);Interactive(owner,kMainSelected);
-  lv_obj_set_pos(owner,0,y);lv_obj_set_size(owner,1280,108);y+=156;
-  lv_obj_set_height(section,y);
-  for (uint32_t i=0;i<lv_obj_get_child_count(section);++i) {
-    auto *child=lv_obj_get_child(section,i);
-    if (lv_obj_check_type(child,&lv_button_class)) lv_obj_set_style_radius(child,24,0);
-  }
-  return top+y+48;
+  passive(passive, preview);
 }
 
 void BuildTheme(Tools *state) {
-  Header(state->screen, "Theme Engine",
-         "Choose wallpaper, appearance, surfaces, density and accent for every AERA page.", state->callback,
-         state->context);
-  constexpr int kSurfaceSectionOffset = 930;
-  const bool landscape = Landscape(state->screen);
-  const int list_y = landscape ? 340 : 460;
-  const int dock_gap = landscape ? 20 : 28;
-  const int list_height = std::max(
-      640, static_cast<int>(lv_obj_get_height(state->screen)) - list_y -
-               NavigationHeight(state->screen) - dock_gap);
-  state->list = Scroll(state->screen, list_y, list_height);
-  if (landscape) {
-    lv_obj_set_x(state->list, 884);
-    lv_obj_set_width(state->list, 1400);
-  }
-
-  auto *preview = lv_obj_create(state->list);
-  Panel(preview, 42, kMainPanel);
-  lv_obj_set_pos(preview, 16, 0);
-  lv_obj_set_size(preview, 1280, 310);
-  auto *kicker = Kicker(preview, "LIVE PREVIEW", kAccent);
-  lv_obj_set_pos(kicker, 42, 34);
-  auto *title = Label(preview, AccentName(RecoveryAccentColor()),
-                      &lv_font_montserrat_48, kText);
-  lv_obj_set_pos(title, 42, 92);
-  auto *sample = Button(preview, "Primary action", [] {}, true);
-  lv_obj_set_pos(sample, 820, 80);
-  lv_obj_set_size(sample, 400, 126);
-  auto *hint = Label(preview,
-      "Buttons, toggles, sliders, progress, navigation and focus states",
-      &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(hint, 42, 232);
-
-  auto *appearance = Label(state->list, "Appearance",
-                        &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(appearance, 32, 380);
-
-  struct ModePreset {
-    const char *name;
-    const char *detail;
-    AppearanceMode mode;
-  };
-  const std::array<ModePreset, 3> modes{{
-      {"Graphite", "Dark, textured and focused", AppearanceMode::kGraphite},
-      {"Light", "Warm white with subtle grain", AppearanceMode::kLight},
-      {"AMOLED", "True black from edge to edge", AppearanceMode::kAmoled},
+  ThemePage(state, "Theme Engine");
+  struct Category { const char *icon; const char *title; std::string detail; Action action; };
+  const int columns = RecoveryHomeGridColumns();
+  const std::string grid = std::to_string(columns) + " x " + std::to_string(columns == 2 ? 3 : columns);
+  const std::array<Category, 7> categories{{
+    {LV_SYMBOL_TINT, "Colors & style",
+      std::string(i18n::Translate(AppearanceName())) + " / " + i18n::Translate(AccentName(RecoveryAccentColor())),
+      Action::kThemeAppearance},
+    {LV_SYMBOL_IMAGE, "Wallpaper", i18n::Translate(RecoveryWallpaperPath().empty() ?
+      "Appearance background" : "Custom wallpaper"), Action::kThemeWallpaper},
+    {LV_SYMBOL_HOME, "Home & icons", grid + " / " +
+      i18n::Translate(RecoveryThemedHomeIcons() ? "Themed" : "Classic"), Action::kThemeHome},
+    {LV_SYMBOL_EDIT, "Text & size", i18n::Translate("Typography") + std::string(" / ") +
+      i18n::Translate("Density"), Action::kThemeTypography},
+    {LV_SYMBOL_LIST, "Navigation dock", i18n::Translate(DockName()), Action::kThemeNavigation},
+    {LV_SYMBOL_BATTERY_FULL, "Status bar", std::string(i18n::Translate("Battery style")) +
+      " / " + i18n::Translate("SysInfo"), Action::kStatusBar},
+    {LV_SYMBOL_EYE_CLOSE, "Lock screen", std::string(i18n::Translate("Clock style")) +
+      " / " + i18n::Translate("Wallpaper"), Action::kThemeLock}
   }};
-  const AppearanceMode selected_appearance = RecoveryAppearanceMode();
-  for (size_t i = 0; i < modes.size(); ++i) {
-    const auto mode = modes[i];
-    const bool selected = selected_appearance == mode.mode;
-    auto *card = lv_button_create(state->list);
-    Clear(card);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 426, 450);
-    lv_obj_set_size(card, 410, 170);
-    lv_obj_set_style_radius(card, 32, 0);
-    lv_obj_set_style_bg_color(card,
-        mode.mode == AppearanceMode::kLight ? Color(0xf2f0eb)
-        : mode.mode == AppearanceMode::kAmoled ? Color(0x000000)
-                                                : Color(0x24272c), 0);
-    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(card, selected ? 4 : 1, 0);
-    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
-    lv_obj_set_style_transform_scale(card, 250, LV_STATE_PRESSED);
-    auto *name = Label(card, mode.name, &lv_font_montserrat_32,
-        mode.mode == AppearanceMode::kLight ? Color(0x171a1e)
-                                            : Color(0xf5f7fa));
-    lv_obj_set_pos(name, 32, 30);
-    auto *description = Label(card, mode.detail, &lv_font_montserrat_24,
-        mode.mode == AppearanceMode::kLight ? Color(0x575d64)
-                                            : Color(0xaeb6c0));
-    lv_obj_set_pos(description, 32, 94);
-    FitLabelToLines(description, 340, 2,
-                    {&lv_font_montserrat_24, &lv_font_montserrat_20,
-                     &lv_font_montserrat_18});
-    if (selected) {
-      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
-      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -32, 38);
+  auto *page_list = state->list;
+  if (Landscape(state->screen)) {
+    auto *grid = lv_obj_create(page_list);
+    Clear(grid);
+    lv_obj_set_size(grid, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_column(grid, 24, 0);
+    lv_obj_set_style_pad_row(grid, 12, 0);
+    state->list = grid;
+  }
+  for (const auto &category : categories) {
+    auto *row = PreferenceEntry(state, category.icon, category.title, category.detail,
+                    [state, action = category.action] { Open(state, action); });
+    if (Landscape(state->screen)) {
+      lv_obj_set_width(row, LV_PCT(49));
+      lv_obj_set_style_min_height(row, 130, 0);
     }
-    OnClick(card, [state, mode] {
-      if (!RecoverySetAppearanceMode(mode.mode)) {
-        Sheet(state->screen, "Theme unavailable",
-              "The selected appearance could not be stored.");
+  }
+  state->list = page_list;
+  auto *reset = Button(state->list, "Reset theme settings", [state] {
+    Sheet(state->screen, "Reset theme settings",
+          "Restore default colors, appearance, wallpaper, layout, font and lock screen?",
+          [state] {
+      if (!RecoveryResetThemeSettings() || !fonts::SelectUiFont({}, {})) {
+        Sheet(state->screen, "Theme unavailable", "AERA could not restore every theme setting.");
         return;
       }
-      ApplyAppearanceMode(static_cast<int>(mode.mode));
-      ApplySurfaceStyle(static_cast<int>(RecoverySurfaceStyle()));
-      ApplyAccent(RecoveryAccentColor());
-      RefreshTheme(state);
-    });
-  }
-
-  auto *wallpaper_section =
-      Label(state->list, "Wallpaper", &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(wallpaper_section, 32, 690);
-  auto *wallpaper_card = lv_obj_create(state->list);
-  Panel(wallpaper_card, 32, kMainPanel);
-  lv_obj_set_pos(wallpaper_card, 16, 760);
-  const int wallpaper_preview_height = std::max(172, wallpaper::PreviewHeight(260, 172));
-  const int wallpaper_card_height = std::max(296, wallpaper_preview_height + 48);
-  lv_obj_set_size(wallpaper_card, 1280, wallpaper_card_height);
-  auto *wallpaper_preview = lv_obj_create(wallpaper_card);
-  Clear(wallpaper_preview);
-  lv_obj_set_pos(wallpaper_preview, 24, 24);
-  lv_obj_set_size(wallpaper_preview, 260, wallpaper_preview_height);
-  lv_obj_set_style_radius(wallpaper_preview, 24, 0);
-  lv_obj_set_style_clip_corner(wallpaper_preview, true, 0);
-  lv_obj_set_style_bg_color(wallpaper_preview, kMainSheet, 0);
-  lv_obj_set_style_bg_opa(wallpaper_preview, LV_OPA_COVER, 0);
-  const bool custom_wallpaper = wallpaper::Attach(wallpaper_preview, true);
-  if (!custom_wallpaper) {
-    auto *image = Label(wallpaper_preview, LV_SYMBOL_IMAGE,
-                        &lv_font_montserrat_48, kMuted);
-    lv_obj_center(image);
-  }
-  auto *wallpaper_title = Label(
-      wallpaper_card, custom_wallpaper ? "Custom wallpaper" : "Appearance background",
-      &lv_font_montserrat_28, kText);
-  lv_obj_set_pos(wallpaper_title, 316, wallpaper_card_height / 2 - 55);
-  const std::string selected_wallpaper = RecoveryWallpaperPath();
-  const size_t wallpaper_slash = selected_wallpaper.find_last_of('/');
-  const std::string wallpaper_detail = custom_wallpaper
-      ? selected_wallpaper.substr(wallpaper_slash == std::string::npos
-                                      ? 0 : wallpaper_slash + 1)
-      : "Graphite, Light or AMOLED supplies the background";
-  auto *wallpaper_copy = Label(wallpaper_card, wallpaper_detail.c_str(),
-                               &lv_font_montserrat_20, kMuted);
-  lv_obj_set_pos(wallpaper_copy, 316, wallpaper_card_height / 2 + 3);
-  SingleLineLabel(wallpaper_copy, 470, &lv_font_montserrat_20);
-  auto *choose_wallpaper = Button(wallpaper_card, "Choose image", [state] {
-    OpenWallpaperPicker(state);
+      wallpaper::Clear();
+      ApplyCurrentTheme();
+      theme_scroll_positions.clear();
+      if (AutoSaveSettings(state)) Open(state, Action::kTheme);
+    }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
   });
-  lv_obj_set_pos(choose_wallpaper, 816, wallpaper_card_height / 2 - 116);
-  lv_obj_set_size(choose_wallpaper, 424, 108);
-  auto *clear_wallpaper = Button(wallpaper_card, "Reset wallpaper", [state] {
-    if (!RecoverySetWallpaperPath({})) {
-      Sheet(state->screen, "Wallpaper unavailable",
-            "AERA could not restore the appearance background.");
-      return;
-    }
-    wallpaper::Clear();
-    RefreshTheme(state);
-  });
-  lv_obj_set_pos(clear_wallpaper, 816, wallpaper_card_height / 2 + 8);
-  lv_obj_set_size(clear_wallpaper, 424, 108);
-  if (!custom_wallpaper) {
-    lv_obj_add_state(clear_wallpaper, LV_STATE_DISABLED);
-    lv_obj_set_style_opa(clear_wallpaper, LV_OPA_40, LV_STATE_DISABLED);
-  }
+  lv_obj_set_size(reset, LV_PCT(100), 124);
+  RestoreThemeScroll(state);
+}
 
-  auto *surface_section =
-      Label(state->list, "Surface style", &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(surface_section, 32, 1030);
-  struct SurfacePreset {
-    const char *name;
-    const char *detail;
-    SurfaceStyle style;
-  };
-  const std::array<SurfacePreset, 4> surfaces{{
-      {"Solid", "Opaque and clean", SurfaceStyle::kSolid},
-      {"Frosted", "Translucent blur", SurfaceStyle::kFrosted},
-      {"Outline", "Borders, little fill", SurfaceStyle::kOutline},
-      {"Elevated", "Shadow and depth", SurfaceStyle::kElevated},
-  }};
-  const SurfaceStyle selected_surface = RecoverySurfaceStyle();
-  for (size_t i = 0; i < surfaces.size(); ++i) {
-    const auto preset = surfaces[i];
-    const bool selected = selected_surface == preset.style;
-    auto *card = lv_button_create(state->list);
-    Clear(card);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320, 1100);
-    lv_obj_set_size(card, 304, 170);
-    lv_obj_set_style_radius(card, 30, 0);
-    lv_obj_set_style_bg_color(card, kMainPanel, 0);
-    lv_obj_set_style_bg_opa(
-        card, preset.style == SurfaceStyle::kOutline ? LV_OPA_10
-              : preset.style == SurfaceStyle::kFrosted ? LV_OPA_70
-                                                       : LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(card, selected ? 4 :
-        preset.style == SurfaceStyle::kOutline ? 2 : 1, 0);
-    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
-    lv_obj_set_style_border_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_transform_scale(card, 250, LV_STATE_PRESSED);
-    if (preset.style == SurfaceStyle::kFrosted) {
-      lv_obj_set_style_blur_backdrop(card, true, 0);
-      lv_obj_set_style_blur_radius(card, 16, 0);
-      lv_obj_set_style_blur_quality(card, LV_BLUR_QUALITY_SPEED, 0);
-    } else if (preset.style == SurfaceStyle::kElevated) {
-      lv_obj_set_style_shadow_color(card, Color(0x000000), 0);
-      lv_obj_set_style_shadow_width(card, 18, 0);
-      lv_obj_set_style_shadow_offset_y(card, 6, 0);
-      lv_obj_set_style_shadow_opa(card, LV_OPA_40, 0);
-    }
-    auto *name = Label(card, preset.name, &lv_font_montserrat_28, kText);
-    lv_obj_set_pos(name, 22, 26);
-    auto *detail = Label(card, preset.detail, &lv_font_montserrat_18, kMuted);
-    lv_obj_set_pos(detail, 22, 88);
-    FitLabelToLines(detail, 258, 2,
-                    {&lv_font_montserrat_18, &lv_font_montserrat_16});
-    if (selected) {
-      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_20, kAccent);
-      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -18, 22);
-    }
-    OnClick(card, [state, preset] {
-      if (!RecoverySetSurfaceStyle(preset.style)) {
-        Sheet(state->screen, "Surface unavailable",
-              "The selected surface style could not be stored.");
-        return;
-      }
-      ApplyAppearanceMode(static_cast<int>(RecoveryAppearanceMode()));
-      ApplySurfaceStyle(static_cast<int>(preset.style));
-      ApplyAccent(RecoveryAccentColor());
+void BuildThemeAppearance(Tools *state) {
+  ThemePage(state, "Colors & style");
+  ThemePreview(state);
+  auto *modes = ThemeGroup(state->list, "Appearance", 3);
+  const char *names[]{"Graphite", "Light", "AMOLED"};
+  const char *details[]{"Dark, textured and focused", "Warm white with subtle grain", "True black from edge to edge"};
+  for (int i = 0; i < 3; ++i)
+    ThemeChoice(modes, names[i], i18n::Translate(details[i]),
+        static_cast<int>(RecoveryAppearanceMode()) == i, [state, i] {
+      if (!RecoverySetAppearanceMode(static_cast<AppearanceMode>(i))) return;
+      ApplyCurrentTheme();
       RefreshTheme(state);
     });
-  }
-
-  auto *home_icons_section = Label(state->list, "Home icon style",
-                                    &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(home_icons_section, 32, 1310);
-  for (int index = 0; index < 2; ++index) {
-    const bool themed = index == 1;
-    const bool selected = RecoveryThemedHomeIcons() == themed;
-    auto *card = lv_button_create(state->list);
-    Panel(card, 32, kMainPanel);
-    Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + index * 640, 1380);
-    lv_obj_set_size(card, 624, 170);
-    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
-    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
-    auto *name = Label(card, themed ? "Themed" : "Classic",
-                        &lv_font_montserrat_32, kText);
-    lv_obj_set_pos(name, 28, 28);
-    auto *detail = Label(card, themed ? "Edge-to-edge artwork for every app"
-                                     : "Accent icons on clean cards",
-                          &lv_font_montserrat_20, kMuted);
-    lv_obj_set_pos(detail, 28, 92);
-    FitLabelToLines(detail, 552, 2,
-                    {&lv_font_montserrat_20, &lv_font_montserrat_18});
-    if (selected) {
-      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_24, kAccent);
-      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -24, 28);
-    }
-    OnClick(card, [state, themed] {
-      if (!RecoverySetThemedHomeIcons(themed)) {
-        Sheet(state->screen, "Theme unavailable",
-              "The home icon style could not be stored.");
-        return;
-      }
-      RefreshTheme(state);
-    });
-  }
-
-  auto *icon_background_section =
-      Label(state->list, "Icon backgrounds", &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(icon_background_section, 32, 690 + kSurfaceSectionOffset);
-  struct IconBackgroundPreset {
-    const char *name;
-    const char *detail;
-    bool tinted;
-  };
-  const std::array<IconBackgroundPreset, 2> icon_backgrounds{{
-      {"Neutral", "Clean surface behind each icon", false},
-      {"Accent tint", "Background follows the selected accent", true},
-  }};
-  for (size_t i = 0; i < icon_backgrounds.size(); ++i) {
-    const auto preset = icon_backgrounds[i];
-    const bool selected = RecoveryTintedIconBackgrounds() == preset.tinted;
-    auto *card = lv_button_create(state->list);
-    Panel(card, 32, kMainPanel);
-    Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640,
-                   760 + kSurfaceSectionOffset);
-    lv_obj_set_size(card, 624, 170);
-    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
-    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
-    auto *plate = lv_obj_create(card);
-    Panel(plate, 22, preset.tinted ? kAccentSoft : kMainSheet);
-    lv_obj_set_pos(plate, 28, 31);
-    lv_obj_set_size(plate, 108, 108);
-    auto *icon = Label(plate, LV_SYMBOL_SETTINGS, &lv_font_montserrat_48,
-                       kAccent);
-    lv_obj_center(icon);
-    auto *name = Label(card, preset.name, &lv_font_montserrat_32, kText);
-    lv_obj_set_pos(name, 164, 28);
-    auto *detail = Label(card, preset.detail, &lv_font_montserrat_20, kMuted);
-    lv_obj_set_pos(detail, 164, 94);
-    lv_obj_set_width(detail, 420);
-    if (selected) {
-      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_24, kAccent);
-      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -24, 28);
-    }
-    OnClick(card, [state, preset] {
-      if (!RecoverySetTintedIconBackgrounds(preset.tinted)) {
-        Sheet(state->screen, "Theme unavailable",
-              "The icon background style could not be stored.");
-        return;
-      }
-      RefreshTheme(state);
-    });
-  }
-
-  auto *size_section = Label(state->list, "Density",
-                             &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(size_section, 32, 1000 + kSurfaceSectionOffset);
-  struct SizePreset {
-    const char *name;
-    const char *detail;
-    InterfaceSize size;
-  };
-  const std::array<SizePreset, 4> sizes{{
-      {"Compact", "More content on screen", InterfaceSize::kSmall},
-      {"Standard", "Balanced AERA layout", InterfaceSize::kNormal},
-      {"Comfortable", "Larger text and targets", InterfaceSize::kLarge},
-      {"Spacious", "Maximum text and spacing", InterfaceSize::kSpacious},
-  }};
-  const InterfaceSize selected_size = RecoveryInterfaceSize();
-  for (size_t i = 0; i < sizes.size(); ++i) {
-    const auto preset = sizes[i];
-    const bool selected = selected_size == preset.size;
-    auto *card = lv_button_create(state->list);
-    Panel(card, 32, kMainPanel);
-    Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320,
-                   1070 + kSurfaceSectionOffset);
-    lv_obj_set_size(card, 304, 170);
-    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
-    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
-    auto *name = Label(card, preset.name, &lv_font_montserrat_32, kText);
-    lv_obj_set_pos(name, 28, 28);
-    auto *detail = Label(card, preset.detail, &lv_font_montserrat_20, kMuted);
-    lv_obj_set_pos(detail, 28, 96);
-    FitLabelToLines(detail, 244, 2,
-                    {&lv_font_montserrat_20, &lv_font_montserrat_18,
-                     &lv_font_montserrat_16});
-    if (selected) {
-      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
-      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -28, 34);
-    }
-    OnClick(card, [state, preset] {
-      if (!RecoverySetInterfaceSize(preset.size)) {
-        Sheet(state->screen, "Density unavailable",
-              "The interface density could not be changed.");
-        return;
-      }
-      ApplyInterfaceSize(static_cast<int>(preset.size));
-      RefreshTheme(state);
-    });
-  }
-
-  auto *grid_section = Label(state->list, "Home plugin grid",
-                             &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(grid_section, 32, 1310 + kSurfaceSectionOffset);
-  struct GridPreset { const char *name; const char *detail; int columns; };
-  const std::array<GridPreset, 4> grids{{
-      {"2 x 3", "Wide cards - 6 apps per page", 2},
-      {"3 x 3", "Compact cards - 9 apps per page", 3},
-      {"4 x 4", "Icons and names - 16 apps per page", 4},
-      {"5 x 5", "Small icons - 25 apps per page", 5},
-  }};
-  const int selected_columns = RecoveryHomeGridColumns();
-  for (size_t i = 0; i < grids.size(); ++i) {
-    const auto grid = grids[i];
-    const bool selected = selected_columns == grid.columns;
-    auto *card = lv_button_create(state->list);
-    Panel(card, 32, kMainPanel);
-    Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 320,
-                   1380 + kSurfaceSectionOffset);
-    lv_obj_set_size(card, 304, 170);
-    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
-    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
-    auto *name = Label(card, grid.name, &lv_font_montserrat_32, kText);
-    lv_obj_set_pos(name, 32, 28);
-    auto *detail = Label(card, grid.detail, &lv_font_montserrat_18, kMuted);
-    lv_obj_set_pos(detail, 32, 94);
-    FitLabelToLines(detail, 240, 2,
-                    {&lv_font_montserrat_18, &lv_font_montserrat_16});
-    if (selected) {
-      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
-      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -32, 38);
-    }
-    OnClick(card, [state, grid] {
-      if (!RecoverySetHomeGridColumns(grid.columns)) {
-        Sheet(state->screen, "Layout unavailable",
-              "The Home plugin grid could not be changed.");
-        return;
-      }
-      RefreshTheme(state);
-    });
-  }
-
-  auto *keyboard_section = Label(state->list, "Keyboard layout",
-                                 &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(keyboard_section, 32, 1620 + kSurfaceSectionOffset);
-  struct KeyboardPreset {
-    const char *name;
-    const char *detail;
-    KeyboardLayout layout;
-  };
-  const std::array<KeyboardPreset, 2> keyboard_layouts{{
-      {"QWERTY", "International default", KeyboardLayout::kQwerty},
-      {"QWERTZ", "Y and Z exchanged", KeyboardLayout::kQwertz},
-  }};
-  const KeyboardLayout selected_keyboard = RecoveryKeyboardLayout();
-  for (size_t i = 0; i < keyboard_layouts.size(); ++i) {
-    const auto preset = keyboard_layouts[i];
-    const bool selected = selected_keyboard == preset.layout;
-    auto *card = lv_button_create(state->list);
-    Panel(card, 32, kMainPanel);
-    Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int32_t>(i) * 640,
-                   1690 + kSurfaceSectionOffset);
-    lv_obj_set_size(card, 624, 170);
-    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
-    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
-    auto *name = Label(card, preset.name, &lv_font_montserrat_32, kText);
-    lv_obj_set_pos(name, 32, 28);
-    auto *detail = Label(card, preset.detail, &lv_font_montserrat_24, kMuted);
-    lv_obj_set_pos(detail, 32, 94);
-    if (selected) {
-      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32, kAccent);
-      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -32, 38);
-    }
-    OnClick(card, [state, preset] {
-      if (!RecoverySetKeyboardLayout(preset.layout)) {
-        Sheet(state->screen, "Keyboard unavailable",
-              "The keyboard layout could not be stored.");
-        return;
-      }
-      RefreshTheme(state);
-    });
-  }
-
-  auto *section = Label(state->list, "Accent palettes",
-                        &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(section, 32, 1920 + kSurfaceSectionOffset);
-  const uint32_t selected_rgb = RecoveryAccentColor();
-  for (size_t i = 0; i < kAccentPresets.size(); ++i) {
-    const auto preset = kAccentPresets[i];
-    const int32_t column = static_cast<int32_t>(i % 4);
-    const int32_t row = static_cast<int32_t>(i / 4);
-    auto *card = lv_button_create(state->list);
-    Panel(card, 32, kMainPanel);
-    Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + column * 320,
-                   1990 + kSurfaceSectionOffset + row * 220);
-    lv_obj_set_size(card, 304, 190);
-    lv_obj_set_style_border_width(
-        card, selected_rgb == preset.rgb ? 4
-              : RecoverySurfaceStyle() == SurfaceStyle::kOutline ? 2 : 1, 0);
-    lv_obj_set_style_border_color(card,
-        selected_rgb == preset.rgb ? Color(preset.rgb) : kMainLine, 0);
-
-    auto *swatch = lv_obj_create(card);
-    Clear(swatch);
-    lv_obj_set_size(swatch, 72, 72);
-    lv_obj_set_pos(swatch, 24, 24);
-    lv_obj_set_style_radius(swatch, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(swatch, Color(preset.rgb), 0);
-    lv_obj_set_style_bg_opa(swatch, LV_OPA_COVER, 0);
-    auto *name = Label(card, preset.name, &lv_font_montserrat_24, kText);
-    lv_obj_set_pos(name, 24, 116);
-    if (selected_rgb == preset.rgb) {
-      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_32,
-                          Color(preset.rgb));
-      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -28, 38);
-    }
-    OnClick(card, [state, preset] {
-      if (!RecoverySetAccentColor(preset.rgb)) {
-        Sheet(state->screen, "Theme unavailable",
-              "The selected accent could not be stored.");
-        return;
-      }
+  auto *accents = ThemeGroup(state->list, "Accent palettes", 3);
+  for (const auto &preset : kAccentPresets) {
+    auto *card = ThemeChoice(accents, preset.name, "", RecoveryAccentColor() == preset.rgb,
+        [state, preset] {
+      if (!RecoverySetAccentColor(preset.rgb)) return;
       ApplyAccent(preset.rgb);
       RefreshTheme(state);
-    });
+    }, LV_SYMBOL_TINT);
+    lv_obj_set_style_text_color(lv_obj_get_child(lv_obj_get_child(card, 0), 0), Color(preset.rgb), 0);
   }
-
-  const bool custom_selected = !IsPresetAccent(selected_rgb);
-  auto *custom = lv_button_create(state->list);
-  Panel(custom, 32, kMainPanel);
-  Interactive(custom, kMainSelected);
-  lv_obj_set_pos(custom, 16 + 3 * 320, 1990 + kSurfaceSectionOffset + 220);
-  lv_obj_set_size(custom, 304, 190);
-  lv_obj_set_style_border_width(
-      custom, custom_selected ? 4
-              : RecoverySurfaceStyle() == SurfaceStyle::kOutline ? 2 : 1, 0);
-  lv_obj_set_style_border_color(custom,
-      custom_selected ? Color(selected_rgb) : kMainLine, 0);
-  auto *disk = HueSaturationDisk(custom, 72);
-  lv_obj_set_pos(disk, 24, 24);
-  auto *custom_name = Label(custom, "User select",
-                            &lv_font_montserrat_24, kText);
-  lv_obj_set_pos(custom_name, 24, 116);
-  if (custom_selected) {
-    auto *selected = lv_obj_create(custom);
-    Clear(selected);
-    lv_obj_set_size(selected, 38, 38);
-    lv_obj_align(selected, LV_ALIGN_TOP_RIGHT, -28, 38);
-    lv_obj_set_style_radius(selected, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(selected, Color(selected_rgb), 0);
-    lv_obj_set_style_bg_opa(selected, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(selected, 3, 0);
-    lv_obj_set_style_border_color(selected, kText, 0);
-    lv_obj_remove_flag(selected, LV_OBJ_FLAG_CLICKABLE);
-  }
-  OnClick(custom, [state] { OpenAccentPicker(state); });
-
-  auto *note = Label(state->list,
-      "AERA Cyan is the default. Choose User select for any colour. Changes\n"
-      "apply immediately and are saved with your recovery preferences.",
-      &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(note, 32, 2470 + kSurfaceSectionOffset);
-  lv_obj_set_width(note, 1220);
-
-  auto *dock_section = Label(state->list, "Navigation dock",
-                             &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(dock_section, 32, 2590 + kSurfaceSectionOffset);
-  const std::array<std::pair<const char *, DockLayout>, 5> dock_modes{{
-      {"Glass", DockLayout::kGlass}, {"Compact", DockLayout::kCompact},
-      {"Minimal", DockLayout::kMinimal}, {"Icons only", DockLayout::kIcons},
-      {"Text Only", DockLayout::kTextOnly}}};
-  const int dock_extra_height =
-      (static_cast<int>((dock_modes.size() + 3) / 4) - 1) * 152;
-  for (size_t i = 0; i < dock_modes.size(); ++i) {
-    const auto mode = dock_modes[i];
-    const bool selected = RecoveryDockLayout() == mode.second;
-    auto *card = Button(state->list, mode.first, [state, mode] {
-      if (!RecoverySetDockLayout(mode.second)) {
-        Sheet(state->screen, "Layout unavailable",
-              "The navigation dock style could not be changed.");
-        return;
-      }
+  ThemeChoice(accents, "User select", "", !IsPresetAccent(RecoveryAccentColor()),
+              [state] { OpenAccentPicker(state); }, LV_SYMBOL_PLUS);
+  auto *surfaces = ThemeGroup(state->list, "Surface style");
+  const char *surface_names[]{"Solid", "Frosted", "Outline", "Elevated"};
+  const char *surface_details[]{"Opaque and clean", "Translucent blur", "Borders, little fill", "Shadow and depth"};
+  for (int i = 0; i < 4; ++i) {
+    auto *choice = ThemeChoice(surfaces, surface_names[i], i18n::Translate(surface_details[i]),
+        static_cast<int>(RecoverySurfaceStyle()) == i, [state, i] {
+      if (!RecoverySetSurfaceStyle(static_cast<SurfaceStyle>(i))) return;
+      ApplyCurrentTheme();
       RefreshTheme(state);
     });
-    Panel(card, 34, kMainPanel);
-    Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + static_cast<int>(i % 4) * 320,
-                   2660 + kSurfaceSectionOffset +
-                       static_cast<int>(i / 4) * 152);
-    lv_obj_set_size(card, 304, 128);
-    lv_obj_set_style_radius(card, 34, 0);
-    lv_obj_set_style_border_width(
-        card, selected ? 3
-                       : RecoverySurfaceStyle() == SurfaceStyle::kOutline
-                             ? 2 : 1, 0);
-    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
-    lv_obj_set_style_border_opa(card, selected ? LV_OPA_COVER : LV_OPA_40, 0);
-    if (selected) {
-      auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_24, kAccent);
-      lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -20, 18);
+    if (i == 2) lv_obj_set_style_bg_opa(choice, LV_OPA_10, 0);
+    if (i == 1) {
+      lv_obj_set_style_bg_opa(choice, LV_OPA_70, 0);
+      lv_obj_set_style_blur_backdrop(choice, true, 0);
+      lv_obj_set_style_blur_radius(choice, 16, 0);
+      lv_obj_set_style_blur_quality(choice, LV_BLUR_QUALITY_SPEED, 0);
+    }
+    if (i == 3) {
+      lv_obj_set_style_shadow_width(choice, 18, 0);
+      lv_obj_set_style_shadow_offset_y(choice, 6, 0);
+      lv_obj_set_style_shadow_opa(choice, LV_OPA_30, 0);
     }
   }
+  ThemeReset(state, ThemeSection::kAppearance);
+  RestoreThemeScroll(state);
+}
 
-  auto dock_slider = [state](int y, const char *name, const char *description,
-                             int value, bool blur) {
-    auto *card = lv_obj_create(state->list);
-    Panel(card, 32, kMainPanel);
-    lv_obj_set_pos(card, 16, y);
-    lv_obj_set_size(card, 1280, 220);
-    auto *title = Label(card, name, &lv_font_montserrat_32, kText);
-    lv_obj_set_pos(title, 36, 24);
-    auto *copy = Label(card, description, &lv_font_montserrat_24, kMuted);
-    lv_obj_set_pos(copy, 36, 76);
-    auto *amount = Label(card, (std::to_string(value) + "%").c_str(),
-                         &lv_font_montserrat_24, kAccent);
-    lv_obj_align(amount, LV_ALIGN_TOP_RIGHT, -38, 34);
-    auto *slider = lv_slider_create(card);
-    lv_obj_set_pos(slider, 52, 166);
-    lv_obj_set_size(slider, 1176, 20);
-    lv_slider_set_range(slider, 0, 100);
-    lv_slider_set_value(slider, value, LV_ANIM_OFF);
-    RangeSlider(slider);
-    struct DockBinding { Tools *state; lv_obj_t *amount; bool blur; };
-    auto *binding = new DockBinding{state, amount, blur};
-    lv_obj_add_event_cb(slider, [](lv_event_t *event) {
-      auto *binding = static_cast<DockBinding *>(lv_event_get_user_data(event));
-      if (lv_event_get_code(event) == LV_EVENT_DELETE) {
-        delete binding;
-        return;
-      }
-      const auto code = lv_event_get_code(event);
-      if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
-      const int value = lv_slider_get_value(lv_event_get_target_obj(event));
-      const std::string text = std::to_string(value) + "%";
-      lv_label_set_text(binding->amount, text.c_str());
-      const int transparency = binding->blur
-          ? RecoveryDockTransparency() : value;
-      const int blur = binding->blur ? value : RecoveryDockBlur();
-      UpdateNavigationDockAppearance(binding->state->navigation,
-                                     transparency, blur);
-      if (code == LV_EVENT_RELEASED) {
-        if (binding->blur) RecoverySetDockBlur(value);
-        else RecoverySetDockTransparency(value);
-        AutoSaveSettings(binding->state);
-      }
-    }, LV_EVENT_ALL, binding);
-  };
-  dock_slider(2820 + kSurfaceSectionOffset + dock_extra_height, "Transparency",
-              "0% is solid; 100% leaves only the controls visible",
-              RecoveryDockTransparency(), false);
-  dock_slider(3060 + kSurfaceSectionOffset + dock_extra_height, "Backdrop blur",
-              "GPU-friendly live blur behind the dock surface",
-              RecoveryDockBlur(), true);
+void BuildThemeWallpaper(Tools *state) {
+  ThemePage(state, "Wallpaper");
+  auto *frame = lv_obj_create(state->list);
+  Clear(frame);
+  lv_obj_set_size(frame, LV_PCT(100), 760);
+  auto *preview = lv_obj_create(frame);
+  Clear(preview);
+  const double aspect = double(lv_obj_get_width(state->screen)) / lv_obj_get_height(state->screen);
+  lv_obj_update_layout(frame);
+  const int preview_width = std::min({int(lv_obj_get_width(frame)), 1024, int(760 * aspect)});
+  lv_obj_set_size(preview, preview_width, int(preview_width / aspect));
+  lv_obj_set_height(frame, int(preview_width / aspect));
+  lv_obj_center(preview);
+  lv_obj_set_style_radius(preview, 32, 0);
+  lv_obj_set_style_clip_corner(preview, true, 0);
+  lv_obj_set_style_bg_color(preview, kMainSheet, 0);
+  lv_obj_set_style_bg_opa(preview, LV_OPA_COVER, 0);
+  if (!wallpaper::Attach(preview)) {
+    auto *image = Label(preview, LV_SYMBOL_IMAGE, &lv_font_montserrat_48, kMuted);
+    lv_obj_center(image);
+  }
+  const std::string path = RecoveryWallpaperPath();
+  auto *name = Label(state->list, path.empty() ? "Appearance background" :
+      path.substr(path.find_last_of('/') + 1).c_str(), &lv_font_montserrat_28, kMuted);
+  lv_obj_set_width(name, LV_PCT(100));
+  lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
+  auto *choose = Button(state->list, "Choose image", [state] { OpenWallpaperPicker(state); }, true);
+  lv_obj_set_size(choose, LV_PCT(100), 124);
+  if (!path.empty()) {
+    auto *adjust = Button(state->list, "Adjust image", [state, path] {
+      OpenWallpaperEditor(state, path, false);
+    });
+    lv_obj_set_size(adjust, LV_PCT(100), 124);
+  }
+  ThemeReset(state, ThemeSection::kWallpaper);
+  RestoreThemeScroll(state);
+}
 
-  auto *font_section = Label(state->list, "Typography",
-                             &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(font_section, 32,
-                 3340 + kSurfaceSectionOffset + dock_extra_height);
-  auto *font_hint = Label(
-      state->list,
-      "Choose the typeface used across the AERA interface.",
-      &lv_font_montserrat_24, kMuted);
-  lv_obj_set_pos(font_hint, 32,
-                 3390 + kSurfaceSectionOffset + dock_extra_height);
+void BuildThemeHome(Tools *state) {
+  ThemePage(state, "Home & icons");
+  auto *frame = lv_obj_create(state->list);
+  Clear(frame);
+  lv_obj_set_size(frame, LV_PCT(100), 530);
+  lv_obj_set_style_radius(frame, 28, 0);
+  lv_obj_set_style_bg_color(frame, kMainSheet, 0);
+  lv_obj_set_style_bg_opa(frame, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(frame, 2, 0);
+  lv_obj_set_style_border_color(frame, kMainLine, 0);
+  auto *caption = Label(frame, "Preview", &lv_font_montserrat_28, kMutedStrong);
+  lv_obj_set_pos(caption, 28, 20);
+  auto *preview = lv_obj_create(frame);
+  Clear(preview);
+  lv_obj_set_size(preview, LV_PCT(100), 430);
+  lv_obj_set_y(preview, 80);
+  lv_obj_update_layout(preview);
+  BuildHomeAppearancePreview(preview);
+  auto *styles = ThemeGroup(state->list, "Home icon style");
+  ThemeChoice(styles, "Classic", i18n::Translate("Accent icons on clean cards"),
+      !RecoveryThemedHomeIcons(), [state] { RecoverySetThemedHomeIcons(false); RefreshTheme(state); });
+  ThemeChoice(styles, "Themed", i18n::Translate("Edge-to-edge artwork for every app"),
+      RecoveryThemedHomeIcons(), [state] { RecoverySetThemedHomeIcons(true); RefreshTheme(state); });
+  auto *backgrounds = ThemeGroup(state->list, "Icon backgrounds");
+  ThemeChoice(backgrounds, "Neutral", i18n::Translate("Clean surface behind each icon"),
+      !RecoveryTintedIconBackgrounds(), [state] { RecoverySetTintedIconBackgrounds(false); RefreshTheme(state); });
+  ThemeChoice(backgrounds, "Accent tint", i18n::Translate("Background follows the selected accent"),
+      RecoveryTintedIconBackgrounds(), [state] { RecoverySetTintedIconBackgrounds(true); RefreshTheme(state); });
+  auto *grids = ThemeGroup(state->list, "Home plugin grid");
+  const char *names[]{"2 x 3", "3 x 3", "4 x 4", "5 x 5"};
+  const char *details[]{"Wide cards - 6 apps per page", "Compact cards - 9 apps per page",
+                        "Icons and names - 16 apps per page", "Small icons - 25 apps per page"};
+  for (int i = 0; i < 4; ++i)
+    ThemeChoice(grids, names[i], i18n::Translate(details[i]), RecoveryHomeGridColumns() == i + 2,
+        [state, i] { RecoverySetHomeGridColumns(i + 2); RefreshTheme(state); });
+  ThemeReset(state, ThemeSection::kHome);
+  RestoreThemeScroll(state);
+}
 
-  struct FontCards {
-    struct Card {
-      lv_obj_t *object;
-      lv_obj_t *check;
-      std::string id;
-    };
-    std::vector<Card> cards;
-  };
-  auto *font_cards = new FontCards;
-  lv_obj_add_event_cb(state->list, [](lv_event_t *event) {
-    delete static_cast<FontCards *>(lv_event_get_user_data(event));
-  }, LV_EVENT_DELETE, font_cards);
-
-  struct FontChoice {
-    std::string id;
-    std::string family;
-    std::string path;
-  };
-  std::vector<FontChoice> font_choices{{"", "AERA Default", ""}};
+void BuildThemeTypography(Tools *state) {
+  ThemePage(state, "Text & size");
+  auto *density = ThemeGroup(state->list, "Density");
+  const char *names[]{"Compact", "Standard", "Comfortable", "Spacious"};
+  const char *details[]{"More content on screen", "Balanced AERA layout", "Larger text and targets", "Maximum text and spacing"};
+  for (int i = 0; i < 4; ++i)
+    ThemeChoice(density, names[i], i18n::Translate(details[i]),
+        static_cast<int>(RecoveryInterfaceSize()) == i, [state, i] {
+      if (!RecoverySetInterfaceSize(static_cast<InterfaceSize>(i))) return;
+      ApplyInterfaceSize(i);
+      RefreshTheme(state);
+    });
+  auto *typefaces = ThemeGroup(state->list, "Typography");
+  struct FontChoice { std::string id, family, path; };
+  std::vector<FontChoice> fonts_available{{"", "AERA Default", ""}};
   for (const auto &plugin : plugins::Installed()) {
     if (!plugins::IsThemeExtension(plugin)) continue;
-    std::string path;
-    std::string error;
     plugins::Plugin verified;
+    std::string path, error;
     if (plugins::ResolvePayload(plugin.id, verified, path, error) &&
-        plugins::IsThemeExtension(verified)) {
-      font_choices.push_back({verified.id, verified.font_family, path});
-    }
+        plugins::IsThemeExtension(verified))
+      fonts_available.push_back({verified.id, verified.font_family, path});
   }
-  const std::string stored_font = RecoveryUiFont();
-  const bool stored_font_available = std::any_of(
-      font_choices.begin(), font_choices.end(),
-      [&](const FontChoice &choice) { return choice.id == stored_font; });
-  const std::string selected_font = stored_font_available ? stored_font : "";
-  for (size_t i = 0; i < font_choices.size(); ++i) {
-    const FontChoice choice = font_choices[i];
-    const bool selected = selected_font == choice.id;
-    const int column = static_cast<int>(i % 2);
-    const int row = static_cast<int>(i / 2);
-    auto *card = lv_button_create(state->list);
-    Panel(card, 32, kMainPanel);
-    Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, 16 + column * 640,
-                   3450 + kSurfaceSectionOffset + dock_extra_height + row * 220);
-    lv_obj_set_size(card, 624, 196);
-    lv_obj_set_style_border_width(card, selected ? 3 : 1, 0);
-    lv_obj_set_style_border_color(card, selected ? kAccent : kMainLine, 0);
-    auto *name = Label(card, choice.family.c_str(), &lv_font_montserrat_28,
-                       kText);
-    lv_obj_set_pos(name, 28, 24);
-    auto *sample = lv_label_create(card);
-    i18n::BindLabel(sample, "Aa 123  The quick brown fox");
-    const lv_font_t *preview = choice.path.empty()
-        ? static_cast<const lv_font_t *>(&lv_font_montserrat_36)
-        : fonts::PreviewFont(choice.path, 36);
-    lv_obj_set_style_text_font(
-        sample, preview ? preview : UiFont(&lv_font_montserrat_36), 0);
-    lv_obj_set_style_text_color(sample, kMutedStrong, 0);
-    lv_obj_set_pos(sample, 28, 86);
-    lv_obj_set_width(sample, 540);
-    lv_label_set_long_mode(sample, LV_LABEL_LONG_DOT);
-    auto *check = Label(card, LV_SYMBOL_OK, &lv_font_montserrat_28, kAccent);
-    lv_obj_align(check, LV_ALIGN_TOP_RIGHT, -28, 28);
-    if (!selected) lv_obj_add_flag(check, LV_OBJ_FLAG_HIDDEN);
-    font_cards->cards.push_back({card, check, choice.id});
-    OnClick(card, [state, font_cards, choice] {
-      bool applied = false;
-      if (choice.id.empty()) {
-        applied = fonts::SelectUiFont({}, {}) && RecoverySetUiFont({});
-      } else {
-        applied = fonts::SelectUiFont(choice.id, choice.path) &&
-                  RecoverySetUiFont(choice.id);
-      }
-      if (!applied) {
-        Sheet(state->screen, "Font unavailable",
-              "AERA could not load this font extension.");
+  const std::string stored = RecoveryUiFont();
+  const bool found = std::any_of(fonts_available.begin(), fonts_available.end(),
+      [&stored](const FontChoice &choice) { return choice.id == stored; });
+  for (const auto &font : fonts_available) {
+    auto *choice = ThemeChoice(typefaces, font.family.c_str(), "",
+        font.id == (found ? stored : ""), [state, font] {
+      if (!fonts::SelectUiFont(font.id, font.path) || !RecoverySetUiFont(font.id)) {
+        Sheet(state->screen, "Font unavailable", "AERA could not load this font extension.");
         return;
       }
-      // Existing labels keep the same stable wrapper pointers while their
-      // underlying typefaces change. Refresh every style and layout so the
-      // selected font is visible immediately across the complete UI.
       lv_obj_report_style_change(nullptr);
-      lv_obj_update_layout(state->screen);
-      for (const auto &item : font_cards->cards) {
-        const bool active = item.id == choice.id;
-        lv_obj_set_style_border_width(item.object, active ? 3 : 1, 0);
-        lv_obj_set_style_border_color(item.object,
-                                      active ? kAccent : kMainLine, 0);
-        if (active)
-          lv_obj_remove_flag(item.check, LV_OBJ_FLAG_HIDDEN);
-        else
-          lv_obj_add_flag(item.check, LV_OBJ_FLAG_HIDDEN);
-      }
-      lv_obj_invalidate(state->screen);
-      AutoSaveSettings(state);
+      RefreshTheme(state);
     });
+    auto *sample = Label(choice, "Aa 123  The quick brown fox", &lv_font_montserrat_36, kMutedStrong);
+    const lv_font_t *face = font.path.empty() ? &lv_font_montserrat_36 :
+        fonts::PreviewFont(font.path, 36);
+    lv_obj_set_style_text_font(sample, face ? face : UiFont(&lv_font_montserrat_36), 0);
+    lv_obj_set_width(sample, LV_PCT(100));
+    lv_label_set_long_mode(sample, LV_LABEL_LONG_WRAP);
   }
+  ThemeReset(state, ThemeSection::kTypography);
+  RestoreThemeScroll(state);
+}
 
-  const int font_rows = std::max(
-      1, static_cast<int>((font_choices.size() + 1) / 2));
-  const int reset_y = BuildLockEditor(state, kSurfaceSectionOffset + dock_extra_height +
-      std::max(3760, 3450 + font_rows * 220 + 70));
-  auto *reset = Button(state->list, "Reset theme settings", [state] {
-    Sheet(
-        state->screen, "Reset theme settings",
-        "Restore default colors, appearance, wallpaper, layout, font and lock screen?",
-        [state] {
-          if (!RecoveryResetThemeSettings() || !fonts::SelectUiFont({}, {})) {
-            Sheet(state->screen, "Theme unavailable",
-                  "AERA could not restore every theme setting.");
-            return;
-          }
-          ApplyAppearanceMode(static_cast<int>(RecoveryAppearanceMode()));
-          wallpaper::Clear();
-          ApplySurfaceStyle(static_cast<int>(RecoverySurfaceStyle()));
-          ApplyInterfaceSize(static_cast<int>(RecoveryInterfaceSize()));
-          ApplyAccent(RecoveryAccentColor());
-          lv_obj_report_style_change(nullptr);
-          RefreshTheme(state);
-        },
-        0, false, SheetPresentation::kStandard, "Swipe to confirm");
+void BuildThemeNavigation(Tools *state) {
+  ThemePage(state, "Navigation dock");
+  const char *names[]{"Glass", "Compact", "Minimal", "Icons only", "Text Only"};
+  auto *layouts = ThemeGroup(state->list, "Navigation dock");
+  for (int i = 0; i <= kDockLayoutMax; ++i)
+    ThemeChoice(layouts, names[i], "", static_cast<int>(RecoveryDockLayout()) == i,
+        [state, i] { RecoverySetDockLayout(static_cast<DockLayout>(i)); RefreshTheme(state); });
+  ThemeRange(state, state->list, "Transparency", RecoveryDockTransparency(), 0, 100,
+      [state](int value, bool save) {
+    UpdateNavigationDockAppearance(state->navigation, value, RecoveryDockBlur());
+    if (save) RecoverySetDockTransparency(value);
   });
-  lv_obj_set_pos(reset, 16, reset_y);
-  lv_obj_set_size(reset, 1280, 124);
+  ThemeRange(state, state->list, "Backdrop blur", RecoveryDockBlur(), 0, 100,
+      [state](int value, bool save) {
+    UpdateNavigationDockAppearance(state->navigation, RecoveryDockTransparency(), value);
+    if (save) RecoverySetDockBlur(value);
+  });
+  ThemeReset(state, ThemeSection::kNavigation);
+  RestoreThemeScroll(state);
+}
 
-  // Preserve all section spacing below the variable-height wallpaper card.
-  for (uint32_t i = lv_obj_get_index(surface_section);
-       i < lv_obj_get_child_count(state->list); ++i) {
-    auto *child = lv_obj_get_child(state->list, i);
-    lv_obj_set_y(child, lv_obj_get_style_y(child, LV_PART_MAIN) + wallpaper_card_height - 220);
+void BuildThemeLock(Tools *state) {
+  ThemePage(state, "Lock screen");
+  // Keep the actual lock renderer visible while only the selected tab scrolls.
+  lv_obj_set_height(state->list, 178);
+  lv_obj_remove_flag(state->list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_OFF);
+  auto *back_row = state->list;
+  const bool landscape = Landscape(state->screen);
+  const int pw = landscape ? 300 : 280;
+  const int ph = pw * 3168 / 1440;
+  const int top = (landscape ? 330 : 410) + 194;
+  auto *preview = lv_obj_create(state->screen);
+  Clear(preview);
+  lv_obj_set_size(preview, pw, ph);
+  lv_obj_set_pos(preview, landscape ? 100 :
+      (lv_obj_get_width(state->screen) - pw) / 2, top);
+  lv_obj_set_style_radius(preview, 32, 0);
+  lv_obj_set_style_clip_corner(preview, true, 0);
+  lv_obj_set_style_border_width(preview, 2, 0);
+  lv_obj_set_style_border_color(preview, kMainLine, 0);
+  lv_obj_set_style_border_post(preview, true, 0);
+  lv_obj_update_layout(preview);
+  auto editor = std::make_shared<LockEditor>(LockEditor{state, preview, RecoveryLockTheme()});
+  editor->Refresh();
+  const int content_top = landscape ? top : top + ph + 28;
+  const int left = landscape ? 560 : 64;
+  const int width = lv_obj_get_width(state->screen) - left - 64;
+  auto *tabs = lv_obj_create(state->screen);
+  Clear(tabs);
+  lv_obj_set_pos(tabs, left, content_top);
+  lv_obj_set_size(tabs, width, 104);
+  lv_obj_set_flex_flow(tabs, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(tabs, 10, 0);
+  const char *tab_names[]{"Clock", "Date", "Wallpaper", "Behavior"};
+  state->lock_tab = std::clamp(selected_lock_tab, 0, 3);
+  for (int i = 0; i < 4; ++i) {
+    auto *tab = Button(tabs, tab_names[i], [state, i] {
+      selected_lock_tab = i;
+      theme_scroll_positions[Action::kThemeLock] = 0;
+      Open(state, Action::kThemeLock);
+    }, i == state->lock_tab);
+    lv_obj_set_size(tab, 0, 104);
+    lv_obj_set_flex_grow(tab, 1);
+    lv_obj_update_layout(tab);
+    FitButtonLabel(tab);
   }
-
-  if (theme_scroll_restore >= 0) {
-    lv_obj_update_layout(state->list);
-    lv_obj_scroll_to_y(state->list, theme_scroll_restore, LV_ANIM_OFF);
-    theme_scroll_restore = -1;
+  const int list_y = content_top + 128;
+  state->list = Scroll(state->screen, list_y,
+      std::max(1, static_cast<int>(lv_obj_get_height(state->screen)) -
+          list_y - NavigationHeight(state->screen) - 28));
+  lv_obj_set_x(state->list, left);
+  lv_obj_set_width(state->list, width);
+  lv_obj_set_flex_flow(state->list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(state->list, 22, 0);
+  lv_obj_set_style_pad_all(state->list, 12, 0);
+  auto choices = [state, editor](const char *title, int LockTheme::*member,
+                                  std::initializer_list<const char *> names) {
+    auto *group = ThemeGroup(state->list, title);
+    int index = 0;
+    for (const auto *name : names) {
+      const int value = index++;
+      ThemeChoice(group, name, "", editor->theme.*member == value, [state, editor, member, value] {
+        editor->theme.*member = value;
+        editor->Save();
+        RefreshTheme(state);
+      });
+    }
+  };
+  auto range = [state, editor](const char *title, int LockTheme::*member, int minimum, int maximum) {
+    ThemeRange(state, state->list, title, editor->theme.*member, minimum, maximum,
+        [editor, member](int value, bool save) {
+      editor->theme.*member = value;
+      editor->Refresh();
+      if (save) RecoverySetLockTheme(editor->theme);
+    });
+  };
+  if (state->lock_tab == 0) {
+    choices("Clock style", &LockTheme::clock, {"Classic", "Analogue", "Stacked"});
+    choices("Clock position", &LockTheme::placement, {"Top", "Centre", "Bottom"});
+    range("Clock size", &LockTheme::clock_size, 60, 180);
+    auto *colors = ThemeGroup(state->list, "Clock colour");
+    const char *names[]{"Follow accent", "White", "User select"};
+    for (int i = 0; i < 3; ++i)
+      ThemeChoice(colors, names[i], "", editor->theme.colour == i, [state, editor, colors, i] {
+        if (i == 2) {
+          OpenAccentPicker(state, [editor, state, colors](uint32_t rgb) {
+            editor->theme.colour = 2;
+            editor->theme.rgb = rgb;
+            editor->Save();
+            editor->Refresh();
+            for (uint32_t index = 0; index < lv_obj_get_child_count(colors); ++index) {
+              auto *choice = lv_obj_get_child(colors, index);
+              const bool selected = index == 2;
+              lv_obj_set_style_border_color(choice, selected ? kAccent : kMainLine, 0);
+              lv_obj_set_style_border_width(choice, selected ? 3 : 1, 0);
+              auto *heading = lv_obj_get_child(choice, 0);
+              lv_obj_set_style_opa(lv_obj_get_child(heading, -1),
+                  selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+            }
+            // The color picker still owns its overlay until this callback returns.
+            lv_obj_invalidate(state->screen);
+          }, editor->theme.rgb);
+        } else {
+          editor->theme.colour = i;
+          editor->Save();
+          RefreshTheme(state);
+        }
+      }, LV_SYMBOL_TINT);
+  } else if (state->lock_tab == 1) {
+    choices("Date style", &LockTheme::date_style, {"Full", "Short", "Numeric", "Stacked", "Hidden"});
+    range("Date size", &LockTheme::date_size, 60, 200);
+    choices("Date colour", &LockTheme::date_colour, {"White", "Clock colour", "Accent"});
+    choices("Date position", &LockTheme::date_placement, {"Below clock", "Above clock", "Bottom"});
+  } else if (state->lock_tab == 2) {
+    auto *choose = Button(state->list, "Choose lock-screen wallpaper",
+        [state] { OpenWallpaperPicker(state, {}, true); }, true);
+    lv_obj_set_size(choose, LV_PCT(100), 124);
+    auto *main = Button(state->list, "Use main wallpaper", [state, editor] {
+      editor->theme.wallpaper.clear();
+      editor->theme.wallpaper_layout = RecoveryWallpaperLayout();
+      editor->Save();
+      RefreshTheme(state);
+    });
+    lv_obj_set_size(main, LV_PCT(100), 124);
+    const std::string path = editor->theme.wallpaper.empty() ? RecoveryWallpaperPath() : editor->theme.wallpaper;
+    if (!path.empty()) {
+      auto *adjust = Button(state->list, "Adjust image", [state, path] {
+        OpenWallpaperEditor(state, path, true);
+      });
+      lv_obj_set_size(adjust, LV_PCT(100), 124);
+    }
+    range("Wallpaper dimming", &LockTheme::dim, 0, 90);
+    range("Wallpaper blur", &LockTheme::blur, 0, 100);
+  } else {
+    auto *row = PreferenceEntry(state, LV_SYMBOL_EYE_OPEN, "Always-on clock",
+        i18n::Translate("Dim clock on black. Uses more power than screen off. Wake with Power."), {}, true);
+    auto *toggle = lv_switch_create(row);
+    StyleSwitch(toggle, editor->theme.aod);
+    OnClick(row, [editor, state] {
+      editor->theme.aod = !editor->theme.aod;
+      editor->Save();
+      RefreshTheme(state);
+    });
+    if (editor->theme.aod) range("AOC brightness", &LockTheme::aod_brightness, 1, 100);
+    choices("Unlock gesture", &LockTheme::unlock, {"Slider", "Swipe up", "Hold"});
+    choices("Slide / hold unlock animation", &LockTheme::animation, {"None", "Fade"});
+    auto *owner = Button(state->list, "Edit owner text", [editor] { EditLockText(editor, false); });
+    lv_obj_set_size(owner, LV_PCT(100), 124);
   }
+  ThemeReset(state, ThemeSection::kLock);
+  RestoreThemeScroll(state);
+  lv_obj_move_foreground(back_row);
 }
 
 void BuildPreferences(Tools *state) {
@@ -2637,10 +2567,35 @@ void BuildPreferences(Tools *state) {
     }
   PreferenceEntry(state, LV_SYMBOL_KEYBOARD, "Language", language_name,
                   [state] { Open(state, Action::kLanguage); });
-  const std::string status_detail = std::string(i18n::Translate("Battery style")) +
-      " / " + i18n::Translate("Network speed");
-  PreferenceEntry(state, LV_SYMBOL_BATTERY_FULL, "Status bar", status_detail,
-                  [state] { Open(state, Action::kStatusBar); });
+  PreferenceEntry(state, LV_SYMBOL_KEYBOARD, "Keyboard layout",
+      RecoveryKeyboardLayout() == KeyboardLayout::kQwertz ? "QWERTZ" : "QWERTY",
+      [state] {
+    auto *overlay = lv_obj_create(state->screen);
+    Clear(overlay);
+    lv_obj_set_user_data(overlay, &kModalMarker);
+    lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(overlay, Color(0x000000), 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_70, 0);
+    auto *sheet = lv_obj_create(overlay);
+    Panel(sheet, 32, kMainSheet);
+    lv_obj_set_width(sheet, std::min(1200, static_cast<int>(lv_obj_get_width(state->screen)) - 96));
+    lv_obj_set_height(sheet, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(sheet, 36, 0);
+    lv_obj_set_style_pad_row(sheet, 24, 0);
+    lv_obj_set_flex_flow(sheet, LV_FLEX_FLOW_COLUMN);
+    lv_obj_center(sheet);
+    auto *choices = ThemeGroup(sheet, "Keyboard layout");
+    for (int i = 0; i < 2; ++i)
+      ThemeChoice(choices, i ? "QWERTZ" : "QWERTY",
+          i18n::Translate(i ? "Y and Z exchanged" : "International default"),
+          static_cast<int>(RecoveryKeyboardLayout()) == i, [state, overlay, i] {
+        if (!RecoverySetKeyboardLayout(static_cast<KeyboardLayout>(i)) || !AutoSaveSettings(state)) return;
+        lv_obj_delete_async(overlay);
+        Open(state, Action::kPreferences);
+      });
+    auto *cancel = Button(sheet, "Cancel", [overlay] { lv_obj_delete_async(overlay); });
+    lv_obj_set_size(cancel, LV_PCT(100), 112);
+  });
 
   auto *brightness = lv_obj_create(state->list);
   Clear(brightness);
@@ -2934,6 +2889,8 @@ void BuildTemperatureSettings(Tools *state) {
   lv_obj_set_flex_flow(state->list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(state->list, 16, 0);
   lv_obj_set_style_pad_bottom(state->list, 32, 0);
+  PreferenceEntry(state, LV_SYMBOL_LEFT, "Status bar", "",
+                  [state] { Open(state, Action::kBack); }, true);
   PreferenceSection(state, "Sensors");
   state->temperature_saved = RecoveryTemperatureDisplay();
   auto *main_list = state->list;
@@ -3048,13 +3005,7 @@ void BuildTemperatureSettings(Tools *state) {
 }
 
 void BuildStatusBarSettings(Tools *state) {
-  Header(state->screen, "Status bar", "", state->callback, state->context);
-  const int top = Landscape(state->screen) ? 340 : 452;
-  state->list = Scroll(state->screen, top,
-      std::max(1, int(lv_obj_get_height(state->screen)) - top - NavigationHeight(state->screen) - 28));
-  lv_obj_set_flex_flow(state->list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(state->list, 16, 0);
-  lv_obj_set_style_pad_bottom(state->list, 32, 0);
+  ThemePage(state, "Status bar");
   PreferenceSection(state, "Battery style");
   auto *choices = lv_obj_create(state->list);
   Clear(choices);
@@ -3229,6 +3180,7 @@ void BuildStatusBarSettings(Tools *state) {
   state->summary = Label(state->list, "", &lv_font_montserrat_24, kMuted);
   lv_obj_set_width(state->summary, LV_PCT(100));
   RefreshBatterySettings(state);
+  ThemeReset(state, ThemeSection::kStatusBar);
 }
 
 void RefreshPcConnection(Tools *state) {
@@ -3592,6 +3544,12 @@ void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void
   else if (tool == Action::kTemperatures) BuildTemperatureSettings(state);
   else if (tool == Action::kPcConnection) BuildPcConnection(state);
   else if (tool == Action::kTheme) BuildTheme(state);
+  else if (tool == Action::kThemeAppearance) BuildThemeAppearance(state);
+  else if (tool == Action::kThemeWallpaper) BuildThemeWallpaper(state);
+  else if (tool == Action::kThemeHome) BuildThemeHome(state);
+  else if (tool == Action::kThemeTypography) BuildThemeTypography(state);
+  else if (tool == Action::kThemeNavigation) BuildThemeNavigation(state);
+  else if (tool == Action::kThemeLock) BuildThemeLock(state);
   else if (tool == Action::kLogs) BuildLogs(state);
   else if (tool == Action::kUsers) BuildUsers(state);
   else BuildMenu(state);

@@ -37,7 +37,10 @@ void Passive(lv_obj_t *object) {
   for (uint32_t i=0;i<lv_obj_get_child_count(object);++i) Passive(lv_obj_get_child(object,i));
 }
 lv_obj_t *Text(LockState *s, lv_obj_t *parent, const char *text, int size, lv_color_t color) {
-  auto *label = Label(parent, text, fonts::DisplayFont(Px(s,size)), color);
+  // Tiny previews must stay within FreeType's supported size range; otherwise
+  // DisplayFont falls back to a full-size 48px UI font.
+  const int pixels = s->preview ? std::max(8, Px(s, size)) : Px(s, size);
+  auto *label = Label(parent, text, fonts::DisplayFont(pixels), color);
   lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE);
   return label;
 }
@@ -255,10 +258,10 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent,ActionCallback callback,void *context,
   lv_obj_set_style_radius(bg,radius,0);
   lv_obj_set_style_clip_corner(bg,true,0);
   // Replace only the background layer; foreground labels never enter the blur.
-  if(!s->theme.wallpaper.empty()||s->theme.blur||(preview&&wallpaper::Active())) {
+  if(!s->theme.wallpaper.empty()||s->theme.blur||wallpaper::Active()) {
     lv_obj_clean(bg);
     lv_obj_set_style_bg_color(bg,kMainCanvas,0);lv_obj_set_style_bg_opa(bg,LV_OPA_COVER,0);
-    wallpaper::AttachLock(bg,s->theme.wallpaper,s->theme.blur);
+    wallpaper::AttachLock(bg,s->theme.wallpaper,s->theme.blur,s->theme.wallpaper_layout);
   }
   auto *dim=lv_obj_create(bg);Clear(dim);lv_obj_set_size(dim,LV_PCT(100),LV_PCT(100));
   lv_obj_set_style_radius(dim,radius,0);
@@ -357,7 +360,8 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent,ActionCallback callback,void *context,
     s->knob=lv_obj_create(slider);Clear(s->knob);lv_obj_set_size(s->knob,sh,sh);
     lv_obj_set_style_radius(s->knob,sh/2,0);lv_obj_set_style_bg_color(s->knob,kAccent,0);
     lv_obj_set_style_bg_opa(s->knob,s->theme.minimal?LV_OPA_TRANSP:LV_OPA_COVER,0);
-    auto *arrow=Label(s->knob,LV_SYMBOL_RIGHT,UiFont(&lv_font_montserrat_32),kOnAccent);
+    auto *arrow=Label(s->knob,LV_SYMBOL_RIGHT,
+        UiFont(preview ? &lv_font_montserrat_16 : &lv_font_montserrat_32),kOnAccent);
     lv_obj_center(arrow);lv_obj_remove_flag(s->knob,LV_OBJ_FLAG_CLICKABLE);
   }
   if(!preview && !ambient) {

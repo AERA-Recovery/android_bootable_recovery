@@ -262,6 +262,8 @@ AppearanceMode RecoveryAppearanceMode();
 bool RecoverySetAppearanceMode(AppearanceMode mode);
 std::string RecoveryWallpaperPath();
 bool RecoverySetWallpaperPath(const std::string &path);
+WallpaperLayout RecoveryWallpaperLayout();
+bool RecoverySetWallpaperLayout(const WallpaperLayout &layout);
 bool RecoveryLightMode();
 bool RecoverySetLightMode(bool enabled);
 enum class SurfaceStyle {
@@ -329,6 +331,9 @@ bool RecoveryAutoSavePreferences();
 bool RecoveryPcAutoEnable();
 bool RecoverySetPcAutoEnable(bool enabled);
 // Reset the in-memory group; the UI then applies it and autosaves once.
+enum class ThemeSection { kAppearance, kWallpaper, kHome, kTypography,
+                          kNavigation, kStatusBar, kLock };
+bool RecoveryResetThemeSection(ThemeSection section);
 bool RecoveryResetThemeSettings();
 bool RecoveryResetPreferences();
 enum class Haptic { kTouch, kKeyboard, kAction };
