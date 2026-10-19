@@ -96,6 +96,7 @@ struct Transfer {
   double upload_speed = 0;
   std::string save_path;
   bool existing_file = false;
+  bool plugin_install = false, plugin_unofficial_accepted = false;
   struct stat source{};
   Json::Value package_info{Json::objectValue};
   Json::Value root_inspection{Json::objectValue};
@@ -441,7 +442,7 @@ bool RemoveOldTransfer(int parent, const std::string &id, const std::string &boo
   if (count != info.st_size || count <= 0 || !ParseJson(std::string(text.data(), count), &metadata) ||
       metadata["schema"] != 1 || metadata["owner"] != "AERA-PC-TRANSFER" || metadata["id"] != id ||
       !metadata["boot_id"].isString() || !IsBootId(metadata["boot_id"].asString()) ||
-      metadata["boot_id"] == boot || (metadata["payload"] != "payload.zip" && metadata["payload"] != "payload.img")) {
+      metadata["boot_id"] == boot || (metadata["payload"] != "payload.zip" && metadata["payload"] != "payload.img" && metadata["payload"] != "payload.aerap")) {
     close(directory); return true;
   }
   const auto payload = metadata["payload"].asString();
@@ -654,6 +655,7 @@ Json::Value TransferStatus() {
   state["bytes"] = Json::UInt64(g_transfer.bytes);
   state["received"] = Json::UInt64(g_transfer.received);
   state["from_url"] = g_transfer.from_url;
+  state["plugin_install"] = g_transfer.plugin_install;
   const auto upload = UploadProgressLocked();
   state["upload_transfer"]["active"] = upload.active;
   state["upload_transfer"]["bytes_per_second"] = upload.bytes_per_second;
@@ -868,17 +870,18 @@ void FileCommand(SSL *tls, const std::string &command, const Json::Value &body, 
   Json::Value result;
   if (command == "/api/files/prepare") {
     const std::string name = path.substr(path.find_last_of('/') + 1);
-    const std::string extension = name.size() > 4 ? Lower(name.substr(name.size() - 4)) : "";
-    if (!S_ISREG(info.st_mode) || info.st_size <= 0 || (extension != ".zip" && extension != ".img")) {
-      Error(tls, 400, "Select a non-empty ZIP or IMG file."); return;
+    const std::string extension = name.find_last_of('.') == std::string::npos ? "" : Lower(name.substr(name.find_last_of('.')));
+    if (!S_ISREG(info.st_mode) || info.st_size <= 0 || (extension != ".zip" && extension != ".img" && extension != ".aerap")) {
+      Error(tls, 400, "Select a non-empty ZIP, IMG or AERAP file."); return;
     }
     Transfer next;
     next.id = RandomToken(); next.owner = owner; next.name = name; next.root = root; next.path = path;
     next.bytes = next.received = static_cast<uint64_t>(info.st_size);
     next.existing_file = true; next.source = info;
+    next.plugin_install = extension == ".aerap";
     next.phase = "prepared"; next.detail = "Reading package information...";
     next.request.job = extension == ".img" ? aeraui::Job::kFlashImage : aeraui::Job::kInstall;
-    next.request.title = extension == ".img" ? "Flash image" : "Install ZIP";
+    next.request.title = next.plugin_install ? "Install plugin" : extension == ".img" ? "Flash image" : "Install ZIP";
     next.request.path = path; next.request.name = name; next.request.present_before_run = true;
     if (next.id.empty()) { Error(tls, 500, "Could not prepare this file."); return; }
     {
@@ -1316,7 +1319,7 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
       (!download && (!body["sha256"].isString() || !IsToken(body["sha256"].asString()) ||
        !body["bytes"].isUInt64() || (body["bytes"].asUInt64() == 0 && body["kind"] != "file"))) ||
       (download && (!body["url"].isString() || !DirectDownloadUrl(body["url"].asString()) || body["kind"] == "file")) ||
-      !body["kind"].isString() || (body["kind"] != "zip" && body["kind"] != "img" && body["kind"] != "file")) {
+      !body["kind"].isString() || (body["kind"] != "zip" && body["kind"] != "img" && body["kind"] != "plugin" && body["kind"] != "file")) {
     Error(tls, 400, "Invalid transfer request."); return;
   }
   const std::string name = body["name"].asString();
@@ -1362,6 +1365,7 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
     }
     Transfer next;
     next.id = RandomToken(); next.owner = owner; next.name = name;
+    next.plugin_install = body["kind"] == "plugin";
     next.computer = g_trusted.get(owner, "Computer").asString();
     if (g_pair.fingerprint == owner) next.computer = g_pair.name;
     next.bytes = size; next.checksum = download ? "" : body["sha256"].asString(); next.root = root;
@@ -1375,7 +1379,7 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
       }
     }
     next.request.job = body["kind"] == "img" ? aeraui::Job::kFlashImage : aeraui::Job::kInstall;
-    next.request.title = body["kind"] == "zip" ? "Install ZIP" : "Flash image";
+    next.request.title = next.plugin_install ? "Install plugin" : body["kind"] == "zip" ? "Install ZIP" : "Flash image";
     next.request.name = name;
     next.request.present_before_run = true;
     if (next.request.job == aeraui::Job::kFlashImage) {
@@ -1383,7 +1387,7 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
     }
     if (next.id.empty()) { Error(tls, 500, "Could not create a transfer."); return; }
     next.directory = root + "/AERA/PCTransfers/" + next.id;
-    next.path = next.directory + (body["kind"] == "zip" ? "/payload.zip" : "/payload.img");
+    next.path = next.directory + (next.plugin_install ? "/payload.aerap" : body["kind"] == "zip" ? "/payload.zip" : "/payload.img");
     if (!MakeDirectories(next.directory)) { Error(tls, 409, "Could not create the transfer folder."); return; }
     if (!MarkTransfer(next)) {
       RemoveTransferFiles(next);
@@ -1411,6 +1415,22 @@ void PrepareTransfer(SSL *tls, const Json::Value &body, const std::string &owner
   Reply(tls, 200, JsonText(result));
 }
 Json::Value InspectPackage(Transfer &transfer) {
+  if (transfer.plugin_install) {
+    aeraui::plugins::Plugin plugin;
+    std::string error;
+    Json::Value result(Json::objectValue);
+    result["plugin"] = true;
+    result["valid"] = aeraui::plugins::InspectLocalPackage(transfer.path, plugin, error);
+    result["error"] = !result["valid"].asBool() && error.empty() ? "Invalid plugin package." : error;
+    if (!result["valid"].asBool()) return result;
+    result["plugin_id"] = plugin.id; result["name"] = plugin.name;
+    result["version"] = plugin.version; result["author"] = plugin.author;
+    result["description"] = plugin.description;
+    result["unofficial"] = plugin.trust == aeraui::plugins::Trust::kUnofficial;
+    result["permissions"] = Json::Value(Json::arrayValue);
+    for (const auto &permission : plugin.permissions) result["permissions"].append(permission);
+    return result;
+  }
   Json::Value platform;
   { std::lock_guard<std::mutex> guard(g_lock); platform = g_platform; }
   auto info = aeraui::payload::InspectZip(transfer.path, true);
@@ -1628,7 +1648,7 @@ void FetchTransfer(Transfer transfer, const std::string &url, unsigned generatio
       }
       if (response_code == 200 && have_length && expected > maximum) { failure = "Not enough storage for the linked file."; break; }
       if (response_code == 200 && content_type.find("html") != std::string::npos) {
-        failure = "This link opens a webpage. Use a direct ZIP or IMG download link."; break;
+        failure = "This link opens a webpage. Use a direct ZIP, IMG or AERAP download link."; break;
       }
       std::lock_guard<std::mutex> guard(g_lock);
       if (g_transfer.id != transfer.id) continue;
@@ -1659,10 +1679,11 @@ void FetchTransfer(Transfer transfer, const std::string &url, unsigned generatio
   const auto prefix = Lower(Trim(first_bytes));
   if (failure.empty() && (prefix.compare(0, 5, "<html") == 0 || prefix.compare(0, 9, "<!doctype") == 0 ||
       (!image && first_bytes.compare(0, 4, "PK\003\004") != 0)))
-    failure = "This link did not return a ZIP or IMG file. No installation was started.";
-  const auto extension = transfer.name.size() > 4 ? Lower(transfer.name.substr(transfer.name.size() - 4)) : "";
-  if (failure.empty() && extension != (image ? ".img" : ".zip"))
-    failure = "The downloaded file type does not match the selected ZIP or IMG target.";
+    failure = "This link did not return a ZIP, IMG or AERAP file. No installation was started.";
+  const auto dot = transfer.name.find_last_of('.');
+  const auto extension = dot == std::string::npos ? "" : Lower(transfer.name.substr(dot));
+  if (failure.empty() && extension != (transfer.plugin_install ? ".aerap" : image ? ".img" : ".zip"))
+    failure = "The downloaded file type does not match the selected installation target.";
   std::array<unsigned char, SHA256_DIGEST_LENGTH> digest{};
   SHA256_Final(digest.data(), &hash);
   {
@@ -2093,6 +2114,14 @@ void Handle(SSL *tls, unsigned generation) {
         Error(tls, 400, "Invalid installation method."); return;
       }
       const std::string method = body.get("install_method", "normal").asString();
+      if (g_transfer.plugin_install) {
+        if (method != "normal") { Error(tls, 400, "Plugins use the plugin installer, not a flash method."); return; }
+        if (g_transfer.package_info.get("unofficial", true).asBool() &&
+            body.get("allow_unofficial", false) != true) {
+          Error(tls, 409, "Confirm that you trust this unofficial plugin before installing."); return;
+        }
+        g_transfer.plugin_unofficial_accepted = body.get("allow_unofficial", false) == true;
+      }
       if (method != "normal" && method != "fast" && method != "selected" && method != "direct" && method != "extract") {
         Error(tls, 400, "Select a supported installation or extraction method."); return;
       }
@@ -2701,7 +2730,9 @@ void ResolveConnection(const std::string &id, bool allow, bool remember) {
 bool TakeInstallRequest(InstallRequest *request) {
   std::lock_guard<std::mutex> guard(g_lock);
   if (!request || g_transfer.phase != "queued" || g_transfer.shown || g_file_busy || g_recovery_busy) return false;
-  *request = {g_transfer.id, g_transfer.name, g_transfer.computer, g_transfer.bytes, g_transfer.request};
+  *request = {g_transfer.id, g_transfer.name, g_transfer.computer, g_transfer.bytes, g_transfer.request,
+      g_transfer.plugin_install, {aeraui::plugins::Job::kInstallLocalStorage,
+        g_transfer.package_info.get("plugin_id", "").asString(), g_transfer.path, g_transfer.plugin_unofficial_accepted}};
   if (g_transfer.request.job == aeraui::Job::kNetworkStorage) {
     g_transfer.request.nas_private_key.clear();
     g_transfer.request.nas_config.password.clear();
@@ -2829,6 +2860,7 @@ void CompleteInstall(const std::string &id, int result) {
     else if (g_transfer.request.job == aeraui::Job::kNetworkStorage)
       g_transfer.detail = g_transfer.request.nas_action == "save" ? "Network storage settings saved." :
           g_transfer.request.nas_action == "disconnect" ? "Network storage disconnected." : "Network storage connected.";
+    else if (g_transfer.plugin_install) g_transfer.detail = "Plugin installed successfully.";
     else if (g_transfer.request.job != aeraui::Job::kRootOperation) g_transfer.detail = "Installation completed.";
   } else if (g_transfer.cancel_requested) {
     // Preserve the explicit cancellation warning above.
@@ -2836,6 +2868,8 @@ void CompleteInstall(const std::string &id, int result) {
     g_transfer.detail = g_transfer.backup_result.get("error", "Backup operation failed; review the recovery log.").asString();
   else if (g_transfer.request.job == aeraui::Job::kNetworkStorage)
     g_transfer.detail = "Network storage operation failed. Check the connection settings and network storage status.";
+  else if (g_transfer.plugin_install)
+    g_transfer.detail = g_transfer.log.empty() ? "Plugin installation failed." : g_transfer.log;
   else if (g_transfer.request.job != aeraui::Job::kRootOperation)
     g_transfer.detail = "Installation failed. Review the installer log.";
   g_prompt = Json::Value(Json::objectValue); g_prompt_answer_id.clear();

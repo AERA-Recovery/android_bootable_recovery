@@ -16,6 +16,22 @@
 #include <thread>
 #include <future>
 
+// Fake package inspection for HTTP dispatch/consent tests. Real package
+// validation remains in plugin_manager.cpp and is re-run by its installer.
+namespace aeraui::plugins {
+bool InspectLocalPackage(const std::string &path, Plugin &plugin, std::string &error) {
+  std::ifstream file(path); std::string body((std::istreambuf_iterator<char>(file)), {});
+  if (body != "plugin-fixture-unofficial" && body != "plugin-fixture-official") {
+    error = "Invalid plugin fixture"; return false;
+  }
+  plugin.id = "fixture-plugin"; plugin.name = "Fixture plugin"; plugin.version = "1.2.3";
+  plugin.author = "AERA tests"; plugin.description = "HTTP plugin installation fixture";
+  plugin.permissions = {"display", "touch-input"};
+  plugin.trust = body == "plugin-fixture-official" ? Trust::kOfficial : Trust::kUnofficial;
+  return true;
+}
+}
+
 namespace {
 int SimulateBackup(const aeraui::JobRequest &job) {
   using namespace aera::pc;
@@ -284,6 +300,10 @@ int main(int argc, char **argv) {
       if (!aera::pc::BeginInstall(install.id)) install = {};
       else {
         // Deliberately no RecoveryRunJob: this harness never flashes anything.
+        if (install.plugin_install) {
+          assert(install.plugin.job == aeraui::plugins::Job::kInstallLocalStorage);
+          assert(install.plugin.id == "fixture-plugin" && install.plugin.path == install.job.path);
+        }
         started = std::chrono::steady_clock::now();
         if (install.job.job == aeraui::Job::kPcBackupOperation)
           backup = std::async(std::launch::async, SimulateBackup, install.job);

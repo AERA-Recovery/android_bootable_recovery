@@ -79,6 +79,7 @@ enum class PluginTask {
   kInteractive,
   kBackgroundRefresh,
   kAutomaticInstall,
+  kPcInstall,
 };
 
 uint32_t MonotonicMilliseconds() {
@@ -600,7 +601,14 @@ public:
       const plugins::Job completed_job = plugin_job_;
       plugin_running_ = false;
       plugin_task_ = PluginTask::kNone;
-      if (completed == PluginTask::kInteractive) {
+      if (completed == PluginTask::kPcInstall) {
+        aera::pc::UpdateInstall(plugin_progress_.value.load(), message, message);
+        aera::pc::CompleteInstall(pc_job_id_, success ? 0 : 1);
+        pc_job_id_.clear();
+        if (current_scene_ == Action::kPlugins)
+          CompletePluginOperation(plugin_scene_, success, message.c_str());
+        else RefreshPluginSurfaces();
+      } else if (completed == PluginTask::kInteractive) {
         if (current_scene_ == Action::kPlugins) {
           CompletePluginOperation(plugin_scene_, success, message.c_str());
           if (success && completed_job == plugins::Job::kRefresh &&
@@ -622,7 +630,7 @@ public:
       }
     }
     if (plugin_running_ && (plugin_task_ == PluginTask::kInteractive ||
-        plugin_task_ == PluginTask::kAutomaticInstall) &&
+        plugin_task_ == PluginTask::kAutomaticInstall || plugin_task_ == PluginTask::kPcInstall) &&
         current_scene_ == Action::kPlugins &&
         MonotonicMilliseconds() - last_plugin_update_ >= 120) {
       last_plugin_update_ = MonotonicMilliseconds();
@@ -3113,6 +3121,8 @@ private:
       if (aera::pc::TakePromptAnswer(&id, &accepted) && prompt.active && prompt.id == id)
         RecoveryAnswerInstallerPrompt(accepted);
     }
+    if (!pc_job_id_.empty() && plugin_running_ && plugin_task_ == PluginTask::kPcInstall)
+      aera::pc::UpdateInstall(plugin_progress_.value.load(), "Verifying and installing plugin", "");
     bool pc_busy = !interactive_ready_ || decryption_active_ || decrypt_running_ ||
         operation_running_ || wifi_running_ || nas_running_ || plugin_running_ ||
         update_running_ || fastboot_mode_ || power_overlay_ ||
@@ -3155,6 +3165,12 @@ private:
         lv_obj_delete(lock);
       }
       pc_job_id_ = install.id;
+      if (install.plugin_install) {
+        StopGenericPluginRuntime(install.plugin.id);
+        HandleSceneAction(Action::kPlugins, this);
+        StartPlugin(install.plugin, PluginTask::kPcInstall);
+        return;
+      }
       SetJobRequest(install.job);
       HandleSceneAction(Action::kRunOperation, this);
     }
@@ -3335,7 +3351,9 @@ private:
                    PluginTask task = PluginTask::kInteractive) {
     if (plugin_running_ || operation_running_ || wifi_running_ || nas_running_)
       return;
-    if ((task == PluginTask::kInteractive || task == PluginTask::kAutomaticInstall) &&
+    if (request.job == plugins::Job::kRemove)
+      StopGenericPluginRuntime(request.id);
+    if ((task == PluginTask::kInteractive || task == PluginTask::kAutomaticInstall || task == PluginTask::kPcInstall) &&
         current_scene_ == Action::kPlugins)
       SetPluginBusy(plugin_scene_, request);
     plugin_progress_.value.store(0);

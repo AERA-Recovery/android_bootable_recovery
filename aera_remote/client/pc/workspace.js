@@ -7,7 +7,7 @@ const installSource = document.createElement('fieldset');
 installSource.className='install-source';installSource.hidden=true;
 installSource.innerHTML='<legend class="sr-only">Install source</legend><label><input type="radio" name="installSource" value="file" checked>File</label><label><input type="radio" name="installSource" value="url">Download link</label>';
 const urlFields = document.createElement('div');urlFields.className='install-url';urlFields.hidden=true;
-urlFields.innerHTML='<label for="downloadUrl">Direct download URL</label><input id="downloadUrl" type="url" placeholder="https://example.com/recovery.zip" autocomplete="off" spellcheck="false"><div class="context-note">Direct ZIP or IMG downloads only. No download pages, login, or extra confirmation.</div>';
+urlFields.innerHTML='<label for="downloadUrl">Direct download URL</label><input id="downloadUrl" type="url" placeholder="https://example.com/recovery.zip" autocomplete="off" spellcheck="false"><div class="context-note">Direct ZIP, IMG or AERAP downloads only. No download pages, login, or extra confirmation.</div>';
 $('drop').before(installSource);$('drop').after(urlFields);
 const urlMode = () => !state.saveFolder && installSource.querySelector('input:checked').value==='url';
 function linkedFile() {
@@ -15,7 +15,7 @@ function linkedFile() {
     const url=new URL($('downloadUrl').value.trim());
     if(!['http:','https:'].includes(url.protocol)||url.username||url.password)return null;
     const candidates=[url.searchParams.get('file'),url.searchParams.get('filename'),decodeURIComponent(url.pathname)];
-    const name=candidates.filter(Boolean).map(path=>path.split('/').pop()).find(name=>/\.(zip|img)$/i.test(name))||'Download.zip';
+    const name=candidates.filter(Boolean).map(path=>path.split('/').pop()).find(name=>/\.(zip|img|aerap)$/i.test(name))||'Download.zip';
     return {url:url.href,name,image:/\.img$/i.test(name)};
   }catch{return null}
 }
@@ -41,7 +41,7 @@ async function downloadLink() {
   const file=linkedFile();if(!file||activeJob()||!state.info?.url_download_available)return;
   workspace.urlConfirmation='';state.busy=true;state.cancelled=false;controls();notice('');
   try {
-    const job=await api('download',{url:file.url,name:file.name,kind:file.image?'img':'zip',storage:$('storage').value,
+    const job=await api('download',{url:file.url,name:file.name,kind:packageKind(file.name),storage:$('storage').value,
       partition:$('partition').value,both_slots:$('slots').value==='both'});
     state.file=null;state.busy=false;updateJob(job);
   }catch(error){notice(error.message)}
@@ -172,6 +172,7 @@ controls = function() {
   } else $('transfer').disabled = $('transfer').disabled || !!state.info?.busy;
   if(workspace.batchDownload){$('transfer').disabled=true;$('install').disabled=true;}
   if (state.job?.save_path) $('install').textContent = 'Save file';
+  else if(state.job?.plugin_install) $('install').textContent='Install plugin';
   renderPackageInfo($('packageInfo'),!state.file||state.job?.name===state.file.name?state.job?.package_info:null);
   const packageInfo=state.job?.package_info;
   if(packageInfo?.error||(packageInfo?.arb_decision==='downgrade'&&!packageInfo?.advanced_available)) $('install').disabled=true;
@@ -373,6 +374,7 @@ function updateConfirmEnabled() {
   $('confirmInstall').disabled=state.job?.phase!=='ready'||workspace.confirming||workspace.cancellingConfirmation||
     !!info?.error||(!extract&&(info?.arb_decision==='downgrade'||
       (info?.arb_decision==='upgrade'&&!$('arbAcknowledged').checked)))||
+    (info?.plugin&&info?.unofficial&&!$('pluginAcknowledged').checked)||
     (method==='fast'&&(!info?.fast_available||!$('fastAcknowledged').checked))||
     (advanced&&(!info?.advanced_available||!selectedPayloadImages().length||
       (method==='direct'&&!info?.direct_available)||(!extract&&!$('fastAcknowledged').checked)));
@@ -391,7 +393,7 @@ function updateInstallationChoice() {
     `Writes payload images directly to current slot ${info.fast_slot}, with SHA-256 readback verification.${info.fast_protected?.length?' Protected partitions are not written: '+info.fast_protected.join(', ')+'.':''} No temporary extraction, slot switch, normal OTA compatibility checks, snapshot rollback or postinstall. An interrupted flash may leave this slot unbootable. Do not reboot after failure; reflash known-good firmware.`:
     extract?'Saves verified images in a new folder. No device partitions are written.':advanced?
     `${method==='direct'?'Streams selected images directly, without temporary extraction, and verifies SHA-256 readback.':'Extracts and verifies all selected images before writing.'} Writes to current slot ${info.fast_slot}. No normal OTA compatibility checks, snapshot rollback, postinstall or slot switch. An interrupted flash can leave this slot unbootable.${overridden.length?' Manual protection override: '+overridden.join(', ')+' will be overwritten.':''}`:workspace.installWarning;
-  $('confirmInstall').textContent=fast?'Fast flash':extract?'Extract images':advanced?'Flash selected':state.job?.save_path?'Save file':state.job?.partition?'Flash image':'Install ZIP';
+  $('confirmInstall').textContent=fast?'Fast flash':extract?'Extract images':advanced?'Flash selected':state.job?.save_path?'Save file':state.job?.plugin_install?'Install plugin':state.job?.partition?'Flash image':'Install ZIP';
   $('methodSummary').hidden=!info?.is_payload;
   $('methodSummary').textContent=extract?`Destination: ${state.info?.extraction_root||'Current storage / AERA/Extracted'}`:info?.is_payload?
     `${fast||advanced?'Target: current slot '+info.fast_slot+' (unchanged)':'Method: normal package installer'}\nKeep current ABL: ${state.info?.preserve_abl?'On / '+(overridden.includes('abl')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}\nKeep AERA installed: ${state.info?.preserve_recovery?'On / '+(overridden.includes('recovery')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}`:'';
@@ -408,6 +410,14 @@ showConfirmation = function() {
     $('confirmWarning').textContent = 'Save this file without flashing it. Existing files are never overwritten.';
   } else $('confirmWarning').textContent = 'The file has been transferred and verified. Installation will run on the device.';
   const info=state.job?.package_info;
+  $('pluginConsent').hidden=!info?.plugin||!info?.unofficial;
+  $('pluginAcknowledged').checked=false;
+  if(info?.plugin){
+    $('confirmTitle').textContent='Confirm plugin installation';
+    $('confirmWarning').textContent=info.unofficial?
+      'This plugin is not verified by the AERA signing key. Install it only if you trust its source.':
+      'Install this verified AERA plugin in persistent storage. No partitions will be flashed.';
+  }
   if(state.job?.partition&&!state.info?.partitions.find(target=>target.path===state.job.partition)?.slot_select){
     for(const row of $('review').children)if(row.firstElementChild.textContent==='Slots')row.lastElementChild.textContent='Single partition';
   }
@@ -419,7 +429,7 @@ showConfirmation = function() {
   $('confirmInstall').disabled=!!info?.error||info?.arb_decision==='downgrade'||info?.arb_decision==='upgrade';
   if(state.job?.source_path){
     reviewLine('Source',state.job.source_path);
-    $('confirmWarning').textContent=(imageWarning?imageWarning+'\n\n':'')+'This file is already on the device. Installation will use it directly and will not delete it afterward.';
+    $('confirmWarning').textContent=(info?.plugin?$('confirmWarning').textContent+'\n\n':imageWarning?imageWarning+'\n\n':'')+'This file is already on the device. Installation will use it directly and will not delete it afterward.';
   }
   workspace.installWarning=$('confirmWarning').textContent;
   $('installMethod').value='normal';$('fastAcknowledged').checked=false;
@@ -455,10 +465,12 @@ async function cancelConfirmation() {
 $('confirmCancel').onclick=cancelConfirmation;
 $('confirm').oncancel=event=>{event.preventDefault();cancelConfirmation();};
 $('arbAcknowledged').onchange=updateConfirmEnabled;
+$('pluginAcknowledged').onchange=updateConfirmEnabled;
 $('confirmInstall').onclick=async()=>{
   if(state.job?.phase!=='ready'||$('confirmInstall').disabled||workspace.confirming||workspace.cancellingConfirmation)return;
   workspace.confirming=true;$('confirmInstall').disabled=true;$('confirmCancel').disabled=true;
   try{updateJob(await api('install',{id:state.job.id,confirm:true,arb_acknowledged:$('arbAcknowledged').checked,
+    allow_unofficial:!!state.job?.package_info?.plugin&&$('pluginAcknowledged').checked,
     install_method:$('installMethodFields').hidden?'normal':$('installMethod').value,
     partitions:selectedPayloadImages(),
     fast_acknowledged:$('fastAcknowledged').checked}));$('confirm').close();notice('')}
@@ -559,8 +571,8 @@ function updateSelection(){
   $('fileDownload').hidden=entries.some(entry=>!entry.regular&&!entry.directory);
   $('fileDownload').lastChild.textContent=entries.length>1?' Download selected':' Download';
   $('fileRename').hidden=!single;
-  $('fileInstall').hidden=!single?.regular||!single.bytes||!(/\.(zip|img)$/i.test(single.name));
-  $('fileInstallLabel').textContent=/\.img$/i.test(single?.name||'')?'Flash image':'Install ZIP';
+  $('fileInstall').hidden=!single?.regular||!single.bytes||!(/\.(zip|img|aerap)$/i.test(single.name));
+  $('fileInstallLabel').textContent=/\.aerap$/i.test(single?.name||'')?'Install plugin':/\.img$/i.test(single?.name||'')?'Flash image':'Install ZIP';
   $('fileSelectedCount').textContent=entries.length?entries.length+' selected':'';
   $('fileClearSelection').hidden=!entries.length;
   $('fileSelectAll').checked=!!workspace.entries.size&&entries.length===workspace.entries.size;
@@ -822,6 +834,16 @@ function renderPackageInfo(panel,info){
   const signature=JSON.stringify(info||{});if(panel.dataset.signature===signature)return;
   panel.dataset.signature=signature;panel.replaceChildren();if(panel.hidden)return;
   if(info.error){const error=document.createElement('div');error.className='notice error';error.textContent=info.error;panel.append(error);return;}
+  if(info.plugin){
+    const title=document.createElement('h3');title.textContent=info.name||info.plugin_id;panel.append(title);
+    const list=document.createElement('dl');list.className='review';
+    for(const [name,value] of [['Version',info.version],['Author',info.author],['Identity',info.plugin_id],
+      ['Source',info.unofficial?'Unofficial / not verified':'Verified AERA signature'],['Permissions',(info.permissions||[]).join(', ')]]){
+      if(!value)continue;const row=document.createElement('div'),label=document.createElement('dt'),text=document.createElement('dd');
+      label.textContent=name;text.textContent=value;row.append(label,text);list.append(row);
+    }
+    panel.append(list);const description=document.createElement('p');description.textContent=info.description||'';panel.append(description);return;
+  }
   if(!info.is_payload){const text=document.createElement('p');text.textContent=info.summary;panel.append(text);return;}
   const title=document.createElement('h3');title.textContent=info.build||'Android update';panel.append(title);
   const rows=(parent,values)=>{
