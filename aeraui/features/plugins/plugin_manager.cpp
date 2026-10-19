@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "plugin_manager.hpp"
+#include "console_commands.hpp"
 #include "../../../aera_shared_storage.hpp"
 #include "store_metadata.hpp"
 
@@ -259,6 +260,24 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
   plugin.executable = root.get("executable", "").asString();
   plugin.icon = root.get("icon", "plugin").asString();
   plugin.font_family = root.get("font_family", "").asString();
+  plugin.commands.clear();
+  if (root.isMember("commands")) {
+    const auto &commands = root["commands"];
+    if (!commands.isArray() || commands.size() > 8) {
+      error = "Plugin console commands are malformed."; return false;
+    }
+    for (const auto &command : commands) {
+      if (!command.isObject() || !command["name"].isString() || !command["executable"].isString() ||
+          !ValidConsoleName(command["name"].asString()) ||
+          !ValidConsoleExecutable(command["executable"].asString()) ||
+          std::any_of(plugin.commands.begin(), plugin.commands.end(), [&](const ConsoleCommand &entry) {
+            return entry.name == command["name"].asString();
+          })) {
+        error = "Plugin console commands are malformed."; return false;
+      }
+      plugin.commands.push_back({command["name"].asString(), command["executable"].asString()});
+    }
+  }
   plugin.permissions.clear();
   const Json::Value permissions =
       root.get("permissions", Json::Value(Json::arrayValue));
@@ -1041,7 +1060,7 @@ bool InspectLocalPackage(const std::string &path, Plugin &plugin,
   return true;
 }
 
-bool Run(const Request &request, Progress &progress) {
+static bool RunImpl(const Request &request, Progress &progress) {
   progress.value.store(0); progress.error.clear(); progress.status.clear();
   progress.completed_plugins.store(0);
   progress.total_plugins.store(0);
@@ -1112,6 +1131,16 @@ bool Run(const Request &request, Progress &progress) {
     }
   }
   progress.error = "Unsupported plugin operation."; return false;
+}
+
+bool Run(const Request &request, Progress &progress) {
+  const bool result = RunImpl(request, progress);
+  if (request.job != Job::kRefresh && request.job != Job::kScreenshot) {
+    std::string error;
+    if (!RefreshConsoleCommands(&error) && !error.empty())
+      fprintf(stderr, "AERA plugin commands: %s\n", error.c_str());
+  }
+  return result;
 }
 
 bool ResolvePayload(const std::string &id, Plugin &plugin, std::string &path,

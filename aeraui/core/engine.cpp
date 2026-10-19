@@ -41,6 +41,7 @@
 #include "pc_transfer_banner.hpp"
 #include "plugin_activity_banner.hpp"
 #include "plugin_api/runtime.hpp"
+#include "plugins/console_commands.hpp"
 #include "update/update_manager.hpp"
 #include "root/root_manager.hpp"
 #include "../components/power_transition.hpp"
@@ -469,6 +470,7 @@ public:
     plugin_running_ = false;
     plugin_task_ = PluginTask::kNone;
     plugin_auto_queue_.clear();
+    console_commands_ready_ = false;
     plugin_connection_seen_ = false;
     update_running_ = false;
     update_task_ = UpdateTask::kNone;
@@ -675,6 +677,11 @@ public:
     PollAutomaticUpdates();
     PollPcConnection();
     PollGenericPluginRuntimes();
+    if (backend_ready_ && !decryption_active_ && !decrypt_running_ &&
+        !fastboot_mode_ && !console_commands_ready_) {
+      plugins::RefreshConsoleCommands();
+      console_commands_ready_ = true;
+    }
     plugin_activity_.Refresh(!suspended_ && !lock_overlay_ && !power_overlay_ &&
         !operation_running_ && !decryption_active_ && !fastboot_mode_ &&
         !pc_transfer_.Expanded() && !StatusBarShadeOpen(), HandleSceneAction, this,
@@ -4075,6 +4082,7 @@ private:
   void *wifi_report_state_ = nullptr;
   bool nas_running_ = false;
   bool plugin_running_ = false;
+  bool console_commands_ready_ = false;
   bool plugin_connection_seen_ = false;
   PluginTask plugin_task_ = PluginTask::kNone;
   plugins::Job plugin_job_ = plugins::Job::kRefresh;

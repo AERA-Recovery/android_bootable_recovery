@@ -131,3 +131,32 @@ Neither message installs anything: the normal metadata, ARB checks, installer
 selection, confirmation and preservation settings remain in the recovery flow.
 Clear all in Recents stops opted-in runtimes as well as the browser, prompting
 before stopping active plugin storage tasks. A later launch starts at Home.
+
+## Optional console commands
+
+Store and manually installed plugins may declare up to eight optional commands:
+
+```json
+"commands": [{"name": "example", "executable": "usr/bin/example"}]
+```
+
+Names start with a lowercase ASCII letter and contain at most 32 lowercase
+letters, digits, hyphens or underscores. Executables are relative payload paths
+of at most 200 characters; absolute paths, empty components, `.` and `..` are
+rejected. Existing manifests without this field are unchanged. Older recoveries
+ignore it and do not provide automatic console commands.
+
+After storage becomes available and after plugin install/update/removal, AERA
+registers small launchers in `/system/bin`. Opening the plugin UI is not needed.
+Existing recovery tools and foreign files are never overwritten. Conflicting
+plugin command names are not registered. Removing a plugin removes its owned
+launchers, without deleting unrelated files or plugin state.
+
+Each invocation revalidates the installed manifest and expands the existing
+hash-verified payload into a private RAM runtime, then executes the declared
+file with `AERA_PLUGIN_ROOT` set, forwarding arguments, terminal streams, signals
+and exit status. It does not initialize another recovery UI. The temporary
+runtime is removed when the command exits. Persistent state must live outside
+that runtime. Commands run with normal recovery shell privileges; declaring a
+command does not start a background process or bypass the invoked tool's own
+approval rules.
