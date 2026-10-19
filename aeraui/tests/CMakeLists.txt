@@ -165,6 +165,9 @@ target_include_directories(plugin_api_session_test PRIVATE ..
   ../features)
 target_compile_options(plugin_api_session_test PRIVATE -UNDEBUG)
 add_test(NAME plugin_api_negotiation_and_limits COMMAND plugin_api_session_test)
+add_executable(plugin_descriptor_test plugin_descriptor_test.cpp)
+target_compile_options(plugin_descriptor_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME plugin_descriptor_kernel_compatibility COMMAND plugin_descriptor_test)
 add_executable(plugin_activity_test plugin_activity_test.cpp
   ../features/plugin_api/activity.cpp)
 target_include_directories(plugin_activity_test PRIVATE ../features)
