@@ -265,7 +265,9 @@ void RecoveryTerminalWrite(const std::string &) {}
 void RecoveryTerminalSendKey(TerminalKey) {}
 void RecoveryTerminalClear() {}
 bool RecoveryTerminalRunning() { return true; }
-void AttachStatusBar(lv_obj_t *screen, void (*)(Action,void*),void*,StatusBarAction,bool) {
+static bool status_bar_interactive = false;
+void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action,void*),void*,StatusBarAction,bool) {
+  status_bar_interactive = callback != nullptr;
   auto *label=design::Label(screen,"23:30                         100%",&lv_font_montserrat_32,design::kText);
   lv_obj_set_pos(label,54,65);
 }
@@ -961,6 +963,74 @@ int main(int argc,char **argv) {
     lv_display_delete(display); lv_deinit();
     std::filesystem::remove_all(backup_root);
     puts("Theme categories, editor pages, lock tabs and responsive layouts passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--landscape-overlays")) {
+    wallpaper::Clear();
+    struct Pointer { lv_point_t point{}; bool pressed = false; } pointer;
+    auto* input = lv_indev_create();
+    lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_display(input, display);
+    lv_indev_set_mode(input, LV_INDEV_MODE_EVENT);
+    lv_indev_set_user_data(input, &pointer);
+    lv_indev_set_read_cb(input, [](lv_indev_t* device, lv_indev_data_t* data) {
+      const auto* p = static_cast<Pointer*>(lv_indev_get_user_data(device));
+      data->point = p->point;
+      const auto rotation = lv_display_get_rotation(lv_indev_get_display(device));
+      // Supply panel coordinates; LVGL applies the display rotation.
+      if (rotation == LV_DISPLAY_ROTATION_90) data->point = {p->point.y, 3168 - p->point.x - 1};
+      if (rotation == LV_DISPLAY_ROTATION_270) data->point = {1440 - p->point.y - 1, p->point.x};
+      data->state = p->pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    });
+    auto covers = [](lv_obj_t* object) {
+      lv_obj_update_layout(object);
+      const auto* texture = static_cast<const lv_image_dsc_t*>(
+          lv_obj_get_style_bg_image_src(object, LV_PART_MAIN));
+      assert(texture);
+      assert(texture->header.w >= lv_obj_get_width(object));
+      assert(texture->header.h >= lv_obj_get_height(object));
+    };
+    lv_obj_t* lock = nullptr;
+    for (const auto rotation : {LV_DISPLAY_ROTATION_90, LV_DISPLAY_ROTATION_0, LV_DISPLAY_ROTATION_270}) {
+      lv_display_set_rotation(display, rotation);
+      // A new percentage-sized overlay must choose its texture before first paint.
+      auto* overlay = lv_obj_create(screen);
+      lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+      design::MainBackground(overlay);
+      covers(overlay);
+      lv_obj_delete(overlay);
+      if (lock) lv_obj_delete(lock);
+      last_action = Action::kNone;
+      callback_count = 0;
+      lock = BuildLockScene(lv_layer_top(), RecordAction, nullptr);
+      Tick();
+      assert(last_action == Action::kNone && callback_count == 0);
+      assert(lv_obj_get_width(lock) == lv_display_get_horizontal_resolution(display));
+      assert(lv_obj_get_height(lock) == lv_display_get_vertical_resolution(display));
+      auto* background = lv_obj_get_child(lock, 0);
+      covers(background);
+      const auto a = Bounds(lock), b = Bounds(background);
+      assert(a.x1 == b.x1 && a.y1 == b.y1 && a.x2 == b.x2 && a.y2 == b.y2);
+      auto* label = FindLabel(lock, "Slide to unlock");
+      assert(label && !status_bar_interactive);
+      auto* slider = lv_obj_get_parent(label);
+      AssertInside(slider, lv_display_get_horizontal_resolution(display), lv_display_get_vertical_resolution(display));
+      const auto bounds = Bounds(slider);
+      pointer.point = {bounds.x1 + 78, (bounds.y1 + bounds.y2) / 2};
+      pointer.pressed = true;
+      lv_indev_read(input);
+      for (int step = 1; step <= 10; ++step) {
+        pointer.point.x = bounds.x1 + 78 + (lv_obj_get_width(slider) - 156) * step / 10;
+        lv_indev_read(input);
+      }
+      pointer.pressed = false;
+      lv_indev_read(input);
+      Tick(20);
+      assert(callback_count == 1 && last_action == Action::kUnlock);
+    }
+    lv_indev_delete(input);
+    lv_obj_delete(lock);
+    puts("Percentage backgrounds and raw-coordinate lock swipes after 90/0/270-degree rotations passed.");
     return 0;
   }
   if (!strcmp(argv[1], "--lock-theme")) {

@@ -1129,6 +1129,15 @@ public:
     lock_overlay_ = BuildLockScene(lv_layer_top(), HandleSceneAction, this,false,nullptr,ambient);
   }
 
+  void RebuildLockScreen() {
+    if (!lock_overlay_) return;
+    CloseStatusBarShades();
+    auto* previous = lock_overlay_;
+    lock_overlay_ = nullptr;
+    lv_obj_delete_async(previous);
+    ShowLockScreen(lock_ambient_);
+  }
+
   bool CanReboot() const {
     return !operation_running_ && !nas_running_ && !plugin_running_ && !decrypt_running_ &&
         !aera::backup::Operations().Active();
@@ -2628,6 +2637,7 @@ private:
                           self->landscape_ ? "landscape" : "portrait");
       if (action == Action::kToggleRotation)
         self->ShowHome();
+      self->RebuildLockScreen();
       return;
     }
 

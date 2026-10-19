@@ -1029,6 +1029,10 @@ bool StatusBarShadeOpen() {
   return gOpenShade != nullptr;
 }
 
+void CloseStatusBarShades() {
+  for (auto* state : gStatusBars) if (state->shade) AnimateShade(state, false);
+}
+
 void RefreshStatusBars() {
   for (auto *state : gStatusBars) Refresh(state, false);
 }
