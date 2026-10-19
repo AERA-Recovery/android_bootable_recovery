@@ -154,6 +154,20 @@ inline constexpr const char *kUpperQwertz[] = {
     LV_SYMBOL_UP, "Y", "X", "C", "V", "B", "N", "M", LV_SYMBOL_BACKSPACE, "\n",
     "?123", ",", " ", ".", LV_SYMBOL_OK, ""};
 
+inline constexpr const char *kLowerAzerty[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
+    "a", "z", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
+    "q", "s", "d", "f", "g", "h", "j", "k", "l", "m", "\n",
+    LV_SYMBOL_UP, "w", "x", "c", "v", "b", "n", LV_SYMBOL_BACKSPACE, "\n",
+    "?123", ",", " ", ".", LV_SYMBOL_OK, ""};
+
+inline constexpr const char *kUpperAzerty[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
+    "A", "Z", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
+    "Q", "S", "D", "F", "G", "H", "J", "K", "L", "M", "\n",
+    LV_SYMBOL_UP, "W", "X", "C", "V", "B", "N", LV_SYMBOL_BACKSPACE, "\n",
+    "?123", ",", " ", ".", LV_SYMBOL_OK, ""};
+
 inline constexpr const char *kSpecial[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
     "@", "#", "$", "_", "&", "-", "+", "(", ")", "/", "\n",
@@ -181,6 +195,18 @@ inline constexpr lv_buttonmatrix_ctrl_t kTextControls[] = {
     Key(2, kUtility), Key(1, kLetter), Key(1, kLetter), Key(1, kLetter),
     Key(1, kLetter), Key(1, kLetter), Key(1, kLetter), Key(1, kLetter),
     Key(2),
+    Key(2, kUtility), Key(1), Key(8), Key(1), Key(2, kUtility)};
+
+inline constexpr lv_buttonmatrix_ctrl_t kAzertyControls[] = {
+    Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(), Key(),
+    Key(1, kLetter), Key(1, kLetter), Key(1, kLetter), Key(1, kLetter),
+    Key(1, kLetter), Key(1, kLetter), Key(1, kLetter), Key(1, kLetter),
+    Key(1, kLetter), Key(1, kLetter),
+    Key(2, kLetter), Key(2, kLetter), Key(2, kLetter), Key(2, kLetter),
+    Key(2, kLetter), Key(2, kLetter), Key(2, kLetter), Key(2, kLetter),
+    Key(2, kLetter), Key(2, kLetter),
+    Key(2, kUtility), Key(1, kLetter), Key(1, kLetter), Key(1, kLetter),
+    Key(1, kLetter), Key(1, kLetter), Key(1, kLetter), Key(2),
     Key(2, kUtility), Key(1), Key(8), Key(1), Key(2, kUtility)};
 
 inline constexpr lv_buttonmatrix_ctrl_t kSpecialControls[] = {
@@ -286,6 +312,8 @@ inline const auto kLowerMultiline = MultilineMap(kLower);
 inline const auto kUpperMultiline = MultilineMap(kUpper);
 inline const auto kLowerQwertzMultiline = MultilineMap(kLowerQwertz);
 inline const auto kUpperQwertzMultiline = MultilineMap(kUpperQwertz);
+inline const auto kLowerAzertyMultiline = MultilineMap(kLowerAzerty);
+inline const auto kUpperAzertyMultiline = MultilineMap(kUpperAzerty);
 inline const auto kSpecialMultiline = MultilineMap(kSpecial);
 inline const auto kSpecialExtraMultiline = MultilineMap(kSpecialExtra);
 
@@ -387,19 +415,22 @@ inline void Apply(lv_obj_t *keyboard, bool multiline = false) {
     if (gSecondary.keyboard == deleted) gSecondary = {};
     delete static_cast<ShiftState *>(lv_event_get_user_data(event));
   }, LV_EVENT_DELETE, shift);
-  const bool qwertz = RecoveryKeyboardLayout() == KeyboardLayout::kQwertz;
+  const auto layout = RecoveryKeyboardLayout();
+  const bool qwertz = layout == KeyboardLayout::kQwertz;
+  const bool azerty = layout == KeyboardLayout::kAzerty;
+  const char *const *lower = multiline
+      ? (azerty ? kLowerAzertyMultiline.data()
+                : qwertz ? kLowerQwertzMultiline.data() : kLowerMultiline.data())
+      : (azerty ? kLowerAzerty : qwertz ? kLowerQwertz : kLower);
+  const char *const *upper = multiline
+      ? (azerty ? kUpperAzertyMultiline.data()
+                : qwertz ? kUpperQwertzMultiline.data() : kUpperMultiline.data())
+      : (azerty ? kUpperAzerty : qwertz ? kUpperQwertz : kUpper);
+  const auto *controls = azerty ? kAzertyControls : kTextControls;
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER,
-                      multiline
-                          ? (qwertz ? kLowerQwertzMultiline.data()
-                                   : kLowerMultiline.data())
-                          : (qwertz ? kLowerQwertz : kLower),
-                      kTextControls);
+                      lower, controls);
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_UPPER,
-                      multiline
-                          ? (qwertz ? kUpperQwertzMultiline.data()
-                                   : kUpperMultiline.data())
-                          : (qwertz ? kUpperQwertz : kUpper),
-                      kTextControls);
+                      upper, controls);
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_SPECIAL,
                       multiline ? kSpecialMultiline.data() : kSpecial,
                       kSpecialControls);

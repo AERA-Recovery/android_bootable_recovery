@@ -2564,7 +2564,8 @@ void BuildPreferences(Tools *state) {
   PreferenceEntry(state, LV_SYMBOL_KEYBOARD, "Language", language_name,
                   [state] { Open(state, Action::kLanguage); });
   PreferenceEntry(state, LV_SYMBOL_KEYBOARD, "Keyboard layout",
-      RecoveryKeyboardLayout() == KeyboardLayout::kQwertz ? "QWERTZ" : "QWERTY",
+      RecoveryKeyboardLayout() == KeyboardLayout::kAzerty ? "AZERTY" :
+          RecoveryKeyboardLayout() == KeyboardLayout::kQwertz ? "QWERTZ" : "QWERTY",
       [state] {
     auto *overlay = lv_obj_create(state->screen);
     Clear(overlay);
@@ -2581,9 +2582,11 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_flex_flow(sheet, LV_FLEX_FLOW_COLUMN);
     lv_obj_center(sheet);
     auto *choices = ThemeGroup(sheet, "Keyboard layout");
-    for (int i = 0; i < 2; ++i)
-      ThemeChoice(choices, i ? "QWERTZ" : "QWERTY",
-          i18n::Translate(i ? "Y and Z exchanged" : "International default"),
+    static constexpr const char *names[] = {"QWERTY", "QWERTZ", "AZERTY"};
+    static constexpr const char *details[] = {
+        "International default", "Y and Z exchanged", "French layout"};
+    for (int i = 0; i < 3; ++i)
+      ThemeChoice(choices, names[i], i18n::Translate(details[i]),
           static_cast<int>(RecoveryKeyboardLayout()) == i, [state, overlay, i] {
         if (!RecoverySetKeyboardLayout(static_cast<KeyboardLayout>(i)) || !AutoSaveSettings(state)) return;
         lv_obj_delete_async(overlay);

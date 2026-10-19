@@ -2254,15 +2254,11 @@ bool RecoverySetInterfaceSize(InterfaceSize size) {
 }
 KeyboardLayout RecoveryKeyboardLayout() {
   LoadAeraPreferencesIfAvailable();
-  return DataManager::GetStrValue("aera_keyboard_layout") == "qwertz"
-      ? KeyboardLayout::kQwertz : KeyboardLayout::kQwerty;
+  return KeyboardLayoutFromCode(DataManager::GetStrValue("aera_keyboard_layout"));
 }
 bool RecoverySetKeyboardLayout(KeyboardLayout layout) {
-  if (layout != KeyboardLayout::kQwerty &&
-      layout != KeyboardLayout::kQwertz) return false;
-  return DataManager::SetValue(
-      "aera_keyboard_layout",
-      layout == KeyboardLayout::kQwertz ? "qwertz" : "qwerty", 1) == 0;
+  const char *code = KeyboardLayoutCode(layout);
+  return code && DataManager::SetValue("aera_keyboard_layout", code, 1) == 0;
 }
 int RecoveryHomeGridColumns() {
   LoadAeraPreferencesIfAvailable();
@@ -2705,8 +2701,8 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
       interface_size.empty() ? 1 : std::clamp(atoi(interface_size.c_str()), 0, 3);
   preferences.language = DataManager::GetStrValue("tw_language");
   if (!ValidLanguage(preferences.language)) preferences.language = AERA_DEFAULT_LANGUAGE;
-  preferences.keyboard_layout =
-      DataManager::GetStrValue("aera_keyboard_layout") == "qwertz" ? "qwertz" : "qwerty";
+  preferences.keyboard_layout = KeyboardLayoutCode(KeyboardLayoutFromCode(
+      DataManager::GetStrValue("aera_keyboard_layout")));
   const int home_grid_columns =
       DataManager::GetIntValue("aera_home_grid_columns");
   preferences.home_grid_columns =
@@ -2916,7 +2912,7 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
     if (!ValidLanguage(value)) return false;
     preferences->language = value;
   } else if (key == "keyboard_layout") {
-    if (value != "qwerty" && value != "qwertz") return false;
+    if (value != KeyboardLayoutCode(KeyboardLayoutFromCode(value))) return false;
     preferences->keyboard_layout = value;
   } else if (key == "home_grid_columns") {
     if (!ParseInteger(value, 2, 5, &parsed)) return false;
@@ -3364,8 +3360,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "themed_home_icons=" << (RecoveryThemedHomeIcons() ? 1 : 0) << '\n'
          << "interface_size=" << static_cast<int>(RecoveryInterfaceSize()) << '\n'
          << "keyboard_layout="
-         << (RecoveryKeyboardLayout() == KeyboardLayout::kQwertz
-                 ? "qwertz" : "qwerty") << '\n'
+         << KeyboardLayoutCode(RecoveryKeyboardLayout()) << '\n'
          << "home_grid_columns=" << RecoveryHomeGridColumns() << '\n'
          << "dock_layout=" << DataManager::GetIntValue("aera_dock_layout") << '\n'
          << "dock_transparency=" << RecoveryDockTransparency() << '\n'

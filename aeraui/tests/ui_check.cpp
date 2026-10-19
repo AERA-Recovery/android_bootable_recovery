@@ -172,8 +172,7 @@ bool RecoverySetInterfaceSize(InterfaceSize size) {
 }
 KeyboardLayout RecoveryKeyboardLayout() { return KeyboardLayout::kQwerty; }
 bool RecoverySetKeyboardLayout(KeyboardLayout layout) {
-  return layout == KeyboardLayout::kQwerty ||
-         layout == KeyboardLayout::kQwertz;
+  return KeyboardLayoutCode(layout) != nullptr;
 }
 static int home_grid_columns = 3;
 static std::vector<HomePluginPreference> home_layout;

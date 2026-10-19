@@ -56,9 +56,31 @@ struct State {
     }
     down[code]=value!=0;return true;
   }
-  unsigned Text(unsigned code,bool qwertz=false) const {
+  unsigned Text(unsigned code,bool qwertz=false,bool azerty=false) const {
     unsigned s=Symbol(code);
-    if(qwertz) {if(s=='y')s='z';else if(s=='z')s='y';}
+    if(azerty) {
+      switch(code) {
+        case KEY_Q:s='a';break; case KEY_A:s='q';break;
+        case KEY_W:s='z';break; case KEY_Z:s='w';break;
+        case KEY_SEMICOLON:s='m';break;
+        case KEY_M:return Shift()?'?':',';
+        case KEY_COMMA:return Shift()?'.':';';
+        case KEY_DOT:return Shift()?'/':':';
+        case KEY_SLASH:return Shift()?0xa7:'!';
+        case KEY_MINUS:return Shift()?0xb0:')';
+        case KEY_EQUAL:return Shift()?'+':'=';
+        case KEY_LEFTBRACE:return Shift()?0xa8:'^';
+        case KEY_RIGHTBRACE:return Shift()?0xa3:'$';
+        case KEY_BACKSLASH:return Shift()?0xb5:'*';
+        case KEY_APOSTROPHE:return Shift()?'%':0xf9;
+        case KEY_GRAVE:return 0xb2;
+        default:break;
+      }
+      if(code>=KEY_1&&code<=KEY_0) {
+        constexpr unsigned plain[]={'&',0xe9,'"','\'','(','-',0xe8,'_',0xe7,0xe0};
+        return Shift()?"1234567890"[code-KEY_1]:plain[code-KEY_1];
+      }
+    } else if(qwertz) {if(s=='y')s='z';else if(s=='z')s='y';}
     if(s>='a'&&s<='z')return Shift()!=caps?s-'a'+'A':s;
     if(s>=0xffb0&&s<=0xffb9)return num?'0'+s-0xffb0:0;
     if(s==0xffae)return num?'.':0;
