@@ -454,7 +454,7 @@ std::vector<AdbPairedDevice> RecoveryAdbPairedDevices() {
 bool RecoveryForgetAdbDevice(const std::string &) { return true; }
 static plugins::Request selected_plugin_request;
 void SetPluginRequest(const plugins::Request &request) { selected_plugin_request = request; }
-void SetSelectedPluginId(const std::string &) {}
+void TestPluginRuntime(lv_obj_t *screen);
 }
 namespace aeraui::plugins {
 std::vector<Plugin> Installed() { return home_plugins; }
@@ -628,6 +628,12 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--plugin-runtime")) {
+    TestPluginRuntime(screen);
+    save("/tmp/aera-plugin-activity.png", 2);
+    std::filesystem::remove_all(backup_root);
+    return 0;
+  }
   if (!strcmp(argv[1], "--artillery")) {
     for (bool landscape : {false, true}) {
       const int width = landscape ? 3168 : 1440;

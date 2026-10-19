@@ -36,6 +36,7 @@ bool Session::Adopt(int control_fd) {
   }
   control_ = control_fd;
   negotiated_ = false;
+  features_ = 0;
   rate_window_ms_ = NowMs();
   rate_messages_ = 0;
   status_ = "Waiting for plugin handshake";
@@ -94,9 +95,14 @@ std::vector<Message> Session::Poll() {
         break;
       }
       negotiated_ = true;
+      // An explicit marker avoids interpreting legacy request IDs as features.
+      // Old hosts ignore the new HELLO request_id entirely.
+      features_ = kFeatureMetrics | kFeatureBackNavigation |
+          ((message.request_id & 0xFFFF0000U) == kFeatureRequestMagic
+              ? message.request_id & kOptionalFeatures : 0U);
       status_ = "Plugin connected";
       if (!Send(Kind::kHelloAck, 0, kProtocolVersion,
-                kFeatureMetrics | kFeatureBackNavigation) ||
+                features_) ||
           !Send(Kind::kLifecycle, 0,
                 static_cast<uint32_t>(Lifecycle::kResume))) break;
       continue;
@@ -115,12 +121,14 @@ void Session::Fail(const char *message) {
   if (control_ >= 0) close(control_);
   control_ = -1;
   negotiated_ = false;
+  features_ = 0;
 }
 
 void Session::Close() {
   if (control_ >= 0) close(control_);
   control_ = -1;
   negotiated_ = false;
+  features_ = 0;
   rate_window_ms_ = 0;
   rate_messages_ = 0;
 }

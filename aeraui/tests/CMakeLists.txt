@@ -16,7 +16,8 @@ find_package(JPEG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
-add_executable(ui_check ui_check.cpp
+add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp
+  ../features/plugin_api/session.cpp ../features/plugin_api/activity.cpp
   ../scenes/developer_scene.cpp
   ../features/developer/kernel_settings.cpp
   ../scenes/reboot_scene.cpp ../components/power_transition.cpp
@@ -160,6 +161,13 @@ target_include_directories(plugin_api_session_test PRIVATE ..
   ../features)
 target_compile_options(plugin_api_session_test PRIVATE -UNDEBUG)
 add_test(NAME plugin_api_negotiation_and_limits COMMAND plugin_api_session_test)
+add_executable(plugin_activity_test plugin_activity_test.cpp
+  ../features/plugin_api/activity.cpp)
+target_include_directories(plugin_activity_test PRIVATE ../features)
+target_compile_options(plugin_activity_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(plugin_activity_test PRIVATE Threads::Threads)
+add_test(NAME plugin_background_storage_claims COMMAND plugin_activity_test)
+add_test(NAME plugin_background_view_lifetime COMMAND ui_check --plugin-runtime)
 add_executable(sideload_ui_test sideload_ui_test.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
   ../localization/catalog/catalog_generated.cpp
@@ -332,6 +340,7 @@ add_test(NAME touch_single_axis_retention COMMAND touch_input_test single)
 add_test(NAME touch_legacy_release_retention COMMAND touch_input_test legacy)
 
 add_executable(status_gesture_test status_gesture_test.cpp
+  ../features/plugin_api/activity.cpp
   ../components/text_edit.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
   ../localization/catalog/catalog.cpp ../localization/catalog/catalog_generated.cpp)

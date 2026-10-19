@@ -55,7 +55,8 @@ worker messages per second.
 The host expands a hash-verified runtime into private RAM and launches its musl
 loader directly as root. It does not apply a chroot, Minijail, namespaces,
 seccomp, capability removal or resource limits to Host API 2 plugins. Leaving
-the scene terminates the plugin's process group and closes the channel. `PATH`
+the scene terminates the plugin's process group and closes the channel unless
+the worker explicitly opts into the background extension below. `PATH`
 contains both the plugin's `usr/bin` and recovery command directories, while
 `AERA_PLUGIN_ROOT` names the extracted runtime for bundled resources.
 `AERA_LOCALE` contains the selected recovery locale (for example `de_DE` or
@@ -67,3 +68,66 @@ without changing the Host API 2 wire format.
 `AERA-settings-backup-plugin` is the reference implementation. It proves a new
 ID can render and request backup/restore without being added to recovery's
 launcher source.
+
+## Optional background, activities and presentation
+
+These extensions keep protocol version 2 and the same packet size. A new worker
+requests `kFeatureRequestMagic | feature_bits` in `HELLO.request_id`. The marker
+prevents legacy request IDs from being mistaken for feature requests. The host
+acknowledges only the supported requested bits, plus the original metrics/back
+bits. An old worker still receives the exact original flags (`3`); an old host
+ignores the request and advertises no new features. Check the acknowledgement
+before sending any extension message. Store and manually installed API 2
+packages use the same implementation; API 1 scenes are unchanged.
+
+- `kFeatureBackground`: `SET_BACKGROUND` uses `value=1` to opt in, `0` to opt out.
+  `BACKGROUND_RESULT` echoes the request ID and reports the enabled state in
+  `value`. At most four runtimes can opt in. Leaving the view sends PAUSE but
+  retains the process, private runtime and page model. Reopening the same plugin
+  sends RESUME and attaches a new view to the same worker. PAUSE means no visible
+  view, not cancellation. Messages are polled even while the display is off.
+  CLOSE, disconnection, uninstall and recovery shutdown terminate the runtime.
+- `kFeatureActivities`: send `SET_ACTIVITY_STORAGE` with a nonzero activity ID
+  in `request_id` and the absolute working storage path in `text` (empty for a
+  task that does not use mounted storage). Then send `SET_ACTIVITY` with the
+  same ID, a title, detail, progress `0..10000` or `kProgressUnknown`, and exactly
+  one of `kActivityActive`, `kActivityComplete`, `kActivityFailed`. Active tasks
+  may add `kActivityCancellable`. **Wait for a positive ACTIVITY_RESULT before
+  starting file work.** An active storage claim prevents conflicting native
+  recovery/storage operations; a native operation can deny a new claim. Only
+  `/tmp` work is exempt. The claim cannot change while active. Close all files
+  and finish cleanup before reporting completion/failure. Progress updates use
+  the same ID and do not require acknowledgement. AERA shows a global task
+  badge and details with reopen/cancel actions; `ACTIVITY_CANCEL` carries the
+  activity ID. The worker must stop cooperatively, clean up only its own partial
+  files and then report completion/failure. Force stop is a separate explicit
+  user choice, not an automatic timeout. Finished tasks remain visible briefly.
+- `kFeatureRichPresentation`: between BEGIN_PAGE and COMMIT_PAGE,
+  `SET_PAGE_LAYOUT.value=1` selects the original list or `2` a two-column action
+  grid where space permits. `ADD_TILE` has the same IDs/flags/text as ADD_BUTTON,
+  with an `Icon` enum in `value`. `ADD_PROGRESS` adds a keyed native progress row
+  (`value=0..10000`, title/detail and existing metric colour flags), updated by
+  `UPDATE_PROGRESS`. Progress rows share the 64-metric limit; tiles share the
+  12-button limit. Old page messages retain their original rendering.
+- `kFeatureReadablePresentation`: `SET_PAGE_LAYOUT.value=3` selects a larger
+  list and `4` a larger grid, with wrapped action text and content-sized rows.
+  Use only after this additional bit was acknowledged. Values 1/2 and legacy
+  pages keep their existing font sizes and layout.
+
+Background is opt-in for each worker, not permission to draw over recovery. All
+global UI is rendered by the host and hidden during lock/critical operation
+surfaces. Workers remain responsible for their own filesystem behaviour and
+must not start file work after a denied claim or advertise completion early.
+
+`kFeaturePackageReview` adds `SET_ACTIVITY_FILE` (activity ID in `request_id`,
+absolute ZIP path in `text`). Register only after closing and verifying the
+finished ZIP. The host checks that it is a regular, non-symlink ZIP file inside
+the activity's storage and replies with `ACTIVITY_FILE_RESULT`. Then report
+activity completion. Completed ZIP tasks retain an Install ZIP action until
+dismissed or the worker is stopped; other finished tasks still expire briefly.
+`REVIEW_PACKAGE` with an absolute ZIP path opens the same native review used by
+the file explorer. It requires a foreground view and no active storage task.
+Neither message installs anything: the normal metadata, ARB checks, installer
+selection, confirmation and preservation settings remain in the recovery flow.
+Clear all in Recents stops opted-in runtimes as well as the browser, prompting
+before stopping active plugin storage tasks. A later launch starts at Home.

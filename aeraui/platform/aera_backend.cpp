@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include <aeraui/backend.hpp>
+#include "aeraui/features/plugin_api/activity.hpp"
 #include <aeraui/screen_timeout.hpp>
 #include "../../aera_remote/backup_cancel.hpp"
 #include "aeraui/features/update/payload_inspector.hpp"
@@ -1160,6 +1161,11 @@ payload::FlashProgressStore gPayloadProgress;
 PayloadFlashProgress RecoveryPayloadFlashProgress() { return gPayloadProgress.Read(); }
 static int RecoveryRunJobImpl(const JobRequest &request);
 int RecoveryRunJob(const JobRequest &request) {
+  plugin_api::HostStorageLease storage_lease;
+  if (!storage_lease) {
+    gui_err("Finish or cancel background plugin storage tasks first.\n");
+    return 1;
+  }
   const char *method = request.job == Job::kInstall ? "ZIP installation" :
       request.job == Job::kSideload ? "ADB sideload" :
       request.job == Job::kFlashPayload ? "Advanced payload flash" :
@@ -4195,6 +4201,11 @@ bool RecoveryImportNasKey(const std::string &key, const std::string &name,
 }
 
 int RecoveryRunNas(const NasRequest &request) {
+  plugin_api::HostStorageLease storage_lease;
+  if (!storage_lease) {
+    gui_err("Finish or cancel background plugin storage tasks first.\n");
+    return 1;
+  }
 #ifndef OF_ENABLE_WLAN
   (void)request;
   return 1;

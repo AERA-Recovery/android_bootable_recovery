@@ -19,6 +19,7 @@ class Session final {
             const char *text = nullptr);
   bool Connected() const { return control_ >= 0; }
   bool Negotiated() const { return negotiated_; }
+  bool Supports(uint32_t features) const { return (features_ & features) == features; }
   const std::string &Status() const { return status_; }
   void Close();
 
@@ -27,6 +28,7 @@ class Session final {
   bool Write(const Message &message);
   int control_ = -1;
   bool negotiated_ = false;
+  uint32_t features_ = 0;
   uint64_t rate_window_ms_ = 0;
   uint32_t rate_messages_ = 0;
   std::string status_;

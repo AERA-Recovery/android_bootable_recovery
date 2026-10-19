@@ -3,6 +3,7 @@
 #include <vector>
 #include <png.h>
 #include "../core/status_bar.cpp"
+#include "plugin_activity_banner.hpp"
 
 static int autosave_count = 0;
 static aeraui::TemperatureDisplay temperature_display;
@@ -19,6 +20,10 @@ static bool recording_active = false;
 static aeraui::plugin_api::MirrorMode mirror_mode = aeraui::plugin_api::MirrorMode::kOff;
 static aeraui::web::DownloadSummary download_summary;
 namespace aeraui {
+bool CancelGenericPluginActivity(const std::string &) { return true; }
+void StopGenericPluginRuntime(const std::string &) {}
+void SetSelectedPluginId(const std::string &) {}
+void ReviewPackage(lv_obj_t *, const std::string &, ActionCallback, void *) {}
 std::string RecoveryUiFont() { return {}; }
 bool RecoveryPreference(Preference preference) { return preference == Preference::kClock24 ? clock24 : true; }
 int RecoveryBrightness() { return 50; }
@@ -318,6 +323,37 @@ static void CheckTrafficLayout(lv_display_t *display, const std::vector<uint8_t>
   }
 }
 
+static void CheckTaskStatusBar(lv_display_t *display) {
+  using namespace aeraui;
+  lv_display_set_resolution(display, 1440, 3168);
+  auto *screen = lv_obj_create(nullptr); lv_screen_load(screen);
+  AttachStatusBar(screen, nullptr, nullptr, StatusBarAction::kNone);
+  wifi_connection = {true, "Test Wi-Fi"};
+  wifi_display = {}; wifi_display.show_speed = true;
+  wifi_traffic = {true, "wlan0", 12, 0, 0};
+  plugin_api::Message task;
+  task.request_id = 1; task.flags = plugin_api::kActivityActive;
+  snprintf(task.title, sizeof(task.title), "Download");
+  std::string error;
+  assert(plugin_api::SetActivity("test", "OTA Explorer", "/tmp", task, error));
+  widgets::PluginActivityBanner banner;
+  banner.Refresh(true, nullptr, nullptr); banner.Open();
+  assert(gStatusBars.size() == 1);
+  auto *bar = gStatusBars.back();
+  assert(bar->screen == screen);
+  const auto ticks = bar->ticks;
+  for (int i = 0; i < 3; ++i) {
+    wifi_traffic.received_bytes += 5000000;
+    lv_tick_inc(1000); lv_timer_handler();
+  }
+  assert(bar->ticks >= ticks + 3);
+  assert(strcmp(lv_label_get_text(bar->wifi_speed), "0 KB/s") != 0);
+  banner.Clear(); plugin_api::RemoveActivity("test");
+  assert(gStatusBars.size() == 1);
+  lv_screen_load(lv_obj_create(nullptr)); lv_obj_delete(screen);
+  assert(gStatusBars.empty());
+}
+
 int main() {
   using namespace aeraui;
   CheckTrafficRate();
@@ -382,6 +418,7 @@ int main() {
   assert(lv_color_eq(TemperatureColor(48000, true, 40, 48), design::kRed));
   assert(lv_color_eq(TemperatureColor(90000, false, 70, 90), design::kMutedStrong));
   CheckTrafficLayout(display, frame);
+  CheckTaskStatusBar(display);
   lv_display_delete(display); lv_deinit();
   puts("Bottom taps, status taps, pull-down, horizontal motion and canceled gestures passed");
   puts("Combined Wi-Fi throughput, units, resets and status layouts passed");

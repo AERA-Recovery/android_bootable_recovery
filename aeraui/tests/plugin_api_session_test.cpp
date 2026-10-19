@@ -37,6 +37,8 @@ int main() {
   const Message hello = ReceiveHost(pair[1]);
   assert(hello.kind == Kind::kHelloAck);
   assert(hello.value == kProtocolVersion);
+  assert(hello.flags == 3); // Strict old workers must receive the original ACK.
+  assert(!session.Supports(kFeatureBackground));
   assert((hello.flags & kFeatureMetrics) != 0);
   assert((hello.flags & kFeatureBackNavigation) != 0);
   const Message resume = ReceiveHost(pair[1]);
@@ -56,6 +58,44 @@ int main() {
   close(pair[1]);
   assert(session.Poll().empty());
   assert(!session.Connected());
+  assert(!session.Supports(kFeatureMetrics));
+
+  assert(socketpair(AF_UNIX, SOCK_SEQPACKET, 0, pair) == 0);
+  assert(session.Adopt(pair[0]));
+  SendWorker(pair[1], Kind::kHello, kFeatureRequestMagic | kOptionalFeatures | (1U << 12), 2, 2);
+  assert(session.Poll().empty());
+  const Message extended = ReceiveHost(pair[1]);
+  assert(extended.flags == (3 | kOptionalFeatures));
+  assert(session.Supports(kOptionalFeatures));
+  (void)ReceiveHost(pair[1]);
+  SendWorker(pair[1], Kind::kSetBackground, 10, 1);
+  assert(session.Poll().at(0).kind == Kind::kSetBackground);
+  SendWorker(pair[1], Kind::kAddProgress, 9, 6500);
+  assert(session.Poll().at(0).value == 6500);
+  assert(session.Send(Kind::kActivityCancel, 42));
+  assert(ReceiveHost(pair[1]).request_id == 42);
+  close(pair[1]);
+  session.Close();
+  assert(!session.Supports(kOptionalFeatures));
+
+  assert(socketpair(AF_UNIX, SOCK_SEQPACKET, 0, pair) == 0);
+  assert(session.Adopt(pair[0]));
+  SendWorker(pair[1], Kind::kHello, kFeatureRequestMagic | kFeatureActivities, 2, 2);
+  session.Poll();
+  assert(ReceiveHost(pair[1]).flags == (3 | kFeatureActivities));
+  (void)ReceiveHost(pair[1]);
+  assert(!session.Supports(kFeatureBackground));
+  close(pair[1]);
+  session.Close();
+
+  assert(socketpair(AF_UNIX, SOCK_SEQPACKET, 0, pair) == 0);
+  assert(session.Adopt(pair[0]));
+  SendWorker(pair[1], Kind::kHello, kOptionalFeatures, 2, 2);
+  session.Poll();
+  assert(ReceiveHost(pair[1]).flags == 3);
+  (void)ReceiveHost(pair[1]);
+  close(pair[1]);
+  session.Close();
 
   assert(socketpair(AF_UNIX, SOCK_SEQPACKET, 0, pair) == 0);
   assert(session.Adopt(pair[0]));
