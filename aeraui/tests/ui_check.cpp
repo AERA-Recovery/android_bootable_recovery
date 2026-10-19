@@ -588,6 +588,7 @@ static void AssertVisibleCaret(lv_obj_t *input) {
   assert(lv_obj_get_style_border_side(input, LV_PART_CURSOR) == LV_BORDER_SIDE_LEFT);
   assert(lv_obj_get_style_anim_duration(input, LV_PART_CURSOR) > 0);
 }
+#include "gpu_context.hpp"
 int main(int argc,char **argv) {
   assert(argc==2);
   char fixture_dir[]="/tmp/aera-restore-test-XXXXXX"; assert(mkdtemp(fixture_dir));
@@ -607,6 +608,7 @@ int main(int argc,char **argv) {
         << std::string(160 * 1024, 'x');
   }
   std::filesystem::create_directory(backup_root+"/AERA-test-backup");
+  gpu_test::Initialize();
   lv_init();
   i18n::Initialize("en");
   const lv_font_t *latin_font = design::UiFont(&lv_font_montserrat_32);
@@ -617,11 +619,17 @@ int main(int argc,char **argv) {
     assert(glyph.adv_w > 0);
   }
   std::vector<uint8_t> frame(1440*3168*4);
-  auto *display=lv_display_create(1440,3168);
-  lv_display_set_buffers(display,frame.data(),nullptr,frame.size(),LV_DISPLAY_RENDER_MODE_DIRECT);
-  lv_display_set_flush_cb(display,[](lv_display_t *d,const lv_area_t *,uint8_t *){lv_display_flush_ready(d);});
+  auto *display = gpu_test::enabled ? lv_opengles_texture_create(1440, 3168)
+                                    : lv_display_create(1440,3168);
+  if (gpu_test::enabled) lv_display_set_flush_cb(display, gpu_test::Flush);
+  else {
+    lv_display_set_buffers(display,frame.data(),nullptr,frame.size(),LV_DISPLAY_RENDER_MODE_DIRECT);
+    lv_display_set_flush_cb(display,[](lv_display_t *d,const lv_area_t *,uint8_t *){lv_display_flush_ready(d);});
+  }
   auto save=[&](const char *path, int ticks = 40) {
-    Tick(ticks); png_image image{}; image.version=PNG_IMAGE_VERSION;
+    Tick(ticks);
+    if (gpu_test::enabled) glReadPixels(0, 0, 1440, 3168, GL_RGBA, GL_UNSIGNED_BYTE, frame.data());
+    png_image image{}; image.version=PNG_IMAGE_VERSION;
     image.width=lv_display_get_horizontal_resolution(display);
     image.height=lv_display_get_vertical_resolution(display);
     image.format=PNG_FORMAT_BGRA;
