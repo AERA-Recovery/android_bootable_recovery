@@ -303,6 +303,12 @@ add_test(NAME native_catalog_round_trip COMMAND catalog_test
 add_test(NAME native_catalog_english_only COMMAND catalog_english_test
   "${CMAKE_CURRENT_SOURCE_DIR}/../localization/catalog/catalog.json")
 
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME chinese_catalog_coverage COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/chinese_catalog_test.py")
+endif()
+
 add_executable(plugin_store_test plugin_store_test.cpp ../scenes/plugin_scene.cpp
   ../features/plugins/store_metadata.cpp ../components/retroarch_icon.cpp
   ../components/text_edit.cpp ../localization/fonts/aera_fallback.cpp

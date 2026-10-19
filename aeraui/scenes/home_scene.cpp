@@ -577,8 +577,8 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
   auto *title = Label(sheet, "Flash image", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, 48, 118);
   const std::string subtitle_text =
-      "Choose exactly where this raw image will be written. Active slot: " +
-      RecoverySlot();
+      i18n::Format("Choose exactly where this raw image will be written. Active slot: %s",
+                   RecoverySlot().c_str());
   auto *subtitle = Label(sheet, subtitle_text.c_str(),
                          &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(subtitle, 48, 188);

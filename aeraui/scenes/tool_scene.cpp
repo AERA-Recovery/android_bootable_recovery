@@ -394,9 +394,7 @@ void CloseBackupActions(lv_obj_t *overlay) {
 void ConfirmBackupDeletion(Tools *state, const std::string &path,
                            const std::string &name) {
   Sheet(state->screen, "Delete backup?",
-        "Permanently delete " + name +
-            " and every partition stored inside it?\n\n"
-            "This cannot be undone.",
+        i18n::Format("Permanently delete %s and every partition stored inside it?\n\nThis cannot be undone.", name.c_str()),
         [state, path] {
           if (RecoveryDeleteBackup(path)) {
             RestoreFolders(state);
@@ -756,30 +754,28 @@ void Review(Tools *state) {
   if (request.job == Job::kBackup) {
     uint64_t bytes = 0;
     for (const auto &v : state->volumes) if (state->selected.count(v.path)) bytes += v.bytes;
-    text = "Destination\n" + RecoveryBackupRoot() +
-           "\n\nA new dated backup folder will be created.\n\nEstimated size: " + Size(bytes) +
-           "\nBefore compression; actual archive size may differ.\n";
-    if (RecoveryDataLocked()) text += "\nStorage is locked. This is not a decrypted user-data backup.\n";
+    text = i18n::Format("Destination\n%s\n\nA new dated backup folder will be created.\n\nEstimated size: %s\nBefore compression; actual archive size may differ.\n",
+                        RecoveryBackupRoot().c_str(), Size(bytes).c_str());
+    if (RecoveryDataLocked()) text += i18n::Translate("\nStorage is locked. This is not a decrypted user-data backup.\n");
   } else if (request.job == Job::kRestore) {
-    text = "Source\n" + request.path +
-           "\n\nRestoring overwrites the selected partitions.\n";
-  } else text = "This permanently erases the selected contents.\n";
-  text += "\nSelected partitions\n";
+    text = i18n::Format("Source\n%s\n\nRestoring overwrites the selected partitions.\n", request.path.c_str());
+  } else text = i18n::Translate("This permanently erases the selected contents.\n");
+  text += i18n::Translate("\nSelected partitions\n");
   for (const auto &v : state->volumes) {
     if (state->selected.count(v.path))
-      text += "\n" + v.name + "  (" + v.path + ")";
+      text += "\n" + std::string(i18n::Translate(v.name.c_str())) + "  (" + v.path + ")";
   }
   if (request.job == Job::kWipe) {
-    text += "\n\nWhat will be erased\n";
+    text += i18n::Translate("\n\nWhat will be erased\n");
     for (const auto &v : state->volumes)
-      if (state->selected.count(v.path)) text += "\n" + v.name + ": " + WipeDescription(v.path);
+      if (state->selected.count(v.path)) text += "\n" + std::string(i18n::Translate(v.name.c_str())) + ": " + i18n::Translate(WipeDescription(v.path).c_str());
   }
-  text += "\n\nActive slot: " + RecoverySlot();
+  text += i18n::Format("\n\nActive slot: %s", RecoverySlot().c_str());
   if (request.job == Job::kBackup)
-    text += state->compression ? "\nCompression on. Digests included." :
-                                "\nCompression off. Digests included.";
-  if (request.job == Job::kRestore) text += "\nDigest verification enabled.";
-  Sheet(state->screen, "Review " + request.title, text,
+    text += i18n::Translate(state->compression ? "\nCompression on. Digests included." :
+                                "\nCompression off. Digests included.");
+  if (request.job == Job::kRestore) text += i18n::Translate("\nDigest verification enabled.");
+  Sheet(state->screen, i18n::Format("Review %s", i18n::Translate(request.title.c_str())), text,
         [state, request] { Run(state, request); });
 }
 
