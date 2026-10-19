@@ -202,9 +202,8 @@ void ConfirmManagerAction(RootUi *state) {
   if (manager.removal_pending || manager.staged) return;
   if (manager.installed) {
     Sheet(state->screen, "Uninstall manager app?",
-          std::string("AERA will schedule ") +
-              root::ProviderName(state->provider) +
-              " for removal the next time Android boots.",
+          i18n::Format("AERA will schedule %s for removal the next time Android boots.",
+                       root::ProviderName(state->provider)),
           [state] {
             root::Request request;
             request.job = root::Job::kUninstallManager;
@@ -214,9 +213,8 @@ void ConfirmManagerAction(RootUi *state) {
     return;
   }
   Sheet(state->screen, "Install manager app?",
-        std::string("AERA will download and verify the latest official ") +
-            root::ProviderName(state->provider) +
-            " manager APK, then make it available when Android boots.",
+        i18n::Format("AERA will download and verify the latest official %s manager APK, then make it available when Android boots.",
+                     root::ProviderName(state->provider)),
         [state] {
           root::Request request;
           request.job = root::Job::kInstallManager;

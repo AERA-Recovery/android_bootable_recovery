@@ -1052,9 +1052,10 @@ void RefreshOperationScene(const OperationScene &scene) {
         friendly.title = "Restarting AERA Recovery";
         if (presentation.reboot_seconds > 0) {
           friendly.explanation = i18n::Format(
-              "The update is complete. Recovery will restart in %d second%s.",
-              presentation.reboot_seconds,
-              presentation.reboot_seconds == 1 ? "" : "s");
+              presentation.reboot_seconds == 1
+                  ? "The update is complete. Recovery will restart in %d second."
+                  : "The update is complete. Recovery will restart in %d seconds.",
+              presentation.reboot_seconds);
           friendly.amount = i18n::Format(
               "Restarting in %d", presentation.reboot_seconds);
         } else {

@@ -167,7 +167,7 @@ void RefreshPairedComputers(WifiUi *state, bool force) {
       lv_obj_set_pos(title, 102, 30);
       lv_obj_set_width(title, width - 430);
       lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-      std::string fingerprint = "Fingerprint  " + device.fingerprint;
+      std::string fingerprint = i18n::Format("Fingerprint  %s", device.fingerprint.c_str());
       auto *detail = Label(card, fingerprint.c_str(),
                            &lv_font_montserrat_20, kMuted);
       lv_obj_set_pos(detail, 102, 94);
@@ -702,9 +702,9 @@ void NetworkCard(WifiUi *state, int y, const WifiNetwork &network) {
   lv_obj_set_pos(name, 152, 34);
   lv_obj_set_width(name, width - 300);
   lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
-  std::string detail = network.security == "OPEN" ? "Open network" : network.security;
-  if (network.saved) detail += "  /  Saved";
-  if (network.connected) detail = "Connected  /  " + detail;
+  std::string detail = network.security == "OPEN" ? i18n::Translate("Open network") : network.security;
+  if (network.saved) detail += std::string("  /  ") + i18n::Translate("Saved");
+  if (network.connected) detail = std::string(i18n::Translate("Connected")) + "  /  " + detail;
   auto *copy = Label(card, detail.c_str(), &lv_font_montserrat_24,
                      network.connected ? kGreen : kMuted);
   lv_obj_set_pos(copy, 152, 98);
@@ -797,7 +797,7 @@ void SavedDialog(WifiUi *state, const WifiNetwork &network) {
   lv_obj_set_width(title, 1180);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
   const std::string saved_detail =
-      (network.connected ? "Connected / " : "Saved / ") + network.security;
+      std::string(i18n::Translate(network.connected ? "Connected" : "Saved")) + " / " + network.security;
   auto *detail = Label(sheet, saved_detail.c_str(),
       &lv_font_montserrat_32, network.connected ? kGreen : kMutedStrong);
   lv_obj_set_pos(detail, 0, 100);
@@ -889,7 +889,7 @@ void Refresh(WifiUi *state, bool force) {
   } else if (busy) {
     if (!status.state.empty()) detail = status.state;
     else if (state->running == WifiOperation::kConnect && !gRequest.ssid.empty())
-      detail = "Joining " + gRequest.ssid;
+      detail = i18n::Format("Joining %s", gRequest.ssid.c_str());
     else detail = "Updating wireless state";
   } else {
     detail = status.enabled ? "Choose a network below" : "Wireless radio is disabled";

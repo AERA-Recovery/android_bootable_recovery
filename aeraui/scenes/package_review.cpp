@@ -268,7 +268,7 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
   auto *page = AdvancedPage(parent, direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images");
   const std::string slot = RecoverySlot();
   const auto protected_partitions = flash ? payload::ProtectedPartitions() : std::set<std::string>{};
-  Explanation(page, flash ? "Choose images to write to slot " + slot + ". The active slot will not change."
+  Explanation(page, flash ? i18n::Format("Choose images to write to slot %s. The active slot will not change.", slot.c_str())
       : "Save verified .img files under AERA/Extracted on the selected storage. No partitions are written.");
   auto *list = lv_obj_create(page);
   Clear(list);
@@ -306,12 +306,16 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
       names += partition.name;
       bytes += partition.bytes;
     }
-    std::string detail = direct ? names + "\n\nWrites directly to current slot " + slot +
-        ". No temporary images are saved. The written images are read back and SHA-256 checked before success. A damaged package or interrupted operation may leave the selected partitions incomplete. Do not reboot after a failure: reflash known-good images. This is not a normal OTA; no snapshot rollback, postinstall or slot activation is performed." :
-        names + "\n\nRequired storage: " + Size(bytes) +
-        (flash ? "\n\nWrites to current slot " + slot +
-            ". All selected images are extracted and hash-verified before flashing. Mixing firmware versions can prevent booting. This is a partial image flash, not a normal OTA installation. No postinstall or slot activation is performed."
-            : "\n\nDestination: " + RecoveryStorage() + "/AERA/Extracted\nA new folder will be created; existing files are never overwritten.");
+    std::string detail = names + "\n\n";
+    if (direct) {
+      detail += i18n::Format("Writes directly to current slot %s. No temporary images are saved. The written images are read back and SHA-256 checked before success. A damaged package or interrupted operation may leave the selected partitions incomplete. Do not reboot after a failure: reflash known-good images. This is not a normal OTA; no snapshot rollback, postinstall or slot activation is performed.", slot.c_str());
+    } else {
+      detail += i18n::Format("Required storage: %s", Size(bytes).c_str());
+      detail += "\n\n";
+      detail += flash
+          ? i18n::Format("Writes to current slot %s. All selected images are extracted and hash-verified before flashing. Mixing firmware versions can prevent booting. This is a partial image flash, not a normal OTA installation. No postinstall or slot activation is performed.", slot.c_str())
+          : i18n::Format("Destination: %s/AERA/Extracted\nA new folder will be created; existing files are never overwritten.", RecoveryStorage().c_str());
+    }
     if (request.payload_override_protection)
       detail += "\n\n" + std::string(i18n::Translate("Manually selected protected partitions will be overwritten."));
     Sheet(page, request.title, detail, [request, callback, context] {
@@ -369,7 +373,7 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
       if (active) lv_obj_remove_flag(entry.mark, LV_OBJ_FLAG_HIDDEN);
       else lv_obj_add_flag(entry.mark, LV_OBJ_FLAG_HIDDEN);
     }
-    i18n::BindLabel(summary, (std::to_string(selected->size()) + " selected / " + Size(bytes)).c_str());
+    i18n::BindLabel(summary, i18n::Format("%zu selected / %s", selected->size(), Size(bytes).c_str()).c_str());
     const bool all = std::any_of(rows->begin(), rows->end(), [](const auto &row) { return !row.protected_partition; }) &&
         std::all_of(rows->begin(), rows->end(), [&](const auto &row) {
           return row.protected_partition || selected->count(row.name); });
@@ -527,7 +531,7 @@ void ReviewFastFlash(const payload::Info &info, const std::string &path,
     callback(Action::kRunOperation, context);
   }, 1400, false, SheetPresentation::kStandard, "Swipe to fast flash", [info, slot, request](lv_obj_t *area) {
     Layout(area);
-    Row(area, "Target", "Current slot " + slot + " (unchanged)");
+    Row(area, "Target", i18n::Format("Current slot %s (unchanged)", slot.c_str()));
     Row(area, "Images", std::to_string(request.partitions.size()));
     for (const auto &partition : info.partitions)
       if (std::find(request.partitions.begin(), request.partitions.end(), partition.name) == request.partitions.end())
