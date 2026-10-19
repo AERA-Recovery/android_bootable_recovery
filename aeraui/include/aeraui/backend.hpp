@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
+#include "../../../aera_wlan_ip.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -447,13 +448,17 @@ enum class WifiOperation {
   kDisableAdb,
   kEnableFastbootWifi,
   kDisableFastbootWifi,
+  kSaveIpConfig,
 };
+using WifiIpConfig = aera::wifi::IpConfig;
 struct WifiRequest {
   WifiOperation operation = WifiOperation::kScan;
   std::string ssid;
   std::string password;
   bool use_saved_credentials = false;
+  WifiIpConfig ip_config;
 };
+WifiIpConfig RecoveryWifiIpConfig(const std::string &ssid);
 void RecoveryWifiInitialize();
 void RecoveryWifiInitializeEarly();
 WifiConnection RecoveryWifiConnection();

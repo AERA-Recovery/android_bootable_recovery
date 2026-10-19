@@ -3729,6 +3729,16 @@ WifiStatus RecoveryWifiStatus() {
   return status;
 }
 
+WifiIpConfig RecoveryWifiIpConfig(const std::string &ssid) {
+  WifiIpConfig config;
+#ifdef OF_ENABLE_WLAN
+  AeraSecrets::GetWlanIpConfig(ssid, config);
+#else
+  (void)ssid;
+#endif
+  return config;
+}
+
 int RecoveryRunWifi(const WifiRequest &request) {
 #ifndef OF_ENABLE_WLAN
   (void)request;
@@ -3736,6 +3746,14 @@ int RecoveryRunWifi(const WifiRequest &request) {
 #else
   bool result = false;
   switch (request.operation) {
+    case WifiOperation::kSaveIpConfig:
+      result = !RecoveryDataLocked() && AeraSecrets::SetWlanIpConfig(request.ssid, request.ip_config);
+      if (result && RecoveryWifiConnection().connected &&
+          RecoveryWifiConnection().ssid == request.ssid) {
+        result = Wlan::ApplyIpConfiguration(request.ssid);
+      }
+      if (result) SaveAeraPreferences();
+      break;
     case WifiOperation::kEnable:
       DataManager::SetValue("wlan_state", "enabling");
       result = Wlan::Enable();

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <memory>
 #include <string>
 
 #include "ui_components.hpp"
@@ -111,6 +112,7 @@ void CloseOverlay(lv_obj_t *overlay) { lv_obj_delete_async(overlay); }
 void SelectNetwork(WifiUi *state, WifiNetwork network);
 void RefreshWifiSettings(WifiUi *state);
 void RefreshPairedComputers(WifiUi *state, bool force = false);
+void IpConfigDialog(WifiUi *state, const WifiNetwork &network);
 
 
 lv_obj_t *SectionCaption(lv_obj_t *parent, int y, const char *text) {
@@ -645,6 +647,7 @@ std::string BusyTitle(const WifiUi *state) {
     case WifiOperation::kDisableAdb: base = "Stopping wireless ADB"; break;
     case WifiOperation::kEnableFastbootWifi: base = "Securing fastboot tunnel"; break;
     case WifiOperation::kDisableFastbootWifi: base = "Closing fastboot tunnel"; break;
+    case WifiOperation::kSaveIpConfig: base = "Applying IP settings"; break;
   }
   std::string title(base);
   title.append(1 + (state->busy_phase % 3), '.');
@@ -727,7 +730,7 @@ void PasswordDialog(WifiUi *state, const WifiNetwork &network) {
 
   auto *sheet = lv_obj_create(overlay);
   Panel(sheet, 48, kMainSheet);
-  lv_obj_set_size(sheet, 1312, 1260);
+  lv_obj_set_size(sheet, 1312, 1400);
   lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -64);
   lv_obj_set_style_pad_all(sheet, 48, 0);
   auto *title = Label(sheet, network.ssid.c_str(), &lv_font_montserrat_48, kText);
@@ -764,9 +767,11 @@ void PasswordDialog(WifiUi *state, const WifiNetwork &network) {
   lv_obj_set_size(keyboard, 1216, 650);
   lv_keyboard_set_textarea(keyboard, input);
 
+  auto *ip = Button(sheet, "IP settings", [state, network] { IpConfigDialog(state, network); });
+  lv_obj_set_pos(ip, 0, 996); lv_obj_set_size(ip, 1216, 100);
   auto *cancel = Button(sheet, "Cancel", [overlay] { CloseOverlay(overlay); });
-  lv_obj_set_pos(cancel, 0, 996);
-  lv_obj_set_size(cancel, 580, 116);
+  lv_obj_set_pos(cancel, 0, 1120);
+  lv_obj_set_size(cancel, 580, 100);
   auto *connect = Button(sheet, "Connect", [state, network, input, overlay] {
     WifiRequest request;
     request.operation = WifiOperation::kConnect;
@@ -775,8 +780,8 @@ void PasswordDialog(WifiUi *state, const WifiNetwork &network) {
     CloseOverlay(overlay);
     Dispatch(state, std::move(request));
   }, true);
-  lv_obj_set_pos(connect, 636, 996);
-  lv_obj_set_size(connect, 580, 116);
+  lv_obj_set_pos(connect, 636, 1120);
+  lv_obj_set_size(connect, 580, 100);
   lv_obj_send_event(input, LV_EVENT_CLICKED, nullptr);
   AnimateEnter(sheet, 0, 42);
 }
@@ -790,14 +795,14 @@ void SavedDialog(WifiUi *state, const WifiNetwork &network) {
   lv_obj_set_style_bg_opa(overlay, LV_OPA_50, 0);
   auto *sheet = lv_obj_create(overlay);
   Panel(sheet, 48, kMainSheet);
-  lv_obj_set_size(sheet, 1312, 700);
+  lv_obj_set_size(sheet, 1312, network.saved ? 840 : 700);
   lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -64);
   lv_obj_set_style_pad_all(sheet, 48, 0);
   auto *title = Label(sheet, network.ssid.c_str(), &lv_font_montserrat_48, kText);
   lv_obj_set_width(title, 1180);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
   const std::string saved_detail =
-      std::string(i18n::Translate(network.connected ? "Connected" : "Saved")) + " / " + network.security;
+      std::string(i18n::Translate(network.connected ? "Connected" : network.saved ? "Saved" : "Available")) + " / " + network.security;
   auto *detail = Label(sheet, saved_detail.c_str(),
       &lv_font_montserrat_32, network.connected ? kGreen : kMutedStrong);
   lv_obj_set_pos(detail, 0, 100);
@@ -807,7 +812,7 @@ void SavedDialog(WifiUi *state, const WifiNetwork &network) {
         request.operation = network.connected ? WifiOperation::kDisconnect
                                               : WifiOperation::kConnect;
         request.ssid = network.ssid;
-        request.use_saved_credentials = !network.connected;
+        request.use_saved_credentials = network.saved && !network.connected;
         CloseOverlay(overlay);
         Dispatch(state, std::move(request));
       }, !network.connected);
@@ -827,21 +832,147 @@ void SavedDialog(WifiUi *state, const WifiNetwork &network) {
   });
   lv_obj_set_pos(forget, 0, 380);
   lv_obj_set_size(forget, 1216, 116);
+  if (!network.saved) lv_obj_add_flag(forget, LV_OBJ_FLAG_HIDDEN);
+  auto *ip = Button(sheet, "IP settings", [state, network, overlay] {
+    CloseOverlay(overlay); IpConfigDialog(state, network);
+  });
+  lv_obj_set_pos(ip, 0, network.saved ? 520 : 380); lv_obj_set_size(ip, 1216, 116);
   auto *cancel = Button(sheet, "Cancel", [overlay] { CloseOverlay(overlay); });
-  lv_obj_set_pos(cancel, 0, 520);
+  lv_obj_set_pos(cancel, 0, network.saved ? 660 : 520);
   lv_obj_set_size(cancel, 1216, 116);
   AnimateEnter(sheet, 0, 42);
 }
 
+void EditIpField(lv_obj_t *parent, const char *name, const std::string &value,
+                 bool dns, std::function<void(std::string)> save) {
+  auto *overlay = lv_obj_create(parent); Clear(overlay);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+  lv_obj_update_layout(overlay);
+  const int width = lv_obj_get_width(overlay) - 96;
+  const int height = std::min(1180, lv_obj_get_height(overlay) - 96);
+  auto *sheet = lv_obj_create(overlay); Panel(sheet, 32, kMainSheet);
+  lv_obj_set_size(sheet, width, height); lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -32);
+  auto *title = Label(sheet, name, &lv_font_montserrat_40, kText);
+  lv_obj_set_pos(title, 32, 28); lv_obj_set_width(title, width - 64);
+  auto *input = TextArea(sheet); lv_obj_set_pos(input, 32, 110);
+  lv_obj_set_size(input, width - 64, 112);
+  lv_obj_set_style_text_font(input, UiFont(&lv_font_montserrat_40), 0);
+  lv_obj_set_style_text_color(input, kText, 0);
+  lv_obj_set_style_bg_color(input, kMainPanel, 0);
+  lv_obj_set_style_bg_opa(input, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(input, 24, 0);
+  lv_obj_set_style_border_color(input, kAccent, LV_STATE_FOCUSED);
+  lv_obj_set_style_border_width(input, 2, LV_STATE_FOCUSED);
+  lv_obj_set_style_bg_color(input, kAccent, LV_PART_CURSOR);
+  lv_textarea_set_one_line(input, true); lv_textarea_set_max_length(input, 45);
+  lv_textarea_set_text(input, value.c_str());
+  lv_textarea_set_accepted_chars(input, dns ? "0123456789.abcdefABCDEF:" : "0123456789.");
+  auto *keyboard = lv_keyboard_create(sheet); phone_keyboard::Apply(keyboard);
+  static const char *const numbers[] = {"1", "2", "3", "\n", "4", "5", "6", "\n",
+      "7", "8", "9", "\n", ".", "0", LV_SYMBOL_BACKSPACE, ""};
+  constexpr auto key = static_cast<lv_buttonmatrix_ctrl_t>(1 | LV_BUTTONMATRIX_CTRL_NO_REPEAT);
+  static const lv_buttonmatrix_ctrl_t number_controls[] = {key,key,key,key,key,key,key,key,key,key,key,static_cast<lv_buttonmatrix_ctrl_t>(1)};
+  static const char *const dns_keys[] = {"1", "2", "3", "A", "B", "\n",
+      "4", "5", "6", "C", "D", "\n", "7", "8", "9", "E", "F", "\n",
+      ".", "0", ":", LV_SYMBOL_BACKSPACE, ""};
+  static const lv_buttonmatrix_ctrl_t dns_controls[] = {key,key,key,key,key,key,key,key,key,key,key,key,key,key,key,key,key,key,static_cast<lv_buttonmatrix_ctrl_t>(2)};
+  lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_NUMBER, dns ? dns_keys : numbers,
+                       dns ? dns_controls : number_controls);
+  lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_NUMBER);
+  lv_obj_set_align(keyboard, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_pos(keyboard, 32, 260); lv_obj_set_size(keyboard, width - 64, height - 430);
+  lv_keyboard_set_textarea(keyboard, input);
+  auto *cancel = Button(sheet, "Cancel", [overlay] { CloseOverlay(overlay); });
+  lv_obj_set_pos(cancel, 32, height - 132); lv_obj_set_size(cancel, (width - 88) / 2, 100);
+  auto *done = Button(sheet, "Done", [overlay, input, save] {
+    save(lv_textarea_get_text(input)); CloseOverlay(overlay);
+  }, true);
+  lv_obj_set_pos(done, width / 2 + 12, height - 132); lv_obj_set_size(done, (width - 88) / 2, 100);
+}
+
+void IpConfigDialog(WifiUi *state, const WifiNetwork &network) {
+  struct Draft {
+    WifiIpConfig config;
+    std::string subnet;
+    lv_obj_t *fields = nullptr, *dhcp = nullptr, *manual = nullptr, *message = nullptr;
+  };
+  auto draft = std::make_shared<Draft>();
+  draft->config = RecoveryWifiIpConfig(network.ssid);
+  draft->subnet = std::to_string(draft->config.prefix);
+  auto *page = lv_obj_create(state->screen); Clear(page);
+  lv_obj_set_user_data(page, &kModalMarker);
+  lv_obj_set_size(page, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(page, kMainCanvas, 0); lv_obj_set_style_bg_opa(page, LV_OPA_COVER, 0);
+  lv_obj_update_layout(page);
+  const int width = lv_obj_get_width(page), height = lv_obj_get_height(page);
+  auto *back = Button(page, LV_SYMBOL_LEFT, [page] { CloseOverlay(page); });
+  lv_obj_set_pos(back, 48, 48); lv_obj_set_size(back, 96, 96);
+  auto *title = Label(page, "IP settings", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 176, 68); SingleLineLabel(title, width - 224, &lv_font_montserrat_48);
+  auto *ssid = Label(page, network.ssid.c_str(), &lv_font_montserrat_32, kMutedStrong);
+  lv_obj_set_pos(ssid, 64, 184); SingleLineLabel(ssid, width - 128, &lv_font_montserrat_32);
+  auto *list = lv_obj_create(page); Clear(list); lv_obj_set_pos(list, 48, 260);
+  lv_obj_set_size(list, width - 96, height - 590); lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  auto mode = [draft](bool manual) {
+    draft->config.manual = manual;
+    lv_obj_set_flag(draft->fields, LV_OBJ_FLAG_HIDDEN, !manual);
+    lv_obj_set_style_bg_color(draft->dhcp, manual ? kMainPanel : kAccentSoft, 0);
+    lv_obj_set_style_bg_color(draft->manual, manual ? kAccentSoft : kMainPanel, 0);
+    if (draft->message && !RecoveryDataLocked()) i18n::BindLabel(draft->message, "");
+  };
+  draft->dhcp = Button(list, "Automatic (DHCP)", [mode] { mode(false); });
+  draft->manual = Button(list, "Static IP", [mode] { mode(true); });
+  for (int index = 0; index < 2; ++index) {
+    auto *button = index ? draft->manual : draft->dhcp;
+    lv_obj_set_pos(button, 16 + index * ((width - 144) / 2 + 16), 0);
+    lv_obj_set_size(button, (width - 144) / 2, 116);
+  }
+  draft->fields = lv_obj_create(list); Clear(draft->fields);
+  lv_obj_set_pos(draft->fields, 16, 164); lv_obj_set_size(draft->fields, width - 128, 1120);
+  const char *names[] = {"IP address", "Subnet mask / prefix", "Gateway", "DNS 1", "DNS 2"};
+  std::string *values[] = {&draft->config.address, &draft->subnet, &draft->config.gateway,
+                           &draft->config.dns1, &draft->config.dns2};
+  for (int index = 0; index < 5; ++index) {
+    auto *caption = Label(draft->fields, names[index], &lv_font_montserrat_28, kMutedStrong);
+    lv_obj_set_pos(caption, 0, index * 212);
+    auto *button = Button(draft->fields, values[index]->empty() ? "Not set" : values[index]->c_str(), [] {});
+    lv_obj_set_pos(button, 0, index * 212 + 54); lv_obj_set_size(button, width - 144, 116);
+    auto *label = lv_obj_get_child(button, 0);
+    // The draft outlives a field editor even if the underlying page is closed.
+    OnClick(button, [page, draft, name = names[index], value = values[index], label, dns = index >= 3] {
+      EditIpField(page, name, *value, dns, [draft, value, label](std::string text) {
+        *value = std::move(text);
+        i18n::BindLabel(label, value->empty() ? "Not set" : value->c_str());
+      });
+    });
+  }
+  mode(draft->config.manual);
+  auto *message = Label(page, "", &lv_font_montserrat_28, kRed);
+  draft->message = message;
+  lv_obj_set_pos(message, 64, height - 284); lv_obj_set_width(message, width - 128);
+  if (RecoveryDataLocked()) i18n::BindLabel(message, "Unlock internal storage to save network settings.");
+  auto *save = Button(page, "Save", [state, page, draft, network, message] {
+    std::string error;
+    if (draft->config.manual && !aera::wifi::ParseSubnet(draft->subnet, draft->config.prefix))
+      error = "Enter a subnet mask or prefix from 1 to 32.";
+    else aera::wifi::ValidateIpConfig(draft->config, error);
+    if (!error.empty()) { i18n::BindLabel(message, error.c_str()); return; }
+    WifiRequest request; request.operation = WifiOperation::kSaveIpConfig;
+    request.ssid = network.ssid; request.ip_config = draft->config;
+    CloseOverlay(page); Dispatch(state, std::move(request));
+  }, true);
+  lv_obj_set_pos(save, 64, height - 160); lv_obj_set_size(save, width - 128, 116);
+  if (RecoveryDataLocked()) lv_obj_add_state(save, LV_STATE_DISABLED);
+}
+
 void SelectNetwork(WifiUi *state, WifiNetwork network) {
   if (state->busy) return;
-  if (network.saved) {
+  if (network.saved || network.security == "OPEN") {
     SavedDialog(state, network);
-  } else if (network.security == "OPEN") {
-    WifiRequest request;
-    request.operation = WifiOperation::kConnect;
-    request.ssid = network.ssid;
-    Dispatch(state, std::move(request));
   } else {
     PasswordDialog(state, network);
   }

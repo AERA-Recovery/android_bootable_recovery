@@ -372,6 +372,7 @@ WifiStatus RecoveryWifiStatus() {
   return status;
 }
 int RecoveryRunWifi(const WifiRequest &request) { wifi_request = request; return 0; }
+WifiIpConfig RecoveryWifiIpConfig(const std::string &) { return {}; }
 bool RecoveryWifiAutoEnable() { return wifi_auto_enable; }
 bool RecoveryWifiAutoConnect() { return wifi_auto_connect; }
 bool RecoverySetWifiAutoEnable(bool enabled) { wifi_auto_enable = enabled; return true; }
@@ -636,6 +637,42 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--wifi-ip")) {
+    auto *wifi = lv_obj_create(nullptr); BuildWifiScene(wifi, RecordAction, nullptr);
+    lv_screen_load(wifi); Tick(2);
+    lv_obj_send_event(Find(wifi, "Saved network"), LV_EVENT_CLICKED, nullptr);
+    lv_obj_send_event(Find(wifi, "IP settings"), LV_EVENT_CLICKED, nullptr); Tick(2);
+    auto *mode = Find(wifi, "Static IP"); assert(mode);
+    lv_obj_send_event(mode, LV_EVENT_CLICKED, nullptr); Tick(2);
+    assert(Find(wifi, "IP address") && Find(wifi, "Subnet mask / prefix"));
+    auto *page = lv_obj_get_parent(lv_obj_get_parent(mode));
+    auto *save_button = Find(page, "Save"); assert(save_button);
+    const int callbacks = callback_count;
+    lv_obj_send_event(save_button, LV_EVENT_CLICKED, nullptr);
+    assert(callback_count == callbacks); // Invalid input never starts a worker.
+    assert(Find(wifi, "Enter a valid IPv4 address."));
+    lv_obj_send_event(Find(page, "Not set"), LV_EVENT_CLICKED, nullptr); Tick(2);
+    auto *field = FindType(page, &lv_textarea_class); assert(field);
+    auto *ip_keyboard = FindType(page, &lv_keyboard_class); assert(ip_keyboard);
+    assert(lv_keyboard_get_mode(ip_keyboard) == LV_KEYBOARD_MODE_NUMBER);
+    assert(!strcmp(lv_buttonmatrix_get_button_text(ip_keyboard, 11), LV_SYMBOL_BACKSPACE));
+    assert(lv_color_eq(lv_obj_get_style_text_color(field, LV_PART_MAIN), design::kText));
+    lv_area_t field_bounds; lv_obj_get_coords(field, &field_bounds);
+    assert(field_bounds.y1 > 3168 / 2);
+    lv_textarea_set_text(field, "192.168.178.50");
+    save("/tmp/aera-wifi-ip-keyboard.png", 2);
+    lv_obj_send_event(Find(page, "Done"), LV_EVENT_CLICKED, nullptr); Tick(2);
+    assert(Find(page, "192.168.178.50"));
+    save("/tmp/aera-wifi-ip.png", 2);
+    lv_obj_send_event(Find(page, "Automatic (DHCP)"), LV_EVENT_CLICKED, nullptr);
+    lv_obj_send_event(save_button, LV_EVENT_CLICKED, nullptr);
+    assert(last_action == Action::kRunWifiOperation);
+    assert(GetWifiRequest().operation == WifiOperation::kSaveIpConfig);
+    assert(!GetWifiRequest().ip_config.manual && GetWifiRequest().ssid == "Saved network");
+    lv_screen_load(screen); lv_obj_delete(wifi);
+    std::filesystem::remove_all(backup_root);
+    return 0;
+  }
   if (!strcmp(argv[1], "--plugin-runtime")) {
     TestPluginRuntime(screen);
     save("/tmp/aera-plugin-activity.png", 2);
