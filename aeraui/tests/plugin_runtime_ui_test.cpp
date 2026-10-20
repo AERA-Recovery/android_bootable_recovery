@@ -19,6 +19,10 @@ void PreparePluginRuntime(Preparation &state, const char *, const char *, const 
 }
 }
 namespace aeraui::plugins {
+bool HasPermission(const Plugin &plugin, const std::string &permission) {
+  return std::find(plugin.permissions.begin(), plugin.permissions.end(), permission) !=
+      plugin.permissions.end();
+}
 bool FindInstalled(const std::string &id, Plugin &plugin) {
   plugin.id = id; plugin.name = "OTA Explorer"; plugin.entry = "main";
   plugin.type = "ui-runtime"; return true;
