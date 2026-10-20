@@ -11,6 +11,7 @@
 #include "update/payload_inspector.hpp"
 #include "update/payload_arb.hpp"
 #include "update/payload_full_flash.hpp"
+#include "update/update_manager.hpp"
 #include "picture_viewer.hpp"
 #include "picture_decode.hpp"
 #include "browser/runtime.hpp"
@@ -29,6 +30,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 using namespace aeraui;
+namespace aeraui::update {
+static Snapshot test_snapshot;
+static Channel test_channel = Channel::kStable;
+Snapshot GetSnapshot() { return test_snapshot; }
+Channel GetChannel() { return test_channel; }
+bool SetChannel(Channel channel) { test_channel = channel; test_snapshot = {}; return true; }
+}
 #include "../../aera_remote/pc_connection.hpp"
 namespace aera::pc {
 static Status pc_status;
@@ -636,6 +644,80 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--update-channel")) {
+    for (const char* installed_type : {"Stable", "Beta", "Alpha", "Nightly"}) {
+    for (auto channel : {update::Channel::kStable, update::Channel::kNightly}) {
+      update::test_channel = channel;
+      for (uint64_t release_time : {90ULL, 100ULL, 110ULL}) {
+        auto &snapshot = update::test_snapshot;
+        snapshot = {};
+        snapshot.device = "infiniti";
+        snapshot.local_build_time = 100;
+        snapshot.local_build_type = installed_type;
+        snapshot.channel = channel;
+        snapshot.release.version = "R1.0";
+        snapshot.release.build_type = channel == update::Channel::kStable ? "Stable" : "Nightly";
+        snapshot.release.build_time = release_time;
+        snapshot.release.size = 50 * 1024 * 1024;
+        snapshot.release.filename = "AERA-infiniti.zip";
+        snapshot.release.changelog = {"Channel release notes"};
+        snapshot.checked = true;
+        snapshot.installable = true;
+        snapshot.available = release_time > snapshot.local_build_time;
+        snapshot.phase = snapshot.available ? update::Phase::kAvailable : update::Phase::kUpToDate;
+        const auto installed_channel = snapshot.local_build_type == "Nightly"
+            ? update::Channel::kNightly : update::Channel::kStable;
+        const bool can_install = release_time > 100 || installed_channel != channel;
+        assert(snapshot.CanDownload() == can_install);
+        auto *page = lv_obj_create(nullptr);
+        const auto scene = BuildUpdateScene(page, RecordAction, nullptr);
+        lv_screen_load(page); Tick(2);
+        assert(lv_obj_has_flag(scene.install, LV_OBJ_FLAG_HIDDEN) == !can_install);
+        assert(lv_obj_has_state(scene.install, LV_STATE_DISABLED) == !can_install);
+        if (can_install && release_time < snapshot.local_build_time) {
+          assert(FindLabel(page, "Older recovery build"));
+          assert(!snapshot.available); // Still not an automatic update notification.
+        }
+        const int callbacks = callback_count;
+        if (can_install) {
+          lv_obj_send_event(scene.install, LV_EVENT_CLICKED, nullptr); Tick(2);
+          assert(callback_count == callbacks); // Installation still requires confirmation.
+          assert(FindLabel(page, "Install this recovery update?"));
+        }
+        if (can_install && release_time < snapshot.local_build_time) {
+          assert(FindLabelContaining(page, "This release is older than your installed build."));
+          if (channel == update::Channel::kStable) save("/tmp/aera-update-older.png", 2);
+        }
+        lv_screen_load(screen); lv_obj_delete(page);
+      }
+    }
+    }
+    auto &snapshot = update::test_snapshot;
+    snapshot.checked = false; assert(!snapshot.CanDownload());
+    snapshot.checked = true; snapshot.installable = false; assert(!snapshot.CanDownload());
+    auto *page = lv_obj_create(nullptr);
+    const auto scene = BuildUpdateScene(page, RecordAction, nullptr);
+    lv_screen_load(page); Tick(2);
+    assert(lv_obj_has_flag(scene.install, LV_OBJ_FLAG_HIDDEN));
+    lv_screen_load(screen); lv_obj_delete(page);
+    snapshot.installable = true; snapshot.release.size = 0; assert(!snapshot.CanDownload());
+    // After installing Stable, repeated checks/toggling tabs cannot reinstall
+    // that same Stable, but returning to Nightly remains possible.
+    snapshot.release.size = 50 * 1024 * 1024;
+    snapshot.local_build_type = "Stable"; snapshot.local_build_time = 90;
+    snapshot.channel = update::Channel::kStable; snapshot.release.build_time = 90;
+    assert(!snapshot.CanDownload());
+    snapshot.channel = update::Channel::kNightly;
+    assert(snapshot.CanDownload());
+    snapshot.channel = update::Channel::kStable;
+    assert(!snapshot.CanDownload());
+    for (const char* unknown : {"", "Unknown"}) {
+      snapshot.local_build_type = unknown;
+      assert(!snapshot.CanDownload());
+    }
+    std::filesystem::remove_all(backup_root);
+    return 0;
+  }
   if (!strcmp(argv[1], "--wifi-ip")) {
     auto *wifi = lv_obj_create(nullptr); BuildWifiScene(wifi, RecordAction, nullptr);
     lv_screen_load(wifi); Tick(2);

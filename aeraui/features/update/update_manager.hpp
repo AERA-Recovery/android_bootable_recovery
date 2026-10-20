@@ -15,6 +15,10 @@ enum class Channel {
   kNightly,
 };
 
+inline const char* ChannelBuildType(Channel channel) {
+  return channel == Channel::kNightly ? "Nightly" : "Stable";
+}
+
 enum class Phase {
   kIdle,
   kChecking,
@@ -41,6 +45,8 @@ struct Snapshot {
   Phase phase = Phase::kIdle;
   std::string device;
   uint64_t local_build_time = 0;
+  std::string local_build_type;
+  Channel channel = Channel::kStable;
   Release release;
   std::string package_path;
   std::string message;
@@ -48,7 +54,24 @@ struct Snapshot {
   uint64_t total = 0;
   unsigned progress = 0;
   bool checked = false;
+  // Notifications only describe newer builds. Older/equal releases are only
+  // installable when switching away from the installed build's channel.
   bool available = false;
+  bool installable = false;
+
+  bool IsChannelSwitch() const {
+    if (local_build_type == "Nightly") return channel != Channel::kNightly;
+    // Published Alpha/Beta releases and normal /aera test builds belong to
+    // the stable OTA channel; build maturity is not a separate update channel.
+    if (local_build_type == "Stable" || local_build_type == "Beta" ||
+        local_build_type == "Alpha") return channel != Channel::kStable;
+    return false;
+  }
+
+  bool CanDownload() const {
+    return checked && installable && release.build_time != 0 && release.size != 0 &&
+        (release.build_time > local_build_time || IsChannelSwitch());
+  }
 };
 
 const char *CatalogUrl();

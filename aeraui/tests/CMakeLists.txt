@@ -20,6 +20,7 @@ add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp
   ../components/plugin_desktop.cpp
   ../features/plugin_api/session.cpp ../features/plugin_api/activity.cpp
   ../scenes/developer_scene.cpp
+  ../scenes/update_scene.cpp
   ../features/developer/kernel_settings.cpp
   ../scenes/reboot_scene.cpp ../components/power_transition.cpp
   ../scenes/lock_scene.cpp
@@ -58,6 +59,7 @@ add_executable(wifi_dhcp_test wifi_dhcp_test.cpp)
 target_compile_options(wifi_dhcp_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME wifi_dhcp_client COMMAND wifi_dhcp_test)
 add_test(NAME wifi_ip_settings_ui COMMAND ui_check --wifi-ip)
+add_test(NAME recovery_channel_install_ui COMMAND ui_check --update-channel)
 add_executable(artillery_test artillery_test.cpp ../features/artillery/game.cpp)
 target_compile_options(artillery_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME artillery_physics_and_unlock COMMAND artillery_test)
