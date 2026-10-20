@@ -18,6 +18,7 @@
 #include "ui_components.hpp"
 #include "webkit_icon.hpp"
 #include "desktop_icon.hpp"
+#include <cstring>
 
 namespace aeraui {
 namespace {

@@ -5,6 +5,7 @@
 #include <cassert>
 #include <chrono>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
@@ -36,6 +37,26 @@ const char *OperationPrompt(Operation) { return "Confirm"; }
 namespace aeraui {
 void TestPluginRuntime(lv_obj_t *host_screen) {
   using namespace plugin_api;
+  // Desktop support must be inert outside a desktop, and must release its
+  // descriptors/UI cleanly without changing the normal plugin lifecycle.
+  assert(!PluginDesktopHandlePointer(0, 10, 10, true));
+  assert(!PluginDesktopHandleKey('a', 1));
+  assert(!PluginDesktopHandleMouse(1, 10, 10, 1, true, 0, 0));
+  int frame = -1, input = -1;
+  assert(!OpenPluginDesktop(host_screen, frame, input, {}, 4096, 4096));
+  assert(frame == -1 && input == -1);
+  for (auto size : {std::pair<unsigned,unsigned>{640,360}, {960,540},
+                    {1280,720}, {1920,1080}}) {
+    assert(OpenPluginDesktop(host_screen, frame, input, {}, size.first, size.second));
+    struct stat st{};
+    assert(fstat(frame, &st) == 0);
+    assert(st.st_size == static_cast<off_t>(size.first * size.second * 8));
+    int duplicate_frame = -1, duplicate_input = -1;
+    assert(!OpenPluginDesktop(host_screen, duplicate_frame, duplicate_input, {}));
+    ClosePluginDesktop();
+    close(frame); close(input);
+    assert(!PluginDesktopHandleKey('a', 1));
+  }
   auto send = [](int fd, Message message) {
     assert(::send(fd, &message, sizeof(message), MSG_NOSIGNAL) == sizeof(message));
   };
