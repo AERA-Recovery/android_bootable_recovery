@@ -20,6 +20,7 @@ class Session final {
   bool Connected() const { return control_ >= 0; }
   bool Negotiated() const { return negotiated_; }
   bool Supports(uint32_t features) const { return (features_ & features) == features; }
+  bool SendDesktop(uint32_t request_id, int frame, int input, unsigned width=960, unsigned height=540);
   const std::string &Status() const { return status_; }
   void Close();
 

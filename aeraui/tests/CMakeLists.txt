@@ -17,6 +17,7 @@ find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
 add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp
+  ../components/plugin_desktop.cpp
   ../features/plugin_api/session.cpp ../features/plugin_api/activity.cpp
   ../scenes/developer_scene.cpp
   ../features/developer/kernel_settings.cpp

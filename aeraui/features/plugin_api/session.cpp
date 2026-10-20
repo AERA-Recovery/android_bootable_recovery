@@ -64,6 +64,32 @@ bool Session::Send(Kind kind, uint32_t request_id, uint32_t value,
   return Write(message);
 }
 
+bool Session::SendDesktop(uint32_t request_id, int frame, int input, unsigned width, unsigned height) {
+  if (!Negotiated() || !Supports(kFeatureDesktop) || frame < 0 || input < 0) return false;
+  Message message;
+  message.kind = Kind::kDesktopReady;
+  message.request_id = request_id;
+  message.value = width;
+  message.flags = height;
+  int descriptors[] = {frame, input};
+  alignas(cmsghdr) char ancillary[CMSG_SPACE(sizeof(descriptors))]{};
+  iovec iov{&message, sizeof(message)};
+  msghdr packet{};
+  packet.msg_iov = &iov;
+  packet.msg_iovlen = 1;
+  packet.msg_control = ancillary;
+  packet.msg_controllen = sizeof(ancillary);
+  auto *header = CMSG_FIRSTHDR(&packet);
+  header->cmsg_level = SOL_SOCKET;
+  header->cmsg_type = SCM_RIGHTS;
+  header->cmsg_len = CMSG_LEN(sizeof(descriptors));
+  memcpy(CMSG_DATA(header), descriptors, sizeof(descriptors));
+  if (sendmsg(control_, &packet, MSG_DONTWAIT | MSG_NOSIGNAL) ==
+      static_cast<ssize_t>(sizeof(message))) return true;
+  Fail("Could not hand off the desktop channel.");
+  return false;
+}
+
 std::vector<Message> Session::Poll() {
   std::vector<Message> messages;
   for (unsigned packet = 0; packet < 24 && Connected(); ++packet) {

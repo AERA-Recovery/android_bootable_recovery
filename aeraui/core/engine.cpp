@@ -8,6 +8,7 @@
 #include "aeraui/i18n.hpp"
 #include "operation_affinity.hpp"
 #include "mouse_cursor.hpp"
+#include "plugin_desktop.hpp"
 #include "usb_attachment.hpp"
 #include "screenshot_flash.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
@@ -857,12 +858,19 @@ public:
   }
 
   hardware_keys::State physical_keys_;
+  bool DesktopInputAllowed() const {
+    return !suspended_ && !lock_overlay_ && !power_overlay_ && backend_ready_ &&
+        !operation_running_ && !nas_running_ && !plugin_running_ && !update_installing_;
+  }
   void ResetKeyboard() {
     physical_keys_.Reset();
+    PluginDesktopReleaseKeyboard();
+    PluginDesktopHandleMouse(3, 0, 0, 0, false, 0, 0);
   }
   bool KeyboardKey(unsigned code, int value) {
     if (!physical_keys_.Update(code, value)) return false;
     if (suspended_ || lock_overlay_ || power_overlay_) { ResetKeyboard(); return true; }
+    if (DesktopInputAllowed() && PluginDesktopHandleKey(hardware_keys::Symbol(code), value)) return true;
     if (!hardware_keyboard::Handle(code, value, physical_keys_) &&
         code == KEY_ESC && value == 1) NavigateBack();
     return true;
@@ -871,6 +879,7 @@ public:
   void SetMouseConnected(bool connected) {
     if (!mouse_device_) return;
     if (!connected && mouse_connected_) {
+      PluginDesktopHandleMouse(3, 0, 0, 0, false, 0, 0);
       mouse_pressed_ = false;
       lv_indev_reset(mouse_device_, nullptr); // Disconnect must not click.
     }
@@ -885,11 +894,18 @@ public:
     const int h = landscape_ ? width_ : height_;
     mouse_x_ = std::clamp(mouse_x_ + std::clamp(dx, -4096, 4096), 0, w - 1);
     mouse_y_ = std::clamp(mouse_y_ + std::clamp(dy, -4096, 4096), 0, h - 1);
+    if (DesktopInputAllowed())
+      PluginDesktopHandleMouse(0, mouse_x_, mouse_y_, 0, false, dx, dy);
   }
 
-  void MouseButton(bool pressed) {
+  void MouseButton(bool pressed, int button) {
     if (pressed) hardware_keyboard::ClearFocus();
     if (!mouse_device_ || suspended_) return;
+    if (DesktopInputAllowed() && PluginDesktopHandleMouse(1, mouse_x_, mouse_y_, button, pressed, 0, 0)) {
+      mouse_pressed_ = false;
+      return;
+    }
+    if (button != 1) return;
     mouse_pressed_ = pressed;
     // Consume every button edge even when press+release arrive in one frame.
     lv_indev_read(mouse_device_);
@@ -897,6 +913,7 @@ public:
 
   void MouseWheel(int steps) {
     if (!mouse_device_ || suspended_ || mouse_pressed_) return;
+    if (DesktopInputAllowed() && PluginDesktopHandleMouse(2, mouse_x_, mouse_y_, 0, false, steps, 0)) return;
     lv_point_t point{mouse_x_, mouse_y_};
     lv_obj_t *target = lv_indev_search_obj(lv_layer_sys(), &point);
     if (!target) target = lv_indev_search_obj(lv_layer_top(), &point);
@@ -959,6 +976,10 @@ public:
       pointer_.pressed = pressed;
       CancelEdgeSwipe();
       CancelRecentsSwipe();
+      return;
+    }
+    if (PluginDesktopHandlePointer(slot, visible_x, visible_y, pressed)) {
+      CancelEdgeSwipe(); CancelRecentsSwipe(); pointer_.pressed = false;
       return;
     }
     if (slot == 0 && recents_swipe_active_) {
@@ -2510,6 +2531,22 @@ private:
     if (self == nullptr)
       return;
 
+    if (action == Action::kPluginDesktopOpen || action == Action::kPluginDesktopClose) {
+      if (action == Action::kPluginDesktopOpen) {
+        self->desktop_restore_portrait_ = !self->landscape_;
+        self->landscape_ = true;
+      } else {
+        if (self->desktop_restore_portrait_) self->landscape_ = false;
+        self->desktop_restore_portrait_ = false;
+      }
+      self->pointer_.pressed = false;
+      if (self->pointer_device_) lv_indev_reset(self->pointer_device_, nullptr);
+      lv_display_set_rotation(self->display_, self->landscape_ ?
+          LV_DISPLAY_ROTATION_90 : LV_DISPLAY_ROTATION_0);
+      lv_obj_update_layout(lv_screen_active());
+      return;
+    }
+
     if (action == Action::kBootComplete) {
       self->boot_animation_complete_ = true;
       return;
@@ -2989,6 +3026,12 @@ private:
 
   void ShowHome(bool capture_current = true, bool mode_transition = false) {
     plugin_activity_.Close();
+    ClosePluginDesktop();
+    if (desktop_restore_portrait_) {
+      desktop_restore_portrait_ = false;
+      landscape_ = false;
+      lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_0);
+    }
     if (capture_current && IsRecentAppAction(current_scene_))
       CaptureRecentPreview(current_scene_);
     CancelEdgeSwipe();
@@ -4113,6 +4156,7 @@ private:
   bool fastboot_mode_ = false;
   bool on_home_ = false;
   bool landscape_ = false;
+  bool desktop_restore_portrait_ = false;
   bool initialized_ = false;
   std::vector<Action> navigation_history_;
   int displayed_volume_ = 30;
@@ -4150,7 +4194,7 @@ DecryptionCompletion Engine::TakeDecryptionCompletion() {
 void Engine::SetPointer(const PointerEvent &event) { impl_->SetPointer(event); }
 void Engine::SetMouseConnected(bool connected) { impl_->SetMouseConnected(connected); }
 void Engine::MouseMove(int dx, int dy) { impl_->MouseMove(dx, dy); }
-void Engine::MouseButton(bool pressed) { impl_->MouseButton(pressed); }
+void Engine::MouseButton(bool pressed, int button) { impl_->MouseButton(pressed, button); }
 void Engine::MouseWheel(int steps) { impl_->MouseWheel(steps); }
 bool Engine::KeyboardKey(unsigned code, int value) { return impl_->KeyboardKey(code, value); }
 void Engine::ResetKeyboard() { impl_->ResetKeyboard(); }

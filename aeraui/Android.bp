@@ -57,6 +57,7 @@ cc_library_static {
         "components/aera_logo.cpp",
         "components/home_plugin_grid.cpp",
         "components/android_icon.cpp",
+        "components/plugin_desktop.cpp",
         "components/matrix_engraving.cpp",
         "components/picture_decode.cpp",
         "components/picture_viewer.cpp",

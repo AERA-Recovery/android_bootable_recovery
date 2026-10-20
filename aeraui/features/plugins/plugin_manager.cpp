@@ -344,7 +344,7 @@ bool ParsePlugin(const std::string &text, Plugin &plugin, std::string &error,
       (has_permission("display") && has_permission("touch-input") &&
        std::all_of(plugin.permissions.begin(), plugin.permissions.end(),
                    [](const std::string &permission) {
-                     return permission == "display" ||
+                     return permission == "desktop-surface" || permission == "display" ||
                             permission == "touch-input" ||
                             permission == "settings-backup" ||
                             permission == "settings-restore" ||

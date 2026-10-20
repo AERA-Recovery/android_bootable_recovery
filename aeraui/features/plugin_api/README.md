@@ -21,6 +21,8 @@ An API 2 manifest uses `type: "ui-runtime"`, `entry: "main"`,
   the LineageSettingsProvider database when the installed ROM supplies it
 - `screen-mirror` to start or stop AERA's existing USB-only display stream;
   framebuffer capture and input injection remain in the trusted host
+- `desktop-surface` to request the optional host-managed desktop frame/input
+  surface. This grants no extra filesystem privilege beyond API 2's root worker.
 
 Host-mediated operations are denied unless the permission is declared and the
 user confirms the individual request in trusted AERA UI. Root plugins may also
@@ -64,6 +66,34 @@ contains both the plugin's `usr/bin` and recovery command directories, while
 their visible strings and must fall back to English when a locale or string is
 missing. Relaunching a plugin after a language change supplies the new locale
 without changing the Host API 2 wire format.
+
+## Optional desktop surface
+
+Request `kFeatureDesktop` (bit 7) and optionally `kFeatureDesktopResolution`
+(bit 8) through the opt-in HELLO feature mask. Older workers retain their
+original ACK flags. These additions do not renumber background/activity APIs.
+
+Only send `OPEN_DESKTOP` (kind 21, nonzero request ID, zero value/flags)
+when `HELLO_ACK` advertises `kFeatureDesktop` and the manifest declares
+`desktop-surface`. The host retains the plugin's setup page and opens a
+landscape overlay. It replies with `DESKTOP_READY` (kind 72), the same ID,
+value width and flags height, with exactly two `SCM_RIGHTS` descriptors: a host-owned
+size-sealed double framebuffer and a `SOCK_SEQPACKET` input channel. Failure
+has zero dimensions and no descriptors. There is no executable path in this API.
+
+Zero value/flags request the legacy 960x540 default. When the additional
+`kFeatureDesktopResolution` bit is advertised, workers may request width in
+value and height in flags: 640x360, 960x540, 1280x720 or 1920x1080. Other sizes
+are rejected before allocation. Workers must validate the returned dimensions.
+
+Frames are BGRA at the negotiated size, two slots, and use the bounded `PlayMessage` protocol
+in `components/play_protocol.h`. Publish sequence N into slot N%2, then send
+FRAME with the dimensions and sequence; do not reuse a slot until ACK.
+The host validates every packet and exposes desktop-pointer/game-relative
+controls, an on-screen keyboard, and physical mouse/keyboard input. EXIT
+sends RELEASE/CLOSE, closes the overlay, and restores the setup orientation.
+Workers must stop their guest cleanly and preserve user data when the channel
+closes. No recovery-specific or device-specific runtime is baked into the host.
 
 `AERA-settings-backup-plugin` is the reference implementation. It proves a new
 ID can render and request backup/restore without being added to recovery's

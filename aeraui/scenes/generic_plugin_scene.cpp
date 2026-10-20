@@ -12,6 +12,8 @@
 #include "plugin_api/runtime.hpp"
 #include "plugins/plugin_manager.hpp"
 #include "ui_components.hpp"
+#include "plugin_desktop.hpp"
+#include <unistd.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -62,6 +64,7 @@ struct RowModel {
 };
 
 struct GenericScene {
+  bool desktop_open = false;
   lv_obj_t *screen = nullptr;
   lv_obj_t *card = nullptr;
   lv_obj_t *content = nullptr;
@@ -103,6 +106,7 @@ struct GenericScene {
     auto found = gPluginRuntimes.find(plugin.id);
     if (found != gPluginRuntimes.end() && found->second == this)
       gPluginRuntimes.erase(found);
+    if (desktop_open) ClosePluginDesktop();
     if (timer) lv_timer_delete(timer);
     preparation.cancel.store(true);
     if (worker.joinable()) worker.join();
@@ -584,6 +588,37 @@ void RequestOperation(GenericScene *scene,
 
 void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
   switch (message.kind) {
+    case plugin_api::Kind::kOpenDesktop: {
+      unsigned width=message.value, height=message.flags;
+      if(!width&&!height){width=960;height=540;}
+      if (!scene->screen || !scene->callback || scene->background ||
+          !scene->session.Supports(plugin_api::kFeatureDesktop) ||
+          !message.request_id || scene->desktop_open || scene->page_pending ||
+          scene->operation_pending || !ValidDesktopResolution(width,height) ||
+          !plugins::HasPermission(scene->plugin, "desktop-surface")) {
+        scene->session.Send(plugin_api::Kind::kDesktopReady, message.request_id,
+                            0, 0, nullptr, "Desktop request unavailable or not permitted.");
+        break;
+      }
+      scene->callback(Action::kPluginDesktopOpen, scene->context);
+      int frame=-1, input=-1;
+      scene->desktop_open = OpenPluginDesktop(scene->screen, frame, input, [scene] {
+        scene->desktop_open = false;
+        scene->callback(Action::kPluginDesktopClose, scene->context);
+      }, width, height);
+      const bool sent = scene->desktop_open &&
+          scene->session.SendDesktop(message.request_id, frame, input, width, height);
+      if (frame >= 0) close(frame);
+      if (input >= 0) close(input);
+      if (!sent) {
+        ClosePluginDesktop();
+        scene->desktop_open = false;
+        scene->callback(Action::kPluginDesktopClose, scene->context);
+        scene->session.Send(plugin_api::Kind::kDesktopReady, message.request_id,
+                            0, 0, nullptr, "Could not allocate desktop surface.");
+      }
+      break;
+    }
     case plugin_api::Kind::kBeginPage:
       scene->page_title = message.title;
       scene->page_body = message.text;
@@ -747,7 +782,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
       const bool supported = scene->session.Supports(plugin_api::kFeatureBackground);
       const size_t retained = std::count_if(gPluginRuntimes.begin(), gPluginRuntimes.end(),
           [](const auto &entry) { return entry.second->background; });
-      const bool allowed = supported && message.value <= 1 && !message.flags &&
+      const bool allowed = supported && !scene->desktop_open && message.value <= 1 && !message.flags &&
           !message.title[0] && !message.text[0] &&
           (!message.value || scene->background || retained < 4);
       if (allowed) scene->background = message.value != 0;
@@ -830,6 +865,10 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
 }
 
 void DetachGenericScene(GenericScene *scene) {
+  if (scene->desktop_open) {
+    ClosePluginDesktop();
+    scene->desktop_open = false;
+  }
   scene->screen = scene->card = scene->content = scene->status = scene->progress = nullptr;
   scene->mirror_tabs[0] = scene->mirror_tabs[1] = nullptr;
   for (auto &row : scene->rows) row.value_label = row.progress_bar = nullptr;

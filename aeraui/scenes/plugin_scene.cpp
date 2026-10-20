@@ -14,6 +14,7 @@
 #include "plugins/plugin_manager.hpp"
 #include "plugins/store_metadata.hpp"
 #include "retroarch_icon.hpp"
+#include "desktop_icon.hpp"
 #include "ui_components.hpp"
 
 namespace aeraui {
@@ -163,7 +164,7 @@ void Detail(State *state, const std::vector<plugins::Plugin> &catalog,
   if (!plugin) { state->detail_id.clear(); Render(state); return; }
   const int width = lv_obj_get_width(state->scene.list) - 56;
   int y = 28;
-  auto *plate = plugin->id == "retroarch"
+  auto *plate = plugin->icon == "desktop" ? DesktopIcon(state->scene.list, kAccent, 112) : plugin->id == "retroarch"
       ? RetroArchIconPlate(state->scene.list, kText, 112)
       : IconPlate(state->scene.list, Icon(*plugin), kAccent, IconBackground(), 112);
   lv_obj_set_pos(plate, 28, y);
@@ -462,7 +463,7 @@ void Render(State *state) {
     lv_obj_set_style_bg_opa(row, category_row++ % 2 == 0 ? LV_OPA_30 : LV_OPA_TRANSP, 0);
     lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
     const bool unofficial = local && local->trust == plugins::Trust::kUnofficial;
-    auto *plate = plugin.id == "retroarch" ? RetroArchIconPlate(row, kText, 84)
+    auto *plate = plugin.icon == "desktop" ? DesktopIcon(row, kAccent, 84) : plugin.id == "retroarch" ? RetroArchIconPlate(row, kText, 84)
         : IconPlate(row, Icon(plugin), update || unofficial ? kAmber : kAccent, IconBackground(), 84);
     lv_obj_set_pos(plate, 28, 32);
     lv_obj_remove_flag(plate, LV_OBJ_FLAG_CLICKABLE);
