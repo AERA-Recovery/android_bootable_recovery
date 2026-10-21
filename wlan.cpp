@@ -900,9 +900,46 @@ bool Wlan::InfoLocked()
     std::string ip_addr;
     ParseSupplicantStatus(status, wpa_state, ssid, ip_addr);
 
+    static auto renew_after = std::chrono::steady_clock::time_point{};
+    const auto now = std::chrono::steady_clock::now();
+    if (wpa_state == "COMPLETED" && !ssid.empty() && ip_addr.empty() && now >= renew_after &&
+        ssid == DataManager::GetStrValue("of_wlan_last_ssid")) {
+        // Supplicant may find a saved AP only after ConnectSaved timed out.
+        renew_after = now + std::chrono::seconds(10);
+        if (ConfigureIp(ssid) && SuppCmd("STATUS", status))
+            ParseSupplicantStatus(status, wpa_state, ssid, ip_addr);
+    }
     DataManager::SetValue("wlan_info_state", wpa_state);
 
     if (wpa_state == "COMPLETED" && !ssid.empty() && !ip_addr.empty()) {
+        // A carrier loss can remove the WLAN default route while supplicant
+        // retains the association's IPv4. Renew only our known network lease;
+        // an intentionally gateway-less LAN must remain usable as configured.
+        const auto iface = GetIface();
+        char gateway[PROPERTY_VALUE_MAX]{}, configured_ip[PROPERTY_VALUE_MAX]{};
+        property_get(("net." + iface + ".gateway").c_str(), gateway, "");
+        property_get(("net." + iface + ".ipaddress").c_str(), configured_ip, "");
+        in_addr gateway_address{};
+        if (ssid == DataManager::GetStrValue("of_wlan_last_ssid") && ip_addr == configured_ip &&
+            inet_pton(AF_INET, gateway, &gateway_address) == 1 && gateway_address.s_addr) {
+            std::ifstream routes("/proc/net/route");
+            if (!routes) return false;
+            std::string line;
+            bool routed = false;
+            while (std::getline(routes, line)) {
+                std::istringstream fields(line);
+                std::string device, destination, next_hop;
+                unsigned flags = 0;
+                if (fields >> device >> destination >> next_hop >> std::hex >> flags)
+                    routed |= device == iface && destination == "00000000" && (flags & 1);
+            }
+            if (routes.bad()) return false;
+            if (!routed) {
+                if (!ConfigureIp(ssid) || !SuppCmd("STATUS", status)) return false;
+                ParseSupplicantStatus(status, wpa_state, ssid, ip_addr);
+                if (wpa_state != "COMPLETED" || ip_addr.empty()) return false;
+            }
+        }
         // The WLAN worker refreshes RSSI; status-bar rendering only reads it.
         std::string signal;
         int rssi = -999;
