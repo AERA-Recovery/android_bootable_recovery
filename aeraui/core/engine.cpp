@@ -688,6 +688,9 @@ public:
         !pc_transfer_.Expanded() && !StatusBarShadeOpen(), HandleSceneAction, this,
         aera::pc::GetUploadProgress().active ? 148 : 0);
     PollAutomaticNas();
+    if (backend_ready_ && !decryption_active_ && !decrypt_running_ &&
+        !fastboot_mode_ && !operation_running_ && CanReboot())
+      RecoveryPollMobileAutoConnect();
     if (backend_ready_ && !fastboot_mode_ && CanReboot())
       RecoveryPollDeveloperSettings();
     PollUsbAttachment();
@@ -2530,6 +2533,7 @@ private:
     auto *self = static_cast<Impl *>(context);
     if (self == nullptr)
       return;
+    if (action == Action::kMobileData && !MobileDataEnabled()) return;
 
     if (action == Action::kPluginDesktopOpen || action == Action::kPluginDesktopClose) {
       if (action == Action::kPluginDesktopOpen) {
@@ -2986,7 +2990,7 @@ private:
         action == Action::kThemeTypography || action == Action::kThemeNavigation ||
         action == Action::kThemeLock ||
         action == Action::kDeveloperSettings ||
-        action == Action::kWifi || action == Action::kUsers ||
+        action == Action::kWifi || action == Action::kMobileData || action == Action::kUsers ||
         action == Action::kPcConnection;
     if (action == Action::kOpenReboot || action == Action::kBackHome ||
         action == Action::kInstall || opens_tool) {
@@ -3002,6 +3006,8 @@ private:
         self->current_tool_ = action;
         if (action == Action::kWifi)
           self->wifi_scene_ = BuildWifiScene(screen, HandleSceneAction, self);
+        else if (action == Action::kMobileData)
+          BuildMobileDataScene(screen, HandleSceneAction, self);
         else
           BuildToolScene(screen, action, HandleSceneAction, self);
         lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
@@ -3456,7 +3462,7 @@ private:
     }
     if (plugin_running_ || operation_running_ || wifi_running_ || nas_running_)
       return;
-    if (!RecoveryWifiConnection().connected)
+    if (!RecoveryNetworkConnected())
       return;
     const std::string id = plugin_auto_queue_.front();
     plugin_auto_queue_.erase(plugin_auto_queue_.begin());
@@ -3468,7 +3474,7 @@ private:
 
   void StartUpdateCheck(bool manual) {
     if (update_running_) return;
-    if (!RecoveryWifiConnection().connected) {
+    if (!RecoveryNetworkConnected()) {
       update::SetOffline();
       if (current_scene_ == Action::kUpdates)
         RefreshUpdateScene(update_scene_);
@@ -3492,7 +3498,7 @@ private:
   void StartUpdateDownload() {
     if (update_running_ || operation_running_ || wifi_running_ ||
         nas_running_ || plugin_running_) return;
-    if (!RecoveryWifiConnection().connected) {
+    if (!RecoveryNetworkConnected()) {
       update::SetOffline();
       if (current_scene_ == Action::kUpdates)
         RefreshUpdateScene(update_scene_);
@@ -3521,7 +3527,7 @@ private:
     const uint32_t now = MonotonicMilliseconds();
     if (now - last_update_connection_poll_ < 1000) return;
     last_update_connection_poll_ = now;
-    const bool connected = RecoveryWifiConnection().connected;
+    const bool connected = RecoveryNetworkConnected();
     if (!connected) return;
     if (!plugin_auto_queue_.empty() && !plugin_running_ &&
         !update_running_ && !wifi_running_ && !nas_running_ &&

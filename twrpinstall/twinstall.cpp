@@ -25,6 +25,7 @@
 #endif
 
 #include <ctype.h>
+#include "aera_mobile/client.hpp"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -994,6 +995,8 @@ static int InstallZipImpl(const char *path, int *wipe_cache, bool check_for_dige
 }
 
 int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest) {
+  aera::mobile::StorageLease mobile_lease;
+  if (!mobile_lease) return INSTALL_ERROR;
   aera::flashlog::Recording recording(path ? path : "", "ZIP installer");
   return recording.Finish(InstallZipImpl(path, wipe_cache, check_for_digest));
 }

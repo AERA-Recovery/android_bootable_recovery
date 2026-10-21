@@ -122,6 +122,7 @@ void CompleteBootScene(lv_obj_t *screen);
 void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildHomeAppearancePreview(lv_obj_t *parent);
 void BuildDeveloperScene(lv_obj_t *screen, ActionCallback callback, void *context);
+void BuildMobileDataScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void ArmDeveloperEntryGuard();
 void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback,

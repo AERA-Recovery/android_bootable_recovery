@@ -20,6 +20,7 @@ add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp
   ../components/plugin_desktop.cpp
   ../features/plugin_api/session.cpp ../features/plugin_api/activity.cpp
   ../scenes/developer_scene.cpp
+  ../scenes/mobile_data_scene.cpp
   ../scenes/update_scene.cpp
   ../features/developer/kernel_settings.cpp
   ../scenes/reboot_scene.cpp ../components/power_transition.cpp
@@ -46,12 +47,21 @@ target_include_directories(ui_check PRIVATE .. ../include ../components ../asset
   ../features ../features/files ../localization ../localization/fonts
   ../scenes)
 target_compile_definitions(ui_check PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES)
+target_compile_definitions(ui_check PRIVATE AERA_ENABLE_MOBILE_DATA=1)
 target_compile_definitions(ui_check PRIVATE
   AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets"
   AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets")
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
+foreach(mode unset disabled enabled)
+  add_executable(mobile_data_flag_${mode}_test mobile_data_flag_test.cpp)
+  target_include_directories(mobile_data_flag_${mode}_test PRIVATE ../include)
+  target_compile_options(mobile_data_flag_${mode}_test PRIVATE -UNDEBUG)
+  add_test(NAME mobile_data_flag_${mode} COMMAND mobile_data_flag_${mode}_test)
+endforeach()
+target_compile_definitions(mobile_data_flag_disabled_test PRIVATE AERA_ENABLE_MOBILE_DATA=0)
+target_compile_definitions(mobile_data_flag_enabled_test PRIVATE AERA_ENABLE_MOBILE_DATA=1 EXPECT_MOBILE_DATA=1)
 add_executable(wifi_ip_config_test wifi_ip_config_test.cpp)
 target_compile_options(wifi_ip_config_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME wifi_static_ip_validation COMMAND wifi_ip_config_test)
@@ -405,3 +415,8 @@ target_compile_definitions(frp_wipe_enabled_test PRIVATE AERA_ENABLE_FRP_WIPE=1)
 add_executable(shared_storage_test shared_storage_test.cpp)
 target_compile_options(shared_storage_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME shared_storage_android_access COMMAND shared_storage_test)
+
+add_executable(public_ip_test public_ip_test.cpp)
+target_compile_options(public_ip_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(public_ip_test PRIVATE resolv Threads::Threads)
+add_test(NAME mobile_public_ipv4_parsing COMMAND public_ip_test)

@@ -4,6 +4,10 @@
 #include "aeraui/features/plugin_api/activity.hpp"
 #include <aeraui/screen_timeout.hpp>
 #include "../../aera_remote/backup_cancel.hpp"
+#include "../../aera_mobile/client.hpp"
+#include "../../aera_mobile/android_apn.hpp"
+#include <json/json.h>
+#include <signal.h>
 #include "aeraui/features/update/payload_inspector.hpp"
 #include "aeraui/features/update/payload_arb.hpp"
 #include "aeraui/features/update/payload_targets.hpp"
@@ -64,6 +68,7 @@
 #include "aeraui/platform/image_targets.hpp"
 #include "unencrypted_users.hpp"
 #include "temperature_reader.hpp"
+#include "public_ip.hpp"
 #include <twinstall.h>
 #include <twinstall/adb_install.h>
 
@@ -648,6 +653,8 @@ bool RecoveryDataLocked() {
 }
 
 bool RecoveryEnterFastbootd() {
+  aera::mobile::StorageLease mobile_lease;
+  if (!mobile_lease) return false;
   if (!android::base::GetBoolProperty("ro.boot.dynamic_partitions", false)) {
     LOGERR("AERA live fastbootd: dynamic partitions are unavailable.\n");
     return false;
@@ -1161,6 +1168,17 @@ payload::FlashProgressStore gPayloadProgress;
 PayloadFlashProgress RecoveryPayloadFlashProgress() { return gPayloadProgress.Read(); }
 static int RecoveryRunJobImpl(const JobRequest &request);
 int RecoveryRunJob(const JobRequest &request) {
+  const bool needs_mobile_stop = request.job == Job::kInstall || request.job == Job::kSideload ||
+      request.job == Job::kFlashImage || request.job == Job::kFlashPayload ||
+      request.job == Job::kRestore || request.job == Job::kWipe || request.job == Job::kFormatData;
+  std::unique_ptr<aera::mobile::StorageLease> mobile_lease;
+  if (needs_mobile_stop) {
+    mobile_lease = std::make_unique<aera::mobile::StorageLease>();
+    if (!*mobile_lease) {
+      gui_err("Mobile data could not stop safely. Reboot recovery before flashing.\n");
+      return 1;
+    }
+  }
   plugin_api::HostStorageLease storage_lease;
   if (!storage_lease) {
     gui_err("Finish or cancel background plugin storage tasks first.\n");
@@ -3311,6 +3329,11 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "wifi_auto_enable") DataManager::SetValue("of_wlan_auto_enable", value);
     else if (key == "wifi_auto_connect") DataManager::SetValue("of_wlan_auto_connect", value);
     else if (key == "wifi_last_ssid") DataManager::SetValue("of_wlan_last_ssid", value);
+    else if (key == "mobile_apn") DataManager::SetValue("aera_mobile_apn", value);
+    else if (key == "mobile_auto_connect" && (value == "0" || value == "1"))
+      DataManager::SetValue("aera_mobile_auto_connect", value);
+    else if (key == "mobile_subscription" && (value == "0" || value == "1" || value == "2"))
+      DataManager::SetValue("aera_mobile_subscription", value);
   }
   ApplyEarlyUiPreferences(full_ui);
   loaded = true;
@@ -3380,6 +3403,9 @@ bool SaveAeraPreferences(bool require_early) {
          << "wifi_auto_enable=" << DataManager::GetIntValue("of_wlan_auto_enable") << '\n'
          << "wifi_auto_connect=" << DataManager::GetIntValue("of_wlan_auto_connect") << '\n'
          << "wifi_last_ssid=" << DataManager::GetStrValue("of_wlan_last_ssid") << '\n'
+         << "mobile_apn=" << DataManager::GetStrValue("aera_mobile_apn") << '\n'
+         << "mobile_auto_connect=" << DataManager::GetIntValue("aera_mobile_auto_connect") << '\n'
+         << "mobile_subscription=" << DataManager::GetIntValue("aera_mobile_subscription") << '\n'
          << "wifi_show_speed=" << (DataManager::GetStrValue("aera_wifi_show_speed") != "0" ? 1 : 0) << '\n'
          << "wifi_show_name=" << (DataManager::GetStrValue("aera_wifi_show_name") != "0" ? 1 : 0) << '\n'
          << "battery_style=" << static_cast<int>(RecoveryBatteryStyle()) << '\n'
@@ -3550,6 +3576,171 @@ void RecoveryWifiInitializeEarly() {
 #endif
 }
 
+MobileStatus RecoveryMobileStatus() {
+  MobileStatus result;
+  if (!MobileDataEnabled()) return result;
+  result.available = access("/system/bin/aera-cellular-provider", X_OK) == 0;
+  result.message = result.available ? "Mobile data is off" : "This device has no mobile data provider";
+  if (!result.available) return result;
+  std::ifstream input(aera::mobile::kStatus);
+  Json::CharReaderBuilder reader;
+  Json::Value value;
+  std::string error;
+  if (!input || !Json::parseFromStream(reader, input, &value, &error) || !value.isObject() ||
+      value.get("version", 0).asInt() != 1) return result;
+  const int pid = value.get("pid", 0).asInt();
+  std::string boot;
+  std::ifstream("/proc/sys/kernel/random/boot_id") >> boot;
+  if (pid <= 1 || kill(pid, 0) != 0 || value.get("boot_id", "").asString() != boot) return result;
+  result.running = true;
+  result.available = value.get("available", false).asBool();
+  result.enabled = value.get("enabled", false).asBool();
+  result.connected = value.get("connected", false).asBool();
+  result.registered = value.get("registered", false).asBool();
+  result.signal_valid = value.get("signal_valid", false).asBool();
+  result.signal_dbm = value.get("signal_dbm", 0).asInt();
+  result.bars = std::clamp(value.get("bars", -1).asInt(), -1, 4);
+  result.subscription = value.get("subscription", 0).asInt();
+  result.state = value.get("state", "off").asString();
+  result.message = value.get("message", "").asString();
+  result.technology = value.get("technology", "").asString();
+  result.operator_name = value.get("operator", "").asString();
+  result.address = value.get("address", "").asString();
+  result.interface = value.get("interface", "").asString();
+  return result;
+}
+void RecoveryStartMobileService() {
+  if (MobileDataEnabled() && access("/system/bin/aera-cellular-provider", X_OK) == 0)
+    property_set("ctl.start", "aera-cellular");
+}
+MobilePublicIp RecoveryMobilePublicIp(const MobileStatus &mobile) {
+  if (!MobileDataEnabled()) return {};
+  static public_ip::Sampler sampler;
+  const auto snapshot = sampler.Sample(mobile.interface, mobile.address, mobile.connected);
+  return {snapshot.address, snapshot.pending};
+}
+std::string RecoveryMobileApn() {
+  LoadAeraPreferencesIfAvailable();
+  return DataManager::GetStrValue("aera_mobile_apn");
+}
+int RecoveryMobileSubscription() {
+  LoadAeraPreferencesIfAvailable();
+  return std::clamp(DataManager::GetIntValue("aera_mobile_subscription"), 0, 2);
+}
+bool RecoveryConnectMobile(const std::string &apn, int subscription, std::string *error) {
+  if (!MobileDataEnabled()) {
+    if (error) *error = "Mobile data is disabled in this build";
+    return false;
+  }
+  if (RecoveryDataLocked()) {
+    if (error) *error = "Unlock internal storage before enabling mobile data";
+    return false;
+  }
+  if (apn.size() > 100 || apn.find_first_not_of(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_") != std::string::npos ||
+      subscription < 0 || subscription > 2) {
+    if (error) *error = "Invalid APN or SIM selection";
+    return false;
+  }
+  Json::Value config;
+  config["apn"] = apn;
+  config["subscription"] = subscription;
+  if (apn.empty()) {
+    const auto automatic = aera::mobile::AndroidPreferredApn(subscription);
+    if (!automatic.apn.empty()) {
+      config["apn"] = automatic.apn;
+      config["subscription"] = automatic.subscription;
+    }
+  }
+  Json::StreamWriterBuilder writer;
+  writer["indentation"] = "";
+  std::string reply;
+  aera::mobile::MarkAutoHandled();
+  const bool ok = aera::mobile::Request("connect " + Json::writeString(writer, config), &reply) && reply == "OK";
+  if (ok) {
+    DataManager::SetValue("aera_mobile_apn", apn);
+    DataManager::SetValue("aera_mobile_subscription", subscription);
+    SaveAeraPreferences();
+  } else if (error) *error = reply.empty() ? "Mobile data service is not ready yet" : reply;
+  return ok;
+}
+bool RecoveryDisconnectMobile(std::string *error) {
+  aera::mobile::MarkAutoHandled();
+  std::string reply;
+  const bool ok = aera::mobile::Request("disconnect-async", &reply) && reply == "OK";
+  if (!ok && error) *error = "Could not request mobile data disconnect";
+  return ok;
+}
+bool RecoveryMobileAutoConnect() {
+  if (!MobileDataEnabled()) return false;
+  LoadAeraPreferencesIfAvailable();
+  return DataManager::GetIntValue("aera_mobile_auto_connect") == 1;
+}
+bool RecoverySetMobileConfiguration(const std::string &apn, int subscription, std::string *error) {
+  if (!MobileDataEnabled()) return false;
+  LoadAeraPreferencesIfAvailable();
+  if (RecoveryDataLocked()) {
+    if (error) *error = "Unlock internal storage before saving mobile data settings";
+    return false;
+  }
+  if (apn.size() > 100 || apn.find_first_not_of(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_") != std::string::npos ||
+      subscription < 0 || subscription > 2) {
+    if (error) *error = "Invalid APN or SIM selection";
+    return false;
+  }
+  const auto previous_apn = RecoveryMobileApn();
+  const int previous_subscription = RecoveryMobileSubscription();
+  DataManager::SetValue("aera_mobile_apn", apn);
+  DataManager::SetValue("aera_mobile_subscription", subscription);
+  if (SaveAeraPreferences()) return true;
+  DataManager::SetValue("aera_mobile_apn", previous_apn);
+  DataManager::SetValue("aera_mobile_subscription", previous_subscription);
+  if (error) *error = "Could not save mobile data settings";
+  return false;
+}
+bool RecoverySetMobileAutoConnect(bool enabled, std::string *error) {
+  if (!MobileDataEnabled()) return false;
+  const bool previous = RecoveryMobileAutoConnect();
+  if (RecoveryDataLocked()) {
+    if (error) *error = "Unlock internal storage before saving mobile data settings";
+    return false;
+  }
+  // This controls the next boot, not an immediate or repeated reconnect.
+  aera::mobile::MarkAutoHandled();
+  DataManager::SetValue("aera_mobile_auto_connect", enabled ? 1 : 0);
+  if (SaveAeraPreferences()) return true;
+  DataManager::SetValue("aera_mobile_auto_connect", previous ? 1 : 0);
+  if (error) *error = "Could not save mobile data settings";
+  return false;
+}
+void RecoveryPollMobileAutoConnect() {
+  if (!MobileDataEnabled()) return;
+  using Clock = std::chrono::steady_clock;
+  static auto next = Clock::time_point{};
+  static auto started = Clock::time_point{};
+  const auto now = Clock::now();
+  if (now < next) return;
+  next = now + std::chrono::seconds(1);
+  if (access(aera::mobile::kAutoHandled, F_OK) == 0 ||
+      access("/system/bin/aera-cellular-provider", X_OK) != 0 || RecoveryDataLocked() ||
+      !RecoveryMobileAutoConnect()) return;
+  const auto mobile = RecoveryMobileStatus();
+  if (mobile.enabled) { aera::mobile::MarkAutoHandled(); return; }
+  if (!mobile.running) {
+    if (started == Clock::time_point{}) { started = now; RecoveryStartMobileService(); }
+    if (now - started >= std::chrono::seconds(20)) aera::mobile::MarkAutoHandled();
+    return;
+  }
+  if (!aera::mobile::MarkAutoHandled(true) || !mobile.available) return;
+  std::string error;
+  if (!RecoveryConnectMobile(RecoveryMobileApn(), RecoveryMobileSubscription(), &error))
+    LOGERR("Mobile auto-connect: %s\n", error.c_str());
+}
+bool RecoveryNetworkConnected() {
+  return RecoveryWifiConnection().connected || RecoveryMobileStatus().connected;
+}
+
 WifiConnection RecoveryWifiConnection() {
   WifiConnection connection;
 #ifdef OF_ENABLE_WLAN
@@ -3560,12 +3751,10 @@ WifiConnection RecoveryWifiConnection() {
   return connection;
 }
 
-WifiTraffic RecoveryWifiTraffic() {
+static WifiTraffic ReadInterfaceTraffic(const std::string &interface) {
   WifiTraffic traffic;
-#ifdef OF_ENABLE_WLAN
-  if (DataManager::GetIntValue("tw_wlan_connected") != 1) return traffic;
-  traffic.interface = DataManager::GetStrValue("tw_wlan_iface");
-  if (traffic.interface.empty()) traffic.interface = "wlan0";
+  traffic.interface = interface;
+  if (traffic.interface.empty()) return traffic;
   if (traffic.interface.find_first_not_of(
           "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.") != std::string::npos ||
       traffic.interface == "." || traffic.interface == "..") return traffic;
@@ -3575,8 +3764,21 @@ WifiTraffic RecoveryWifiTraffic() {
   std::ifstream index(directory + "/ifindex");
   traffic.valid = bool(received >> traffic.received_bytes) &&
       bool(sent >> traffic.sent_bytes) && bool(index >> traffic.interface_index);
-#endif
   return traffic;
+}
+WifiTraffic RecoveryWifiTraffic() {
+#ifdef OF_ENABLE_WLAN
+  if (!RecoveryWifiConnection().connected) return {};
+  const auto interface = DataManager::GetStrValue("tw_wlan_iface");
+  return ReadInterfaceTraffic(interface.empty() ? "wlan0" : interface);
+#else
+  return {};
+#endif
+}
+WifiTraffic RecoveryNetworkTraffic() {
+  if (RecoveryWifiConnection().connected) return RecoveryWifiTraffic();
+  const auto mobile = RecoveryMobileStatus();
+  return mobile.connected ? ReadInterfaceTraffic(mobile.interface) : WifiTraffic{};
 }
 
 WifiStatusDisplay RecoveryWifiStatusDisplay() {
@@ -3755,6 +3957,15 @@ int RecoveryRunWifi(const WifiRequest &request) {
       if (result) {
         DataManager::SetValue("wlan_state", "scanning");
         Wlan::Scan();
+        const auto ssid = DataManager::GetStrValue("of_wlan_last_ssid");
+        if (DataManager::GetIntValue("of_wlan_auto_connect") == 1 && !ssid.empty() &&
+            !RecoveryWifiConnection().connected) {
+          DataManager::SetValue("wlan_state", "connecting");
+          DataManager::SetValue("wlanselectedid", ssid);
+          // The radio enable succeeded even when the saved AP is out of range.
+          // Supplicant keeps looking; the idle worker configures IP on arrival.
+          Wlan::ConnectSaved();
+        }
       }
       break;
     case WifiOperation::kDisable:
@@ -3801,6 +4012,10 @@ int RecoveryRunWifi(const WifiRequest &request) {
     case WifiOperation::kDisableFastbootWifi:
       result = RecoverySetFastbootOverWifi(false);
       break;
+  }
+  if (Wlan::IsEnabled()) {
+    Wlan::Info();
+    AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::RefreshStatus);
   }
   const bool enabled = Wlan::IsEnabled();
   const bool connected = DataManager::GetIntValue("tw_wlan_connected") == 1;

@@ -151,6 +151,24 @@ bool RecoverySetWallpaperLayout(const WallpaperLayout &layout) {
 }
 static LockTheme lock_theme;
 WifiConnection RecoveryWifiConnection() { return {}; }
+MobileStatus RecoveryMobileStatus() {
+  MobileStatus status;
+  status.available = true;
+  status.message = "Mobile data is off";
+  return status;
+}
+void RecoveryStartMobileService() {}
+MobilePublicIp RecoveryMobilePublicIp(const MobileStatus &) { return {}; }
+bool RecoveryConnectMobile(const std::string &, int, std::string *) { return true; }
+bool RecoveryDisconnectMobile(std::string *) { return true; }
+std::string RecoveryMobileApn() { return {}; }
+int RecoveryMobileSubscription() { return 0; }
+static bool mobile_auto_connect = false;
+bool RecoveryMobileAutoConnect() { return mobile_auto_connect; }
+bool RecoverySetMobileAutoConnect(bool enabled, std::string *) { mobile_auto_connect = enabled; return true; }
+bool RecoverySetMobileConfiguration(const std::string &, int, std::string *) { return true; }
+void RecoveryPollMobileAutoConnect() {}
+bool RecoveryNetworkConnected() { return RecoveryWifiConnection().connected || RecoveryMobileStatus().connected; }
 LockTheme RecoveryLockTheme() { return lock_theme; }
 bool RecoverySetLockTheme(const LockTheme &theme) {
   if (!ValidLockTheme(theme)) return false;
@@ -644,6 +662,28 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--mobile")) {
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *page = lv_obj_create(nullptr);
+      BuildMobileDataScene(page, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      assert(FindLabel(page, "Mobile data"));
+      auto *network_title = FindLabel(page, "Network"); assert(network_title);
+      auto *wifi_tab = Find(page, "Wi-Fi"); assert(wifi_tab);
+      lv_area_t title_bounds{}, tab_bounds{};
+      lv_obj_get_coords(network_title, &title_bounds); lv_obj_get_coords(wifi_tab, &tab_bounds);
+      assert(title_bounds.x2 < tab_bounds.x1);
+      assert(Find(page, "SIM 1") && Find(page, "SIM 2"));
+      auto *automatic = Find(page, "Auto-connect on boot"); assert(automatic);
+      const bool previous = RecoveryMobileAutoConnect();
+      lv_obj_send_event(automatic, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoveryMobileAutoConnect() != previous);
+      save(landscape ? "/tmp/aera-mobile-landscape.png" : "/tmp/aera-mobile-portrait.png");
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+    }
+    lv_deinit();std::filesystem::remove_all(backup_root);return 0;
+  }
   if (!strcmp(argv[1], "--update-channel")) {
     for (const char* installed_type : {"Stable", "Beta", "Alpha", "Nightly"}) {
     for (auto channel : {update::Channel::kStable, update::Channel::kNightly}) {

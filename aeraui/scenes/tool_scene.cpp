@@ -3428,7 +3428,7 @@ void BuildMenu(Tools *state) {
     {LV_SYMBOL_DRIVE, "Mounts", "Mount or unmount recovery volumes", Action::kMounts},
     {LV_SYMBOL_USB, "ADB Sideload", "Receive and install a ZIP package over USB", Action::kSideload},
     {LV_SYMBOL_LIST, "Recovery log", "Read output and troubleshoot operations", Action::kLogs},
-    {LV_SYMBOL_WIFI, "Wi-Fi", "Networks, saved credentials and connection test", Action::kWifi},
+    {LV_SYMBOL_WIFI, ConnectivityTitle(), "Networks, saved credentials and connection test", Action::kWifi},
     {LV_SYMBOL_SHUFFLE, "Network Storage", "Connect and mount SFTP or SMB storage", Action::kNas},
     {LV_SYMBOL_SETTINGS, "Root Manager", "Patch init_boot and manage KernelSU modules", Action::kRootManager},
     {LV_SYMBOL_KEYBOARD, "Android Users", "Unlock additional users on demand", Action::kUsers},

@@ -11,6 +11,7 @@
 
 #include "ui_components.hpp"
 #include "phone_keyboard.hpp"
+#include "network_tabs.hpp"
 
 namespace aeraui {
 namespace {
@@ -93,7 +94,7 @@ struct WifiUi {
 };
 
 std::string Signature(const WifiStatus &status) {
-  std::string value = status.state + "|" + status.ssid + "|" +
+  std::string value = status.state + "|" + status.ssid + "|" + status.ip_address + "|" +
       (status.enabled ? "1" : "0") + (status.connected ? "1" : "0");
   for (const auto &network : status.networks)
     value += "|" + network.ssid + ":" + network.security +
@@ -1070,11 +1071,12 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
     delete s;
   }, LV_EVENT_DELETE, state);
 
-  Header(screen, "Wi-Fi", "Networks & connectivity", callback, context);
+  Header(screen, ConnectivityTitle(), "Networks & connectivity", callback, context);
+  NetworkTabs(screen, false, callback, context);
   const bool landscape = Landscape(screen);
-  auto *settings = Button(screen, LV_SYMBOL_SETTINGS "  Wi-Fi settings",
+  auto *settings = Button(screen, MobileDataEnabled() ? LV_SYMBOL_SETTINGS : LV_SYMBOL_SETTINGS "  Wi-Fi settings",
                           [state] { ShowWifiSettings(state); });
-  lv_obj_set_size(settings, 360, 104);
+  lv_obj_set_size(settings, MobileDataEnabled() ? 104 : 360, 104);
   lv_obj_align(settings, LV_ALIGN_TOP_RIGHT, -64, landscape ? 184 : 232);
   lv_obj_set_style_radius(settings, 32, 0);
   auto *panel = lv_obj_create(screen);

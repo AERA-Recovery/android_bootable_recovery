@@ -10,6 +10,33 @@
 #include "aeraui/kernel_settings.hpp"
 
 namespace aeraui {
+inline constexpr bool MobileDataEnabled() {
+#if defined(AERA_ENABLE_MOBILE_DATA) && AERA_ENABLE_MOBILE_DATA == 1
+  return true;
+#else
+  return false;
+#endif
+}
+inline constexpr const char *ConnectivityTitle() { return MobileDataEnabled() ? "Network" : "Wi-Fi"; }
+struct MobileStatus {
+  bool available = false, enabled = false, connected = false;
+  bool registered = false, signal_valid = false, running = false;
+  int signal_dbm = 0, bars = -1, subscription = 0;
+  std::string state, message, technology, operator_name, address, interface;
+};
+MobileStatus RecoveryMobileStatus();
+struct MobilePublicIp { std::string address; bool pending = false; };
+MobilePublicIp RecoveryMobilePublicIp(const MobileStatus &status);
+void RecoveryStartMobileService();
+bool RecoveryConnectMobile(const std::string &apn, int subscription, std::string *error);
+bool RecoveryDisconnectMobile(std::string *error);
+std::string RecoveryMobileApn();
+int RecoveryMobileSubscription();
+bool RecoveryMobileAutoConnect();
+bool RecoverySetMobileAutoConnect(bool enabled, std::string *error);
+bool RecoverySetMobileConfiguration(const std::string &apn, int subscription, std::string *error);
+void RecoveryPollMobileAutoConnect();
+bool RecoveryNetworkConnected();
 std::vector<kernel::Setting> RecoveryDeveloperSettings();
 bool RecoverySetDeveloperSetting(const std::string &id, const std::string &value,
                                  bool remember, std::string *error);
@@ -476,6 +503,7 @@ void RecoveryWifiInitialize();
 void RecoveryWifiInitializeEarly();
 WifiConnection RecoveryWifiConnection();
 WifiTraffic RecoveryWifiTraffic();
+WifiTraffic RecoveryNetworkTraffic();
 WifiStatusDisplay RecoveryWifiStatusDisplay();
 bool RecoverySetWifiStatusDisplay(const WifiStatusDisplay &display, bool save = true);
 WifiStatus RecoveryWifiStatus();

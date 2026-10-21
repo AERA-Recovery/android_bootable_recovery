@@ -583,7 +583,7 @@ bool Download() {
 void SetOffline() {
   std::lock_guard<std::mutex> lock(gMutex);
   gSnapshot.phase = Phase::kError;
-  gSnapshot.message = "Connect to Wi-Fi and try again";
+  gSnapshot.message = "Connect to a network and try again";
 }
 
 void Cancel() {

@@ -38,8 +38,17 @@ func aeraRootManagerFlags(ctx android.BaseContext) []string {
 	return []string{"-DAERA_ENABLE_ROOT_MANAGER=" + rootManager}
 }
 
+func aeraMobileDataFlags(ctx android.BaseContext) []string {
+	value := "0"
+	if getMakeVars(ctx, "AERA_ENABLE_MOBILE_DATA") == "1" {
+		value = "1"
+	}
+	return []string{"-DAERA_ENABLE_MOBILE_DATA=" + value}
+}
+
 func globalFlags(ctx android.BaseContext) []string {
 	cflags := aeraRootManagerFlags(ctx)
+	cflags = append(cflags, aeraMobileDataFlags(ctx)...)
 	if getMakeVars(ctx, "AB_OTA_UPDATER") == "true" {
 		cflags = append(cflags, "-DAB_OTA_UPDATER=1")
 	}
@@ -117,7 +126,8 @@ func aeraHostDefaultsFactory() android.Module {
 }
 
 func aeraUiDefaults(ctx android.BaseContext) []string {
-	return append(aeraUiLanguageFlags(ctx), aeraRootManagerFlags(ctx)...)
+	flags := append(aeraUiLanguageFlags(ctx), aeraRootManagerFlags(ctx)...)
+	return append(flags, aeraMobileDataFlags(ctx)...)
 }
 
 func aeraUiDefaultsFactory() android.Module {

@@ -71,6 +71,7 @@ cc_library_static {
         "core/gpu_renderer.cpp",
         "core/runner.cpp",
         "core/status_bar.cpp",
+        "scenes/mobile_data_scene.cpp",
         "features/artillery/game.cpp",
         "features/backup/android_packages_xml.cpp",
         "features/backup/app_registration.cpp",

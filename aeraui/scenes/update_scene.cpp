@@ -289,7 +289,7 @@ void RefreshUpdateScene(const UpdateScene &scene) {
   }
   i18n::BindLabel(scene.status, status.c_str());
   i18n::BindLabel(scene.detail, snapshot.message.empty()
-      ? "Connect to Wi-Fi to check for a newer build."
+      ? "Connect to a network to check for a newer build."
       : snapshot.message.c_str());
 
   const std::string installed = snapshot.device.empty()
