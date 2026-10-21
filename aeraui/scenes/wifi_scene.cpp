@@ -1074,15 +1074,17 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
   Header(screen, ConnectivityTitle(), "Networks & connectivity", callback, context);
   NetworkTabs(screen, false, callback, context);
   const bool landscape = Landscape(screen);
-  auto *settings = Button(screen, MobileDataEnabled() ? LV_SYMBOL_SETTINGS : LV_SYMBOL_SETTINGS "  Wi-Fi settings",
+  auto *settings = Button(screen, LV_SYMBOL_SETTINGS "  Wi-Fi settings",
                           [state] { ShowWifiSettings(state); });
-  lv_obj_set_size(settings, MobileDataEnabled() ? 104 : 360, 104);
-  lv_obj_align(settings, LV_ALIGN_TOP_RIGHT, -64, landscape ? 184 : 232);
+  lv_obj_set_size(settings, 360, 104);
+  lv_obj_align(settings, LV_ALIGN_TOP_RIGHT, -64,
+               MobileDataEnabled() ? (landscape ? 190 : 244) : (landscape ? 184 : 232));
   lv_obj_set_style_radius(settings, 32, 0);
   auto *panel = lv_obj_create(screen);
   Panel(panel, 36, kMainSheet);
   state->hero = panel;
-  lv_obj_set_pos(panel, 64, landscape ? 350 : 420);
+  const int content_top = NetworkContentTop(screen);
+  lv_obj_set_pos(panel, 64, content_top);
   lv_obj_set_size(panel, landscape ? 1450 : 1312,
                   landscape ? 520 : 352);
   lv_obj_set_style_border_width(panel, 0, 0);
@@ -1149,9 +1151,10 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
   auto *caption = Label(screen, "AVAILABLE NETWORKS", &lv_font_montserrat_18, kMuted);
   lv_obj_set_style_text_letter_space(caption, 3, 0);
   lv_obj_set_pos(caption, landscape ? 1580 : 80,
-                 landscape ? 306 : 830);
-  state->scene.list = Scroll(screen, landscape ? 350 : 884,
-                             landscape ? 900 : 1960);
+                 landscape ? content_top - 44 : content_top + 410);
+  const int list_top = landscape ? content_top : content_top + 464;
+  state->scene.list = Scroll(screen, list_top,
+      std::max(200, lv_obj_get_height(screen) - list_top - NavigationHeight(screen) - 40));
   if (landscape) {
     lv_obj_set_x(state->scene.list, 1560);
     lv_obj_set_width(state->scene.list, 1544);

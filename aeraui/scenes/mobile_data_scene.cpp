@@ -11,6 +11,7 @@ using namespace widgets;
 using namespace design;
 struct MobileUi {
   lv_obj_t *screen=nullptr,*title=nullptr,*detail=nullptr,*signal=nullptr,*network=nullptr;
+  lv_obj_t *status_icon=nullptr,*address=nullptr;
   lv_obj_t *toggle=nullptr,*radio=nullptr,*apn_button=nullptr,*apn_text=nullptr;
   lv_obj_t *auto_radio=nullptr;
   lv_obj_t *pin_button=nullptr,*pin_status=nullptr,*saved_pins=nullptr;
@@ -22,6 +23,12 @@ struct MobileUi {
 };
 lv_obj_t *pin_overlay=nullptr;
 std::string prompted_request,open_request;
+lv_obj_t *MobileControl(lv_obj_t *parent,const char *text,Handler action) {
+  auto *button=lv_button_create(parent);Clear(button);Panel(button,30,kMainPanel);
+  Interactive(button,kMainSelected);
+  Label(button,text,&lv_font_montserrat_32,kText);
+  OnClick(button,std::move(action));return button;
+}
 void EditPin(lv_obj_t *screen);
 void RefreshSavedPins(MobileUi *state) {
   const auto saved=RecoverySavedMobilePins();
@@ -31,6 +38,8 @@ void RefreshSavedPins(MobileUi *state) {
   for(const auto &sim:mobile.sims)signature+=sim.id+std::to_string(sim.slot);
   if(signature==state->saved_signature)return;
   state->saved_signature=signature;lv_obj_clean(state->saved_pins);
+  if(saved.empty())lv_obj_add_flag(state->saved_pins,LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_remove_flag(state->saved_pins,LV_OBJ_FLAG_HIDDEN);
   for(const auto &pin:saved) {
     int slot=pin.slot;
     for(const auto &sim:mobile.sims)if(sim.id==pin.id)slot=sim.slot;
@@ -39,6 +48,7 @@ void RefreshSavedPins(MobileUi *state) {
       state->error.clear();RecoveryForgetMobilePin(id,&state->error);
     });
     lv_obj_set_size(button,LV_PCT(100),116);
+    Panel(button,30,kMainPanel);
   }
 }
 void RefreshMobile(MobileUi *state) {
@@ -47,6 +57,8 @@ void RefreshMobile(MobileUi *state) {
   i18n::BindLabel(state->title,mobile.state=="pin_required"?"SIM PIN required":
       mobile.state=="verifying_pin"?"Verifying SIM PIN":mobile.connected?"Connected":busy?"Connecting...":"Mobile data");
   lv_obj_set_style_text_color(state->title,mobile.connected?kGreen:kText,0);
+  for(uint32_t i=0;i<lv_obj_get_child_count(state->status_icon);++i)
+    lv_obj_set_style_bg_color(lv_obj_get_child(state->status_icon,i),mobile.connected?kGreen:kAccent,0);
   const std::string detail=!state->error.empty()?state->error:mobile.message;
   lv_label_set_text(state->detail,i18n::Translate(detail.c_str()));
   if(mobile.enabled)lv_obj_add_state(state->radio,LV_STATE_CHECKED);
@@ -58,18 +70,19 @@ void RefreshMobile(MobileUi *state) {
   std::string network=mobile.operator_name;
   if(!mobile.technology.empty())network+=(network.empty()?"":" / ")+mobile.technology;
   const auto public_ip=RecoveryMobilePublicIp(mobile);
-  if(mobile.connected) {
-    const std::string address=!public_ip.address.empty()?public_ip.address:
-        public_ip.pending?"Checking...":"Unavailable";
-    network+=(network.empty()?"Public IPv4  ":"\nPublic IPv4  ")+address;
-  }
+  const std::string address=!mobile.connected?"Not connected":!public_ip.address.empty()?public_ip.address:
+      public_ip.pending?"Checking...":"Unavailable";
+  lv_label_set_text(state->address,i18n::Translate(address.c_str()));
   if(network.empty())network="Not connected";
   lv_label_set_text(state->network,network.c_str());
   const std::string strength=mobile.signal_valid?std::to_string(mobile.signal_dbm)+" dBm":"Signal unavailable";
   lv_label_set_text(state->signal,strength.c_str());
   lv_label_set_text(state->apn_text,state->apn.empty()?"Automatic":state->apn.c_str());
   for(size_t i=0;i<state->sim.size();++i) {
-    lv_obj_set_style_bg_color(state->sim[i],state->subscription==static_cast<int>(i)?kAccentSoft:kMainPanel,0);
+    const bool active=state->subscription==static_cast<int>(i);
+    lv_obj_set_style_border_width(state->sim[i],active?3:SurfaceStyleValue()==2?2:1,0);
+    lv_obj_set_style_border_color(state->sim[i],active?kAccent:kMainLine,0);
+    lv_obj_set_style_border_opa(state->sim[i],active?LV_OPA_COVER:LV_OPA_50,0);
     if(mobile.state=="stopping"||mobile.state=="verifying_pin")lv_obj_add_state(state->sim[i],LV_STATE_DISABLED);
     else lv_obj_remove_state(state->sim[i],LV_STATE_DISABLED);
   }
@@ -200,34 +213,72 @@ void BuildMobileDataScene(lv_obj_t *screen,ActionCallback callback,void *context
   state->apn=RecoveryMobileApn();state->subscription=RecoveryMobileSubscription();
   Header(screen,ConnectivityTitle(),"Networks & connectivity",callback,context);
   NetworkTabs(screen,true,callback,context);
-  auto *content=Scroll(screen,420,std::max(400,lv_obj_get_height(screen)-420-NavigationHeight(screen)-40));
+  const int top=NetworkContentTop(screen);
+  auto *content=Scroll(screen,top,std::max(200,lv_obj_get_height(screen)-top-NavigationHeight(screen)-40));
   lv_obj_set_x(content,64);lv_obj_set_width(content,lv_obj_get_width(screen)-128);
   lv_obj_set_flex_flow(content,LV_FLEX_FLOW_COLUMN);lv_obj_set_style_pad_row(content,28,0);
-  auto label=[&](const char *text,const lv_font_t *font,lv_color_t color){
-    auto *object=Label(content,text,font,color);lv_obj_set_width(object,LV_PCT(100));
+  auto label=[](lv_obj_t *parent,const char *text,const lv_font_t *font,lv_color_t color){
+    auto *object=Label(parent,text,font,color);lv_obj_set_width(object,LV_PCT(100));
     lv_label_set_long_mode(object,LV_LABEL_LONG_WRAP);return object;};
-  state->title=label("Mobile data",&lv_font_montserrat_48,kText);
-  state->detail=label("Reading modem status",&lv_font_montserrat_28,kMuted);
-  state->toggle=Button(content,"Mobile data",[state]{
+  auto column=[](lv_obj_t *parent,int width){
+    auto *object=lv_obj_create(parent);Clear(object);
+    lv_obj_set_size(object,width,LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(object,LV_FLEX_FLOW_COLUMN);lv_obj_set_style_pad_row(object,28,0);
+    return object;};
+  lv_obj_t *connection=content,*configuration=content;
+  if(Landscape(screen)) {
+    lv_obj_set_flex_flow(content,LV_FLEX_FLOW_ROW);lv_obj_set_style_pad_column(content,32,0);
+    const int width=(lv_obj_get_width(screen)-160)/2;
+    connection=column(content,width);configuration=column(content,width);
+  }
+  auto card=[](lv_obj_t *parent){
+    auto *object=lv_obj_create(parent);Panel(object,36,kMainSheet);
+    lv_obj_set_size(object,LV_PCT(100),LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(object,40,0);lv_obj_set_style_pad_row(object,28,0);
+    lv_obj_set_flex_flow(object,LV_FLEX_FLOW_COLUMN);return object;};
+  auto *hero=card(connection);
+  auto *header=lv_obj_create(hero);Clear(header);lv_obj_set_size(header,LV_PCT(100),124);
+  lv_obj_set_flex_flow(header,LV_FLEX_FLOW_ROW);lv_obj_set_style_pad_column(header,32,0);
+  lv_obj_set_flex_align(header,LV_FLEX_ALIGN_START,LV_FLEX_ALIGN_CENTER,LV_FLEX_ALIGN_CENTER);
+  auto *plate=lv_obj_create(header);Panel(plate,34,kMainPanel);lv_obj_set_size(plate,124,124);
+  state->status_icon=NetworkModeIcon(plate,true,72);lv_obj_center(state->status_icon);
+  auto *heading=column(header,0);lv_obj_set_flex_grow(heading,1);lv_obj_set_style_pad_row(heading,12,0);
+  state->title=label(heading,"Mobile data",&lv_font_montserrat_48,kText);
+  lv_label_set_long_mode(state->title,LV_LABEL_LONG_DOT);
+  state->network=label(heading,"Not connected",&lv_font_montserrat_24,kMuted);
+  lv_label_set_long_mode(state->network,LV_LABEL_LONG_DOT);
+  state->toggle=MobileControl(header,"Mobile data",[state]{
     state->error.clear();const auto status=RecoveryMobileStatus();
     if(status.enabled)RecoveryDisconnectMobile(&state->error);
     else RecoveryConnectMobile(state->apn,state->subscription,&state->error);
     RefreshMobile(state);
   });
-  lv_obj_set_size(state->toggle,LV_PCT(100),116);
-  lv_obj_align(lv_obj_get_child(state->toggle,0),LV_ALIGN_LEFT_MID,28,0);
+  Panel(state->toggle,30,kMainPanel);lv_obj_set_size(state->toggle,400,96);
+  auto *toggle_text=lv_obj_get_child(state->toggle,0);
+  lv_obj_set_style_text_font(toggle_text,UiFont(&lv_font_montserrat_24),0);
+  SingleLineLabel(toggle_text,244,&lv_font_montserrat_24);
+  lv_obj_align(toggle_text,LV_ALIGN_LEFT_MID,24,0);
   state->radio=lv_switch_create(state->toggle);StyleSwitch(state->radio,false);
-  lv_obj_align(state->radio,LV_ALIGN_RIGHT_MID,-28,0);
-  auto *automatic=Button(content,"Auto-connect on boot",[state]{
+  lv_obj_align(state->radio,LV_ALIGN_RIGHT_MID,-20,0);
+  state->detail=label(hero,"Reading modem status",&lv_font_montserrat_28,kMuted);
+  auto *automatic=MobileControl(connection,"Auto-connect on boot",[state]{
     state->error.clear();RecoverySetMobileAutoConnect(!RecoveryMobileAutoConnect(),&state->error);
     RefreshMobile(state);
   });
-  lv_obj_set_size(automatic,LV_PCT(100),116);
-  lv_obj_align(lv_obj_get_child(automatic,0),LV_ALIGN_LEFT_MID,28,0);
+  Panel(automatic,36,kMainSheet);lv_obj_set_size(automatic,LV_PCT(100),164);
+  auto *automatic_title=lv_obj_get_child(automatic,0);
+  lv_obj_update_layout(automatic);
+  SingleLineLabel(automatic_title,lv_obj_get_width(automatic)-220,&lv_font_montserrat_32);
+  lv_obj_align(automatic_title,LV_ALIGN_TOP_LEFT,40,28);
+  auto *automatic_detail=Label(automatic,"Connect when recovery starts",&lv_font_montserrat_24,kMuted);
+  lv_obj_set_width(automatic_detail,lv_obj_get_width(automatic)-220);
+  lv_label_set_long_mode(automatic_detail,LV_LABEL_LONG_DOT);
+  lv_obj_align(automatic_detail,LV_ALIGN_TOP_LEFT,40,88);
   state->auto_radio=lv_switch_create(automatic);StyleSwitch(state->auto_radio,false);
-  lv_obj_align(state->auto_radio,LV_ALIGN_RIGHT_MID,-28,0);
-  label("DATA SIM",&lv_font_montserrat_24,kMuted);
-  auto *choices=lv_obj_create(content);Clear(choices);lv_obj_set_size(choices,LV_PCT(100),110);
+  lv_obj_align(state->auto_radio,LV_ALIGN_RIGHT_MID,-40,0);
+  auto *sim_card=card(configuration);
+  label(sim_card,"DATA SIM",&lv_font_montserrat_24,kMuted);
+  auto *choices=lv_obj_create(sim_card);Clear(choices);lv_obj_set_size(choices,LV_PCT(100),110);
   lv_obj_set_flex_flow(choices,LV_FLEX_FLOW_ROW);lv_obj_set_style_pad_column(choices,16,0);
   const std::array<const char *,3> names{"Default","SIM 1","SIM 2"};
   for(int i=0;i<3;++i) {
@@ -237,21 +288,41 @@ void BuildMobileDataScene(lv_obj_t *screen,ActionCallback callback,void *context
       if(RecoverySwitchMobileSim(state->apn,i,&state->error))state->subscription=i;
       RefreshMobile(state);
     });
+    Panel(state->sim[i],30,kMainPanel);
     lv_obj_set_flex_grow(state->sim[i],1);lv_obj_set_width(state->sim[i],0);lv_obj_set_height(state->sim[i],104);
   }
-  state->pin_status=label("",&lv_font_montserrat_28,kMuted);
-  state->pin_button=Button(content,"Unlock SIM",[state]{EditPin(state->screen);});
+  state->pin_status=label(sim_card,"",&lv_font_montserrat_28,kMuted);
+  state->pin_button=Button(sim_card,"Unlock SIM",[state]{EditPin(state->screen);});
+  Panel(state->pin_button,30,kMainPanel);
   lv_obj_set_size(state->pin_button,LV_PCT(100),116);
-  state->saved_pins=lv_obj_create(content);Clear(state->saved_pins);
+  state->saved_pins=lv_obj_create(sim_card);Clear(state->saved_pins);
   lv_obj_set_width(state->saved_pins,LV_PCT(100));lv_obj_set_height(state->saved_pins,LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(state->saved_pins,LV_FLEX_FLOW_COLUMN);lv_obj_set_style_pad_row(state->saved_pins,16,0);
-  label("ACCESS POINT NAME",&lv_font_montserrat_24,kMuted);
-  state->apn_button=Button(content,"",[state]{EditApn(state);});
+  lv_obj_add_flag(state->saved_pins,LV_OBJ_FLAG_HIDDEN);
+  auto *apn_card=card(configuration);
+  label(apn_card,"ACCESS POINT NAME",&lv_font_montserrat_24,kMuted);
+  state->apn_button=MobileControl(apn_card,"",[state]{EditApn(state);});
+  Panel(state->apn_button,30,kMainPanel);
   lv_obj_set_size(state->apn_button,LV_PCT(100),116);
   state->apn_text=lv_obj_get_child(state->apn_button,0);
-  state->network=label("Not connected",&lv_font_montserrat_32,kText);
-  state->signal=label("Signal unavailable",&lv_font_montserrat_28,kMuted);
-  label("Data only. Mobile data disconnects before flashing or restoring.",
+  lv_obj_update_layout(state->apn_button);
+  SingleLineLabel(state->apn_text,lv_obj_get_width(state->apn_button)-140,&lv_font_montserrat_32);
+  lv_obj_align(state->apn_text,LV_ALIGN_LEFT_MID,28,0);
+  auto *arrow=Label(state->apn_button,LV_SYMBOL_RIGHT,&lv_font_montserrat_28,kMuted);
+  lv_obj_align(arrow,LV_ALIGN_RIGHT_MID,-28,0);
+  auto *information=card(Landscape(screen)?connection:configuration);
+  label(information,"CONNECTION",&lv_font_montserrat_24,kMuted);
+  auto field=[&](const char *title){
+    auto *row=lv_obj_create(information);Clear(row);lv_obj_set_size(row,LV_PCT(100),LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row,LV_FLEX_FLOW_ROW);lv_obj_set_style_pad_column(row,32,0);
+    auto *caption=Label(row,title,&lv_font_montserrat_28,kMuted);
+    lv_obj_set_width(caption,LV_PCT(38));
+    auto *value=Label(row,"",&lv_font_montserrat_28,kText);
+    lv_obj_set_width(value,0);lv_obj_set_flex_grow(value,1);
+    lv_obj_set_style_text_align(value,LV_TEXT_ALIGN_RIGHT,0);
+    lv_label_set_long_mode(value,LV_LABEL_LONG_WRAP);return value;};
+  state->address=field("Public IPv4");state->signal=field("Signal");
+  label(information,"Data only. Mobile data disconnects before flashing or restoring.",
         &lv_font_montserrat_24,kMuted);
   Navigation(screen,Action::kSettings,callback,context);
   RecoveryStartMobileService();RefreshMobile(state);

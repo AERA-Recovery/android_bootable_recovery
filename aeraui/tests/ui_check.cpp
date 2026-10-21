@@ -712,6 +712,11 @@ int main(int argc,char **argv) {
     lv_deinit();std::filesystem::remove_all(backup_root);return 0;
   }
   if (!strcmp(argv[1], "--mobile")) {
+    test_mobile_status=true;test_mobile.available=true;
+    test_mobile.state="off";test_mobile.message="Mobile data is off";
+    for(int surface=0;surface<4;++surface) {
+    for(int density:{1,3}) {
+    design::ApplySurfaceStyle(surface);design::ApplyInterfaceSize(density);
     for (bool landscape : {false, true}) {
       lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
       auto *page = lv_obj_create(nullptr);
@@ -722,14 +727,65 @@ int main(int argc,char **argv) {
       auto *wifi_tab = Find(page, "Wi-Fi"); assert(wifi_tab);
       lv_area_t title_bounds{}, tab_bounds{};
       lv_obj_get_coords(network_title, &title_bounds); lv_obj_get_coords(wifi_tab, &tab_bounds);
-      assert(title_bounds.x2 < tab_bounds.x1);
+      assert(title_bounds.y2 < tab_bounds.y1);
+      assert(tab_bounds.x1==64&&lv_obj_get_height(wifi_tab)==128);
+      auto *wifi_symbol=FindLabel(wifi_tab,LV_SYMBOL_WIFI);assert(wifi_symbol);
+      auto *wifi_icon=lv_obj_get_parent(wifi_symbol);
+      AssertContained(wifi_symbol,wifi_icon);AssertContained(wifi_icon,wifi_tab);
+      assert(lv_obj_get_style_text_font(wifi_symbol,LV_PART_MAIN)==&lv_font_montserrat_48);
+      auto *mobile_tab=Find(page,"Mobile data");assert(mobile_tab);
+      assert(lv_obj_get_style_border_width(mobile_tab,LV_PART_MAIN)==3);
+      assert(lv_color_eq(lv_obj_get_style_bg_color(mobile_tab,LV_PART_MAIN),design::kMainPanel));
+      assert(!Overlaps(wifi_tab,mobile_tab));
+      auto *detail=FindLabel(page,"Mobile data is off");assert(detail);
+      auto *hero=lv_obj_get_parent(detail);
+      assert(Bounds(hero).y1>tab_bounds.y2);
+      assert(lv_obj_get_style_radius(hero,LV_PART_MAIN)==36);
+      AssertContained(detail,hero);
       assert(Find(page, "SIM 1") && Find(page, "SIM 2"));
+      auto *sim=Find(page,"Default");assert(sim);
+      assert(lv_obj_get_style_border_width(sim,LV_PART_MAIN)==3);
+      assert(lv_color_eq(lv_obj_get_style_bg_color(sim,LV_PART_MAIN),design::kMainPanel));
+      assert(lv_obj_get_style_radius(lv_obj_get_parent(lv_obj_get_parent(sim)),LV_PART_MAIN)==36);
       auto *automatic = Find(page, "Auto-connect on boot"); assert(automatic);
+      assert(lv_obj_get_style_radius(automatic,LV_PART_MAIN)==36);
+      AssertContained(FindLabel(automatic,"Auto-connect on boot"),automatic);
       const bool previous = RecoveryMobileAutoConnect();
       lv_obj_send_event(automatic, LV_EVENT_CLICKED, nullptr); Tick();
       assert(RecoveryMobileAutoConnect() != previous);
-      save(landscape ? "/tmp/aera-mobile-landscape.png" : "/tmp/aera-mobile-portrait.png");
+      if(surface==0&&density==1)
+        save(landscape ? "/tmp/aera-mobile-landscape.png" : "/tmp/aera-mobile-portrait.png");
+      test_mobile.connected=true;test_mobile.enabled=true;test_mobile.signal_valid=true;
+      test_mobile.operator_name="Test network";test_mobile.technology="4G";
+      test_mobile.signal_dbm=-90;test_mobile.message="Mobile data connected";
+      Tick();assert(FindLabel(page,"Connected"));assert(FindLabel(page,"Test network / 4G"));
+      assert(FindLabel(page,"-90 dBm"));
+      test_mobile={};test_mobile.available=true;test_mobile.state="off";test_mobile.message="Mobile data is off";
+      lv_obj_send_event(wifi_tab,LV_EVENT_CLICKED,nullptr);assert(last_action==Action::kWifi);
       lv_screen_load(screen); lv_obj_delete(page); Tick();
+
+      page=lv_obj_create(nullptr);const auto wifi=BuildWifiScene(page,RecordAction,nullptr);
+      lv_screen_load(page);Tick();
+      wifi_tab=Find(page,"Wi-Fi");mobile_tab=Find(page,"Mobile data");
+      assert(wifi_tab&&mobile_tab&&lv_obj_get_height(wifi_tab)==128);
+      wifi_symbol=FindLabel(wifi_tab,LV_SYMBOL_WIFI);assert(wifi_symbol);
+      AssertContained(wifi_symbol,lv_obj_get_parent(wifi_symbol));
+      assert(lv_obj_get_style_border_width(wifi_tab,LV_PART_MAIN)==3);
+      assert(lv_color_eq(lv_obj_get_style_bg_color(wifi_tab,LV_PART_MAIN),design::kMainPanel));
+      auto *wifi_hero=lv_obj_get_parent(wifi.status);
+      assert(Bounds(wifi_hero).y1>Bounds(wifi_tab).y2);
+      auto *settings_label=FindLabelContaining(page,"Wi-Fi settings");assert(settings_label);
+      auto *settings_button=lv_obj_get_parent(settings_label);
+      assert(lv_obj_get_width(settings_button)==360);
+      assert(!Overlaps(settings_button,wifi_tab)&&!Overlaps(settings_button,mobile_tab));
+      AssertInside(settings_button,landscape?3168:1440,landscape?1440:3168);
+      AssertInside(wifi.list,landscape?3168:1440,landscape?1440:3168);
+      if(surface==0&&density==1)
+        save(landscape?"/tmp/aera-network-wifi-landscape.png":"/tmp/aera-network-wifi-portrait.png");
+      lv_obj_send_event(mobile_tab,LV_EVENT_CLICKED,nullptr);assert(last_action==Action::kMobileData);
+      lv_screen_load(screen);lv_obj_delete(page);Tick();
+    }
+    }
     }
     lv_deinit();std::filesystem::remove_all(backup_root);return 0;
   }
