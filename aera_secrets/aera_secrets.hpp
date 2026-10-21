@@ -43,6 +43,11 @@ class AeraSecrets {
   static bool HasNasPassword();
   static bool SetNasPrivateKey(const std::string& key);
   static bool GetNasPrivateKey(std::string& key);
+  struct SimPin { std::string id; int slot=0; };
+  static bool SetSimPin(const std::string& id,int slot,const std::string& pin);
+  static bool GetSimPin(const std::string& id,std::string& pin);
+  static bool DeleteSimPin(const std::string& id);
+  static std::vector<SimPin> ListSimPins();
 
   static bool AddAdbDevice(const std::string& key,
                            const std::string& name = "");

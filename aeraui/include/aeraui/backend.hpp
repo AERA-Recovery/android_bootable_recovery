@@ -18,11 +18,19 @@ inline constexpr bool MobileDataEnabled() {
 #endif
 }
 inline constexpr const char *ConnectivityTitle() { return MobileDataEnabled() ? "Network" : "Wi-Fi"; }
+struct MobileSim {
+  int slot=0,retries=-1;
+  std::string id,state;
+};
+struct MobileSavedPin { std::string id; int slot=0; };
 struct MobileStatus {
   bool available = false, enabled = false, connected = false;
   bool registered = false, signal_valid = false, running = false;
   int signal_dbm = 0, bars = -1, subscription = 0;
   std::string state, message, technology, operator_name, address, interface;
+  int sim_slot=0,pin_retries=-1,pin_attempt=0;
+  std::string sim_id,sim_state,pin_request,pin_result_request,pin_result_id,pin_result;
+  std::vector<MobileSim> sims;
 };
 MobileStatus RecoveryMobileStatus();
 struct MobilePublicIp { std::string address; bool pending = false; };
@@ -30,6 +38,12 @@ MobilePublicIp RecoveryMobilePublicIp(const MobileStatus &status);
 void RecoveryStartMobileService();
 bool RecoveryConnectMobile(const std::string &apn, int subscription, std::string *error);
 bool RecoveryDisconnectMobile(std::string *error);
+bool RecoverySwitchMobileSim(const std::string &apn,int subscription,std::string *error);
+bool RecoveryMobileSimSwitching();
+bool RecoveryUnlockMobileSim(const std::string &pin,bool remember,std::string *error);
+std::vector<MobileSavedPin> RecoverySavedMobilePins();
+bool RecoveryMobilePinAutoAvailable(const MobileStatus &status);
+bool RecoveryForgetMobilePin(const std::string &id,std::string *error);
 std::string RecoveryMobileApn();
 int RecoveryMobileSubscription();
 bool RecoveryMobileAutoConnect();

@@ -558,6 +558,48 @@ bool AeraSecrets::GetNasPrivateKey(std::string& key) {
   return Open(root["nas_private_key"], &key) && !key.empty();
 }
 
+namespace {
+bool ValidSimId(const std::string& id) {
+  return id.size()==64&&id.find_first_not_of("0123456789abcdef")==std::string::npos;
+}
+}
+bool AeraSecrets::SetSimPin(const std::string& id,int slot,const std::string& pin) {
+  if(!ValidSimId(id)||slot<1||slot>2||pin.size()<4||pin.size()>8||
+      pin.find_first_not_of("0123456789")!=std::string::npos)return false;
+  std::lock_guard<std::mutex> guard(g_lock);
+  Json::Value root=ReadDocument(kCredentialPath),entry;
+  if(!Seal(pin,&entry,true))return false;
+  entry["slot"]=slot;root["sim_pins"][id]=entry;
+  return WriteDocument(kCredentialPath,std::move(root));
+}
+bool AeraSecrets::GetSimPin(const std::string& id,std::string& pin) {
+  pin.clear();if(!ValidSimId(id))return false;
+  std::lock_guard<std::mutex> guard(g_lock);
+  const auto root=ReadDocument(kCredentialPath);
+  return Open(root["sim_pins"][id],&pin,nullptr,true)&&pin.size()>=4&&pin.size()<=8&&
+      pin.find_first_not_of("0123456789")==std::string::npos;
+}
+bool AeraSecrets::DeleteSimPin(const std::string& id) {
+  if(!ValidSimId(id))return false;
+  std::lock_guard<std::mutex> guard(g_lock);
+  auto root=ReadDocument(kCredentialPath);
+  if(!root["sim_pins"].isObject()||!root["sim_pins"].isMember(id))return true;
+  root["sim_pins"].removeMember(id);
+  return WriteDocument(kCredentialPath,std::move(root));
+}
+std::vector<AeraSecrets::SimPin> AeraSecrets::ListSimPins() {
+  std::lock_guard<std::mutex> guard(g_lock);
+  const auto root=ReadDocument(kCredentialPath);
+  std::vector<SimPin> out;
+  if(!root["sim_pins"].isObject())return out;
+  for(const auto& id:root["sim_pins"].getMemberNames()) {
+    if(!ValidSimId(id))continue;
+    const int slot=root["sim_pins"][id].get("slot",0).asInt();
+    if(slot>=1&&slot<=2)out.push_back({id,slot});
+  }
+  return out;
+}
+
 bool AeraSecrets::AddAdbDevice(const std::string& key,
                                const std::string& name) {
   if (KeyToken(key).empty()) return false;

@@ -123,6 +123,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildHomeAppearancePreview(lv_obj_t *parent);
 void BuildDeveloperScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildMobileDataScene(lv_obj_t *screen, ActionCallback callback, void *context);
+void PollMobilePinPrompt(lv_obj_t *screen,bool allow_prompt);
 void ArmDeveloperEntryGuard();
 void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback,

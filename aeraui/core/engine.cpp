@@ -689,8 +689,11 @@ public:
         aera::pc::GetUploadProgress().active ? 148 : 0);
     PollAutomaticNas();
     if (backend_ready_ && !decryption_active_ && !decrypt_running_ &&
-        !fastboot_mode_ && !operation_running_ && CanReboot())
+        !fastboot_mode_ && !operation_running_ && CanReboot()) {
       RecoveryPollMobileAutoConnect();
+      PollMobilePinPrompt(lv_screen_active(),interactive_ready_&&!suspended_&&!lock_overlay_&&
+          !power_overlay_&&!PcBlockedByModal()&&!StatusBarShadeOpen());
+    }
     if (backend_ready_ && !fastboot_mode_ && CanReboot())
       RecoveryPollDeveloperSettings();
     PollUsbAttachment();

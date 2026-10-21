@@ -151,7 +151,12 @@ bool RecoverySetWallpaperLayout(const WallpaperLayout &layout) {
 }
 static LockTheme lock_theme;
 WifiConnection RecoveryWifiConnection() { return {}; }
+static MobileStatus test_mobile;
+static bool test_mobile_status=false,test_data_locked=false;
+static bool test_mobile_switching=false;
+static std::vector<MobileSavedPin> test_mobile_saved;
 MobileStatus RecoveryMobileStatus() {
+  if(test_mobile_status)return test_mobile;
   MobileStatus status;
   status.available = true;
   status.message = "Mobile data is off";
@@ -161,6 +166,16 @@ void RecoveryStartMobileService() {}
 MobilePublicIp RecoveryMobilePublicIp(const MobileStatus &) { return {}; }
 bool RecoveryConnectMobile(const std::string &, int, std::string *) { return true; }
 bool RecoveryDisconnectMobile(std::string *) { return true; }
+bool RecoverySwitchMobileSim(const std::string &,int,std::string *) { return true; }
+bool RecoveryMobileSimSwitching() { return test_mobile_switching; }
+bool RecoveryUnlockMobileSim(const std::string &,bool,std::string *) { return true; }
+std::vector<MobileSavedPin> RecoverySavedMobilePins() { return test_mobile_saved; }
+bool RecoveryMobilePinAutoAvailable(const MobileStatus &status) {
+  if(test_data_locked||status.pin_retries<=1)return false;
+  for(const auto &saved:test_mobile_saved)if(saved.id==status.sim_id)return true;
+  return false;
+}
+bool RecoveryForgetMobilePin(const std::string &,std::string *) { return true; }
 std::string RecoveryMobileApn() { return {}; }
 int RecoveryMobileSubscription() { return 0; }
 static bool mobile_auto_connect = false;
@@ -336,7 +351,7 @@ bool RecoverySetActiveSlot(const std::string &slot) {
   active_slot = slot;
   return true;
 }
-bool RecoveryDataLocked() { return false; }
+bool RecoveryDataLocked() { return test_data_locked; }
 std::vector<AndroidUser> RecoveryAndroidUsers() {
   return {{0, "Owner", 3, true}, {10, "Work profile", 2, false}};
 }
@@ -662,6 +677,40 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--sim-pin")) {
+    test_mobile_status=true;
+    test_mobile.enabled=true;test_mobile.available=true;test_mobile.state="pin_required";
+    test_mobile.sim_state="pin_required";test_mobile.sim_slot=1;test_mobile.pin_retries=3;
+    test_mobile.sim_id=std::string(64,'a');test_mobile.pin_request="first";
+    test_data_locked=true;PollMobilePinPrompt(screen,true);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 1"));
+    test_data_locked=false;PollMobilePinPrompt(screen,false);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 1"));
+    test_mobile_switching=true;PollMobilePinPrompt(screen,true);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 1"));test_mobile_switching=false;
+    PollMobilePinPrompt(screen,true);Tick();assert(FindLabel(screen,"Unlock SIM 1"));
+    auto *cancel=Find(screen,"Cancel");assert(cancel);
+    save("/tmp/aera-sim-pin-portrait.png");
+    lv_obj_send_event(cancel,LV_EVENT_CLICKED,nullptr);Tick();
+    PollMobilePinPrompt(screen,true);Tick();assert(!FindLabel(screen,"Unlock SIM 1"));
+    test_mobile.sim_slot=2;test_mobile.sim_id=std::string(64,'b');test_mobile.pin_request="second";
+    PollMobilePinPrompt(screen,true);Tick();assert(FindLabel(screen,"Unlock SIM 2"));
+    test_mobile.state="verifying_pin";PollMobilePinPrompt(screen,true);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 2"));
+    test_mobile.state="pin_required";test_mobile.pin_request="remembered";
+    test_mobile_saved={{test_mobile.sim_id,2}};
+    PollMobilePinPrompt(screen,true);Tick();assert(!FindLabel(screen,"Unlock SIM 2"));
+    test_mobile.pin_result="failed";test_mobile_saved.clear();
+    PollMobilePinPrompt(screen,true);Tick();assert(FindLabel(screen,"Unlock SIM 2"));
+    lv_display_set_resolution(display,3168,1440);
+    save("/tmp/aera-sim-pin-landscape.png");
+    test_mobile.state="off";test_mobile.enabled=false;PollMobilePinPrompt(screen,true);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 2"));
+    test_mobile.state="pin_required";test_mobile.enabled=true;test_mobile.pin_retries=1;
+    test_mobile.pin_result.clear();test_mobile.pin_request="last-attempt";test_mobile_saved={{test_mobile.sim_id,2}};
+    PollMobilePinPrompt(screen,true);Tick();assert(FindLabel(screen,"Unlock SIM 2"));
+    lv_deinit();std::filesystem::remove_all(backup_root);return 0;
+  }
   if (!strcmp(argv[1], "--mobile")) {
     for (bool landscape : {false, true}) {
       lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);

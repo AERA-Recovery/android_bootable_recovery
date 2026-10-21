@@ -32,6 +32,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <limits.h>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -3607,7 +3608,140 @@ MobileStatus RecoveryMobileStatus() {
   result.operator_name = value.get("operator", "").asString();
   result.address = value.get("address", "").asString();
   result.interface = value.get("interface", "").asString();
+  result.sim_slot=value.get("sim_slot",0).asInt();
+  result.sim_id=value.get("sim_id","").asString();
+  result.sim_state=value.get("sim_state","").asString();
+  result.pin_retries=value.get("pin_retries",-1).asInt();
+  result.pin_attempt=value.get("pin_attempt",0).asInt();
+  result.pin_request=value.get("pin_request","").asString();
+  const auto &pin_result=value["pin_result"];
+  result.pin_result=pin_result.get("outcome","").asString();
+  result.pin_result_id=pin_result.get("id","").asString();
+  result.pin_result_request=pin_result.get("request","").asString();
+  if(value["sims"].isArray())for(const auto &sim:value["sims"])
+    result.sims.push_back({sim.get("slot",0).asInt(),sim.get("retries",-1).asInt(),
+        sim.get("id","").asString(),sim.get("state","").asString()});
+  if(result.state=="pin_required"&&!result.pin_result.empty()&&result.pin_result!="success")
+    result.message=result.pin_result=="failed"?"SIM PIN verification failed":"PIN result unknown. Check SIM status before trying again";
   return result;
+}
+namespace {
+std::mutex gMobilePinMutex;
+struct PendingMobilePin {
+  std::string pin,id,request;
+  int slot=0;
+  bool remember=false;
+  std::chrono::steady_clock::time_point started;
+  void Clear(){OPENSSL_cleanse(pin.data(),pin.size());pin.clear();id.clear();request.clear();}
+} gPendingMobilePin;
+bool gMobileSwitchPending=false;
+std::string gMobileSwitchApn;
+int gMobileSwitchSubscription=0;
+std::chrono::steady_clock::time_point gMobileSwitchStarted;
+std::string MobilePinAttemptMarker(const MobileStatus &mobile) {
+  if(mobile.sim_id.size()!=64||mobile.sim_id.find_first_not_of("0123456789abcdef")!=std::string::npos||
+      mobile.pin_request.empty()||mobile.pin_request.size()>64||
+      mobile.pin_request.find_first_not_of("0123456789-")!=std::string::npos)return {};
+  return "/tmp/aera-sim-pin-auto-"+mobile.sim_id+"-"+mobile.pin_request;
+}
+
+bool SubmitMobilePin(const MobileStatus &mobile,const std::string &pin,bool remember,std::string *error) {
+  if(mobile.state!="pin_required"||mobile.pin_request.empty()||mobile.pin_retries<=0||
+      pin.size()<4||pin.size()>8||pin.find_first_not_of("0123456789")!=std::string::npos) {
+    if(error)*error="Enter a 4 to 8 digit PIN for the selected SIM";
+    return false;
+  }
+  if(remember&&mobile.sim_id.empty()) {
+    if(error)*error="This SIM cannot be identified. Enter its PIN without remembering it";
+    return false;
+  }
+  Json::Value config;config["pin"]=pin;config["request"]=mobile.pin_request;config["id"]=mobile.sim_id;
+  Json::StreamWriterBuilder writer;writer["indentation"]="";
+  std::string command="verify-pin "+Json::writeString(writer,config),reply;
+  const bool sent=aera::mobile::Request(command,&reply);
+  OPENSSL_cleanse(command.data(),command.size());
+  if(!sent||reply!="OK") {
+    if(error)*error=reply.empty()?"PIN request timed out. Check SIM status before trying again":reply;
+    return false;
+  }
+  gPendingMobilePin.Clear();gPendingMobilePin.pin=pin;gPendingMobilePin.id=mobile.sim_id;
+  gPendingMobilePin.request=mobile.pin_request;gPendingMobilePin.slot=mobile.sim_slot;
+  gPendingMobilePin.remember=remember;gPendingMobilePin.started=std::chrono::steady_clock::now();
+  return true;
+}
+void PollMobilePins(const MobileStatus &mobile) {
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);
+  if(RecoveryDataLocked())return;
+  if(!mobile.pin_result_id.empty()&&(mobile.pin_result=="failed"||mobile.pin_result=="unknown"))
+    AeraSecrets::DeleteSimPin(mobile.pin_result_id);
+  if(!gPendingMobilePin.request.empty()) {
+    if(mobile.pin_result_request==gPendingMobilePin.request&&mobile.pin_result_id==gPendingMobilePin.id&&
+        !mobile.pin_result.empty()) {
+      if(mobile.pin_result=="success") {
+        if(gPendingMobilePin.remember) {
+          if(!AeraSecrets::SetSimPin(gPendingMobilePin.id,gPendingMobilePin.slot,gPendingMobilePin.pin))
+            LOGERR("Could not remember SIM PIN\n");
+        }else if(!gPendingMobilePin.id.empty())AeraSecrets::DeleteSimPin(gPendingMobilePin.id);
+      }else if(!gPendingMobilePin.id.empty())AeraSecrets::DeleteSimPin(gPendingMobilePin.id);
+      gPendingMobilePin.Clear();
+    }else if(!mobile.enabled||std::chrono::steady_clock::now()-gPendingMobilePin.started>std::chrono::seconds(30))
+      gPendingMobilePin.Clear();
+  }
+  if(mobile.state!="pin_required"||mobile.sim_id.size()!=64||mobile.pin_retries<=1||
+      !gPendingMobilePin.request.empty()||gMobileSwitchPending)return;
+  const std::string marker=MobilePinAttemptMarker(mobile);
+  if(marker.empty()||access(marker.c_str(),F_OK)==0)return;
+  std::string pin;
+  if(!AeraSecrets::GetSimPin(mobile.sim_id,pin))return;
+  android::base::unique_fd guard(open(marker.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW,0600));
+  if(guard.get()>=0) {
+    std::string error;
+    if(!SubmitMobilePin(mobile,pin,true,&error))AeraSecrets::DeleteSimPin(mobile.sim_id);
+  }
+  OPENSSL_cleanse(pin.data(),pin.size());
+}
+}
+bool RecoveryUnlockMobileSim(const std::string &pin,bool remember,std::string *error) {
+  if(!MobileDataEnabled()||RecoveryDataLocked())return false;
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);
+  if(gMobileSwitchPending||!gPendingMobilePin.request.empty()) {
+    if(error)*error="Wait for the current SIM operation to finish";
+    return false;
+  }
+  return SubmitMobilePin(RecoveryMobileStatus(),pin,remember,error);
+}
+std::vector<MobileSavedPin> RecoverySavedMobilePins() {
+  std::vector<MobileSavedPin> out;
+  if(MobileDataEnabled()&&!RecoveryDataLocked())for(const auto &pin:AeraSecrets::ListSimPins())out.push_back({pin.id,pin.slot});
+  return out;
+}
+bool RecoveryMobilePinAutoAvailable(const MobileStatus &mobile) {
+  const auto marker=MobilePinAttemptMarker(mobile);
+  if(!MobileDataEnabled()||RecoveryDataLocked()||mobile.pin_retries<=1||marker.empty()||
+      access(marker.c_str(),F_OK)==0)return false;
+  for(const auto &saved:RecoverySavedMobilePins())if(saved.id==mobile.sim_id)return true;
+  return false;
+}
+bool RecoveryForgetMobilePin(const std::string &id,std::string *error) {
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);
+  if(gPendingMobilePin.id==id)gPendingMobilePin.remember=false;
+  const bool ok=MobileDataEnabled()&&!RecoveryDataLocked()&&AeraSecrets::DeleteSimPin(id);
+  if(!ok&&error)*error="Could not forget SIM PIN";
+  return ok;
+}
+bool RecoverySwitchMobileSim(const std::string &apn,int subscription,std::string *error) {
+  {std::lock_guard<std::mutex> lock(gMobilePinMutex);gMobileSwitchPending=false;}
+  if(!RecoverySetMobileConfiguration(apn,subscription,error))return false;
+  const auto mobile=RecoveryMobileStatus();
+  if(!mobile.enabled)return true;
+  if(!RecoveryDisconnectMobile(error))return false;
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);
+  gMobileSwitchPending=true;gMobileSwitchApn=apn;gMobileSwitchSubscription=subscription;
+  gMobileSwitchStarted=std::chrono::steady_clock::now();
+  return true;
+}
+bool RecoveryMobileSimSwitching() {
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);return gMobileSwitchPending;
 }
 void RecoveryStartMobileService() {
   if (MobileDataEnabled() && access("/system/bin/aera-cellular-provider", X_OK) == 0)
@@ -3665,6 +3799,7 @@ bool RecoveryConnectMobile(const std::string &apn, int subscription, std::string
   return ok;
 }
 bool RecoveryDisconnectMobile(std::string *error) {
+  {std::lock_guard<std::mutex> lock(gMobilePinMutex);gMobileSwitchPending=false;}
   aera::mobile::MarkAutoHandled();
   std::string reply;
   const bool ok = aera::mobile::Request("disconnect-async", &reply) && reply == "OK";
@@ -3722,6 +3857,19 @@ void RecoveryPollMobileAutoConnect() {
   const auto now = Clock::now();
   if (now < next) return;
   next = now + std::chrono::seconds(1);
+  const auto current=RecoveryMobileStatus();
+  PollMobilePins(current);
+  {
+    std::unique_lock<std::mutex> lock(gMobilePinMutex);
+    if(gMobileSwitchPending) {
+      if(!current.enabled) {
+        const auto apn=gMobileSwitchApn;const auto subscription=gMobileSwitchSubscription;
+        gMobileSwitchPending=false;lock.unlock();std::string error;
+        if(!RecoveryConnectMobile(apn,subscription,&error))LOGERR("SIM switch: %s\n",error.c_str());
+      }else if(now-gMobileSwitchStarted>std::chrono::seconds(65))gMobileSwitchPending=false;
+      return;
+    }
+  }
   if (access(aera::mobile::kAutoHandled, F_OK) == 0 ||
       access("/system/bin/aera-cellular-provider", X_OK) != 0 || RecoveryDataLocked() ||
       !RecoveryMobileAutoConnect()) return;

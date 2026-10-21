@@ -13,18 +13,42 @@ struct MobileUi {
   lv_obj_t *screen=nullptr,*title=nullptr,*detail=nullptr,*signal=nullptr,*network=nullptr;
   lv_obj_t *toggle=nullptr,*radio=nullptr,*apn_button=nullptr,*apn_text=nullptr;
   lv_obj_t *auto_radio=nullptr;
+  lv_obj_t *pin_button=nullptr,*pin_status=nullptr,*saved_pins=nullptr;
+  std::string saved_signature;
   std::array<lv_obj_t *,3> sim{};
   lv_timer_t *timer=nullptr;
   std::string apn,error;
   int subscription=0;
 };
+lv_obj_t *pin_overlay=nullptr;
+std::string prompted_request,open_request;
+void EditPin(lv_obj_t *screen);
+void RefreshSavedPins(MobileUi *state) {
+  const auto saved=RecoverySavedMobilePins();
+  const auto mobile=RecoveryMobileStatus();
+  std::string signature;
+  for(const auto &pin:saved)signature+=pin.id+std::to_string(pin.slot);
+  for(const auto &sim:mobile.sims)signature+=sim.id+std::to_string(sim.slot);
+  if(signature==state->saved_signature)return;
+  state->saved_signature=signature;lv_obj_clean(state->saved_pins);
+  for(const auto &pin:saved) {
+    int slot=pin.slot;
+    for(const auto &sim:mobile.sims)if(sim.id==pin.id)slot=sim.slot;
+    const std::string text=i18n::Format("Forget PIN for SIM %d",slot);
+    auto *button=Button(state->saved_pins,text.c_str(),[state,id=pin.id]{
+      state->error.clear();RecoveryForgetMobilePin(id,&state->error);
+    });
+    lv_obj_set_size(button,LV_PCT(100),116);
+  }
+}
 void RefreshMobile(MobileUi *state) {
   const auto mobile=RecoveryMobileStatus();
   const bool busy=mobile.enabled&&!mobile.connected;
-  i18n::BindLabel(state->title,mobile.connected?"Connected":busy?"Connecting...":"Mobile data");
+  i18n::BindLabel(state->title,mobile.state=="pin_required"?"SIM PIN required":
+      mobile.state=="verifying_pin"?"Verifying SIM PIN":mobile.connected?"Connected":busy?"Connecting...":"Mobile data");
   lv_obj_set_style_text_color(state->title,mobile.connected?kGreen:kText,0);
   const std::string detail=!state->error.empty()?state->error:mobile.message;
-  lv_label_set_text(state->detail,detail.c_str());
+  lv_label_set_text(state->detail,i18n::Translate(detail.c_str()));
   if(mobile.enabled)lv_obj_add_state(state->radio,LV_STATE_CHECKED);
   else lv_obj_remove_state(state->radio,LV_STATE_CHECKED);
   if(RecoveryMobileAutoConnect())lv_obj_add_state(state->auto_radio,LV_STATE_CHECKED);
@@ -46,11 +70,87 @@ void RefreshMobile(MobileUi *state) {
   lv_label_set_text(state->apn_text,state->apn.empty()?"Automatic":state->apn.c_str());
   for(size_t i=0;i<state->sim.size();++i) {
     lv_obj_set_style_bg_color(state->sim[i],state->subscription==static_cast<int>(i)?kAccentSoft:kMainPanel,0);
-    if(mobile.enabled)lv_obj_add_state(state->sim[i],LV_STATE_DISABLED);
+    if(mobile.state=="stopping"||mobile.state=="verifying_pin")lv_obj_add_state(state->sim[i],LV_STATE_DISABLED);
     else lv_obj_remove_state(state->sim[i],LV_STATE_DISABLED);
   }
   if(mobile.enabled)lv_obj_add_state(state->apn_button,LV_STATE_DISABLED);
   else lv_obj_remove_state(state->apn_button,LV_STATE_DISABLED);
+  const bool selected=state->subscription==0||state->subscription==mobile.subscription;
+  const bool required=mobile.enabled&&mobile.state=="pin_required"&&selected;
+  if(required)lv_obj_remove_flag(state->pin_button,LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(state->pin_button,LV_OBJ_FLAG_HIDDEN);
+  const std::string pin_status=mobile.sim_slot>0&&mobile.enabled?
+      i18n::Format("SIM %d",mobile.sim_slot)+" / "+
+        (required?i18n::Format("PIN attempts remaining: %d",mobile.pin_retries):
+        i18n::Translate(mobile.sim_state=="ready"?"Ready":mobile.sim_state=="puk_required"?"PUK required":
+          mobile.sim_state=="blocked"?"SIM is blocked":"Preparing SIM")):"";
+  lv_label_set_text(state->pin_status,pin_status.c_str());
+  if(pin_status.empty())lv_obj_add_flag(state->pin_status,LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_remove_flag(state->pin_status,LV_OBJ_FLAG_HIDDEN);
+  RefreshSavedPins(state);
+}
+void EditPin(lv_obj_t *screen) {
+  const auto mobile=RecoveryMobileStatus();
+  if(pin_overlay||RecoveryDataLocked()||mobile.state!="pin_required")return;
+  prompted_request=mobile.pin_request+":"+std::to_string(mobile.pin_attempt);open_request=mobile.pin_request;
+  auto *overlay=lv_obj_create(screen);Clear(overlay);pin_overlay=overlay;
+  lv_obj_set_user_data(overlay,&kModalMarker);
+  lv_obj_set_size(overlay,LV_PCT(100),LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay,kMainCanvas,0);lv_obj_set_style_bg_opa(overlay,LV_OPA_COVER,0);
+  lv_obj_add_event_cb(overlay,[](lv_event_t *){pin_overlay=nullptr;},LV_EVENT_DELETE,nullptr);
+  lv_obj_update_layout(overlay);
+  const int width=lv_obj_get_width(overlay),height=lv_obj_get_height(overlay),inner=width-128;
+  auto *title=Label(overlay,i18n::Format("Unlock SIM %d",mobile.sim_slot).c_str(),&lv_font_montserrat_40,kText);
+  lv_obj_set_pos(title,64,72);lv_obj_set_width(title,inner);
+  auto *attempts=Label(overlay,i18n::Format("PIN attempts remaining: %d",mobile.pin_retries).c_str(),
+      &lv_font_montserrat_28,kMuted);lv_obj_set_pos(attempts,64,148);lv_obj_set_width(attempts,inner);
+  auto *input=TextArea(overlay);lv_obj_set_pos(input,64,220);lv_obj_set_size(input,inner,124);
+  lv_textarea_set_one_line(input,true);lv_textarea_set_password_mode(input,true);
+  lv_textarea_set_max_length(input,8);lv_textarea_set_accepted_chars(input,"0123456789");
+  lv_obj_set_style_text_font(input,UiFont(&lv_font_montserrat_40),0);
+  lv_obj_set_style_text_color(input,kText,0);lv_obj_set_style_bg_color(input,kMainPanel,0);
+  lv_obj_set_style_bg_opa(input,LV_OPA_COVER,0);lv_obj_set_style_pad_all(input,24,0);
+  lv_obj_set_style_border_color(input,kAccent,0);lv_obj_set_style_border_width(input,2,0);
+  auto *remember=lv_checkbox_create(overlay);lv_checkbox_set_text(remember,i18n::Translate("Remember PIN for this SIM"));
+  lv_obj_set_pos(remember,64,380);lv_obj_set_size(remember,inner,112);
+  lv_obj_set_style_text_font(remember,UiFont(&lv_font_montserrat_32),0);
+  lv_obj_set_style_text_color(remember,kText,0);lv_obj_set_style_pad_all(remember,24,0);
+  lv_obj_set_style_pad_column(remember,24,0);
+  lv_obj_set_style_text_font(remember,UiFont(&lv_font_montserrat_36),LV_PART_INDICATOR);
+  lv_obj_set_style_border_width(remember,2,LV_PART_INDICATOR);
+  lv_obj_set_style_border_color(remember,kMuted,LV_PART_INDICATOR);
+  lv_obj_set_style_radius(remember,8,LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(remember,LV_OPA_COVER,LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(remember,kMainPanel,LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(remember,kAccent,LV_PART_INDICATOR|LV_STATE_CHECKED);
+  if(mobile.sim_id.empty())lv_obj_add_state(remember,LV_STATE_DISABLED);
+  auto *error=Label(overlay,mobile.pin_result.empty()||mobile.pin_result=="success"?"":
+      i18n::Translate(mobile.message.c_str()),&lv_font_montserrat_28,kRed);
+  lv_obj_set_pos(error,64,506);lv_obj_set_width(error,inner);lv_label_set_long_mode(error,LV_LABEL_LONG_WRAP);
+  auto *keyboard=lv_keyboard_create(overlay);phone_keyboard::Apply(keyboard);
+  static const char *const keys[]={"1","2","3","\n","4","5","6","\n","7","8","9","\n",LV_SYMBOL_BACKSPACE,"0",LV_SYMBOL_OK,""};
+  constexpr auto key=static_cast<lv_buttonmatrix_ctrl_t>(1|LV_BUTTONMATRIX_CTRL_NO_REPEAT);
+  static const lv_buttonmatrix_ctrl_t controls[]={key,key,key,key,key,key,key,key,key,static_cast<lv_buttonmatrix_ctrl_t>(1),key,key};
+  lv_keyboard_set_map(keyboard,LV_KEYBOARD_MODE_NUMBER,keys,controls);
+  lv_keyboard_set_mode(keyboard,LV_KEYBOARD_MODE_NUMBER);lv_keyboard_set_textarea(keyboard,input);
+  const int keyboard_height=std::max(320,std::min(1000,height-820));
+  lv_obj_set_size(keyboard,inner,keyboard_height);lv_obj_set_align(keyboard,LV_ALIGN_TOP_LEFT);
+  lv_obj_set_pos(keyboard,64,height-keyboard_height-188);
+  auto *cancel=Button(overlay,"Cancel",[overlay]{lv_obj_delete_async(overlay);});
+  lv_obj_set_size(cancel,(inner-24)/2,108);lv_obj_align(cancel,LV_ALIGN_BOTTOM_LEFT,64,-48);
+  auto *unlock=Button(overlay,"Unlock SIM",[input,remember,error,overlay,request=mobile.pin_request]{
+    const auto current=RecoveryMobileStatus();
+    if(current.pin_request!=request){lv_obj_delete_async(overlay);return;}
+    std::string message,pin=lv_textarea_get_text(input);
+    const bool ok=RecoveryUnlockMobileSim(pin,lv_obj_has_state(remember,LV_STATE_CHECKED),&message);
+    std::fill(pin.begin(),pin.end(),'\0');lv_textarea_set_text(input,"");
+    if(ok)lv_obj_delete_async(overlay);
+    else lv_label_set_text(error,i18n::Translate(message.c_str()));
+  },true);
+  lv_obj_set_size(unlock,(inner-24)/2,108);lv_obj_align(unlock,LV_ALIGN_BOTTOM_RIGHT,-64,-48);
+  lv_obj_add_event_cb(keyboard,[](lv_event_t *event){
+    lv_obj_send_event(static_cast<lv_obj_t *>(lv_event_get_user_data(event)),LV_EVENT_CLICKED,nullptr);
+  },LV_EVENT_READY,unlock);
 }
 void EditApn(MobileUi *state) {
   auto *overlay=lv_obj_create(state->screen);Clear(overlay);
@@ -82,6 +182,18 @@ void EditApn(MobileUi *state) {
     RefreshMobile(state);lv_obj_delete_async(overlay);},true);
   lv_obj_set_size(apply,(width-88)/2,104);lv_obj_align(apply,LV_ALIGN_BOTTOM_RIGHT,0,0);
 }
+}
+void PollMobilePinPrompt(lv_obj_t *screen,bool allow_prompt) {
+  if(!MobileDataEnabled())return;
+  static uint32_t last_poll=0;
+  if(lv_tick_elaps(last_poll)<250)return;
+  last_poll=lv_tick_get();
+  const auto mobile=RecoveryMobileStatus();
+  const bool required=!RecoveryDataLocked()&&!RecoveryMobileSimSwitching()&&mobile.enabled&&
+      mobile.state=="pin_required"&&mobile.pin_retries>0;
+  if(pin_overlay&&(!required||open_request!=mobile.pin_request))lv_obj_delete(pin_overlay);
+  if(!allow_prompt||!required||pin_overlay||prompted_request==mobile.pin_request+":"+std::to_string(mobile.pin_attempt))return;
+  if(!RecoveryMobilePinAutoAvailable(mobile)||mobile.pin_result=="failed"||mobile.pin_result=="unknown")EditPin(screen);
 }
 void BuildMobileDataScene(lv_obj_t *screen,ActionCallback callback,void *context) {
   auto *state=new MobileUi;state->screen=screen;
@@ -120,19 +232,26 @@ void BuildMobileDataScene(lv_obj_t *screen,ActionCallback callback,void *context
   const std::array<const char *,3> names{"Default","SIM 1","SIM 2"};
   for(int i=0;i<3;++i) {
     state->sim[i]=Button(choices,names[i],[state,i]{
+      if(state->subscription==i)return;
       state->error.clear();
-      if(RecoverySetMobileConfiguration(state->apn,i,&state->error))state->subscription=i;
+      if(RecoverySwitchMobileSim(state->apn,i,&state->error))state->subscription=i;
       RefreshMobile(state);
     });
     lv_obj_set_flex_grow(state->sim[i],1);lv_obj_set_width(state->sim[i],0);lv_obj_set_height(state->sim[i],104);
   }
+  state->pin_status=label("",&lv_font_montserrat_28,kMuted);
+  state->pin_button=Button(content,"Unlock SIM",[state]{EditPin(state->screen);});
+  lv_obj_set_size(state->pin_button,LV_PCT(100),116);
+  state->saved_pins=lv_obj_create(content);Clear(state->saved_pins);
+  lv_obj_set_width(state->saved_pins,LV_PCT(100));lv_obj_set_height(state->saved_pins,LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(state->saved_pins,LV_FLEX_FLOW_COLUMN);lv_obj_set_style_pad_row(state->saved_pins,16,0);
   label("ACCESS POINT NAME",&lv_font_montserrat_24,kMuted);
   state->apn_button=Button(content,"",[state]{EditApn(state);});
   lv_obj_set_size(state->apn_button,LV_PCT(100),116);
   state->apn_text=lv_obj_get_child(state->apn_button,0);
   state->network=label("Not connected",&lv_font_montserrat_32,kText);
   state->signal=label("Signal unavailable",&lv_font_montserrat_28,kMuted);
-  label("Data only. SIM PIN must be disabled. Mobile data disconnects before flashing or restoring.",
+  label("Data only. Mobile data disconnects before flashing or restoring.",
         &lv_font_montserrat_24,kMuted);
   Navigation(screen,Action::kSettings,callback,context);
   RecoveryStartMobileService();RefreshMobile(state);
