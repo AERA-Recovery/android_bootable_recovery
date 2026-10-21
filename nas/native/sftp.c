@@ -14,6 +14,11 @@
 #include <libssh2_sftp.h>
 
 static int ssh_error(struct nf_remote *r) {
+    switch (libssh2_session_last_errno(r->ssh)) {
+        case LIBSSH2_ERROR_TIMEOUT: case LIBSSH2_ERROR_SOCKET_TIMEOUT: return -ETIMEDOUT;
+        case LIBSSH2_ERROR_SOCKET_SEND: case LIBSSH2_ERROR_SOCKET_RECV:
+        case LIBSSH2_ERROR_SOCKET_DISCONNECT: case LIBSSH2_ERROR_CHANNEL_CLOSED: return -ENOTCONN;
+    }
     if (r->sftp && libssh2_session_last_errno(r->ssh)==LIBSSH2_ERROR_SFTP_PROTOCOL) {
         switch (libssh2_sftp_last_error(r->sftp)) {
             case LIBSSH2_FX_NO_SUCH_FILE: case LIBSSH2_FX_NO_SUCH_PATH: return -ENOENT;
@@ -203,6 +208,7 @@ static int ssh_readlink(struct nf_remote *r,const char *p,char *out,size_t size)
 static int ssh_symlink(struct nf_remote *r,const char *target,const char *p) {
     return libssh2_sftp_symlink(r->sftp,target,(char *)p) ? ssh_error(r) : 0;
 }
+static int ssh_socket(struct nf_remote *r) { return r->socket; }
 const struct nf_ops nf_ssh_ops={ssh_connect,ssh_disconnect,ssh_stat,ssh_list,ssh_open,ssh_close,
     ssh_read,ssh_write,ssh_flush,ssh_truncate,ssh_mkdir,ssh_unlink,ssh_rename,ssh_chmod,ssh_chown,
-    ssh_utimens,ssh_statfs,ssh_readlink,ssh_symlink};
+    ssh_utimens,ssh_statfs,ssh_readlink,ssh_symlink,ssh_socket};

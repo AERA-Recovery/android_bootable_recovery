@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "netfs.h"
+#include "deadline.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <fuse.h>
 #include <limits.h>
 #include <stdio.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/statvfs.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 struct nf_file {
@@ -26,14 +29,25 @@ struct filesystem {
     struct nf_config *config;
     struct nf_remote remote;
     const struct nf_ops *ops;
+    const struct nf_ops *backend;
+    struct nf_deadline deadline;
+    int offline;
+    struct stat root;
+    struct statvfs space;
     struct nf_file *files;
     uint64_t written, read, write_errors, retained, retained_files;
     size_t memory;
     double status_time;
     char status_temp[PATH_MAX];
 } fs;
+static pthread_mutex_t remote_mutex=PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t space_mutex=PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t maintenance_mutex=PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t maintenance_changed=PTHREAD_COND_INITIALIZER;
+static int maintenance_stop;
 
 static int healthy(void) {
+    if (fs.offline) return -ENOTCONN;
     return (!strcmp(fs.config->type,"smb") ? fs.remote.smb!=NULL : fs.remote.sftp!=NULL) ? 0 : -ENOTCONN;
 }
 static void status_update(int force) {
@@ -76,6 +90,48 @@ static void status_update(int force) {
     }
     json_object_put(root);
 }
+
+/* All protocol contexts and file buffers remain owned by one FUSE worker at a time. */
+#define REMOTE_CALL(name,params,args,timeout) \
+static int timed_##name params { \
+    if (healthy()) return -ENOTCONN; \
+    int rc=nf_deadline_begin(&fs.deadline,fs.backend->socket_fd(r),timeout); \
+    if (rc) return rc; \
+    rc=fs.backend->name args; \
+    int lost=nf_deadline_end(&fs.deadline); \
+    if (!lost && (healthy() || rc==-ETIMEDOUT || rc==-ECONNRESET || rc==-EPIPE || \
+        rc==-ENETUNREACH || rc==-EHOSTUNREACH || rc==-ENOTCONN || rc==-ECONNABORTED)) lost=-ENOTCONN; \
+    if (lost) { \
+        fs.offline=1;nf_log(fs.config,"NAS connection lost; reconnect to resume access",lost);status_update(1); \
+        return rc<0 ? rc : lost; \
+    } \
+    return rc; \
+}
+REMOTE_CALL(stat,(struct nf_remote *r,const char *p,struct stat *s,void *f),(r,p,s,f),5000)
+REMOTE_CALL(list,(struct nf_remote *r,const char *p,nf_entry_fn e,void *d),(r,p,e,d),5000)
+REMOTE_CALL(open,(struct nf_remote *r,const char *p,int flags,mode_t mode,void **f),(r,p,flags,mode,f),5000)
+REMOTE_CALL(close,(struct nf_remote *r,void *f),(r,f),5000)
+REMOTE_CALL(read,(struct nf_remote *r,void *f,void *b,size_t n,uint64_t o),(r,f,b,n,o),30000)
+REMOTE_CALL(write,(struct nf_remote *r,void *f,const void *b,size_t n,uint64_t o),(r,f,b,n,o),30000)
+REMOTE_CALL(flush,(struct nf_remote *r,void *f),(r,f),30000)
+REMOTE_CALL(truncate,(struct nf_remote *r,const char *p,void *f,uint64_t n),(r,p,f,n),5000)
+REMOTE_CALL(mkdir,(struct nf_remote *r,const char *p,mode_t m),(r,p,m),5000)
+REMOTE_CALL(unlink,(struct nf_remote *r,const char *p,int d),(r,p,d),5000)
+REMOTE_CALL(rename,(struct nf_remote *r,const char *p,const char *q,unsigned flags),(r,p,q,flags),5000)
+REMOTE_CALL(chmod,(struct nf_remote *r,const char *p,mode_t m),(r,p,m),5000)
+REMOTE_CALL(chown,(struct nf_remote *r,const char *p,uid_t u,gid_t g),(r,p,u,g),5000)
+REMOTE_CALL(utimens,(struct nf_remote *r,const char *p,const struct timespec t[2]),(r,p,t),5000)
+REMOTE_CALL(statfs,(struct nf_remote *r,const char *p,struct statvfs *s),(r,p,s),5000)
+REMOTE_CALL(readlink,(struct nf_remote *r,const char *p,char *b,size_t n),(r,p,b,n),5000)
+REMOTE_CALL(symlink,(struct nf_remote *r,const char *p,const char *q),(r,p,q),5000)
+#undef REMOTE_CALL
+static const struct nf_ops timed_ops={
+    .stat=timed_stat,.list=timed_list,.open=timed_open,.close=timed_close,
+    .read=timed_read,.write=timed_write,.flush=timed_flush,.truncate=timed_truncate,
+    .mkdir=timed_mkdir,.unlink=timed_unlink,.rename=timed_rename,.chmod=timed_chmod,
+    .chown=timed_chown,.utimens=timed_utimens,.statfs=timed_statfs,
+    .readlink=timed_readlink,.symlink=timed_symlink
+};
 static int file_error(struct nf_file *f,int rc) {
     if (rc>=0) rc=-EIO;
     if (!f->error) {
@@ -104,6 +160,17 @@ static unsigned char *allocate_buffer(void) {
 static void free_buffer(unsigned char **buffer) {
     if (*buffer) { free(*buffer);*buffer=NULL;fs.memory-=NF_WINDOW; }
 }
+static void account_space(uint64_t written) {
+    pthread_mutex_lock(&space_mutex);
+    uint64_t unit=fs.space.f_frsize ? fs.space.f_frsize : fs.space.f_bsize;
+    if (unit) {
+        /* Stay conservative between asynchronous free-space refreshes. */
+        uint64_t blocks=(written+unit-1)/unit;
+        fs.space.f_bfree=fs.space.f_bfree>blocks ? fs.space.f_bfree-blocks : 0;
+        fs.space.f_bavail=fs.space.f_bavail>blocks ? fs.space.f_bavail-blocks : 0;
+    }
+    pthread_mutex_unlock(&space_mutex);
+}
 static int upload_cancelled(const struct nf_file *f) {
     char path[PATH_MAX],scope[PATH_MAX];
     if (!*fs.config->status_file ||
@@ -125,6 +192,7 @@ static int drain(struct nf_file *f) {
     if (!rc) rc=fs.ops->write(&fs.remote,f->remote,f->write_buffer,f->write_count,f->write_offset);
     if (rc<0 || (size_t)rc!=f->write_count) return file_error(f,rc);
     fs.written+=f->write_count;
+    account_space(f->write_count);
     f->write_count=0;
     status_update(0);
     return 0;
@@ -152,6 +220,7 @@ static int flush_file(struct nf_file *f) {
             offset+=(uint64_t)n;
             f->uploaded=offset;
             fs.written+=(uint64_t)n;
+            account_space((uint64_t)n);
             status_update(0);
         }
         free_buffer(&buffer);
@@ -310,6 +379,7 @@ static int nf_write(const char *p,const char *input,size_t count,off_t offset,st
     struct nf_file *f=(void *)(uintptr_t)info->fh;
     if (offset<0 || count>INT_MAX || (uint64_t)offset>INT64_MAX-count) return -EINVAL;
     if (f->error) return f->error;
+    if (healthy()) return file_error(f,-ENOTCONN);
     f->read_count=0;
     if (f->cache_fd>=0) {
         struct statvfs free_space;
@@ -411,10 +481,22 @@ static int nf_utimens(const char *p,const struct timespec times[2],struct fuse_f
     if (!rc) rc=flush_path(path,0);
     return rc ? rc : fs.ops->utimens(&fs.remote,path,times);
 }
-static int nf_statfs(const char *p,struct statvfs *st) {
-    (void)p;if (healthy()) return -ENOTCONN;
+static int refresh_space(void) {
+    if (healthy()) return -ENOTCONN;
     char root[8192];int rc=nf_path(fs.config,"/",root,sizeof(root));
-    return rc ? rc : fs.ops->statfs(&fs.remote,root,st);
+    struct statvfs st;
+    if (!rc) rc=fs.ops->statfs(&fs.remote,root,&st);
+    if (!rc) {
+        pthread_mutex_lock(&space_mutex);
+        fs.space=st;
+        pthread_mutex_unlock(&space_mutex);
+    }
+    return rc;
+}
+static int nf_statfs(const char *p,struct statvfs *st) {
+    (void)p;
+    pthread_mutex_lock(&space_mutex);*st=fs.space;pthread_mutex_unlock(&space_mutex);
+    return st->f_bsize ? 0 : -ENOTCONN;
 }
 static int nf_readlink(const char *p,char *buffer,size_t n) {
     if (!n) return -EINVAL;
@@ -433,26 +515,98 @@ static void *nf_init(struct fuse_conn_info *conn,struct fuse_config *config) {
     /* Userspace owns buffering; kernel writeback must not hide remote errors. */
     conn->want &= ~(FUSE_CAP_WRITEBACK_CACHE|FUSE_CAP_ASYNC_READ);
     conn->want |= conn->capable & FUSE_CAP_READDIRPLUS;
-    status_update(1);
+    pthread_mutex_lock(&remote_mutex);status_update(1);pthread_mutex_unlock(&remote_mutex);
+    return NULL;
+}
+
+#define SERIAL_CALL(name,params,args) \
+static int serial_##name params { \
+    pthread_mutex_lock(&remote_mutex); \
+    int rc=nf_##name args; \
+    pthread_mutex_unlock(&remote_mutex);return rc; \
+}
+SERIAL_CALL(getattr,(const char *p,struct stat *s,struct fuse_file_info *f),(p,s,f))
+SERIAL_CALL(readdir,(const char *p,void *b,fuse_fill_dir_t fill,off_t o,struct fuse_file_info *f,enum fuse_readdir_flags flags),(p,b,fill,o,f,flags))
+SERIAL_CALL(open,(const char *p,struct fuse_file_info *f),(p,f))
+SERIAL_CALL(create,(const char *p,mode_t m,struct fuse_file_info *f),(p,m,f))
+SERIAL_CALL(read,(const char *p,char *b,size_t n,off_t o,struct fuse_file_info *f),(p,b,n,o,f))
+SERIAL_CALL(write,(const char *p,const char *b,size_t n,off_t o,struct fuse_file_info *f),(p,b,n,o,f))
+SERIAL_CALL(flush,(const char *p,struct fuse_file_info *f),(p,f))
+SERIAL_CALL(fsync,(const char *p,int d,struct fuse_file_info *f),(p,d,f))
+SERIAL_CALL(release,(const char *p,struct fuse_file_info *f),(p,f))
+SERIAL_CALL(truncate,(const char *p,off_t n,struct fuse_file_info *f),(p,n,f))
+SERIAL_CALL(mkdir,(const char *p,mode_t m),(p,m))
+SERIAL_CALL(unlink,(const char *p),(p))
+SERIAL_CALL(rmdir,(const char *p),(p))
+SERIAL_CALL(rename,(const char *p,const char *q,unsigned flags),(p,q,flags))
+SERIAL_CALL(chmod,(const char *p,mode_t m,struct fuse_file_info *f),(p,m,f))
+SERIAL_CALL(chown,(const char *p,uid_t u,gid_t g,struct fuse_file_info *f),(p,u,g,f))
+SERIAL_CALL(utimens,(const char *p,const struct timespec t[2],struct fuse_file_info *f),(p,t,f))
+SERIAL_CALL(readlink,(const char *p,char *b,size_t n),(p,b,n))
+SERIAL_CALL(symlink,(const char *t,const char *p),(t,p))
+#undef SERIAL_CALL
+static int cached_getattr(const char *p,struct stat *st,struct fuse_file_info *info) {
+    if (!strcmp(p,"/") && (!info || !info->fh)) { *st=fs.root;return 0; }
+    return serial_getattr(p,st,info);
+}
+static void *maintain_space(void *unused) {
+    (void)unused;
+    pthread_mutex_lock(&maintenance_mutex);
+    while (!maintenance_stop) {
+        struct timespec wake;clock_gettime(CLOCK_REALTIME,&wake);wake.tv_sec+=10;
+        pthread_cond_timedwait(&maintenance_changed,&maintenance_mutex,&wake);
+        if (maintenance_stop) break;
+        pthread_mutex_unlock(&maintenance_mutex);
+        if (!pthread_mutex_trylock(&remote_mutex)) {
+            refresh_space();pthread_mutex_unlock(&remote_mutex);
+        }
+        pthread_mutex_lock(&maintenance_mutex);
+    }
+    pthread_mutex_unlock(&maintenance_mutex);
     return NULL;
 }
 static const struct fuse_operations operations={
-    .init=nf_init,.getattr=nf_getattr,.readdir=nf_readdir,.open=nf_open,.create=nf_create,
-    .read=nf_read,.write=nf_write,.flush=nf_flush,.fsync=nf_fsync,.release=nf_release,
-    .truncate=nf_truncate,.mkdir=nf_mkdir,.unlink=nf_unlink,.rmdir=nf_rmdir,.rename=nf_rename,
-    .chmod=nf_chmod,.chown=nf_chown,.utimens=nf_utimens,.statfs=nf_statfs,
-    .readlink=nf_readlink,.symlink=nf_symlink,.listxattr=nf_listxattr
+    .init=nf_init,.getattr=cached_getattr,.readdir=serial_readdir,.open=serial_open,.create=serial_create,
+    .read=serial_read,.write=serial_write,.flush=serial_flush,.fsync=serial_fsync,.release=serial_release,
+    .truncate=serial_truncate,.mkdir=serial_mkdir,.unlink=serial_unlink,.rmdir=serial_rmdir,.rename=serial_rename,
+    .chmod=serial_chmod,.chown=serial_chown,.utimens=serial_utimens,.statfs=nf_statfs,
+    .readlink=serial_readlink,.symlink=serial_symlink,.listxattr=nf_listxattr
 };
 int nf_mount(struct nf_config *config,const char *mountpoint) {
     memset(&fs,0,sizeof(fs));fs.config=config;fs.remote.socket=-1;
-    fs.ops=!strcmp(config->type,"smb") ? &nf_smb_ops : &nf_ssh_ops;
+    fs.backend=!strcmp(config->type,"smb") ? &nf_smb_ops : &nf_ssh_ops;fs.ops=&timed_ops;
     if (*config->status_file && snprintf(fs.status_temp,sizeof(fs.status_temp),"%s.%d.tmp",config->status_file,getpid())>=(int)sizeof(fs.status_temp)) return -ENAMETOOLONG;
-    int rc=fs.ops->connect(&fs.remote,config,0);
-    if (rc) { fs.ops->disconnect(&fs.remote);return rc; }
-    const char *arguments[]={"aera-netfs",mountpoint,"-f","-s","-o","fsname=aera-nas,subtype=aera-netfs,allow_other,default_permissions,max_read=1048576"};
+    int rc=fs.backend->connect(&fs.remote,config,0);
+    if (rc) { fs.backend->disconnect(&fs.remote);return rc; }
+    rc=nf_deadline_init(&fs.deadline);
+    /* The mount root is local metadata; the server still authorizes each real operation. */
+    fs.root.st_mode=S_IFDIR|0777;fs.root.st_nlink=2;fs.root.st_ino=1;
+    fs.root.st_blksize=NF_BLOCK;fs.root.st_atime=fs.root.st_mtime=fs.root.st_ctime=time(NULL);
+    if (!rc) {
+        /* Some SFTP servers do not implement the optional statvfs extension. */
+        refresh_space();
+        if (fs.offline) rc=-ENOTCONN;
+    }
+    pthread_t maintenance;
+    maintenance_stop=0;
+    if (!rc) rc=-pthread_create(&maintenance,NULL,maintain_space,NULL);
+    if (rc) {
+        nf_deadline_destroy(&fs.deadline);fs.backend->disconnect(&fs.remote);return rc;
+    }
+    const char *arguments[]={"aera-netfs",mountpoint,"-f","-o","fsname=aera-nas,subtype=aera-netfs,allow_other,default_permissions,max_read=1048576,max_threads=8,max_idle_threads=8"};
     rc=fuse_main((int)(sizeof(arguments)/sizeof(arguments[0])),(char **)arguments,&operations,NULL);
     /* Never remove disk-cache files here: unclean exits may need recovery. */
-    fs.ops->disconnect(&fs.remote);
+    pthread_mutex_lock(&maintenance_mutex);maintenance_stop=1;pthread_cond_signal(&maintenance_changed);
+    pthread_mutex_unlock(&maintenance_mutex);pthread_join(maintenance,NULL);
+    /* Closing an offline transport must not wait for a remote goodbye. */
+    if (fs.offline) {
+        int fd=fs.backend->socket_fd(&fs.remote);
+        if (fd>=0) shutdown(fd,SHUT_RDWR);
+    }
+    int guarded=nf_deadline_begin(&fs.deadline,fs.backend->socket_fd(&fs.remote),5000)==0;
+    fs.backend->disconnect(&fs.remote);
+    if (guarded) nf_deadline_end(&fs.deadline);
+    nf_deadline_destroy(&fs.deadline);
     unlink(config->status_file);
     if (*fs.status_temp) unlink(fs.status_temp);
     return rc ? -EIO : 0;
