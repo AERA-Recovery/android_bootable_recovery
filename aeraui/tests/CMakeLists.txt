@@ -38,7 +38,9 @@ add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp
   ../localization/catalog/catalog.cpp
   ../localization/catalog/catalog_generated.cpp
   ../scenes/tool_scene.cpp ../scenes/sideload_scene.cpp
+  ../scenes/font_browser.cpp ../features/fonts/fontsource.cpp
   ../features/fonts/font_library.cpp
+  ../features/fonts/fontsource_download.cpp
   ../scenes/wifi_scene.cpp ../components/picture_decode.cpp
   ../components/picture_viewer.cpp ../components/wallpaper.cpp
   ../scenes/operation_scene.cpp
@@ -227,6 +229,19 @@ target_include_directories(font_library_test PRIVATE .. ../include ../features)
 target_compile_options(font_library_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(font_library_test PRIVATE jsoncpp_static OpenSSL::Crypto)
 add_test(NAME font_library_persistence_and_cleanup COMMAND font_library_test)
+add_executable(fontsource_test fontsource_test.cpp ../features/fonts/fontsource.cpp)
+target_include_directories(fontsource_test PRIVATE ../features)
+target_compile_options(fontsource_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(fontsource_test PRIVATE jsoncpp_static)
+add_test(NAME fontsource_catalog_and_variants COMMAND fontsource_test)
+add_executable(fontsource_download_test fontsource_download_test.cpp
+  ../features/fonts/fontsource.cpp ../features/fonts/fontsource_download.cpp)
+target_include_directories(fontsource_download_test PRIVATE ../features)
+target_compile_options(fontsource_download_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_options(fontsource_download_test PRIVATE -Wl,--wrap=execv)
+target_link_libraries(fontsource_download_test PRIVATE jsoncpp_static Threads::Threads)
+add_test(NAME fontsource_download_cancellation COMMAND fontsource_download_test)
+add_test(NAME font_browser_ui COMMAND ui_check --font-browser)
 add_executable(app_vault_progress_test app_vault_progress_test.cpp)
 target_compile_options(app_vault_progress_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(app_vault_progress_test PRIVATE jsoncpp_static)

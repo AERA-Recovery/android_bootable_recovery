@@ -18,7 +18,9 @@
 #include "browser/protocol.hpp"
 #include "localization/fonts/custom_font_storage.hpp"
 #include "localization/fonts/aera_fallback.hpp"
+#include "font_browser.hpp"
 #include "fonts/font_library.hpp"
+#include <json/json.h>
 #include <cassert>
 #include <chrono>
 #include <cmath>
@@ -736,6 +738,136 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--font-browser")) {
+    test_font_import = true;
+    test_mobile_status = true;
+    test_mobile.connected = true;
+    std::ifstream font_input(std::string(AERA_COMMON_FONT_ROOT) + "/Roboto-Regular.ttf", std::ios::binary);
+    const std::string font_bytes((std::istreambuf_iterator<char>(font_input)), {});
+    assert(!font_bytes.empty());
+    std::atomic<unsigned> requests{0};
+    auto fetch = [&font_bytes, &requests](const std::string& url, size_t limit,
+        std::atomic<bool>& cancel, std::string& bytes, std::string&) {
+      ++requests;
+      if (cancel.load()) return false;
+      if (fontsource::FontUrl(url)) { assert(font_bytes.size() + url.size() < limit); bytes = font_bytes + url; return true; }
+      Json::Value root;
+      if (url == "https://api.fontsource.org/v1/fonts") {
+        root = Json::Value(Json::arrayValue);
+        for (int i = 0; i < 20; ++i) {
+          Json::Value item;
+          item["id"] = "font-" + std::to_string(i);
+          item["family"] = "Font " + std::to_string(i);
+          item["category"] = "sans-serif";
+          item["subsets"].append("latin");
+          root.append(item);
+        }
+      } else {
+        const auto id = url.substr(url.find_last_of('/') + 1);
+        root["id"] = id; root["family"] = "Font " + id.substr(5);
+        root["category"] = "sans-serif"; root["subsets"].append("latin");
+        root["license"] = "OFL-1.1";
+        for (const auto* weight : {"400", "700"})
+          root["variants"][weight]["normal"]["latin"]["url"]["ttf"] =
+              "https://cdn.jsdelivr.net/fontsource/fonts/" + id + "@1.0.0/latin-" + weight + "-normal.ttf";
+      }
+      bytes = Json::writeString(Json::StreamWriterBuilder{}, root); return true;
+    };
+    for (bool landscape : {false, true}) {
+      test_ui_font.clear(); fonts::SelectUiFont({}, {});
+      std::filesystem::remove_all(file_root + "/AERA/Fonts/Library");
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto* page = lv_obj_create(nullptr); lv_screen_load(page); Tick();
+      OpenFontBrowser(page, [] {}, fetch); Tick(100);
+      assert(Find(page, "Font 0"));
+      auto* text = FindLabel(page, "The quick brown fox 0123456789"); assert(text);
+      assert(lv_obj_get_style_text_font(text, LV_PART_MAIN) != design::UiFont(&lv_font_montserrat_48));
+      assert(!Overlaps(text, FindLabel(page, "Font 0")));
+      save(landscape ? "/tmp/aera-font-browser-landscape.png" : "/tmp/aera-font-browser-portrait.png", 2);
+      lv_obj_send_event(Find(page, "Font 0"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      auto* use = Find(page, "Use this font"); assert(use && !lv_obj_has_state(use, LV_STATE_DISABLED));
+      auto* download = Find(page, "Download"); assert(download && !lv_obj_has_state(download, LV_STATE_DISABLED));
+      lv_obj_send_event(download, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoveryUiFont().empty());
+      assert(Find(page, "Downloaded"));
+      assert(RecoverySavedUiFonts().size() == 1);
+      AssertInside(use, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      save(landscape ? "/tmp/aera-font-detail-landscape.png" : "/tmp/aera-font-detail-portrait.png", 2);
+      auto* style = Find(page, "400 / Regular"); assert(style);
+      lv_obj_send_event(style, LV_EVENT_CLICKED, nullptr); Tick();
+      auto* bold = Find(page, "700 / Regular"); assert(bold);
+      lv_obj_send_event(bold, LV_EVENT_CLICKED, nullptr); Tick(100);
+      lv_obj_send_event(Find(page, LV_SYMBOL_EDIT), LV_EVENT_CLICKED, nullptr); Tick();
+      auto* preview_keyboard = FindType(page, &lv_keyboard_class); assert(preview_keyboard);
+      assert(lv_obj_is_visible(preview_keyboard));
+      AssertInside(preview_keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto* preview_input = FindType(page, &lv_textarea_class); assert(preview_input);
+      assert(!Overlaps(preview_keyboard, preview_input));
+      assert(!Overlaps(preview_keyboard, Find(page, "Apply")));
+      PressKeyboardKey(preview_keyboard, "a");
+      assert(!strcmp(lv_textarea_get_text(preview_input), "a"));
+      lv_obj_send_event(Find(page, "Apply"), LV_EVENT_CLICKED, nullptr); Tick();
+      assert(FindLabel(page, "a"));
+      use = Find(page, "Use this font"); assert(use && !lv_obj_has_state(use, LV_STATE_DISABLED));
+      lv_obj_send_event(use, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(fonts::CustomFontId(RecoveryUiFont()));
+      assert(std::filesystem::exists(RecoveryUiFontPath(RecoveryUiFont())));
+      assert(RecoverySavedUiFonts().size() == 2);
+      assert(RecoveryUiFontName(RecoveryUiFont()) == "Font 0");
+      OpenFontBrowser(page, [] {}, fetch); Tick(100);
+      auto* search = Find(page, "Search fonts"); assert(search);
+      lv_obj_send_event(search, LV_EVENT_CLICKED, nullptr); Tick();
+      auto* input = FindType(page, &lv_textarea_class); assert(input);
+      auto* keyboard = FindType(page, &lv_keyboard_class); assert(keyboard);
+      assert(lv_obj_is_visible(keyboard));
+      AssertInside(keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      assert(!Overlaps(keyboard, input));
+      assert(!Overlaps(keyboard, Find(page, "Search")));
+      assert(!Overlaps(keyboard, Find(page, "Cancel")));
+      save(landscape ? "/tmp/aera-font-search-landscape.png" : "/tmp/aera-font-search-portrait.png", 2);
+      PressKeyboardKey(keyboard, "f");
+      assert(!strcmp(lv_textarea_get_text(input), "f"));
+      lv_textarea_set_text(input, "Font 19");
+      lv_obj_send_event(Find(page, "Search"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      assert(Find(page, "Font 19") && !Find(page, "Font 0"));
+      assert(widgets::DismissModal(page)); Tick();
+      assert(!Find(page, "My fonts"));
+      test_mobile.connected = false;
+      const auto before_offline = requests.load();
+      OpenFontBrowser(page, [] {}, fetch); Tick(100);
+      assert(Find(page, "Font 0"));
+      assert(requests.load() == before_offline);
+      save(landscape ? "/tmp/aera-my-fonts-landscape.png" : "/tmp/aera-my-fonts-portrait.png", 2);
+      lv_obj_send_event(Find(page, "Font 0"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      use = Find(page, "Use this font"); assert(use && !lv_obj_has_state(use, LV_STATE_DISABLED));
+      lv_obj_send_event(use, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoverySavedUiFonts().size() == 2);
+      OpenFontBrowser(page, [] {}, fetch); Tick(100);
+      lv_obj_send_event(Find(page, "Font 0"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      auto* active = Find(page, "Active"); assert(active && lv_obj_has_state(active, LV_STATE_DISABLED));
+      auto* trash = Find(page, LV_SYMBOL_TRASH); assert(trash);
+      lv_obj_send_event(trash, LV_EVENT_CLICKED, nullptr); Tick();
+      ConfirmSettingsModal(page); Tick(100);
+      assert(RecoveryUiFont().empty());
+      assert(RecoverySavedUiFonts().size() == 1);
+      assert(requests.load() == before_offline);
+      assert(widgets::DismissModal(page)); Tick();
+      test_mobile.connected = true;
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+    }
+    std::atomic<bool> cancelled{false};
+    OpenFontBrowser(screen, [] {}, [&cancelled](const std::string&, size_t,
+        std::atomic<bool>& cancel, std::string&, std::string&) {
+      while (!cancel.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      cancelled.store(true); return false;
+    });
+    Tick(); assert(widgets::DismissModal(screen)); Tick(100);
+    assert(cancelled.load());
+    fonts::SelectUiFont({}, {});
+    std::filesystem::remove_all(backup_root);
+    puts("Font browser UI: real previews, variant selection, apply, close and both orientations passed");
+    return 0;
+  }
   if (!strcmp(argv[1], "--custom-font")) {
     test_font_import = true;
     const std::string asset = std::string(AERA_COMMON_FONT_ROOT) + "/Roboto-Regular.ttf";
@@ -766,6 +898,7 @@ int main(int argc,char **argv) {
       lv_screen_load(page); Tick();
       assert(Find(page, "Roboto"));
       assert(!Find(page, "Load custom font"));
+      assert(Find(page, "Browse fonts"));
       lv_screen_load(screen); lv_obj_delete(page); Tick(2);
     }
     std::filesystem::remove(source);

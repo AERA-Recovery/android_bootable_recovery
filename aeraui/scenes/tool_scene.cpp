@@ -5,6 +5,7 @@
 #include "phone_keyboard.hpp"
 #include "picture_decode.hpp"
 #include "file_manager.hpp"
+#include "font_browser.hpp"
 #include "ui_components.hpp"
 #include "circle_battery.hpp"
 #include "partition_layout.hpp"
@@ -2367,6 +2368,10 @@ void BuildThemeTypography(Tools *state) {
     lv_obj_set_width(sample, LV_PCT(100));
     lv_label_set_long_mode(sample, LV_LABEL_LONG_WRAP);
   }
+  auto *browse_fonts = Button(state->list, "Browse fonts", [state] {
+    OpenFontBrowser(state->screen, [state] { RefreshTheme(state); });
+  });
+  lv_obj_set_size(browse_fonts, LV_PCT(100), 120);
   ThemeReset(state, ThemeSection::kTypography);
   RestoreThemeScroll(state);
 }
