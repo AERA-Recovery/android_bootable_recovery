@@ -284,6 +284,34 @@ bool MetricFlagsValid(uint32_t flags) {
   return (flags & ~mask) == 0 && (tone == 0 || (tone & (tone - 1)) == 0);
 }
 
+// A metric row is as tall as its tallest label plus 20 px above and below,
+// and never shorter than one 82 px line.
+int MetricRowHeight(lv_obj_t *row) {
+  lv_obj_update_layout(row);
+  int32_t tallest = 0;
+  for (uint32_t index = 0; index < lv_obj_get_child_count(row); ++index)
+    tallest = std::max(tallest, lv_obj_get_height(
+        lv_obj_get_child(row, static_cast<int32_t>(index))));
+  return std::max(82, static_cast<int>(tallest) + 40);
+}
+
+// UPDATE_METRIC can change how many lines a value wraps to. Resize the row
+// and shift everything below it instead of re-rendering the page, which would
+// replay the enter animation on every update. Uses the style y and height (the
+// values set by the layout code), so several updates in one tick stay exact.
+void ResizeMetricRow(GenericScene *scene, lv_obj_t *row) {
+  const int32_t old_height = lv_obj_get_style_height(row, LV_PART_MAIN);
+  const int32_t delta = MetricRowHeight(row) - old_height;
+  if (delta == 0) return;
+  lv_obj_set_height(row, old_height + delta);
+  const uint32_t count = lv_obj_get_child_count(scene->content);
+  for (uint32_t index = static_cast<uint32_t>(lv_obj_get_index(row)) + 1;
+       index < count; ++index) {
+    auto *below = lv_obj_get_child(scene->content, static_cast<int32_t>(index));
+    lv_obj_set_y(below, lv_obj_get_style_y(below, LV_PART_MAIN) + delta);
+  }
+}
+
 void RenderMetricPage(GenericScene *scene) {
   lv_obj_clean(scene->content);
   lv_obj_update_layout(scene->content);
@@ -368,10 +396,7 @@ void RenderMetricPage(GenericScene *scene) {
     lv_obj_set_width(model.value_label, value_width);
     lv_obj_set_style_text_align(model.value_label, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_long_mode(model.value_label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_update_layout(row);
-    const int row_height = std::max(
-        82, std::max(static_cast<int>(lv_obj_get_height(name)),
-                     static_cast<int>(lv_obj_get_height(model.value_label))) + 40);
+    const int row_height = MetricRowHeight(row);
     lv_obj_set_height(row, row_height);
     if (animate_rows)
       AnimateEnter(row, 12 + static_cast<uint32_t>(visible_index) * 10, 6);
@@ -723,6 +748,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
         lv_label_set_text(row->value_label, row->value.c_str());
         lv_obj_set_style_text_color(row->value_label,
                                     MetricColor(row->flags), 0);
+        ResizeMetricRow(scene, lv_obj_get_parent(row->value_label));
       }
       break;
     }
