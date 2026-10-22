@@ -677,6 +677,58 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--file-search")) {
+    std::filesystem::create_directories(file_root + "/nested");
+    std::ofstream(file_root + "/nested/Alpha-Result.txt") << "nested match";
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      auto* page = lv_obj_create(nullptr);
+      BuildFilesScene(page, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      auto* root = Find(page, "Root"); assert(root);
+      for (const auto* icon : {LV_SYMBOL_LIST, LV_SYMBOL_PLUS, LV_SYMBOL_OK,
+                               "Search", LV_SYMBOL_REFRESH}) {
+        auto* button = Find(page, icon);
+        assert(button);
+        assert(lv_obj_get_width(button) == lv_obj_get_width(root));
+      }
+      lv_obj_send_event(Find(page, "Search"), LV_EVENT_CLICKED, nullptr); Tick();
+      auto* input = FindType(page, &lv_textarea_class); assert(input);
+      auto* keyboard = FindType(page, &lv_keyboard_class); assert(keyboard);
+      auto* overlay = lv_obj_get_parent(FindLabel(page, "Search files"));
+      auto* search = Find(overlay, "Search"); assert(search);
+      auto* cancel = Find(page, "Cancel"); assert(cancel);
+      AssertInside(input, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      assert(!Overlaps(input, keyboard));
+      assert(!Overlaps(search, keyboard));
+      assert(!Overlaps(cancel, keyboard));
+      lv_textarea_set_text(input, "ALPHA");
+      save(landscape ? "/tmp/aera-file-search-dialog-landscape.png" :
+                       "/tmp/aera-file-search-dialog-portrait.png", 2);
+      lv_obj_send_event(keyboard, LV_EVENT_READY, nullptr); Tick(100);
+      assert(Find(page, "alpha.txt") && Find(page, "Alpha-Result.txt"));
+      assert(!Find(page, "broken.log"));
+      assert(Find(page, "2 results for \"ALPHA\""));
+      save(landscape ? "/tmp/aera-file-search-results-landscape.png" :
+                       "/tmp/aera-file-search-results-portrait.png", 2);
+      assert(NavigateFileBack()); Tick();
+      assert(Find(page, "broken.log"));
+      assert(!Find(page, "Alpha-Result.txt"));
+      lv_obj_send_event(Find(page, "Search"), LV_EVENT_CLICKED, nullptr); Tick();
+      input = FindType(page, &lv_textarea_class);
+      lv_textarea_set_text(input, "no-match-at-all");
+      overlay = lv_obj_get_parent(FindLabel(page, "Search files"));
+      lv_obj_send_event(Find(overlay, "Search"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      assert(Find(page, "0 results for \"no-match-at-all\""));
+      assert(NavigateFileBack());
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("File search: toolbar, keyboard, recursive results, empty results and Back passed");
+    return 0;
+  }
   if (!strcmp(argv[1], "--sim-pin")) {
     test_mobile_status=true;
     test_mobile.enabled=true;test_mobile.available=true;test_mobile.state="pin_required";

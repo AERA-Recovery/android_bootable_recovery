@@ -215,6 +215,7 @@ target_include_directories(file_manager_test PRIVATE .. ../features/files)
 target_compile_options(file_manager_test PRIVATE -UNDEBUG)
 target_link_libraries(file_manager_test PRIVATE Threads::Threads)
 add_test(NAME file_manager_operations COMMAND file_manager_test)
+add_test(NAME file_search_ui COMMAND ui_check --file-search)
 
 set(JSONCPP_WITH_TESTS OFF CACHE BOOL "" FORCE)
 set(JSONCPP_WITH_POST_BUILD_UNITTEST OFF CACHE BOOL "" FORCE)
