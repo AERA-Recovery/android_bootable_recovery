@@ -17,6 +17,8 @@ static int battery_circle_size = aeraui::kBatteryCircleSizeDefault;
 static bool battery_percentage = true;
 static bool clock24 = true;
 static bool recording_active = false;
+static aeraui::DiagnosticLogStatus diagnostic_status;
+static int diagnostic_toggles = 0;
 static aeraui::plugin_api::MirrorMode mirror_mode = aeraui::plugin_api::MirrorMode::kOff;
 static aeraui::web::DownloadSummary download_summary;
 namespace aeraui {
@@ -30,11 +32,19 @@ int RecoveryBrightness() { return 50; }
 void RecoverySetBrightness(int) {}
 bool RecoveryAutoSavePreferences() { ++autosave_count; return true; }
 bool RecoveryFlashlightSupported() { return false; }
+DiagnosticLogStatus RecoveryDiagnosticLogStatus() { return diagnostic_status; }
+void RecoveryToggleDiagnosticLogging() {
+  ++diagnostic_toggles;
+  diagnostic_status.recording = !diagnostic_status.recording;
+  diagnostic_status.elapsed_seconds = 65;
+}
+MobileStatus RecoveryMobileStatus() { return {}; }
 bool RecoveryFlashlightEnabled() { return false; }
 bool RecoverySetFlashlight(bool) { return false; }
 WifiStatus RecoveryWifiStatus() { return {}; }
 WifiConnection RecoveryWifiConnection() { return wifi_connection; }
 WifiTraffic RecoveryWifiTraffic() { ++traffic_reads; return wifi_traffic; }
+WifiTraffic RecoveryNetworkTraffic() { return RecoveryWifiTraffic(); }
 WifiStatusDisplay RecoveryWifiStatusDisplay() { return wifi_display; }
 TemperatureDisplay RecoveryTemperatureDisplay() { return temperature_display; }
 Temperatures RecoveryTemperatures() { return temperature_values; }
@@ -377,6 +387,19 @@ int main() {
   assert(state.shade == nullptr);
   Touch(400, 80, true); Touch(400, 80, false); Settle();
   assert(state.shade && state.shade_visible == state.shade_height);
+  assert(std::string(lv_label_get_text(state.shade_logcat_detail)) == "Start logging");
+  lv_obj_send_event(state.shade_logcat, LV_EVENT_CLICKED, nullptr);
+  assert(diagnostic_toggles == 1 && diagnostic_status.recording);
+  assert(std::string(lv_label_get_text(state.shade_logcat_detail)) == "01:05 / Stop");
+  diagnostic_status.recording = false; diagnostic_status.working = true;
+  RefreshShade(&state);
+  assert(lv_obj_has_state(state.shade_logcat, LV_STATE_DISABLED));
+  diagnostic_status = {}; RefreshShade(&state);
+  assert(!lv_obj_has_state(state.shade_logcat, LV_STATE_DISABLED));
+  lv_refr_now(display);
+  png_image screenshot{}; screenshot.version = PNG_IMAGE_VERSION;
+  screenshot.width = 1440; screenshot.height = 3168; screenshot.format = PNG_FORMAT_BGRA;
+  assert(png_image_write_to_file(&screenshot, "/tmp/aera-diagnostic-qs.png", 0, frame.data(), 0, nullptr));
   lv_slider_set_value(state.brightness_slider, 70, LV_ANIM_OFF);
   lv_obj_send_event(state.brightness_slider, LV_EVENT_VALUE_CHANGED, nullptr);
   assert(autosave_count == 0);

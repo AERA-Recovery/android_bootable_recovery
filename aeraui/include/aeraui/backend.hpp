@@ -279,6 +279,13 @@ void RecoverySetScreenTimeout(int seconds);
 bool RecoveryFlashlightSupported();
 bool RecoveryFlashlightEnabled();
 bool RecoverySetFlashlight(bool enabled);
+struct DiagnosticLogStatus {
+  bool recording = false, working = false;
+  uint64_t elapsed_seconds = 0;
+  std::string path, error;
+};
+DiagnosticLogStatus RecoveryDiagnosticLogStatus();
+void RecoveryToggleDiagnosticLogging();
 bool RecoveryMtpEnabled();
 bool RecoverySetMtp(bool enabled);
 enum class Preference {

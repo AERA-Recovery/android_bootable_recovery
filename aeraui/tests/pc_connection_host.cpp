@@ -212,9 +212,9 @@ ArbDecision CompareArb(bool includes_firmware, const Arb &package, const DeviceA
 }
 
 namespace aera::flashlog {
-Options PlatformOptions(const std::string &, const std::string &, const std::string &) { return {}; }
-std::vector<std::string> PlatformDirectories() {
-  return {storage + "/AERA/logs/FlashLogs"};
+Options PlatformOptions(const std::string &, const std::string &, const std::string &, bool manual) { Options options; options.manual = manual; return options; }
+std::vector<std::string> PlatformDirectories(bool manual) {
+  return {storage + (manual ? "/AERA/logs/Diagnostics" : "/AERA/logs/FlashLogs")};
 }
 }
 

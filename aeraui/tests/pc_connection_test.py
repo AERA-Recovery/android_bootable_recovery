@@ -577,6 +577,28 @@ class PcConnectionTest(unittest.TestCase):
         self.assertEqual(self.request("/api/log/flash/" + names[-1])[0], 409)
         self.command("idle")
 
+    def test_05bc_manual_diagnostics_have_separate_authenticated_downloads(self):
+        folder = self.root / "AERA" / "logs" / "Diagnostics"
+        folder.mkdir(parents=True, exist_ok=True)
+        name = "debug_20261022_100000_ABCDEF_SUCCESS.zip"
+        with zipfile.ZipFile(folder / name, "w") as report:
+            report.writestr("summary.txt", "Manual diagnostic recording\n")
+            report.writestr("logcat.txt", "manual fixture\n")
+        self.assertEqual(self.request("/api/log/diagnostics", token="")[0], 401)
+        self.assertEqual(self.request("/api/log/diagnostic/" + name, token="")[0], 401)
+        status, listing = self.request("/api/log/diagnostics")
+        self.assertEqual(status, 200)
+        self.assertEqual([entry["name"] for entry in listing["reports"]], [name])
+        status, content = self.request("/api/log/diagnostic/" + name, raw=True)
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(content)) as report:
+            self.assertEqual(report.read("logcat.txt"), b"manual fixture\n")
+        self.assertEqual(self.request("/api/log/flash/" + name)[0], 404)
+        self.assertNotEqual(self.request("/api/log/diagnostic/../keep.zip")[0], 200)
+        self.command("busy")
+        self.assertEqual(self.request("/api/log/diagnostics")[0], 409)
+        self.command("idle")
+
     def test_05b_network_storage_metadata_and_queue(self):
         self.assertEqual(self.request("/api/nas", {"action": "save"}, token="")[0], 401)
         status, info = self.request("/api/status")

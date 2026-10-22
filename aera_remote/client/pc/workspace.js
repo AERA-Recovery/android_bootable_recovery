@@ -876,25 +876,25 @@ for(const [id,path,name] of [['logcatLog','log/logcat','AERA-logcat.txt'],['kern
   try{downloadText(await authorizedText(path),name)}catch(error){notice(error.message)}
   finally{$(id).textContent=text;$(id).disabled=false;}
 };
-async function loadFlashReports() {
-  const panel=$('flashReports');panel.textContent='Loading...';
+async function loadReports(manual=false) {
+  const panel=$(manual?'diagnosticReports':'flashReports');panel.textContent='Loading...';
   try {
-    const result=await api('log/flashes');panel.replaceChildren();
-    if(!result.reports?.length){panel.textContent='No flash reports available.';return;}
+    const result=await api(manual?'log/diagnostics':'log/flashes');panel.replaceChildren();
+    if(!result.reports?.length){panel.textContent=manual?'No diagnostic recordings available.':'No flash reports available.';return;}
     for(const report of result.reports){
       const row=document.createElement('div');row.className='flash-report';
       const text=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('small');
-      title.textContent=report.result;
+      title.textContent=manual?(report.result==='Incomplete'?'Interrupted recording':'Manual recording'):report.result;
       detail.textContent=new Date(report.timestamp*1000).toLocaleString()+' / '+size(report.bytes);
       text.append(title,detail);
-      const button=document.createElement('button');button.title='Download flash report';button.setAttribute('aria-label',button.title);
+      const button=document.createElement('button');button.title=manual?'Download diagnostic report':'Download flash report';button.setAttribute('aria-label',button.title);
       button.append(icon('download'));
       button.onclick=async()=>{
         button.disabled=true;
         try{
-          const response=await fetch('/api/log/flash/'+encodeURIComponent(report.name),{
+          const response=await fetch((manual?'/api/log/diagnostic/':'/api/log/flash/')+encodeURIComponent(report.name),{
             headers:{Authorization:'Bearer '+state.token},cache:'no-store',signal:AbortSignal.timeout(60000)});
-          if(!response.ok)throw new Error('Flash report could not be downloaded. Refresh the list and try again.');
+          if(!response.ok)throw new Error('Report could not be downloaded. Refresh the list and try again.');
           const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');
           link.href=url;link.download=report.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
         }catch(error){notice(error.message)}finally{button.disabled=false;}
@@ -903,5 +903,6 @@ async function loadFlashReports() {
     }
   }catch(error){panel.textContent=error.message;}
 }
+async function loadFlashReports(){await Promise.all([loadReports(),loadReports(true)]);}
 $('deviceRefresh').onclick=async()=>{try{await refresh();await loadFlashReports()}catch(error){notice(error.message)}};
 showTab('install');if(state.info)updateInfo(state.info);controls();

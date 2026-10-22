@@ -1940,11 +1940,12 @@ void Handle(SSL *tls, unsigned generation) {
   if (request.method == "GET" && (request.path == "/api/log/logcat" || request.path == "/api/log/kernel")) {
     DiagnosticLog(tls, request.path == "/api/log/kernel"); return;
   }
-  if (request.method == "GET" && request.path == "/api/log/flashes") {
+  if (request.method == "GET" && (request.path == "/api/log/flashes" || request.path == "/api/log/diagnostics")) {
+    const bool manual = request.path == "/api/log/diagnostics";
     FileAccess access;
     if (!access.acquired) { Error(tls, 409, "Recovery is busy."); return; }
     Json::Value result(Json::objectValue); result["reports"] = Json::Value(Json::arrayValue);
-    for (const auto &report : aera::flashlog::Reports()) {
+    for (const auto &report : aera::flashlog::Reports(manual)) {
       Json::Value entry;
       entry["name"] = report.name; entry["bytes"] = Json::UInt64(report.bytes);
       entry["timestamp"] = Json::Int64(report.timestamp);
@@ -1954,13 +1955,15 @@ void Handle(SSL *tls, unsigned generation) {
     }
     Reply(tls, 200, JsonText(result)); return;
   }
-  if (request.method == "GET" && request.path.compare(0, 15, "/api/log/flash/") == 0) {
+  if (request.method == "GET" && (request.path.compare(0, 15, "/api/log/flash/") == 0 ||
+      request.path.compare(0, 20, "/api/log/diagnostic/") == 0)) {
+    const bool manual = request.path.compare(0, 20, "/api/log/diagnostic/") == 0;
     FileAccess access;
     if (!access.acquired) { Error(tls, 409, "Recovery is busy."); return; }
     uint64_t bytes = 0;
-    const auto name = request.path.substr(15);
-    const int fd = aera::flashlog::OpenReport(name, &bytes);
-    if (fd < 0) Error(tls, 404, "Flash report is no longer available.");
+    const auto name = request.path.substr(manual ? 20 : 15);
+    const int fd = aera::flashlog::OpenReport(name, &bytes, manual);
+    if (fd < 0) Error(tls, 404, "Diagnostic report is no longer available.");
     else SendDownload(tls, fd, bytes, name);
     return;
   }

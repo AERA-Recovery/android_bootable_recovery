@@ -195,6 +195,8 @@ bool RecoverySetLockTheme(const LockTheme &theme) {
   lock_theme = theme; return true;
 }
 bool RecoveryFlashlightSupported() { return true; }
+DiagnosticLogStatus RecoveryDiagnosticLogStatus() { return {}; }
+void RecoveryToggleDiagnosticLogging() {}
 bool RecoveryFlashlightEnabled() { return false; }
 bool RecoverySetFlashlight(bool) { return true; }
 bool RecoverySetWallpaperPath(const std::string &path) { wallpaper_path = path; return true; }

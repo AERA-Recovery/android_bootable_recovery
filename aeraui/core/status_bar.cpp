@@ -111,6 +111,7 @@ struct StatusState {
   lv_obj_t *clock = nullptr;
   lv_obj_t *mirror = nullptr;
   lv_obj_t *download = nullptr;
+  lv_obj_t *diagnostic = nullptr;
   lv_obj_t *wifi = nullptr;
   widgets::WifiIndicator wifi_icon;
   widgets::CellularIndicator cellular;
@@ -135,8 +136,8 @@ struct StatusState {
   lv_obj_t *shade_rotation_detail = nullptr;
   lv_obj_t *shade_flashlight = nullptr;
   lv_obj_t *shade_flashlight_detail = nullptr;
-  lv_obj_t *shade_reboot = nullptr;
-  lv_obj_t *shade_reboot_detail = nullptr;
+  lv_obj_t *shade_logcat = nullptr;
+  lv_obj_t *shade_logcat_detail = nullptr;
   lv_obj_t *shade_recorder = nullptr;
   lv_obj_t *shade_recorder_detail = nullptr;
   lv_obj_t *shade_update = nullptr;
@@ -169,6 +170,7 @@ int32_t gStatusIndentLeft = 54;
 int32_t gStatusIndentRight = 54;
 lv_obj_t *gOpenShade = nullptr;
 std::vector<StatusState *> gStatusBars;
+std::string gDiagnosticNotice;
 
 void ShadeDeleted(lv_event_t *event) {
   auto *shade = lv_event_get_target_obj(event);
@@ -219,8 +221,8 @@ void AnimateShade(StatusState *state, bool open) {
     state->shade_rotation_detail = nullptr;
     state->shade_flashlight = nullptr;
     state->shade_flashlight_detail = nullptr;
-    state->shade_reboot = nullptr;
-    state->shade_reboot_detail = nullptr;
+    state->shade_logcat = nullptr;
+    state->shade_logcat_detail = nullptr;
     state->shade_recorder = nullptr;
     state->shade_recorder_detail = nullptr;
     state->shade_update = nullptr;
@@ -282,9 +284,8 @@ void TileClicked(lv_event_t *event) {
     state->callback(Action::kToggleRotation, state->context);
   } else if (target == state->shade_flashlight) {
     RecoverySetFlashlight(!RecoveryFlashlightEnabled());
-  } else if (target == state->shade_reboot) {
-    state->callback(Action::kOpenReboot, state->context);
-    return;
+  } else if (target == state->shade_logcat) {
+    RecoveryToggleDiagnosticLogging();
   } else if (target == state->shade_recorder) {
     if (recorder::Installed() || recorder::Active())
       state->callback(Action::kToggleRecording, state->context);
@@ -445,15 +446,14 @@ void BuildShade(StatusState *state) {
       state, offset + (tile_width + tile_gap) * 2, tile_y, tile_width,
       tile_height, LV_SYMBOL_EYE_OPEN, "Flashlight",
       &state->shade_flashlight_detail);
-  state->shade_reboot = QuickTile(
+  state->shade_logcat = QuickTile(
       state, offset + (tile_width + tile_gap) * 3, tile_y, tile_width,
-      tile_height, LV_SYMBOL_POWER, "Reboot", &state->shade_reboot_detail);
+      tile_height, LV_SYMBOL_FILE, "Logcat", &state->shade_logcat_detail);
   state->shade_recorder = QuickTile(
       state, offset + (tile_width + tile_gap) * 4, tile_y, tile_width,
       tile_height, LV_SYMBOL_VIDEO, "Recorder", &state->shade_recorder_detail);
-  i18n::BindLabel(state->shade_reboot_detail, "Power menu");
   for (auto *tile : {state->shade_wifi, state->shade_rotation,
-                     state->shade_flashlight, state->shade_reboot,
+                     state->shade_flashlight, state->shade_logcat,
                      state->shade_recorder})
     lv_obj_add_event_cb(tile, TileClicked, LV_EVENT_CLICKED, state);
 
@@ -669,7 +669,30 @@ void RefreshShade(StatusState *state) {
                     !torch_supported ? "Unavailable"
                                      : torch_enabled ? "On" : "Off");
   StyleTile(state->shade_flashlight, torch_enabled, torch_supported);
-  StyleTile(state->shade_reboot, false);
+  const auto diagnostic = RecoveryDiagnosticLogStatus();
+  std::string diagnostic_detail;
+  if (diagnostic.recording) {
+    char elapsed[32];
+    snprintf(elapsed, sizeof(elapsed), "%02llu:%02llu",
+        static_cast<unsigned long long>(diagnostic.elapsed_seconds / 60),
+        static_cast<unsigned long long>(diagnostic.elapsed_seconds % 60));
+    diagnostic_detail = std::string(elapsed) + " / " + i18n::Translate("Stop");
+  } else diagnostic_detail = i18n::Translate(diagnostic.working ? "Working…" :
+      !diagnostic.error.empty() ? "Failed" : !diagnostic.path.empty() ? "Saved" : "Start logging");
+  i18n::BindLabel(state->shade_logcat_detail, diagnostic_detail.c_str());
+  StyleTile(state->shade_logcat, diagnostic.recording, !diagnostic.working);
+  if (diagnostic.working) lv_obj_add_state(state->shade_logcat, LV_STATE_DISABLED);
+  else lv_obj_remove_state(state->shade_logcat, LV_STATE_DISABLED);
+  if (!diagnostic.recording && !diagnostic.working && state->screen == lv_screen_active() &&
+      state->shade_visible > 0 && (!diagnostic.path.empty() || !diagnostic.error.empty())) {
+    const auto notice = diagnostic.path + diagnostic.error;
+    if (gDiagnosticNotice != notice) {
+      gDiagnosticNotice = notice;
+      widgets::Sheet(state->screen, "Logcat", diagnostic.error.empty() ?
+          i18n::Format("Saved to %s", diagnostic.path.c_str()).c_str() :
+          i18n::Translate(diagnostic.error.c_str()));
+    }
+  }
 
   const auto recording = recorder::GetSnapshot();
   const bool recorder_installed = recorder::Installed();
@@ -882,6 +905,9 @@ void Refresh(StatusState *state, bool refresh_battery) {
   lv_obj_update_layout(state->bar);
   const auto download = web::CurrentDownloadSummary();
   const int recording_reserved = recording_active ? lv_obj_get_width(state->recording) + 48 : 0;
+  const auto diagnostic = RecoveryDiagnosticLogStatus();
+  const bool diagnostic_active = diagnostic.recording || diagnostic.working;
+  const int diagnostic_reserved = diagnostic_active ? 52 : 0;
   const int download_reserved = download.active_count ? 90 : 0;
   lv_obj_t *activity_anchor = state->clock;
   int activity_gap = 26;
@@ -893,7 +919,7 @@ void Refresh(StatusState *state, bool refresh_battery) {
             : std::string(LV_SYMBOL_USB) + "  USB Mirror";
     i18n::BindLabel(state->mirror, text.c_str());
     const int available = wifi_right - network_reserved - recording_reserved -
-        download_reserved - lv_obj_get_x(state->clock) - lv_obj_get_width(state->clock) - 26;
+        download_reserved - diagnostic_reserved - lv_obj_get_x(state->clock) - lv_obj_get_width(state->clock) - 26;
     lv_obj_set_width(state->mirror, std::clamp(available, 0, 330));
     lv_obj_align_to(state->mirror, activity_anchor,
                     LV_ALIGN_OUT_RIGHT_MID, activity_gap, 0);
@@ -913,6 +939,13 @@ void Refresh(StatusState *state, bool refresh_battery) {
   } else {
     lv_obj_add_flag(state->download, LV_OBJ_FLAG_HIDDEN);
   }
+  lv_obj_update_layout(state->bar);
+  if (diagnostic_active) {
+    lv_obj_align_to(state->diagnostic, activity_anchor, LV_ALIGN_OUT_RIGHT_MID, activity_gap, 0);
+    lv_obj_remove_flag(state->diagnostic, LV_OBJ_FLAG_HIDDEN);
+    activity_anchor = state->diagnostic;
+    activity_gap = 18;
+  } else lv_obj_add_flag(state->diagnostic, LV_OBJ_FLAG_HIDDEN);
   lv_obj_update_layout(state->bar);
   lv_obj_align_to(state->recording_dot, activity_anchor,
                   LV_ALIGN_OUT_RIGHT_MID, activity_gap, 0);
@@ -1092,6 +1125,14 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
                           &lv_font_montserrat_32, kMutedStrong);
   lv_obj_set_width(state->download, 64);
   lv_obj_add_flag(state->download, LV_OBJ_FLAG_HIDDEN);
+
+  state->diagnostic = Label(bar, LV_SYMBOL_FILE, &lv_font_montserrat_28, kAmber);
+  lv_obj_set_width(state->diagnostic, 34);
+  lv_obj_add_flag(state->diagnostic, LV_OBJ_FLAG_HIDDEN);
+  widgets::OnClick(state->diagnostic, [state] {
+    BuildShade(state);
+    AnimateShade(state, true);
+  });
 
   state->recording_dot = lv_obj_create(bar);
   NoScroll(state->recording_dot);

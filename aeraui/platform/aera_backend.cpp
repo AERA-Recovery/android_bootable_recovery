@@ -4,6 +4,7 @@
 #include "aeraui/features/plugin_api/activity.hpp"
 #include <aeraui/screen_timeout.hpp>
 #include "../../aera_remote/backup_cancel.hpp"
+#include "../../aera_flash_log.hpp"
 #include "../../aera_mobile/client.hpp"
 #include "../../aera_mobile/android_apn.hpp"
 #include <json/json.h>
@@ -2022,6 +2023,15 @@ void RecoverySetBrightness(int percent) {
   DataManager::SetValue("tw_brightness", maximum * percent / 100);
   TWFunc::Set_Brightness(DataManager::GetStrValue("tw_brightness"));
 }
+
+DiagnosticLogStatus RecoveryDiagnosticLogStatus() {
+  const auto status = aera::flashlog::GetManualStatus();
+  return {status.state == aera::flashlog::ManualState::kRecording,
+      status.state == aera::flashlog::ManualState::kStarting ||
+      status.state == aera::flashlog::ManualState::kSaving,
+      status.elapsed_seconds, status.path, status.error};
+}
+void RecoveryToggleDiagnosticLogging() { aera::flashlog::ToggleManual(); }
 
 bool RecoveryFlashlightSupported() {
   return DataManager::GetIntValue(OF_FLASHLIGHT_ENABLE_STR) == 1;
