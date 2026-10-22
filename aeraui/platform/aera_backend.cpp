@@ -57,6 +57,10 @@
 #include "aera_flash_log.hpp"
 #include "aera_secrets/aera_secrets.hpp"
 #include "aeraui/features/root/root_manager.hpp"
+#include "aeraui/localization/fonts/aera_fallback.hpp"
+#include "aeraui/localization/fonts/custom_font_storage.hpp"
+#include "aeraui/features/fonts/font_library.hpp"
+#include "aeraui/features/plugins/plugin_manager.hpp"
 #include "partitions.hpp"
 #include "twrp-functions.hpp"
 #include "../../aera_shared_storage.hpp"
@@ -2565,6 +2569,7 @@ bool PrepareEarlyPreferencesRoot() {
 #endif
 
 struct EarlyUiPreferences {
+  std::string ui_font;
   std::string developer_settings = "1";
   std::string wallpaper_layout;
   std::string lock_theme;
@@ -2719,6 +2724,7 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.interface_size =
       interface_size.empty() ? 1 : std::clamp(atoi(interface_size.c_str()), 0, 3);
   preferences.language = DataManager::GetStrValue("tw_language");
+  preferences.ui_font = DataManager::GetStrValue("aera_ui_font");
   if (!ValidLanguage(preferences.language)) preferences.language = AERA_DEFAULT_LANGUAGE;
   preferences.keyboard_layout = KeyboardLayoutCode(KeyboardLayoutFromCode(
       DataManager::GetStrValue("aera_keyboard_layout")));
@@ -2930,6 +2936,11 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "language") {
     if (!ValidLanguage(value)) return false;
     preferences->language = value;
+  } else if (key == "ui_font") {
+    if (value.size() > 64 || !std::all_of(value.begin(), value.end(), [](unsigned char c) {
+          return std::islower(c) || std::isdigit(c) || c == '-' || c == '.';
+        })) return false;
+    preferences->ui_font = value;
   } else if (key == "keyboard_layout") {
     if (value != KeyboardLayoutCode(KeyboardLayoutFromCode(value))) return false;
     preferences->keyboard_layout = value;
@@ -3058,6 +3069,7 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
                         preferences.tinted_icon_backgrounds);
   DataManager::SetValue("aera_themed_home_icons", preferences.themed_home_icons);
   DataManager::SetValue("aera_interface_size", preferences.interface_size);
+  DataManager::SetValue("aera_ui_font", preferences.ui_font);
   DataManager::SetValue("tw_language", preferences.language);
   DataManager::SetValue("aera_keyboard_layout", preferences.keyboard_layout);
   DataManager::SetValue("aera_home_grid_columns", preferences.home_grid_columns);
@@ -3143,6 +3155,7 @@ bool WriteFileAtomically(const std::string& path, const std::string& contents) {
 std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   std::ostringstream output;
   output << "schema=1\n"
+         << "ui_font=" << preferences.ui_font << '\n'
          << "developer_settings=" << preferences.developer_settings << '\n'
          << "clock24=" << preferences.clock24 << '\n'
          << "timezone=" << preferences.timezone << '\n'
@@ -3201,8 +3214,27 @@ bool SaveEarlyUiPreferences() {
   if (!PrepareEarlyPreferencesRoot() ||
       !TWFunc::Recursive_Mkdir(kAeraEarlyPreferencesDirectory, false))
     return false;
-  return WriteFileAtomically(kAeraEarlyPreferencesPath,
-                             SerializeEarlyUiPreferences(CaptureCurrentEarlyUiPreferences()));
+  auto preferences = CaptureCurrentEarlyUiPreferences();
+  const std::string directory = kAeraEarlyPreferencesDirectory + "/Fonts";
+  fonts::CustomFontStorage early(directory);
+  if (fonts::CustomFontId(preferences.ui_font) && !early.Has(preferences.ui_font)) {
+    const std::string source = RecoveryUiFontPath(preferences.ui_font);
+    std::string error;
+    if (source.empty() ||
+        !TWFunc::Recursive_Mkdir(directory, false) ||
+        early.Import(source, &error) != preferences.ui_font) {
+      // Keep the remaining early settings usable if a font cannot be mirrored.
+      preferences.ui_font.clear();
+    }
+  }
+  const bool saved = WriteFileAtomically(kAeraEarlyPreferencesPath,
+                                        SerializeEarlyUiPreferences(preferences));
+  if (saved) {
+    early.Prune(fonts::CustomFontId(preferences.ui_font) ? preferences.ui_font : "");
+    if (early.Has(preferences.ui_font))
+      aera::shared_storage::Normalize(early.Path(preferences.ui_font));
+  }
+  return saved;
 #endif
 }
 
@@ -3539,6 +3571,126 @@ std::vector<std::string> Lines(const std::string &text) {
   return result;
 }
 }  // namespace
+
+std::string RecoveryUiFontPath(const std::string &id) {
+  if (id.empty()) return {};
+  if (fonts::CustomFontId(id)) {
+    fonts::CustomFontStorage primary("/data/media/0/AERA/Fonts");
+    if (primary.Has(id)) return primary.Path(id);
+    fonts::SavedFont saved;
+    if (fonts::FontLibrary("/data/media/0/AERA/Fonts/Library").Find(id, saved)) return saved.path;
+#ifdef OF_ALLOW_EARLY_SETTINGS_LOAD
+    if (PrepareEarlyPreferencesRoot()) {
+      fonts::CustomFontStorage early(kAeraEarlyPreferencesDirectory + "/Fonts");
+      if (early.Has(id)) return early.Path(id);
+    }
+#endif
+    return {};
+  }
+  plugins::Plugin plugin;
+  std::string path, error;
+  return plugins::ResolvePayload(id, plugin, path, error) && plugins::IsThemeExtension(plugin)
+      ? path : std::string{};
+}
+
+std::string RecoveryCustomFont() {
+  fonts::CustomFontStorage storage("/data/media/0/AERA/Fonts");
+  const auto selected = RecoveryUiFont();
+  if (fonts::CustomFontId(selected) && !RecoveryUiFontPath(selected).empty()) return selected;
+  const auto ids = storage.List();
+  return ids.empty() ? std::string{} : ids.back();
+}
+
+bool RecoveryImportUiFont(const std::string &source, std::string *error) {
+  if (RecoveryDataLocked() || !TWFunc::Recursive_Mkdir("/data/media/0/AERA/Fonts", false)) {
+    if (error) *error = "Font storage is unavailable or full.";
+    return false;
+  }
+  const auto previous = RecoveryUiFont();
+  const auto previous_path = RecoveryUiFontPath(previous);
+  fonts::CustomFontStorage storage("/data/media/0/AERA/Fonts");
+  const auto id = storage.Import(source, error);
+  if (id.empty()) return false;
+  const bool loaded = fonts::SelectUiFont(id, storage.Path(id));
+  if (!loaded || !RecoverySetUiFont(id) || !SaveAeraPreferences()) {
+    fonts::SelectUiFont(previous, previous_path);
+    RecoverySetUiFont(previous);
+    if (id != previous) unlink(storage.Path(id).c_str());
+    if (error) *error = loaded ? "Could not save the custom font." : "AERA could not load this font.";
+    return false;
+  }
+  storage.Prune(id);
+  aera::shared_storage::Normalize("/data/media/0/AERA/Fonts", true);
+  return true;
+}
+
+std::string RecoveryUiFontName(const std::string &id) {
+  fonts::SavedFont saved;
+  if (fonts::FontLibrary("/data/media/0/AERA/Fonts/Library").Find(id, saved)) return saved.family;
+  const auto name = fonts::ReadFontName(RecoveryUiFontPath(id));
+  return name.empty() ? "Custom font" : name;
+}
+
+std::vector<fonts::SavedFont> RecoverySavedUiFonts() {
+  return fonts::FontLibrary("/data/media/0/AERA/Fonts/Library").List();
+}
+
+bool RecoverySaveUiFont(const std::string &source, const fonts::SavedFont &metadata,
+                        std::string *id, std::string *error) {
+  constexpr const char *directory = "/data/media/0/AERA/Fonts/Library";
+  if (RecoveryDataLocked() || !TWFunc::Recursive_Mkdir(directory, false)) {
+    if (error) *error = "Font storage is unavailable or full.";
+    return false;
+  }
+  auto *probe = lv_freetype_font_create(source.c_str(), LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
+                                       24, LV_FREETYPE_FONT_STYLE_NORMAL);
+  if (!probe) {
+    if (error) *error = "AERA could not load this font.";
+    return false;
+  }
+  lv_freetype_font_delete(probe);
+  std::string saved_id;
+  if (!fonts::FontLibrary(directory).Save(source, metadata, saved_id, error)) return false;
+  aera::shared_storage::Normalize(directory, true);
+  if (id) *id = saved_id;
+  return true;
+}
+
+bool RecoveryUseSavedUiFont(const std::string &id, std::string *error) {
+  fonts::SavedFont saved;
+  if (!fonts::FontLibrary("/data/media/0/AERA/Fonts/Library").Find(id, saved)) {
+    if (error) *error = "Font unavailable";
+    return false;
+  }
+  const auto previous = RecoveryUiFont();
+  const auto previous_path = RecoveryUiFontPath(previous);
+  if (fonts::SelectUiFont(id, saved.path) && RecoverySetUiFont(id) && SaveAeraPreferences()) return true;
+  fonts::SelectUiFont(previous, previous_path);
+  RecoverySetUiFont(previous);
+  if (error) *error = "Could not save the custom font.";
+  return false;
+}
+
+bool RecoveryDeleteSavedUiFont(const std::string &id, bool reset_active, std::string *error) {
+  fonts::FontLibrary library("/data/media/0/AERA/Fonts/Library");
+  fonts::SavedFont saved;
+  if (!library.Find(id, saved)) {
+    if (error) *error = "Could not delete the font.";
+    return false;
+  }
+  const bool active = RecoveryUiFont() == id;
+  if (active && (!reset_active || !fonts::SelectUiFont({}, {}) ||
+                 !RecoverySetUiFont("") || !SaveAeraPreferences())) {
+    fonts::SelectUiFont(id, saved.path); RecoverySetUiFont(id);
+    if (error) *error = "Could not delete the font.";
+    return false;
+  }
+  if (library.Remove(id, error)) return true;
+  if (active) {
+    fonts::SelectUiFont(id, saved.path); RecoverySetUiFont(id); SaveAeraPreferences();
+  }
+  return false;
+}
 
 void RecoveryWifiInitialize() {
 #ifdef OF_ENABLE_WLAN

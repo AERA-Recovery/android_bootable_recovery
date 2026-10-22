@@ -84,6 +84,7 @@ cc_library_static {
         "features/doom/launcher.cpp",
         "features/doom/session.cpp",
         "features/files/file_manager.cpp",
+        "features/fonts/font_library.cpp",
         "features/media/launcher.cpp",
         "features/media/session.cpp",
         "features/nas/smb_browser.cpp",
@@ -189,6 +190,7 @@ cc_library_static {
     ],
     shared_libs: [
         "libandroidfw",
+        "libft2",
         "libcutils",
         "liblog",
         "libminuitwrp",

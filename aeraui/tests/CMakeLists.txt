@@ -38,6 +38,7 @@ add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp
   ../localization/catalog/catalog.cpp
   ../localization/catalog/catalog_generated.cpp
   ../scenes/tool_scene.cpp ../scenes/sideload_scene.cpp
+  ../features/fonts/font_library.cpp
   ../scenes/wifi_scene.cpp ../components/picture_decode.cpp
   ../components/picture_viewer.cpp ../components/wallpaper.cpp
   ../scenes/operation_scene.cpp
@@ -220,6 +221,12 @@ add_test(NAME file_search_ui COMMAND ui_check --file-search)
 set(JSONCPP_WITH_TESTS OFF CACHE BOOL "" FORCE)
 set(JSONCPP_WITH_POST_BUILD_UNITTEST OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LVGL_DIR}/../jsoncpp" jsoncpp)
+target_link_libraries(ui_check PRIVATE jsoncpp_static)
+add_executable(font_library_test font_library_test.cpp ../features/fonts/font_library.cpp)
+target_include_directories(font_library_test PRIVATE .. ../include ../features)
+target_compile_options(font_library_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(font_library_test PRIVATE jsoncpp_static OpenSSL::Crypto)
+add_test(NAME font_library_persistence_and_cleanup COMMAND font_library_test)
 add_executable(app_vault_progress_test app_vault_progress_test.cpp)
 target_compile_options(app_vault_progress_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(app_vault_progress_test PRIVATE jsoncpp_static)
@@ -232,6 +239,13 @@ target_link_libraries(smb_browser_test PRIVATE jsoncpp_static Threads::Threads)
 add_test(NAME smb_browse_paths_and_cancellation COMMAND smb_browser_test)
 
 find_package(OpenSSL REQUIRED)
+target_link_libraries(ui_check PRIVATE OpenSSL::Crypto)
+add_executable(custom_font_storage_test custom_font_storage_test.cpp)
+target_include_directories(custom_font_storage_test PRIVATE ..)
+target_compile_options(custom_font_storage_test PRIVATE -UNDEBUG)
+target_link_libraries(custom_font_storage_test PRIVATE OpenSSL::Crypto)
+add_test(NAME custom_font_storage COMMAND custom_font_storage_test)
+add_test(NAME custom_font_ui COMMAND ui_check --custom-font)
 add_executable(pc_storage_test pc_storage_test.cpp ../../aera_remote/pc_storage.cpp)
 target_compile_definitions(pc_storage_test PRIVATE AERA_PC_HOST_TEST=1)
 target_compile_options(pc_storage_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

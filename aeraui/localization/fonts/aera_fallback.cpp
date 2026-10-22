@@ -4,6 +4,8 @@
  */
 #include "aera_fallback.hpp"
 #include "font_staging.hpp"
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 #include <algorithm>
 #include <array>
@@ -215,6 +217,22 @@ const std::string &SelectedUiFont() { return selected_font_id; }
 
 const lv_font_t *PreviewFont(const std::string &path, uint32_t size) {
   return LoadExternalFont(path, size);
+}
+
+std::string ReadFontName(const std::string &path) {
+  if (path.empty()) return {};
+  FT_Library library = nullptr;
+  if (FT_Init_FreeType(&library)) return {};
+  FT_Face face = nullptr;
+  std::string name;
+  if (!FT_New_Face(library, path.c_str(), 0, &face)) {
+    if (face->family_name) name = face->family_name;
+    if (name.size() > 160 || std::any_of(name.begin(), name.end(),
+        [](unsigned char c) { return c < 32 || c == 127; })) name.clear();
+    FT_Done_Face(face);
+  }
+  FT_Done_FreeType(library);
+  return name;
 }
 
 const lv_font_t *WithLanguageFallback(const lv_font_t *font) {

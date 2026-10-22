@@ -1208,7 +1208,13 @@ void OpenFile(Files *state, const Entry &entry) {
     Populate(state);
     return;
   }
-  if (IsPicture(entry.name)) {
+  const auto lower_name = Lower(entry.name);
+  if (lower_name.size() > 4 && (lower_name.compare(lower_name.size() - 4, 4, ".ttf") == 0 ||
+                               lower_name.compare(lower_name.size() - 4, 4, ".otf") == 0)) {
+    OpenFontPreview(state->screen, entry.path, [state] {
+      state->callback(Action::kFiles, state->context);
+    });
+  } else if (IsPicture(entry.name)) {
     OpenPicture(state->screen, entry.path);
   } else if (plugins::IsPackageFile(entry.name)) {
     plugins::Plugin plugin;

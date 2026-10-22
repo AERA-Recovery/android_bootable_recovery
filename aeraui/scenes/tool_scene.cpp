@@ -4,6 +4,7 @@
 #include "aeraui/screen_timeout.hpp"
 #include "phone_keyboard.hpp"
 #include "picture_decode.hpp"
+#include "file_manager.hpp"
 #include "ui_components.hpp"
 #include "circle_battery.hpp"
 #include "partition_layout.hpp"
@@ -2315,6 +2316,11 @@ void BuildThemeHome(Tools *state) {
   RestoreThemeScroll(state);
 }
 
+bool IsFontFile(const std::string &name) {
+  return name.size() > 4 && (strcasecmp(name.c_str() + name.size() - 4, ".ttf") == 0 ||
+                            strcasecmp(name.c_str() + name.size() - 4, ".otf") == 0);
+}
+
 void BuildThemeTypography(Tools *state) {
   ThemePage(state, "Text & size");
   auto *density = ThemeGroup(state->list, "Density");
@@ -2330,6 +2336,9 @@ void BuildThemeTypography(Tools *state) {
   auto *typefaces = ThemeGroup(state->list, "Typography");
   struct FontChoice { std::string id, family, path; };
   std::vector<FontChoice> fonts_available{{"", "AERA Default", ""}};
+  const auto custom = RecoveryCustomFont();
+  if (!custom.empty())
+    fonts_available.push_back({custom, RecoveryUiFontName(custom), RecoveryUiFontPath(custom)});
   for (const auto &plugin : plugins::Installed()) {
     if (!plugins::IsThemeExtension(plugin)) continue;
     plugins::Plugin verified;
@@ -3511,6 +3520,71 @@ void SetUserDecryptRequest(const UserDecryptRequest &request) {
 
 UserDecryptRequest GetUserDecryptRequest() {
   return selected_user_decrypt;
+}
+
+void OpenFontPreview(lv_obj_t *screen, const std::string &path, std::function<void()> applied) {
+  struct stat info{};
+  const lv_font_t *font = nullptr;
+  if (IsFontFile(path) && lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
+      info.st_size > 0 && info.st_size <= 32 * 1024 * 1024)
+    font = fonts::PreviewFont(path, 48);
+  if (!font) {
+    Sheet(screen, "Font unavailable", "AERA could not load this font.");
+    return;
+  }
+  const int width = lv_obj_get_width(screen);
+  const int height = lv_obj_get_height(screen);
+  const int top = StatusBarHeight();
+  auto *overlay = lv_obj_create(screen);
+  Clear(overlay);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  lv_obj_set_pos(overlay, 0, top);
+  lv_obj_set_size(overlay, width, height - top);
+  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  auto *heading = Label(overlay, "Font preview", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(heading, 64, 32);
+  auto *name = Label(overlay, file_manager::BaseName(path).c_str(), &lv_font_montserrat_28, kMuted);
+  lv_obj_set_pos(name, 64, 112);
+  SingleLineLabel(name, width - 128, &lv_font_montserrat_28);
+  auto *samples = lv_obj_create(overlay);
+  Clear(samples);
+  lv_obj_set_pos(samples, 64, 206);
+  lv_obj_set_size(samples, width - 128, height - top - 426);
+  lv_obj_add_flag(samples, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(samples, LV_DIR_VER);
+  lv_obj_set_flex_flow(samples, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(samples, 48, 0);
+  auto *preview_font = new lv_font_t(*font);
+  preview_font->fallback = fonts::WithLanguageFallback(&lv_font_montserrat_48);
+  lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
+    delete static_cast<lv_font_t *>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, preview_font);
+  for (const auto *sample : {"Aa Bb Cc 0123456789", "The quick brown fox jumps over the lazy dog.",
+                             "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz", "!? @#$% & () [] {}"}) {
+    auto *label = lv_label_create(samples);
+    lv_label_set_text(label, sample);
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(label, preview_font, 0);
+    lv_obj_set_style_text_color(label, kText, 0);
+  }
+  const int button_width = (width - 152) / 2;
+  auto *cancel = Button(overlay, "Cancel", [overlay] { lv_obj_delete_async(overlay); });
+  lv_obj_set_size(cancel, button_width, 120);
+  lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 64, -36);
+  auto *use = Button(overlay, "Use this font", [overlay, path, applied] {
+    std::string error;
+    if (!RecoveryImportUiFont(path, &error)) {
+      Sheet(overlay, "Font unavailable", error);
+      return;
+    }
+    lv_obj_report_style_change(nullptr);
+    lv_obj_delete_async(overlay);
+    if (applied) applied();
+  }, true);
+  lv_obj_set_size(use, button_width, 120);
+  lv_obj_align(use, LV_ALIGN_BOTTOM_RIGHT, -64, -36);
 }
 
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void *context) {

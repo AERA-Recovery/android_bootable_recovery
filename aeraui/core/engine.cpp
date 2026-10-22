@@ -1577,13 +1577,8 @@ private:
   void ApplyStoredAppearance() {
     i18n::Initialize(RecoveryLanguage());
     const std::string font_id = RecoveryUiFont();
-    plugins::Plugin font_plugin;
-    std::string font_path;
-    std::string font_error;
-    if (font_id.empty() ||
-        !plugins::ResolvePayload(font_id, font_plugin, font_path, font_error) ||
-        !plugins::IsThemeExtension(font_plugin) ||
-        !fonts::SelectUiFont(font_id, font_path)) {
+    const std::string font_path = RecoveryUiFontPath(font_id);
+    if (font_id.empty() || !fonts::SelectUiFont(font_id, font_path)) {
       fonts::SelectUiFont({}, {});
     }
     design::ApplyAppearanceMode(static_cast<int>(RecoveryAppearanceMode()));

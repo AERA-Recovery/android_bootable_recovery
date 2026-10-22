@@ -16,6 +16,9 @@
 #include "picture_decode.hpp"
 #include "browser/runtime.hpp"
 #include "browser/protocol.hpp"
+#include "localization/fonts/custom_font_storage.hpp"
+#include "localization/fonts/aera_fallback.hpp"
+#include "fonts/font_library.hpp"
 #include <cassert>
 #include <chrono>
 #include <cmath>
@@ -205,8 +208,62 @@ bool RecoveryTintedIconBackgrounds() { return tinted_icon_backgrounds; }
 bool RecoverySetTintedIconBackgrounds(bool enabled) {
   tinted_icon_backgrounds = enabled; return true;
 }
-std::string RecoveryUiFont() { return {}; }
-bool RecoverySetUiFont(const std::string &) { return true; }
+static std::string test_ui_font;
+static bool test_font_import = false;
+std::string RecoveryUiFont() { return test_ui_font; }
+bool RecoverySetUiFont(const std::string &id) { test_ui_font = id; return true; }
+std::string RecoveryUiFontPath(const std::string &id) {
+  fonts::CustomFontStorage storage(file_root + "/AERA/Fonts");
+  if (storage.Has(id)) return storage.Path(id);
+  fonts::SavedFont saved;
+  return fonts::FontLibrary(file_root + "/AERA/Fonts/Library").Find(id, saved) ? saved.path : std::string{};
+}
+std::string RecoveryCustomFont() {
+  if (!test_ui_font.empty() && !RecoveryUiFontPath(test_ui_font).empty()) return test_ui_font;
+  const auto ids = fonts::CustomFontStorage(file_root + "/AERA/Fonts").List();
+  return ids.empty() ? std::string{} : ids.back();
+}
+std::string RecoveryUiFontName(const std::string &id) {
+  fonts::SavedFont saved;
+  if (fonts::FontLibrary(file_root + "/AERA/Fonts/Library").Find(id, saved)) return saved.family;
+  const auto name = fonts::ReadFontName(RecoveryUiFontPath(id));
+  return name.empty() ? "Custom font" : name;
+}
+std::vector<fonts::SavedFont> RecoverySavedUiFonts() {
+  return fonts::FontLibrary(file_root + "/AERA/Fonts/Library").List();
+}
+bool RecoverySaveUiFont(const std::string &source, const fonts::SavedFont &metadata,
+                        std::string *id, std::string *error) {
+  const auto path = file_root + "/AERA/Fonts/Library";
+  std::filesystem::create_directories(path);
+  std::string saved;
+  if (!fonts::FontLibrary(path).Save(source, metadata, saved, error)) return false;
+  if (id) *id = saved;
+  return true;
+}
+bool RecoveryUseSavedUiFont(const std::string &id, std::string *) {
+  const auto path = RecoveryUiFontPath(id);
+  if (path.empty() || !fonts::SelectUiFont(id, path)) return false;
+  test_ui_font = id;
+  return true;
+}
+bool RecoveryDeleteSavedUiFont(const std::string &id, bool reset_active, std::string *error) {
+  if (id == test_ui_font && !reset_active) return false;
+  if (!fonts::FontLibrary(file_root + "/AERA/Fonts/Library").Remove(id, error)) return false;
+  if (id == test_ui_font) { test_ui_font.clear(); fonts::SelectUiFont({}, {}); }
+  return true;
+}
+bool RecoveryImportUiFont(const std::string &source, std::string *error) {
+  if (!fonts::PreviewFont(source, 24)) return false;
+  const auto directory = file_root + "/AERA/Fonts";
+  std::filesystem::create_directories(directory);
+  fonts::CustomFontStorage storage(directory);
+  const auto id = storage.Import(source, error);
+  if (id.empty() || !fonts::SelectUiFont(id, storage.Path(id))) return false;
+  test_ui_font = id;
+  storage.Prune(id);
+  return true;
+}
 InterfaceSize RecoveryInterfaceSize() { return interface_size; }
 bool RecoverySetInterfaceSize(InterfaceSize size) {
   return static_cast<int>(size) >= 0 && static_cast<int>(size) <= 3;
@@ -313,6 +370,8 @@ int32_t StatusBarHeight() { return 165; }
 bool StatusBarShadeOpen() { return false; }
 void RefreshStatusBars() {}
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
+  if (kind == "storage" && test_font_import)
+    return {{"Internal storage", file_root, 0}};
   if (kind == "wipe") return {{"FRP","/frp",524288},{"Dalvik / ART cache","DALVIK",0},{"Data","/data",23000000000},
     {"Internal storage","INTERNAL",12000000000},{"Metadata","/metadata",40960000},
     {"USB storage","/usb-otg",32000000000}};
@@ -677,6 +736,45 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--custom-font")) {
+    test_font_import = true;
+    const std::string asset = std::string(AERA_COMMON_FONT_ROOT) + "/Roboto-Regular.ttf";
+    const auto source = file_root + "/preview.ttf";
+    std::filesystem::copy_file(asset, source);
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      auto* page = lv_obj_create(nullptr);
+      BuildFilesScene(page, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      auto* row = Find(page, "preview.ttf"); assert(row);
+      lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr); Tick();
+      auto* use = Find(page, "Use this font"); assert(use);
+      auto* cancel = Find(page, "Cancel"); assert(cancel);
+      AssertInside(use, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(cancel, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      assert(!Overlaps(use, cancel));
+      save(landscape ? "/tmp/aera-custom-font-preview-landscape.png" :
+                       "/tmp/aera-custom-font-preview-portrait.png", 2);
+      lv_obj_send_event(use, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(fonts::CustomFontId(RecoveryUiFont()));
+      assert(std::filesystem::exists(RecoveryUiFontPath(RecoveryUiFont())));
+      assert(last_action == Action::kFiles);
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+      page = lv_obj_create(nullptr);
+      BuildToolScene(page, Action::kThemeTypography, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      assert(Find(page, "Roboto"));
+      assert(!Find(page, "Load custom font"));
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+    }
+    std::filesystem::remove(source);
+    assert(!RecoveryUiFontPath(RecoveryUiFont()).empty());
+    fonts::SelectUiFont({}, {});
+    std::filesystem::remove_all(backup_root);
+    puts("Custom font UI: file action, preview, persistent import and theme picker passed");
+    return 0;
+  }
   if (!strcmp(argv[1], "--file-search")) {
     std::filesystem::create_directories(file_root + "/nested");
     std::ofstream(file_root + "/nested/Alpha-Result.txt") << "nested match";

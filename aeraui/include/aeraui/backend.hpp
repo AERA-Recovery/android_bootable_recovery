@@ -8,6 +8,7 @@
 #include "aeraui/lock_theme.hpp"
 #include "aeraui/home_layout.hpp"
 #include "aeraui/kernel_settings.hpp"
+#include "aeraui/fonts.hpp"
 
 namespace aeraui {
 inline constexpr bool MobileDataEnabled() {
@@ -329,7 +330,16 @@ bool RecoverySetSurfaceStyle(SurfaceStyle style);
 bool RecoveryTintedIconBackgrounds();
 bool RecoverySetTintedIconBackgrounds(bool enabled);
 std::string RecoveryUiFont();
+std::string RecoveryUiFontName(const std::string &id);
 bool RecoverySetUiFont(const std::string &plugin_id);
+std::string RecoveryUiFontPath(const std::string &id);
+std::string RecoveryCustomFont();
+bool RecoveryImportUiFont(const std::string &source, std::string *error);
+std::vector<fonts::SavedFont> RecoverySavedUiFonts();
+bool RecoverySaveUiFont(const std::string &source, const fonts::SavedFont &metadata,
+                        std::string *id, std::string *error);
+bool RecoveryUseSavedUiFont(const std::string &id, std::string *error);
+bool RecoveryDeleteSavedUiFont(const std::string &id, bool reset_active, std::string *error);
 enum class InterfaceSize {
   kSmall = 0,
   kNormal = 1,
