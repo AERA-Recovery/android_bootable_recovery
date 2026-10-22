@@ -87,6 +87,8 @@ enum class Action {
     kThemeLock,
     kDeveloperSettings,
     kMobileData,
+    kQuickMobileToggle,
+    kQuickPcToggle,
 };
 
 enum class DecryptionCompletion {

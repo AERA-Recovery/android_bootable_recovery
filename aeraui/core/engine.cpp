@@ -2670,6 +2670,26 @@ private:
       return;
     }
 
+    if (action == Action::kQuickMobileToggle) {
+      if (!MobileDataEnabled() || RecoveryDataLocked()) return;
+      const auto mobile = RecoveryMobileStatus();
+      std::string error;
+      const bool ok = mobile.enabled ? RecoveryDisconnectMobile(&error) :
+          RecoveryConnectMobile(RecoveryMobileApn(), RecoveryMobileSubscription(), &error);
+      if (!ok) widgets::Sheet(lv_screen_active(), "Mobile data",
+          error.empty() ? "Unavailable" : error.c_str());
+      RefreshStatusBars();
+      return;
+    }
+
+    if (action == Action::kQuickPcToggle) {
+      if (RecoveryDataLocked()) return;
+      if (!aera::pc::SetEnabled(!aera::pc::GetStatus().enabled))
+        widgets::Sheet(lv_screen_active(), "PC connection", "Unavailable");
+      RefreshStatusBars();
+      return;
+    }
+
     if (action == Action::kUpdates) {
       self->ShowUpdates();
       return;

@@ -17,11 +17,15 @@ static int battery_circle_size = aeraui::kBatteryCircleSizeDefault;
 static bool battery_percentage = true;
 static bool clock24 = true;
 static bool recording_active = false;
+static bool recorder_installed = false;
+static aeraui::update::Snapshot update_snapshot;
+static aeraui::Action last_action = aeraui::Action::kQuickPcToggle;
 static aeraui::DiagnosticLogStatus diagnostic_status;
 static int diagnostic_toggles = 0;
 static aeraui::plugin_api::MirrorMode mirror_mode = aeraui::plugin_api::MirrorMode::kOff;
 static aeraui::web::DownloadSummary download_summary;
 namespace aeraui {
+bool RecoveryDataLocked() { return false; }
 bool CancelGenericPluginActivity(const std::string &) { return true; }
 void StopGenericPluginRuntime(const std::string &) {}
 void SetSelectedPluginId(const std::string &) {}
@@ -56,11 +60,12 @@ void RecoveryVibrate(Haptic) {}
 }
 namespace aeraui::web { DownloadSummary CurrentDownloadSummary() { return download_summary; } }
 namespace aeraui::plugin_api { MirrorMode ActiveMirrorMode() { return mirror_mode; } }
-namespace aeraui::update { Snapshot GetSnapshot() { return {}; } }
+namespace aera::pc { Status GetStatus() { return {}; } }
+namespace aeraui::update { Snapshot GetSnapshot() { return update_snapshot; } }
 namespace aeraui::recorder {
 Snapshot GetSnapshot() { Snapshot result; result.state = State::kRecording; return result; }
 bool Active() { return recording_active; }
-bool Installed() { return false; }
+bool Installed() { return recorder_installed; }
 }
 
 static lv_indev_data_t pointer{};
@@ -72,6 +77,61 @@ static void Touch(int x, int y, bool pressed) {
 }
 static void Settle() {
   for (int i = 0; i < 12; ++i) { lv_tick_inc(32); lv_timer_handler(); }
+}
+
+static void CheckQuickTiles(lv_display_t *display, const std::vector<uint8_t> &frame) {
+  using namespace aeraui;
+  for (const auto size : {lv_point_t{1440, 3168}, lv_point_t{3168, 1440}, lv_point_t{3168, 1080}}) {
+    lv_display_set_resolution(display, size.x, size.y);
+    auto *screen = lv_obj_create(nullptr); lv_screen_load(screen);
+    StatusState state{}; state.screen = screen;
+    state.callback = [](Action action, void *) { last_action = action; };
+    BuildShade(&state); SetShadeVisible(&state, state.shade_height);
+    assert(state.shade_height == std::min(1390, size.y - 24));
+    const int original_content_width = size.x > size.y ? std::min(2200, size.x - 128) : std::min(1296, size.x - 144);
+    assert(state.tile_width == (original_content_width - state.tile_gap * 4) / 5);
+    if (size.y != 1080) assert(state.tile_height == (size.x > size.y ? 250 : 286));
+    for (const bool installed : {false, true, false}) {
+      recorder_installed = installed; RefreshShade(&state); lv_obj_update_layout(screen);
+      assert(bool(state.shade_mobile) == MobileDataEnabled());
+      assert(bool(state.shade_recorder) == installed);
+      std::vector<lv_obj_t *> tiles{state.shade_wifi};
+      if (MobileDataEnabled()) tiles.push_back(state.shade_mobile);
+      for (auto *tile : {state.shade_rotation, state.shade_flashlight, state.shade_logcat}) tiles.push_back(tile);
+      if (installed) tiles.push_back(state.shade_recorder);
+      tiles.push_back(state.shade_pc); tiles.push_back(state.shade_reboot);
+      for (unsigned i = 0; i < tiles.size(); ++i) {
+        assert(lv_obj_get_x(tiles[i]) == state.tile_offset + int(i % 5) * (state.tile_width + state.tile_gap));
+        assert(lv_obj_get_y(tiles[i]) == state.tile_y + int(i / 5) * (state.tile_height + state.tile_gap));
+        assert(lv_obj_get_y(tiles[i]) + lv_obj_get_height(tiles[i]) < lv_obj_get_y(state.brightness_slider) - 78);
+      }
+      lv_obj_send_event(state.shade_pc, LV_EVENT_CLICKED, nullptr);
+      assert(last_action == Action::kQuickPcToggle);
+      lv_obj_send_event(state.shade_reboot, LV_EVENT_CLICKED, nullptr);
+      assert(last_action == Action::kOpenReboot);
+      if (state.shade_mobile) {
+        lv_obj_send_event(state.shade_mobile, LV_EVENT_CLICKED, nullptr);
+        assert(last_action == Action::kQuickMobileToggle);
+      }
+      if (installed && size.y != 1080) {
+        lv_refr_now(display);
+        png_image image{}; image.version = PNG_IMAGE_VERSION;
+        image.width = size.x; image.height = state.shade_height; image.format = PNG_FORMAT_BGRA;
+        const std::string path = std::string("/tmp/aera-qs-") + (MobileDataEnabled() ? "mobile-" : "wifi-") +
+            (size.x < size.y ? "portrait.png" : "landscape.png");
+        assert(png_image_write_to_file(&image, path.c_str(), 0, frame.data(), 0, nullptr));
+      }
+    }
+    recording_active = true; RefreshShade(&state); assert(state.shade_recorder);
+    recording_active = false; RefreshShade(&state); assert(!state.shade_recorder);
+    download_summary.available = update_snapshot.available = true;
+    RefreshShade(&state); lv_obj_update_layout(screen);
+    assert(lv_obj_get_x(state.shade_update) >= lv_obj_get_x(state.shade_download) + lv_obj_get_width(state.shade_download));
+    assert(lv_obj_get_y(state.shade_update) == lv_obj_get_y(state.shade_download));
+    download_summary = {}; update_snapshot = {};
+    AnimateShade(&state, false); Settle(); lv_obj_delete(screen);
+  }
+  lv_display_set_resolution(display, 1440, 3168);
 }
 
 static void CheckTrafficRate() {
@@ -423,6 +483,7 @@ int main() {
   Touch(400, 480, false); Settle();
   assert(state.shade == nullptr && !state.dragging);
   lv_indev_delete(input);
+  CheckQuickTiles(display, frame);
   const TemperatureDisplay defaults;
   assert(TemperatureText(defaults, {70000, 45000}).empty());
   auto options = defaults;
