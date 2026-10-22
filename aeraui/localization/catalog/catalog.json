@@ -6617,7 +6617,7 @@
       "pt_BR": "%s / %s gratuito",
       "pt_PT": "%s / %s gratuito",
       "ro_RO": "%s / %s gratuit",
-      "ru": "%s / %s бесплатно",
+      "ru": "%s / %s свободно",
       "sr_Cyrl": "%s / %s бесплатно",
       "sv_SE": "%s / %s fri",
       "th_TH": "%s / %s ฟรี",
@@ -7841,7 +7841,7 @@
       "pt_BR": "%zu de %zu aplicativos selecionados",
       "pt_PT": "%zu de %zu apps selecionadas",
       "ro_RO": "%zu din %zu aplicații selectate",
-      "ru": "Выбрано%zu из %zu приложений",
+      "ru": "Выбрано приложений: %zu из %zu",
       "sr_Cyrl": "%zu одабраних %zu апликација",
       "sv_SE": "%zu av %zu valda appar",
       "th_TH": "แอป%zu ที่เลือก %zu ",
@@ -7875,7 +7875,7 @@
       "pt_BR": "%zu de %zu selecionados",
       "pt_PT": "%zu de %zu selecionadas",
       "ro_RO": "%zu din %zu selectate",
-      "ru": "Выбрано%zu из %zu ",
+      "ru": "Выбрано: %zu из %zu",
       "sr_Cyrl": "%zu од %zu изабраних",
       "sv_SE": "%zu av %zu vald",
       "th_TH": "ที่เลือก%zu จาก %zu ",
@@ -7909,7 +7909,7 @@
       "pt_BR": "%zu partição selecionada",
       "pt_PT": "%zu partição selecionada",
       "ro_RO": "%zu partiție selectată",
-      "ru": "Выбрана раздел%zu ",
+      "ru": "Выбрано разделов: %zu",
       "sr_Cyrl": "%zu партиција изабрана",
       "sv_SE": "%zu vald partition",
       "th_TH": "พาร์ติชัน%zu ที่เลือก",
@@ -7943,7 +7943,7 @@
       "pt_BR": "%zu partições selecionadas",
       "pt_PT": "%zu partições selecionadas",
       "ro_RO": "%zu partiții selectate",
-      "ru": "Выбрано разделов%zu ",
+      "ru": "Выбрано разделов: %zu",
       "sr_Cyrl": "%zu партиције изабране",
       "sv_SE": "%zu valda partitioner",
       "th_TH": "พาร์ติชัน%zu ที่เลือก",
@@ -8011,7 +8011,7 @@
       "pt_BR": "%zu selecionado",
       "pt_PT": "%zu selecionadas",
       "ro_RO": "%zu selectat",
-      "ru": "Выбрано%zu ",
+      "ru": "Выбрано: %zu",
       "sr_Cyrl": "%zu изабран",
       "sv_SE": "Valda: %zu",
       "th_TH": "ที่เลือก%zu ",
@@ -12261,7 +12261,7 @@
       "pt_BR": "Backup",
       "pt_PT": "Backup",
       "ro_RO": "Backup",
-      "ru": "Backup",
+      "ru": "Бэкап",
       "sr_Cyrl": "Backup",
       "sv_SE": "Backup",
       "th_TH": "Backup",
@@ -12499,7 +12499,7 @@
       "pt_BR": "Backups",
       "pt_PT": "Backups",
       "ro_RO": "Backups",
-      "ru": "Backups",
+      "ru": "Резервное копирование",
       "sr_Cyrl": "Backups",
       "sv_SE": "Backups",
       "th_TH": "Backups",
@@ -13451,7 +13451,7 @@
       "pt_BR": "Build AERA o seu caminho",
       "pt_PT": "Build AERA o seu caminho",
       "ro_RO": "Build AERA drumul tău",
-      "ru": "Build AERA вашим путем",
+      "ru": "Настройте AERA под себя",
       "sr_Cyrl": "Build AERA вашим путем",
       "sv_SE": "Build AERA din väg",
       "th_TH": "Build AERA ของคุณ",
@@ -22019,7 +22019,7 @@
       "pt_BR": "Apagar aplicativos e configurações na partição de dados",
       "pt_PT": "Apagar aplicações e definições na partição de dados",
       "ro_RO": "Ștergeți aplicațiile și setările de pe partiția de date",
-      "ru": "Стереть приложения и настройки на разделе данных",
+      "ru": "Стереть приложения и настройки в разделе данных",
       "sr_Cyrl": "Обриши апликације и подешавања на партицији са подацима",
       "sv_SE": "Radera appar och inställningar på datapartitionen",
       "th_TH": "ลบแอปและการตั้งค่าบนพาร์ติชันข้อมูล",
@@ -22733,7 +22733,7 @@
       "pt_BR": "Arquivos",
       "pt_PT": "Ficheiros",
       "ro_RO": "Fişiere",
-      "ru": "Файлы",
+      "ru": "Проводник",
       "sr_Cyrl": "Фајлови",
       "sv_SE": "Filer",
       "th_TH": "ไฟล์",
@@ -23617,7 +23617,7 @@
       "pt_BR": "Formatar Dados",
       "pt_PT": "Formatar Dados",
       "ro_RO": "Formatare Date",
-      "ru": "Очистить Data",
+      "ru": "Format data",
       "sr_Cyrl": "Форматирај Data",
       "sv_SE": "Formatera data",
       "th_TH": "ลบ Data",
@@ -24297,7 +24297,7 @@
       "pt_BR": "Início",
       "pt_PT": "Início",
       "ro_RO": "Acasă",
-      "ru": "Домой",
+      "ru": "Главная",
       "sr_Cyrl": "Почетна",
       "sv_SE": "Hem",
       "th_TH": "หน้าแรก",
@@ -32253,7 +32253,7 @@
       "pt_BR": "Abrir Plugin Manager",
       "pt_PT": "Abra o Plugin Manager",
       "ro_RO": "Deschide Plugin Manager",
-      "ru": "Откройте Plugin Manager",
+      "ru": "Откройте плагины",
       "sr_Cyrl": "Отворите Plugin Manager",
       "sv_SE": "Öppna Plugin Manager",
       "th_TH": "เปิด Plugin Manager",
@@ -34021,7 +34021,7 @@
       "pt_BR": "Plugin Manager",
       "pt_PT": "Plugin Manager",
       "ro_RO": "Plugin Manager",
-      "ru": "Plugin Manager",
+      "ru": "Менеджер плагинов",
       "sr_Cyrl": "Plugin Manager",
       "sv_SE": "Plugin Manager",
       "th_TH": "Plugin Manager",
@@ -53197,7 +53197,7 @@
       "pt_BR": "Wipe",
       "pt_PT": "Wipe",
       "ro_RO": "Wipe",
-      "ru": "Wipe",
+      "ru": "Очистка",
       "sr_Cyrl": "Wipe",
       "sv_SE": "Wipe",
       "th_TH": "Wipe",
@@ -53231,7 +53231,7 @@
       "pt_BR": "Partições Wipe",
       "pt_PT": "Partições Wipe",
       "ro_RO": "Partițiile Wipe",
-      "ru": "Разделы Wipe",
+      "ru": "Разделы для очистки",
       "sr_Cyrl": "Wipe партиције",
       "sv_SE": "Wipe-partitioner",
       "th_TH": "พาร์ติชัน Wipe",
@@ -67142,11 +67142,13 @@
     },
     "BACKUP DESTINATION": {
       "en": "BACKUP DESTINATION",
+      "ru": "Место хранения",
       "zh_CN": "备份位置",
       "zh_TW": "備份位置"
     },
     "BACKUP LIBRARY": {
       "en": "BACKUP LIBRARY",
+      "ru": "Сохранённые резервные копии",
       "zh_CN": "备份列表",
       "zh_TW": "備份列表"
     },
@@ -67692,6 +67694,7 @@
     },
     "Choose individual partitions to erase.": {
       "en": "Choose individual partitions to erase.",
+      "ru": "Выберите отдельные разделы для очистки.",
       "zh_CN": "选择要清除的各个分区。",
       "zh_TW": "選擇要清除的各個分割槽。"
     },
@@ -68182,11 +68185,13 @@
     },
     "Erase Factory Reset Protection data and any OEM-unlock state stored here": {
       "en": "Erase Factory Reset Protection data and any OEM-unlock state stored here",
+      "ru": "Стереть данные защиты от сброса (FRP) и сохранённое здесь состояние разблокировки OEM",
       "zh_CN": "清除此处存储的恢复出厂设置保护数据及 OEM 解锁状态",
       "zh_TW": "清除此處儲存的恢復出廠設定保護資料及 OEM 解鎖狀態"
     },
     "Erase internal storage and reset encryption.": {
       "en": "Erase internal storage and reset encryption.",
+      "ru": "Стереть внутреннее хранилище и сбросить шифрование.",
       "zh_CN": "清空内部存储并重置加密。",
       "zh_TW": "清空內部儲存並重置加密。"
     },
@@ -68552,6 +68557,7 @@
     },
     "Internal storage": {
       "en": "Internal storage",
+      "ru": "Внутренняя память",
       "zh_CN": "内部存储",
       "zh_TW": "內部儲存"
     },
@@ -69257,6 +69263,7 @@
     },
     "Recover partitions from a saved backup.": {
       "en": "Recover partitions from a saved backup.",
+      "ru": "Восстановление разделов из сохранённого бэкапа.",
       "zh_CN": "从已保存的备份恢复分区。",
       "zh_TW": "從已儲存的備份恢復分割槽。"
     },
@@ -69512,6 +69519,7 @@
     },
     "Save selected partitions to recovery storage.": {
       "en": "Save selected partitions to recovery storage.",
+      "ru": "Сохранить выбранные разделы для восстановления из памяти.",
       "zh_CN": "将选定分区保存到 Recovery 存储。",
       "zh_TW": "將選定分割槽儲存到 Recovery 儲存。"
     },
@@ -70149,6 +70157,18 @@
       "en": "Too many image extents",
       "zh_CN": "镜像区段过多",
       "zh_TW": "映象區段過多"
+    },
+    "Internal Storage": {
+      "en": "Internal Storage",
+      "ru": "Внутренняя память",
+      "zh_CN": "内部存储",
+      "zh_TW": "內部儲存"
+    },
+    "USB-Storage": {
+      "en": "USB-Storage",
+      "ru": "USB-накопитель",
+      "zh_CN": "USB 存储",
+      "zh_TW": "USB 儲存裝置"
     },
     "USB format unavailable": {
       "en": "USB format unavailable",
