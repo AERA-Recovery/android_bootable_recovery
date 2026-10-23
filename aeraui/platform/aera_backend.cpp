@@ -1,8 +1,14 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include <aeraui/backend.hpp>
+#include "aeraui/features/plugin_api/activity.hpp"
 #include <aeraui/screen_timeout.hpp>
 #include "../../aera_remote/backup_cancel.hpp"
+#include "../../aera_flash_log.hpp"
+#include "../../aera_mobile/client.hpp"
+#include "../../aera_mobile/android_apn.hpp"
+#include <json/json.h>
+#include <signal.h>
 #include "aeraui/features/update/payload_inspector.hpp"
 #include "aeraui/features/update/payload_arb.hpp"
 #include "aeraui/features/update/payload_targets.hpp"
@@ -27,6 +33,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <limits.h>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -51,6 +58,10 @@
 #include "aera_flash_log.hpp"
 #include "aera_secrets/aera_secrets.hpp"
 #include "aeraui/features/root/root_manager.hpp"
+#include "aeraui/localization/fonts/aera_fallback.hpp"
+#include "aeraui/localization/fonts/custom_font_storage.hpp"
+#include "aeraui/features/fonts/font_library.hpp"
+#include "aeraui/features/plugins/plugin_manager.hpp"
 #include "partitions.hpp"
 #include "twrp-functions.hpp"
 #include "../../aera_shared_storage.hpp"
@@ -63,6 +74,7 @@
 #include "aeraui/platform/image_targets.hpp"
 #include "unencrypted_users.hpp"
 #include "temperature_reader.hpp"
+#include "public_ip.hpp"
 #include <twinstall.h>
 #include <twinstall/adb_install.h>
 
@@ -651,6 +663,8 @@ bool RecoveryEnterFastbootd() {
     LOGERR("AERA live fastbootd: disabled or unavailable.\n");
     return false;
   }
+  aera::mobile::StorageLease mobile_lease;
+  if (!mobile_lease) return false;
 
   // Remember whether device-specific post-decryption resources were active.
   // Unmapping Super necessarily tears down stock vendor/odm bind mounts, so
@@ -1160,6 +1174,22 @@ payload::FlashProgressStore gPayloadProgress;
 PayloadFlashProgress RecoveryPayloadFlashProgress() { return gPayloadProgress.Read(); }
 static int RecoveryRunJobImpl(const JobRequest &request);
 int RecoveryRunJob(const JobRequest &request) {
+  const bool needs_mobile_stop = request.job == Job::kInstall || request.job == Job::kSideload ||
+      request.job == Job::kFlashImage || request.job == Job::kFlashPayload ||
+      request.job == Job::kRestore || request.job == Job::kWipe || request.job == Job::kFormatData;
+  std::unique_ptr<aera::mobile::StorageLease> mobile_lease;
+  if (needs_mobile_stop) {
+    mobile_lease = std::make_unique<aera::mobile::StorageLease>();
+    if (!*mobile_lease) {
+      gui_err("Mobile data could not stop safely. Reboot recovery before flashing.\n");
+      return 1;
+    }
+  }
+  plugin_api::HostStorageLease storage_lease;
+  if (!storage_lease) {
+    gui_err("Finish or cancel background plugin storage tasks first.\n");
+    return 1;
+  }
   const char *method = request.job == Job::kInstall ? "ZIP installation" :
       request.job == Job::kSideload ? "ADB sideload" :
       request.job == Job::kFlashPayload ? "Advanced payload flash" :
@@ -1994,6 +2024,15 @@ void RecoverySetBrightness(int percent) {
   TWFunc::Set_Brightness(DataManager::GetStrValue("tw_brightness"));
 }
 
+DiagnosticLogStatus RecoveryDiagnosticLogStatus() {
+  const auto status = aera::flashlog::GetManualStatus();
+  return {status.state == aera::flashlog::ManualState::kRecording,
+      status.state == aera::flashlog::ManualState::kStarting ||
+      status.state == aera::flashlog::ManualState::kSaving,
+      status.elapsed_seconds, status.path, status.error};
+}
+void RecoveryToggleDiagnosticLogging() { aera::flashlog::ToggleManual(); }
+
 bool RecoveryFlashlightSupported() {
   return DataManager::GetIntValue(OF_FLASHLIGHT_ENABLE_STR) == 1;
 }
@@ -2248,15 +2287,11 @@ bool RecoverySetInterfaceSize(InterfaceSize size) {
 }
 KeyboardLayout RecoveryKeyboardLayout() {
   LoadAeraPreferencesIfAvailable();
-  return DataManager::GetStrValue("aera_keyboard_layout") == "qwertz"
-      ? KeyboardLayout::kQwertz : KeyboardLayout::kQwerty;
+  return KeyboardLayoutFromCode(DataManager::GetStrValue("aera_keyboard_layout"));
 }
 bool RecoverySetKeyboardLayout(KeyboardLayout layout) {
-  if (layout != KeyboardLayout::kQwerty &&
-      layout != KeyboardLayout::kQwertz) return false;
-  return DataManager::SetValue(
-      "aera_keyboard_layout",
-      layout == KeyboardLayout::kQwertz ? "qwertz" : "qwerty", 1) == 0;
+  const char *code = KeyboardLayoutCode(layout);
+  return code && DataManager::SetValue("aera_keyboard_layout", code, 1) == 0;
 }
 int RecoveryHomeGridColumns() {
   LoadAeraPreferencesIfAvailable();
@@ -2544,6 +2579,7 @@ bool PrepareEarlyPreferencesRoot() {
 #endif
 
 struct EarlyUiPreferences {
+  std::string ui_font;
   std::string developer_settings = "1";
   std::string wallpaper_layout;
   std::string lock_theme;
@@ -2698,9 +2734,10 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
   preferences.interface_size =
       interface_size.empty() ? 1 : std::clamp(atoi(interface_size.c_str()), 0, 3);
   preferences.language = DataManager::GetStrValue("tw_language");
+  preferences.ui_font = DataManager::GetStrValue("aera_ui_font");
   if (!ValidLanguage(preferences.language)) preferences.language = AERA_DEFAULT_LANGUAGE;
-  preferences.keyboard_layout =
-      DataManager::GetStrValue("aera_keyboard_layout") == "qwertz" ? "qwertz" : "qwerty";
+  preferences.keyboard_layout = KeyboardLayoutCode(KeyboardLayoutFromCode(
+      DataManager::GetStrValue("aera_keyboard_layout")));
   const int home_grid_columns =
       DataManager::GetIntValue("aera_home_grid_columns");
   preferences.home_grid_columns =
@@ -2909,8 +2946,13 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "language") {
     if (!ValidLanguage(value)) return false;
     preferences->language = value;
+  } else if (key == "ui_font") {
+    if (value.size() > 64 || !std::all_of(value.begin(), value.end(), [](unsigned char c) {
+          return std::islower(c) || std::isdigit(c) || c == '-' || c == '.';
+        })) return false;
+    preferences->ui_font = value;
   } else if (key == "keyboard_layout") {
-    if (value != "qwerty" && value != "qwertz") return false;
+    if (value != KeyboardLayoutCode(KeyboardLayoutFromCode(value))) return false;
     preferences->keyboard_layout = value;
   } else if (key == "home_grid_columns") {
     if (!ParseInteger(value, 2, 5, &parsed)) return false;
@@ -3037,6 +3079,7 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
                         preferences.tinted_icon_backgrounds);
   DataManager::SetValue("aera_themed_home_icons", preferences.themed_home_icons);
   DataManager::SetValue("aera_interface_size", preferences.interface_size);
+  DataManager::SetValue("aera_ui_font", preferences.ui_font);
   DataManager::SetValue("tw_language", preferences.language);
   DataManager::SetValue("aera_keyboard_layout", preferences.keyboard_layout);
   DataManager::SetValue("aera_home_grid_columns", preferences.home_grid_columns);
@@ -3122,6 +3165,7 @@ bool WriteFileAtomically(const std::string& path, const std::string& contents) {
 std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   std::ostringstream output;
   output << "schema=1\n"
+         << "ui_font=" << preferences.ui_font << '\n'
          << "developer_settings=" << preferences.developer_settings << '\n'
          << "clock24=" << preferences.clock24 << '\n'
          << "timezone=" << preferences.timezone << '\n'
@@ -3180,8 +3224,27 @@ bool SaveEarlyUiPreferences() {
   if (!PrepareEarlyPreferencesRoot() ||
       !TWFunc::Recursive_Mkdir(kAeraEarlyPreferencesDirectory, false))
     return false;
-  return WriteFileAtomically(kAeraEarlyPreferencesPath,
-                             SerializeEarlyUiPreferences(CaptureCurrentEarlyUiPreferences()));
+  auto preferences = CaptureCurrentEarlyUiPreferences();
+  const std::string directory = kAeraEarlyPreferencesDirectory + "/Fonts";
+  fonts::CustomFontStorage early(directory);
+  if (fonts::CustomFontId(preferences.ui_font) && !early.Has(preferences.ui_font)) {
+    const std::string source = RecoveryUiFontPath(preferences.ui_font);
+    std::string error;
+    if (source.empty() ||
+        !TWFunc::Recursive_Mkdir(directory, false) ||
+        early.Import(source, &error) != preferences.ui_font) {
+      // Keep the remaining early settings usable if a font cannot be mirrored.
+      preferences.ui_font.clear();
+    }
+  }
+  const bool saved = WriteFileAtomically(kAeraEarlyPreferencesPath,
+                                        SerializeEarlyUiPreferences(preferences));
+  if (saved) {
+    early.Prune(fonts::CustomFontId(preferences.ui_font) ? preferences.ui_font : "");
+    if (early.Has(preferences.ui_font))
+      aera::shared_storage::Normalize(early.Path(preferences.ui_font));
+  }
+  return saved;
 #endif
 }
 
@@ -3309,6 +3372,11 @@ void LoadAeraPreferencesIfAvailable() {
     else if (key == "wifi_auto_enable") DataManager::SetValue("of_wlan_auto_enable", value);
     else if (key == "wifi_auto_connect") DataManager::SetValue("of_wlan_auto_connect", value);
     else if (key == "wifi_last_ssid") DataManager::SetValue("of_wlan_last_ssid", value);
+    else if (key == "mobile_apn") DataManager::SetValue("aera_mobile_apn", value);
+    else if (key == "mobile_auto_connect" && (value == "0" || value == "1"))
+      DataManager::SetValue("aera_mobile_auto_connect", value);
+    else if (key == "mobile_subscription" && (value == "0" || value == "1" || value == "2"))
+      DataManager::SetValue("aera_mobile_subscription", value);
   }
   ApplyEarlyUiPreferences(full_ui);
   loaded = true;
@@ -3358,8 +3426,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "themed_home_icons=" << (RecoveryThemedHomeIcons() ? 1 : 0) << '\n'
          << "interface_size=" << static_cast<int>(RecoveryInterfaceSize()) << '\n'
          << "keyboard_layout="
-         << (RecoveryKeyboardLayout() == KeyboardLayout::kQwertz
-                 ? "qwertz" : "qwerty") << '\n'
+         << KeyboardLayoutCode(RecoveryKeyboardLayout()) << '\n'
          << "home_grid_columns=" << RecoveryHomeGridColumns() << '\n'
          << "dock_layout=" << DataManager::GetIntValue("aera_dock_layout") << '\n'
          << "dock_transparency=" << RecoveryDockTransparency() << '\n'
@@ -3379,6 +3446,9 @@ bool SaveAeraPreferences(bool require_early) {
          << "wifi_auto_enable=" << DataManager::GetIntValue("of_wlan_auto_enable") << '\n'
          << "wifi_auto_connect=" << DataManager::GetIntValue("of_wlan_auto_connect") << '\n'
          << "wifi_last_ssid=" << DataManager::GetStrValue("of_wlan_last_ssid") << '\n'
+         << "mobile_apn=" << DataManager::GetStrValue("aera_mobile_apn") << '\n'
+         << "mobile_auto_connect=" << DataManager::GetIntValue("aera_mobile_auto_connect") << '\n'
+         << "mobile_subscription=" << DataManager::GetIntValue("aera_mobile_subscription") << '\n'
          << "wifi_show_speed=" << (DataManager::GetStrValue("aera_wifi_show_speed") != "0" ? 1 : 0) << '\n'
          << "wifi_show_name=" << (DataManager::GetStrValue("aera_wifi_show_name") != "0" ? 1 : 0) << '\n'
          << "battery_style=" << static_cast<int>(RecoveryBatteryStyle()) << '\n'
@@ -3512,6 +3582,126 @@ std::vector<std::string> Lines(const std::string &text) {
 }
 }  // namespace
 
+std::string RecoveryUiFontPath(const std::string &id) {
+  if (id.empty()) return {};
+  if (fonts::CustomFontId(id)) {
+    fonts::CustomFontStorage primary("/data/media/0/AERA/Fonts");
+    if (primary.Has(id)) return primary.Path(id);
+    fonts::SavedFont saved;
+    if (fonts::FontLibrary("/data/media/0/AERA/Fonts/Library").Find(id, saved)) return saved.path;
+#ifdef OF_ALLOW_EARLY_SETTINGS_LOAD
+    if (PrepareEarlyPreferencesRoot()) {
+      fonts::CustomFontStorage early(kAeraEarlyPreferencesDirectory + "/Fonts");
+      if (early.Has(id)) return early.Path(id);
+    }
+#endif
+    return {};
+  }
+  plugins::Plugin plugin;
+  std::string path, error;
+  return plugins::ResolvePayload(id, plugin, path, error) && plugins::IsThemeExtension(plugin)
+      ? path : std::string{};
+}
+
+std::string RecoveryCustomFont() {
+  fonts::CustomFontStorage storage("/data/media/0/AERA/Fonts");
+  const auto selected = RecoveryUiFont();
+  if (fonts::CustomFontId(selected) && !RecoveryUiFontPath(selected).empty()) return selected;
+  const auto ids = storage.List();
+  return ids.empty() ? std::string{} : ids.back();
+}
+
+bool RecoveryImportUiFont(const std::string &source, std::string *error) {
+  if (RecoveryDataLocked() || !TWFunc::Recursive_Mkdir("/data/media/0/AERA/Fonts", false)) {
+    if (error) *error = "Font storage is unavailable or full.";
+    return false;
+  }
+  const auto previous = RecoveryUiFont();
+  const auto previous_path = RecoveryUiFontPath(previous);
+  fonts::CustomFontStorage storage("/data/media/0/AERA/Fonts");
+  const auto id = storage.Import(source, error);
+  if (id.empty()) return false;
+  const bool loaded = fonts::SelectUiFont(id, storage.Path(id));
+  if (!loaded || !RecoverySetUiFont(id) || !SaveAeraPreferences()) {
+    fonts::SelectUiFont(previous, previous_path);
+    RecoverySetUiFont(previous);
+    if (id != previous) unlink(storage.Path(id).c_str());
+    if (error) *error = loaded ? "Could not save the custom font." : "AERA could not load this font.";
+    return false;
+  }
+  storage.Prune(id);
+  aera::shared_storage::Normalize("/data/media/0/AERA/Fonts", true);
+  return true;
+}
+
+std::string RecoveryUiFontName(const std::string &id) {
+  fonts::SavedFont saved;
+  if (fonts::FontLibrary("/data/media/0/AERA/Fonts/Library").Find(id, saved)) return saved.family;
+  const auto name = fonts::ReadFontName(RecoveryUiFontPath(id));
+  return name.empty() ? "Custom font" : name;
+}
+
+std::vector<fonts::SavedFont> RecoverySavedUiFonts() {
+  return fonts::FontLibrary("/data/media/0/AERA/Fonts/Library").List();
+}
+
+bool RecoverySaveUiFont(const std::string &source, const fonts::SavedFont &metadata,
+                        std::string *id, std::string *error) {
+  constexpr const char *directory = "/data/media/0/AERA/Fonts/Library";
+  if (RecoveryDataLocked() || !TWFunc::Recursive_Mkdir(directory, false)) {
+    if (error) *error = "Font storage is unavailable or full.";
+    return false;
+  }
+  auto *probe = lv_freetype_font_create(source.c_str(), LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
+                                       24, LV_FREETYPE_FONT_STYLE_NORMAL);
+  if (!probe) {
+    if (error) *error = "AERA could not load this font.";
+    return false;
+  }
+  lv_freetype_font_delete(probe);
+  std::string saved_id;
+  if (!fonts::FontLibrary(directory).Save(source, metadata, saved_id, error)) return false;
+  aera::shared_storage::Normalize(directory, true);
+  if (id) *id = saved_id;
+  return true;
+}
+
+bool RecoveryUseSavedUiFont(const std::string &id, std::string *error) {
+  fonts::SavedFont saved;
+  if (!fonts::FontLibrary("/data/media/0/AERA/Fonts/Library").Find(id, saved)) {
+    if (error) *error = "Font unavailable";
+    return false;
+  }
+  const auto previous = RecoveryUiFont();
+  const auto previous_path = RecoveryUiFontPath(previous);
+  if (fonts::SelectUiFont(id, saved.path) && RecoverySetUiFont(id) && SaveAeraPreferences()) return true;
+  fonts::SelectUiFont(previous, previous_path);
+  RecoverySetUiFont(previous);
+  if (error) *error = "Could not save the custom font.";
+  return false;
+}
+
+bool RecoveryDeleteSavedUiFont(const std::string &id, bool reset_active, std::string *error) {
+  fonts::FontLibrary library("/data/media/0/AERA/Fonts/Library");
+  fonts::SavedFont saved;
+  if (!library.Find(id, saved)) {
+    if (error) *error = "Could not delete the font.";
+    return false;
+  }
+  const bool active = RecoveryUiFont() == id;
+  if (active && (!reset_active || !fonts::SelectUiFont({}, {}) ||
+                 !RecoverySetUiFont("") || !SaveAeraPreferences())) {
+    fonts::SelectUiFont(id, saved.path); RecoverySetUiFont(id);
+    if (error) *error = "Could not delete the font.";
+    return false;
+  }
+  if (library.Remove(id, error)) return true;
+  if (active) {
+    fonts::SelectUiFont(id, saved.path); RecoverySetUiFont(id); SaveAeraPreferences();
+  }
+  return false;
+}
+
 void RecoveryWifiInitialize() {
 #ifdef OF_ENABLE_WLAN
   LoadAeraPreferencesIfAvailable();
@@ -3549,6 +3739,318 @@ void RecoveryWifiInitializeEarly() {
 #endif
 }
 
+MobileStatus RecoveryMobileStatus() {
+  MobileStatus result;
+  if (!MobileDataEnabled()) return result;
+  result.available = access("/system/bin/aera-cellular-provider", X_OK) == 0;
+  result.message = result.available ? "Mobile data is off" : "This device has no mobile data provider";
+  if (!result.available) return result;
+  std::ifstream input(aera::mobile::kStatus);
+  Json::CharReaderBuilder reader;
+  Json::Value value;
+  std::string error;
+  if (!input || !Json::parseFromStream(reader, input, &value, &error) || !value.isObject() ||
+      value.get("version", 0).asInt() != 1) return result;
+  const int pid = value.get("pid", 0).asInt();
+  std::string boot;
+  std::ifstream("/proc/sys/kernel/random/boot_id") >> boot;
+  if (pid <= 1 || kill(pid, 0) != 0 || value.get("boot_id", "").asString() != boot) return result;
+  result.running = true;
+  result.available = value.get("available", false).asBool();
+  result.enabled = value.get("enabled", false).asBool();
+  result.connected = value.get("connected", false).asBool();
+  result.registered = value.get("registered", false).asBool();
+  result.signal_valid = value.get("signal_valid", false).asBool();
+  result.signal_dbm = value.get("signal_dbm", 0).asInt();
+  result.bars = std::clamp(value.get("bars", -1).asInt(), -1, 4);
+  result.subscription = value.get("subscription", 0).asInt();
+  result.state = value.get("state", "off").asString();
+  result.message = value.get("message", "").asString();
+  result.technology = value.get("technology", "").asString();
+  result.operator_name = value.get("operator", "").asString();
+  result.address = value.get("address", "").asString();
+  result.interface = value.get("interface", "").asString();
+  result.sim_slot=value.get("sim_slot",0).asInt();
+  result.sim_id=value.get("sim_id","").asString();
+  result.sim_state=value.get("sim_state","").asString();
+  result.pin_retries=value.get("pin_retries",-1).asInt();
+  result.pin_attempt=value.get("pin_attempt",0).asInt();
+  result.pin_request=value.get("pin_request","").asString();
+  const auto &pin_result=value["pin_result"];
+  result.pin_result=pin_result.get("outcome","").asString();
+  result.pin_result_id=pin_result.get("id","").asString();
+  result.pin_result_request=pin_result.get("request","").asString();
+  if(value["sims"].isArray())for(const auto &sim:value["sims"])
+    result.sims.push_back({sim.get("slot",0).asInt(),sim.get("retries",-1).asInt(),
+        sim.get("id","").asString(),sim.get("state","").asString()});
+  if(result.state=="pin_required"&&!result.pin_result.empty()&&result.pin_result!="success")
+    result.message=result.pin_result=="failed"?"SIM PIN verification failed":"PIN result unknown. Check SIM status before trying again";
+  return result;
+}
+namespace {
+std::mutex gMobilePinMutex;
+struct PendingMobilePin {
+  std::string pin,id,request;
+  int slot=0;
+  bool remember=false;
+  std::chrono::steady_clock::time_point started;
+  void Clear(){OPENSSL_cleanse(pin.data(),pin.size());pin.clear();id.clear();request.clear();}
+} gPendingMobilePin;
+bool gMobileSwitchPending=false;
+std::string gMobileSwitchApn;
+int gMobileSwitchSubscription=0;
+std::chrono::steady_clock::time_point gMobileSwitchStarted;
+std::string MobilePinAttemptMarker(const MobileStatus &mobile) {
+  if(mobile.sim_id.size()!=64||mobile.sim_id.find_first_not_of("0123456789abcdef")!=std::string::npos||
+      mobile.pin_request.empty()||mobile.pin_request.size()>64||
+      mobile.pin_request.find_first_not_of("0123456789-")!=std::string::npos)return {};
+  return "/tmp/aera-sim-pin-auto-"+mobile.sim_id+"-"+mobile.pin_request;
+}
+
+bool SubmitMobilePin(const MobileStatus &mobile,const std::string &pin,bool remember,std::string *error) {
+  if(mobile.state!="pin_required"||mobile.pin_request.empty()||mobile.pin_retries<=0||
+      pin.size()<4||pin.size()>8||pin.find_first_not_of("0123456789")!=std::string::npos) {
+    if(error)*error="Enter a 4 to 8 digit PIN for the selected SIM";
+    return false;
+  }
+  if(remember&&mobile.sim_id.empty()) {
+    if(error)*error="This SIM cannot be identified. Enter its PIN without remembering it";
+    return false;
+  }
+  Json::Value config;config["pin"]=pin;config["request"]=mobile.pin_request;config["id"]=mobile.sim_id;
+  Json::StreamWriterBuilder writer;writer["indentation"]="";
+  std::string command="verify-pin "+Json::writeString(writer,config),reply;
+  const bool sent=aera::mobile::Request(command,&reply);
+  OPENSSL_cleanse(command.data(),command.size());
+  if(!sent||reply!="OK") {
+    if(error)*error=reply.empty()?"PIN request timed out. Check SIM status before trying again":reply;
+    return false;
+  }
+  gPendingMobilePin.Clear();gPendingMobilePin.pin=pin;gPendingMobilePin.id=mobile.sim_id;
+  gPendingMobilePin.request=mobile.pin_request;gPendingMobilePin.slot=mobile.sim_slot;
+  gPendingMobilePin.remember=remember;gPendingMobilePin.started=std::chrono::steady_clock::now();
+  return true;
+}
+void PollMobilePins(const MobileStatus &mobile) {
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);
+  if(RecoveryDataLocked())return;
+  if(!mobile.pin_result_id.empty()&&(mobile.pin_result=="failed"||mobile.pin_result=="unknown"))
+    AeraSecrets::DeleteSimPin(mobile.pin_result_id);
+  if(!gPendingMobilePin.request.empty()) {
+    if(mobile.pin_result_request==gPendingMobilePin.request&&mobile.pin_result_id==gPendingMobilePin.id&&
+        !mobile.pin_result.empty()) {
+      if(mobile.pin_result=="success") {
+        if(gPendingMobilePin.remember) {
+          if(!AeraSecrets::SetSimPin(gPendingMobilePin.id,gPendingMobilePin.slot,gPendingMobilePin.pin))
+            LOGERR("Could not remember SIM PIN\n");
+        }else if(!gPendingMobilePin.id.empty())AeraSecrets::DeleteSimPin(gPendingMobilePin.id);
+      }else if(!gPendingMobilePin.id.empty())AeraSecrets::DeleteSimPin(gPendingMobilePin.id);
+      gPendingMobilePin.Clear();
+    }else if(!mobile.enabled||std::chrono::steady_clock::now()-gPendingMobilePin.started>std::chrono::seconds(30))
+      gPendingMobilePin.Clear();
+  }
+  if(mobile.state!="pin_required"||mobile.sim_id.size()!=64||mobile.pin_retries<=1||
+      !gPendingMobilePin.request.empty()||gMobileSwitchPending)return;
+  const std::string marker=MobilePinAttemptMarker(mobile);
+  if(marker.empty()||access(marker.c_str(),F_OK)==0)return;
+  std::string pin;
+  if(!AeraSecrets::GetSimPin(mobile.sim_id,pin))return;
+  android::base::unique_fd guard(open(marker.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW,0600));
+  if(guard.get()>=0) {
+    std::string error;
+    if(!SubmitMobilePin(mobile,pin,true,&error))AeraSecrets::DeleteSimPin(mobile.sim_id);
+  }
+  OPENSSL_cleanse(pin.data(),pin.size());
+}
+}
+bool RecoveryUnlockMobileSim(const std::string &pin,bool remember,std::string *error) {
+  if(!MobileDataEnabled()||RecoveryDataLocked())return false;
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);
+  if(gMobileSwitchPending||!gPendingMobilePin.request.empty()) {
+    if(error)*error="Wait for the current SIM operation to finish";
+    return false;
+  }
+  return SubmitMobilePin(RecoveryMobileStatus(),pin,remember,error);
+}
+std::vector<MobileSavedPin> RecoverySavedMobilePins() {
+  std::vector<MobileSavedPin> out;
+  if(MobileDataEnabled()&&!RecoveryDataLocked())for(const auto &pin:AeraSecrets::ListSimPins())out.push_back({pin.id,pin.slot});
+  return out;
+}
+bool RecoveryMobilePinAutoAvailable(const MobileStatus &mobile) {
+  const auto marker=MobilePinAttemptMarker(mobile);
+  if(!MobileDataEnabled()||RecoveryDataLocked()||mobile.pin_retries<=1||marker.empty()||
+      access(marker.c_str(),F_OK)==0)return false;
+  for(const auto &saved:RecoverySavedMobilePins())if(saved.id==mobile.sim_id)return true;
+  return false;
+}
+bool RecoveryForgetMobilePin(const std::string &id,std::string *error) {
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);
+  if(gPendingMobilePin.id==id)gPendingMobilePin.remember=false;
+  const bool ok=MobileDataEnabled()&&!RecoveryDataLocked()&&AeraSecrets::DeleteSimPin(id);
+  if(!ok&&error)*error="Could not forget SIM PIN";
+  return ok;
+}
+bool RecoverySwitchMobileSim(const std::string &apn,int subscription,std::string *error) {
+  {std::lock_guard<std::mutex> lock(gMobilePinMutex);gMobileSwitchPending=false;}
+  if(!RecoverySetMobileConfiguration(apn,subscription,error))return false;
+  const auto mobile=RecoveryMobileStatus();
+  if(!mobile.enabled)return true;
+  if(!RecoveryDisconnectMobile(error))return false;
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);
+  gMobileSwitchPending=true;gMobileSwitchApn=apn;gMobileSwitchSubscription=subscription;
+  gMobileSwitchStarted=std::chrono::steady_clock::now();
+  return true;
+}
+bool RecoveryMobileSimSwitching() {
+  std::lock_guard<std::mutex> lock(gMobilePinMutex);return gMobileSwitchPending;
+}
+void RecoveryStartMobileService() {
+  if (MobileDataEnabled() && access("/system/bin/aera-cellular-provider", X_OK) == 0)
+    property_set("ctl.start", "aera-cellular");
+}
+MobilePublicIp RecoveryMobilePublicIp(const MobileStatus &mobile) {
+  if (!MobileDataEnabled()) return {};
+  static public_ip::Sampler sampler;
+  const auto snapshot = sampler.Sample(mobile.interface, mobile.address, mobile.connected);
+  return {snapshot.address, snapshot.pending};
+}
+std::string RecoveryMobileApn() {
+  LoadAeraPreferencesIfAvailable();
+  return DataManager::GetStrValue("aera_mobile_apn");
+}
+int RecoveryMobileSubscription() {
+  LoadAeraPreferencesIfAvailable();
+  return std::clamp(DataManager::GetIntValue("aera_mobile_subscription"), 0, 2);
+}
+bool RecoveryConnectMobile(const std::string &apn, int subscription, std::string *error) {
+  if (!MobileDataEnabled()) {
+    if (error) *error = "Mobile data is disabled in this build";
+    return false;
+  }
+  if (RecoveryDataLocked()) {
+    if (error) *error = "Unlock internal storage before enabling mobile data";
+    return false;
+  }
+  if (apn.size() > 100 || apn.find_first_not_of(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_") != std::string::npos ||
+      subscription < 0 || subscription > 2) {
+    if (error) *error = "Invalid APN or SIM selection";
+    return false;
+  }
+  Json::Value config;
+  config["apn"] = apn;
+  config["subscription"] = subscription;
+  if (apn.empty()) {
+    const auto automatic = aera::mobile::AndroidPreferredApn(subscription);
+    if (!automatic.apn.empty()) {
+      config["apn"] = automatic.apn;
+      config["subscription"] = automatic.subscription;
+    }
+  }
+  Json::StreamWriterBuilder writer;
+  writer["indentation"] = "";
+  std::string reply;
+  aera::mobile::MarkAutoHandled();
+  const bool ok = aera::mobile::Request("connect " + Json::writeString(writer, config), &reply) && reply == "OK";
+  if (ok) {
+    DataManager::SetValue("aera_mobile_apn", apn);
+    DataManager::SetValue("aera_mobile_subscription", subscription);
+    SaveAeraPreferences();
+  } else if (error) *error = reply.empty() ? "Mobile data service is not ready yet" : reply;
+  return ok;
+}
+bool RecoveryDisconnectMobile(std::string *error) {
+  {std::lock_guard<std::mutex> lock(gMobilePinMutex);gMobileSwitchPending=false;}
+  aera::mobile::MarkAutoHandled();
+  std::string reply;
+  const bool ok = aera::mobile::Request("disconnect-async", &reply) && reply == "OK";
+  if (!ok && error) *error = "Could not request mobile data disconnect";
+  return ok;
+}
+bool RecoveryMobileAutoConnect() {
+  if (!MobileDataEnabled()) return false;
+  LoadAeraPreferencesIfAvailable();
+  return DataManager::GetIntValue("aera_mobile_auto_connect") == 1;
+}
+bool RecoverySetMobileConfiguration(const std::string &apn, int subscription, std::string *error) {
+  if (!MobileDataEnabled()) return false;
+  LoadAeraPreferencesIfAvailable();
+  if (RecoveryDataLocked()) {
+    if (error) *error = "Unlock internal storage before saving mobile data settings";
+    return false;
+  }
+  if (apn.size() > 100 || apn.find_first_not_of(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_") != std::string::npos ||
+      subscription < 0 || subscription > 2) {
+    if (error) *error = "Invalid APN or SIM selection";
+    return false;
+  }
+  const auto previous_apn = RecoveryMobileApn();
+  const int previous_subscription = RecoveryMobileSubscription();
+  DataManager::SetValue("aera_mobile_apn", apn);
+  DataManager::SetValue("aera_mobile_subscription", subscription);
+  if (SaveAeraPreferences()) return true;
+  DataManager::SetValue("aera_mobile_apn", previous_apn);
+  DataManager::SetValue("aera_mobile_subscription", previous_subscription);
+  if (error) *error = "Could not save mobile data settings";
+  return false;
+}
+bool RecoverySetMobileAutoConnect(bool enabled, std::string *error) {
+  if (!MobileDataEnabled()) return false;
+  const bool previous = RecoveryMobileAutoConnect();
+  if (RecoveryDataLocked()) {
+    if (error) *error = "Unlock internal storage before saving mobile data settings";
+    return false;
+  }
+  // This controls the next boot, not an immediate or repeated reconnect.
+  aera::mobile::MarkAutoHandled();
+  DataManager::SetValue("aera_mobile_auto_connect", enabled ? 1 : 0);
+  if (SaveAeraPreferences()) return true;
+  DataManager::SetValue("aera_mobile_auto_connect", previous ? 1 : 0);
+  if (error) *error = "Could not save mobile data settings";
+  return false;
+}
+void RecoveryPollMobileAutoConnect() {
+  if (!MobileDataEnabled()) return;
+  using Clock = std::chrono::steady_clock;
+  static auto next = Clock::time_point{};
+  static auto started = Clock::time_point{};
+  const auto now = Clock::now();
+  if (now < next) return;
+  next = now + std::chrono::seconds(1);
+  const auto current=RecoveryMobileStatus();
+  PollMobilePins(current);
+  {
+    std::unique_lock<std::mutex> lock(gMobilePinMutex);
+    if(gMobileSwitchPending) {
+      if(!current.enabled) {
+        const auto apn=gMobileSwitchApn;const auto subscription=gMobileSwitchSubscription;
+        gMobileSwitchPending=false;lock.unlock();std::string error;
+        if(!RecoveryConnectMobile(apn,subscription,&error))LOGERR("SIM switch: %s\n",error.c_str());
+      }else if(now-gMobileSwitchStarted>std::chrono::seconds(65))gMobileSwitchPending=false;
+      return;
+    }
+  }
+  if (access(aera::mobile::kAutoHandled, F_OK) == 0 ||
+      access("/system/bin/aera-cellular-provider", X_OK) != 0 || RecoveryDataLocked() ||
+      !RecoveryMobileAutoConnect()) return;
+  const auto mobile = RecoveryMobileStatus();
+  if (mobile.enabled) { aera::mobile::MarkAutoHandled(); return; }
+  if (!mobile.running) {
+    if (started == Clock::time_point{}) { started = now; RecoveryStartMobileService(); }
+    if (now - started >= std::chrono::seconds(20)) aera::mobile::MarkAutoHandled();
+    return;
+  }
+  if (!aera::mobile::MarkAutoHandled(true) || !mobile.available) return;
+  std::string error;
+  if (!RecoveryConnectMobile(RecoveryMobileApn(), RecoveryMobileSubscription(), &error))
+    LOGERR("Mobile auto-connect: %s\n", error.c_str());
+}
+bool RecoveryNetworkConnected() {
+  return RecoveryWifiConnection().connected || RecoveryMobileStatus().connected;
+}
+
 WifiConnection RecoveryWifiConnection() {
   WifiConnection connection;
 #ifdef OF_ENABLE_WLAN
@@ -3559,12 +4061,10 @@ WifiConnection RecoveryWifiConnection() {
   return connection;
 }
 
-WifiTraffic RecoveryWifiTraffic() {
+static WifiTraffic ReadInterfaceTraffic(const std::string &interface) {
   WifiTraffic traffic;
-#ifdef OF_ENABLE_WLAN
-  if (DataManager::GetIntValue("tw_wlan_connected") != 1) return traffic;
-  traffic.interface = DataManager::GetStrValue("tw_wlan_iface");
-  if (traffic.interface.empty()) traffic.interface = "wlan0";
+  traffic.interface = interface;
+  if (traffic.interface.empty()) return traffic;
   if (traffic.interface.find_first_not_of(
           "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.") != std::string::npos ||
       traffic.interface == "." || traffic.interface == "..") return traffic;
@@ -3574,8 +4074,21 @@ WifiTraffic RecoveryWifiTraffic() {
   std::ifstream index(directory + "/ifindex");
   traffic.valid = bool(received >> traffic.received_bytes) &&
       bool(sent >> traffic.sent_bytes) && bool(index >> traffic.interface_index);
-#endif
   return traffic;
+}
+WifiTraffic RecoveryWifiTraffic() {
+#ifdef OF_ENABLE_WLAN
+  if (!RecoveryWifiConnection().connected) return {};
+  const auto interface = DataManager::GetStrValue("tw_wlan_iface");
+  return ReadInterfaceTraffic(interface.empty() ? "wlan0" : interface);
+#else
+  return {};
+#endif
+}
+WifiTraffic RecoveryNetworkTraffic() {
+  if (RecoveryWifiConnection().connected) return RecoveryWifiTraffic();
+  const auto mobile = RecoveryMobileStatus();
+  return mobile.connected ? ReadInterfaceTraffic(mobile.interface) : WifiTraffic{};
 }
 
 WifiStatusDisplay RecoveryWifiStatusDisplay() {
@@ -3723,6 +4236,16 @@ WifiStatus RecoveryWifiStatus() {
   return status;
 }
 
+WifiIpConfig RecoveryWifiIpConfig(const std::string &ssid) {
+  WifiIpConfig config;
+#ifdef OF_ENABLE_WLAN
+  AeraSecrets::GetWlanIpConfig(ssid, config);
+#else
+  (void)ssid;
+#endif
+  return config;
+}
+
 int RecoveryRunWifi(const WifiRequest &request) {
 #ifndef OF_ENABLE_WLAN
   (void)request;
@@ -3730,12 +4253,29 @@ int RecoveryRunWifi(const WifiRequest &request) {
 #else
   bool result = false;
   switch (request.operation) {
+    case WifiOperation::kSaveIpConfig:
+      result = !RecoveryDataLocked() && AeraSecrets::SetWlanIpConfig(request.ssid, request.ip_config);
+      if (result && RecoveryWifiConnection().connected &&
+          RecoveryWifiConnection().ssid == request.ssid) {
+        result = Wlan::ApplyIpConfiguration(request.ssid);
+      }
+      if (result) SaveAeraPreferences();
+      break;
     case WifiOperation::kEnable:
       DataManager::SetValue("wlan_state", "enabling");
       result = Wlan::Enable();
       if (result) {
         DataManager::SetValue("wlan_state", "scanning");
         Wlan::Scan();
+        const auto ssid = DataManager::GetStrValue("of_wlan_last_ssid");
+        if (DataManager::GetIntValue("of_wlan_auto_connect") == 1 && !ssid.empty() &&
+            !RecoveryWifiConnection().connected) {
+          DataManager::SetValue("wlan_state", "connecting");
+          DataManager::SetValue("wlanselectedid", ssid);
+          // The radio enable succeeded even when the saved AP is out of range.
+          // Supplicant keeps looking; the idle worker configures IP on arrival.
+          Wlan::ConnectSaved();
+        }
       }
       break;
     case WifiOperation::kDisable:
@@ -3782,6 +4322,10 @@ int RecoveryRunWifi(const WifiRequest &request) {
     case WifiOperation::kDisableFastbootWifi:
       result = RecoverySetFastbootOverWifi(false);
       break;
+  }
+  if (Wlan::IsEnabled()) {
+    Wlan::Info();
+    AeraWifiDispatcher::Submit(AeraWifiDispatcher::Request::RefreshStatus);
   }
   const bool enabled = Wlan::IsEnabled();
   const bool connected = DataManager::GetIntValue("tw_wlan_connected") == 1;
@@ -4195,6 +4739,11 @@ bool RecoveryImportNasKey(const std::string &key, const std::string &name,
 }
 
 int RecoveryRunNas(const NasRequest &request) {
+  plugin_api::HostStorageLease storage_lease;
+  if (!storage_lease) {
+    gui_err("Finish or cancel background plugin storage tasks first.\n");
+    return 1;
+  }
 #ifndef OF_ENABLE_WLAN
   (void)request;
   return 1;

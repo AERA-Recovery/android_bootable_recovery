@@ -34,6 +34,7 @@
 #include <chrono>
 #include "recovery_utils/battery_utils.h"
 #include "aeraui/platform/aera_message.hpp"
+#include "aeraui/features/plugins/console_commands.hpp"
 #include "cutils/properties.h"
 
 #ifdef ANDROID_RB_RESTART
@@ -555,6 +556,8 @@ static void Fox_Remove_Problematic_File() {
 
 // main()
 int main(int argc, char **argv) {
+	if (argc >= 2 && strcmp(argv[1], "--aera-plugin-command") == 0)
+		return aeraui::plugins::RunConsoleCommand(argc, argv);
 	// avoid Android 15 QPR2 problem with rogue xml file
 	Fox_Remove_Problematic_File();
 

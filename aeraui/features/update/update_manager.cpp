@@ -124,11 +124,13 @@ bool EnsureDirectory(const std::string &path) {
   return true;
 }
 
-void SetPhase(Phase phase, const std::string &message, bool available) {
+void SetPhase(Phase phase, const std::string &message, bool installable) {
   std::lock_guard<std::mutex> lock(gMutex);
   gSnapshot.phase = phase;
   gSnapshot.message = message;
-  gSnapshot.available = available;
+  gSnapshot.installable = installable;
+  gSnapshot.available = installable &&
+      gSnapshot.release.build_time > gSnapshot.local_build_time;
 }
 
 bool DownloadFile(const std::string &url, const std::string &path,
@@ -376,11 +378,13 @@ bool SetChannel(Channel channel) {
   }
   std::lock_guard<std::mutex> lock(gMutex);
   gSnapshot.phase = Phase::kIdle;
+  gSnapshot.channel = channel;
   gSnapshot.release = {};
   gSnapshot.package_path.clear();
   gSnapshot.message.clear();
   gSnapshot.checked = false;
   gSnapshot.available = false;
+  gSnapshot.installable = false;
   gDownloaded.store(0);
   gTotal.store(0);
   gProgress.store(0);
@@ -392,6 +396,8 @@ Snapshot GetSnapshot() {
   if (gSnapshot.device.empty()) gSnapshot.device = DeviceName();
   if (gSnapshot.local_build_time == 0)
     gSnapshot.local_build_time = LocalBuildTime();
+  if (gSnapshot.local_build_type.empty())
+    gSnapshot.local_build_type = RecoveryBuildType();
   Snapshot result = gSnapshot;
   result.downloaded = gDownloaded.load();
   result.total = gTotal.load();
@@ -400,6 +406,7 @@ Snapshot GetSnapshot() {
 }
 
 bool Check() {
+  const Snapshot installed = GetSnapshot();
   gCancel.store(false);
   gDownloaded.store(0);
   gTotal.store(0);
@@ -408,10 +415,14 @@ bool Check() {
     std::lock_guard<std::mutex> lock(gMutex);
     gSnapshot.phase = Phase::kChecking;
     gSnapshot.device = DeviceName();
-    gSnapshot.local_build_time = LocalBuildTime();
+    gSnapshot.local_build_time = installed.local_build_time;
+    gSnapshot.local_build_type = installed.local_build_type;
+    gSnapshot.channel = GetChannel();
     gSnapshot.message = "Contacting the AERA update service";
     gSnapshot.checked = false;
-    if (!gSnapshot.available) gSnapshot.release = {};
+    gSnapshot.release = {};
+    gSnapshot.available = false;
+    gSnapshot.installable = false;
     gSnapshot.package_path.clear();
   }
 
@@ -432,7 +443,7 @@ bool Check() {
   }
 
   const std::string device = DeviceName();
-  const uint64_t local = LocalBuildTime();
+  const uint64_t local = installed.local_build_time;
   if (!SafeDevice(device) || local == 0) {
     unlink(kCatalogPath);
     SetPhase(Phase::kError, "AERA could not identify this recovery build", false);
@@ -469,9 +480,12 @@ bool Check() {
     gSnapshot.release = std::move(release);
     gSnapshot.message =
         available ? "A newer recovery build is available"
-                  : "This recovery is up to date";
+                  : remote < local && gSnapshot.IsChannelSwitch()
+                      ? "This release is older than your installed build. You can still install it."
+                      : "This recovery is up to date";
     gSnapshot.checked = true;
     gSnapshot.available = available;
+    gSnapshot.installable = available || gSnapshot.IsChannelSwitch();
   }
   gProgress.store(100);
   __android_log_print(ANDROID_LOG_INFO, kLogTag,
@@ -485,7 +499,7 @@ bool Check() {
 
 bool PrepareDownload() {
   std::lock_guard<std::mutex> lock(gMutex);
-  if (!gSnapshot.available || gSnapshot.release.size == 0) return false;
+  if (!gSnapshot.CanDownload()) return false;
   gCancel.store(false);
   gDownloaded.store(0);
   gTotal.store(gSnapshot.release.size);
@@ -499,7 +513,7 @@ bool PrepareDownload() {
 bool Download() {
   aera::shared_storage::RepairOnExit shared_permissions(kUpdateRoot);
   Snapshot snapshot = GetSnapshot();
-  if (!snapshot.available || snapshot.release.size == 0) {
+  if (!snapshot.CanDownload()) {
     SetPhase(Phase::kError, "No recovery update is ready to download", false);
     return false;
   }
@@ -569,7 +583,7 @@ bool Download() {
 void SetOffline() {
   std::lock_guard<std::mutex> lock(gMutex);
   gSnapshot.phase = Phase::kError;
-  gSnapshot.message = "Connect to Wi-Fi and try again";
+  gSnapshot.message = "Connect to a network and try again";
 }
 
 void Cancel() {
@@ -578,9 +592,16 @@ void Cancel() {
 
 void MarkInstalled() {
   std::lock_guard<std::mutex> lock(gMutex);
+  // The flash already changed the installed build, even before rebooting.
+  // Keep that identity across tab changes/checks; a reboot reads the new image.
+  if (gSnapshot.release.build_time != 0) {
+    gSnapshot.local_build_time = gSnapshot.release.build_time;
+    gSnapshot.local_build_type = ChannelBuildType(gSnapshot.channel);
+  }
   gSnapshot.phase = Phase::kUpToDate;
   gSnapshot.message = "The recovery update was installed";
   gSnapshot.available = false;
+  gSnapshot.installable = false;
   gSnapshot.checked = true;
 }
 

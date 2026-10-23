@@ -8,4 +8,7 @@ namespace aeraui::appvault {
 // Android Settings uses either ordinary XML or the ABX v0 typed XML format.
 bool ParsePackagesXml(const std::string& bytes, tinyxml2::XMLDocument& document,
                       std::string& error);
+// SettingsState may append a namespaceHashes sibling after its settings root.
+bool ParseSettingsXml(const std::string& bytes, tinyxml2::XMLDocument& document,
+                      std::string& error);
 }  // namespace aeraui::appvault

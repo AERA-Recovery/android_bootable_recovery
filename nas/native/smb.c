@@ -240,6 +240,7 @@ static int smb_statfs(struct nf_remote *r,const char *p,struct statvfs *out) {
 }
 static int smb_readlink(struct nf_remote *r,const char *p,char *buf,size_t n) { return smb2_readlink(r->smb,p,buf,(uint32_t)n); }
 static int smb_symlink(struct nf_remote *r,const char *target,const char *p) { return smb2_symlink(r->smb,target,p,0); }
+static int smb_socket(struct nf_remote *r) { return r->smb ? smb2_get_fd(r->smb) : -1; }
 const struct nf_ops nf_smb_ops={smb_connect,smb_disconnect,smb_stat,smb_list,smb_open,smb_close,
     smb_read,smb_write,smb_flush,smb_truncate,smb_mkdir,smb_unlink,smb_rename,smb_chmod,smb_chown,
-    smb_utimens,smb_statfs,smb_readlink,smb_symlink};
+    smb_utimens,smb_statfs,smb_readlink,smb_symlink,smb_socket};

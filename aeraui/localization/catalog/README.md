@@ -29,3 +29,9 @@ theme tree is no longer packaged; translations belong only in this catalog.
 Host API 2 plugins receive the selected locale through `AERA_LOCALE`. Official
 plugin metadata may also provide localized `name` and `description` fields in
 its manifest. Both mechanisms retain English fallback behavior.
+
+Simplified and Traditional Chinese cover every catalog row. Run
+`python3 aeraui/tests/chinese_catalog_test.py` after changing interface text.
+It checks directly bound UI messages, printf arguments and generated-catalog
+freshness. Keep paths, commands, product names and filesystem names literal;
+format variable data into translated sentences instead of joining English fragments.

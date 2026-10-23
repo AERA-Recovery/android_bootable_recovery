@@ -32,8 +32,15 @@ void Append(const std::string &text) { std::ofstream(options.recovery_log, std::
 void Pause() { std::this_thread::sleep_for(std::chrono::milliseconds(120)); }
 }
 namespace aera::flashlog {
-Options PlatformOptions(const std::string &, const std::string &, const std::string &) { return options; }
-std::vector<std::string> PlatformDirectories() { return {root + "/saved", root + "/work"}; }
+Options PlatformOptions(const std::string &, const std::string &, const std::string &, bool manual) {
+  auto result = options; result.manual = manual;
+  if (manual) { result.directory = root + "/debug-work"; result.archive_directory = root + "/debug-saved"; }
+  return result;
+}
+std::vector<std::string> PlatformDirectories(bool manual) {
+  return manual ? std::vector<std::string>{root + "/debug-saved", root + "/debug-work"} :
+      std::vector<std::string>{root + "/saved", root + "/work"};
+}
 }
 int main() {
   using namespace aera::flashlog;
@@ -114,6 +121,45 @@ int main() {
   assert(SensitiveSetting("aera_pc_auth_token"));
   assert(SensitiveSetting("aera_installer_author_password"));
   assert(SingleLine("one\ntwo\r\t") == "one\\ntwo\\r\\t");
+  fs::create_directory(root + "/debug-work"); fs::create_directory(root + "/debug-saved");
+  options.logcat = {"/usr/bin/printf", "manual logcat fixture\n"};
+  options.diagnostics = {
+      {"Network fixture", {"/usr/bin/printf", "interface=wlan0\n"}},
+      {"Stalled diagnostic query", {"/usr/bin/sleep", "10"}}};
+  auto await_manual = [](ManualState state) {
+    for (int i = 0; i < 100 && GetManualStatus().state != state; ++i)
+      std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    assert(GetManualStatus().state == state);
+  };
+  {
+    Recording automatic("concurrent.zip", "ZIP"); assert(automatic.Started());
+    ToggleManual(); await_manual(ManualState::kRecording);
+    Append("manual and automatic recording\n"); Pause();
+    ToggleManual(); await_manual(ManualState::kIdle);
+    const auto report = GetManualStatus();
+    assert(report.error.empty() && report.path.find("/debug-saved/debug_") != std::string::npos);
+    assert(fs::exists(report.path));
+    assert(automatic.Finish(0) == 0);
+  }
+  auto manual = Reports(true); assert(manual.size() == 1);
+  const auto state = captured[captured.size() - 2].at("state.txt");
+  assert(state.find("State at recording start") != std::string::npos);
+  assert(state.find("State at recording stop") != std::string::npos);
+  assert(state.find("interface=wlan0") != std::string::npos);
+  assert(state.find("command stopped at its time or output limit") != std::string::npos);
+  assert(state.size() <= kManualStateLimit);
+  options.diagnostics.clear();
+  fd = OpenReport(manual.front().name, &size, true); assert(fd >= 0); close(fd);
+  assert(OpenReport(manual.front().name, &size) < 0);
+  assert(OpenReport("../recovery.log", &size, true) < 0);
+  const auto flash_reports = Reports();
+  for (int i = 0; i < 3; ++i) {
+    Recording recording("", "Manual", "", true); assert(recording.Started());
+    Pause(); recording.Finish(0); assert(!recording.ArchivePath().empty());
+  }
+  assert(Reports(true).size() == 2);
+  assert(Reports().size() == flash_reports.size());
+  for (const auto &report : flash_reports) assert(fs::exists(report.path));
   options.directory = root + "/missing/path";
   { Recording disabled("no-storage.zip", "ZIP"); assert(disabled.Finish(42) == 42); }
   fs::remove_all(root);

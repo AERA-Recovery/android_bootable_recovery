@@ -21,6 +21,7 @@
 */
 
 #include <stdio.h>
+#include "aera_mobile/client.hpp"
 #include <stdlib.h>
 #include <string>
 #include <unistd.h>
@@ -1103,6 +1104,11 @@ int TWFunc::tw_reboot(RebootCommand command)
 		LOGERR("AERA: refusing unsupported fastbootd reboot.\n");
 		return -1;
 	}
+    aera::mobile::StorageLease mobile_lease;
+    if (!mobile_lease) {
+        LOGERR("Mobile modem could not stop. Reboot recovery manually before flashing.\n");
+        return -1;
+    }
 	DataManager::Flush();
 	Update_Log_File();
 

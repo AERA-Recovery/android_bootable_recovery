@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <locale.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/xattr.h>
@@ -16,6 +17,9 @@
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <set>
+#include <cwchar>
+#include <cwctype>
 
 namespace aeraui::file_manager {
 namespace {
@@ -735,6 +739,89 @@ bool Rename(const std::string& source, const std::string& destination, std::stri
   }
   error = Error("Cannot rename", source);
   return false;
+}
+
+void Search(const SearchRequest& request, SearchProgress& progress) {
+  // Filename case conversion uses a thread-local UTF-8 locale, never the UI's.
+  locale_t locale = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
+  locale_t previous = locale ? uselocale(locale) : nullptr;
+  auto fold = [](const std::string& text) {
+    std::wstring result;
+    std::mbstate_t state{};
+    for (size_t offset = 0; offset < text.size();) {
+      wchar_t character{};
+      size_t count = std::mbrtowc(&character, text.data() + offset,
+                                text.size() - offset, &state);
+      if (count == static_cast<size_t>(-1) || count == static_cast<size_t>(-2)) {
+        result.push_back(0x110000 + static_cast<unsigned char>(text[offset++]));
+        state = {};
+      } else {
+        if (count == 0) count = 1;
+        result.push_back(static_cast<wchar_t>(std::towlower(character)));
+        offset += count;
+      }
+    }
+    return result;
+  };
+  const auto query = fold(request.query);
+  struct Pending { std::string path; unsigned depth; };
+  std::vector<Pending> pending{{request.directory, 0}};
+  std::set<std::pair<dev_t, ino_t>> visited;
+  if (query.empty() || request.maximum_results == 0) pending.clear();
+  while (!pending.empty() && !progress.cancel.load()) {
+    auto current = std::move(pending.back());
+    pending.pop_back();
+    DIR* directory = opendir(current.path.c_str());
+    if (!directory) {
+      progress.skipped.fetch_add(1);
+      if (current.depth == 0) progress.error = std::strerror(errno);
+      continue;
+    }
+    struct stat identity{};
+    if (fstat(dirfd(directory), &identity) != 0 ||
+        !visited.emplace(identity.st_dev, identity.st_ino).second) {
+      closedir(directory);
+      continue;
+    }
+    while (!progress.cancel.load()) {
+      errno = 0;
+      auto* item = readdir(directory);
+      if (!item) {
+        if (errno) progress.skipped.fetch_add(1);
+        break;
+      }
+      if (!strcmp(item->d_name, ".") || !strcmp(item->d_name, "..")) continue;
+      if (item->d_name[0] == '.' && !request.hidden) continue;
+      const std::string path = Join(current.path, item->d_name);
+      // These virtual trees cannot contain user files and may change endlessly.
+      if (path == "/dev" || path == "/proc" || path == "/sys") continue;
+      const Metadata metadata = Inspect(path);
+      progress.scanned.fetch_add(1);
+      if (!metadata.exists) { progress.skipped.fetch_add(1); continue; }
+      if (!metadata.directory && !metadata.regular && !metadata.symlink) continue;
+      if (fold(item->d_name).find(query) != std::wstring::npos) {
+        progress.matches.push_back({path, metadata});
+        progress.found.store(progress.matches.size());
+        if (progress.matches.size() >= request.maximum_results) {
+          progress.limited = true;
+          break;
+        }
+      }
+      if (request.recursive && metadata.directory && !metadata.symlink) {
+        if (current.depth < 128 && visited.size() + pending.size() < 50000)
+          pending.push_back({path, current.depth + 1});
+        else
+          progress.limited = true;
+      }
+    }
+    closedir(directory);
+    if (progress.matches.size() >= request.maximum_results) break;
+  }
+  if (locale) {
+    uselocale(previous);
+    freelocale(locale);
+  }
+  progress.done.store(true, std::memory_order_release);
 }
 
 void Run(const Request& request, Progress& progress) {

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <string>
+#include <functional>
 
 #include <lvgl.h>
 
@@ -122,8 +123,12 @@ void CompleteBootScene(lv_obj_t *screen);
 void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildHomeAppearancePreview(lv_obj_t *parent);
 void BuildDeveloperScene(lv_obj_t *screen, ActionCallback callback, void *context);
+void BuildMobileDataScene(lv_obj_t *screen, ActionCallback callback, void *context);
+void PollMobilePinPrompt(lv_obj_t *screen,bool allow_prompt);
 void ArmDeveloperEntryGuard();
 void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context);
+void OpenFontPreview(lv_obj_t *screen, const std::string &path,
+                     std::function<void()> applied = {});
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback,
                     void *context);
 void SetUserDecryptRequest(const UserDecryptRequest &request);

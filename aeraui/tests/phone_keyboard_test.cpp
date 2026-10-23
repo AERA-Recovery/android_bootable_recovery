@@ -101,6 +101,11 @@ void RecoveryVibrate(Haptic) { ++vibrations; }
 }  // namespace aeraui
 
 int main(int argc, char **argv) {
+  for (const auto value : {KeyboardLayout::kQwerty, KeyboardLayout::kQwertz,
+                           KeyboardLayout::kAzerty})
+    assert(KeyboardLayoutFromCode(KeyboardLayoutCode(value)) == value);
+  assert(KeyboardLayoutCode(static_cast<KeyboardLayout>(99)) == nullptr);
+  assert(KeyboardLayoutFromCode("legacy-invalid") == KeyboardLayout::kQwerty);
   lv_init();
   auto *display = lv_display_create(1440, 1000);
   std::vector<uint8_t> pixels(1440 * 1000 * 4);
@@ -263,6 +268,40 @@ int main(int argc, char **argv) {
   }, LV_EVENT_READY, nullptr);
   Tap(keyboard, LV_SYMBOL_OK);
   assert(phone_keyboard::gKeyboards.empty());
+  layout = KeyboardLayout::kAzerty;
+  const std::string azerty_prefix = argc > 1 ? std::string(argv[1]) + "-azerty" : "";
+  for (bool multiline : {false, true}) {
+    keyboard = Create(input, multiline);
+    lv_textarea_set_one_line(input, !multiline);
+    lv_textarea_set_text(input, "");
+    assert(FindKey(keyboard, "a") == 10 && FindKey(keyboard, "z") == 11);
+    assert(FindKey(keyboard, "q") == 20 && FindKey(keyboard, "m") == 29);
+    assert(FindKey(keyboard, "w") == 31);
+    const auto *matrix = reinterpret_cast<lv_buttonmatrix_t *>(keyboard);
+    std::set<char> letters;
+    for (uint32_t i = 0; i < matrix->btn_cnt; ++i) {
+      const char *key = lv_keyboard_get_button_text(keyboard, i);
+      if (key[0] >= 'a' && key[0] <= 'z' && key[1] == '\0')
+        assert(letters.insert(key[0]).second);
+    }
+    assert(letters.size() == 26);
+    Tap(keyboard, LV_SYMBOL_UP); Tap(keyboard, "A");
+    Tap(keyboard, "z"); Tap(keyboard, "m"); Tap(keyboard, "w");
+    assert(std::string(lv_textarea_get_text(input)) == "Azmw");
+    Tap(keyboard, LV_SYMBOL_UP); lv_tick_inc(100); Tap(keyboard, LV_SYMBOL_UP);
+    Tap(keyboard, "Q"); Tap(keyboard, "M");
+    assert(lv_keyboard_get_mode(keyboard) == LV_KEYBOARD_MODE_TEXT_UPPER);
+    Tap(keyboard, "?123"); Tap(keyboard, "=\\<"); Tap(keyboard, "%");
+    Tap(keyboard, "ABC"); Tap(keyboard, "Z");
+    assert(std::string(lv_textarea_get_text(input)) == "AzmwQM%Z");
+    Tap(keyboard, LV_SYMBOL_UP);
+    for (int size : {0, 1, 2, 3}) {
+      design::ApplyInterfaceSize(size);
+      lv_obj_set_style_text_font(keyboard, design::UiFont(&lv_font_montserrat_48), LV_PART_ITEMS);
+      Render(keyboard, pixels, !multiline && argc > 1 ? azerty_prefix.c_str() : nullptr, size, 0);
+    }
+    lv_obj_delete(keyboard);
+  }
   assert(!phone_keyboard::gSecondary.pressed);
   assert(vibrations > 0);
   std::puts("Keyboard Shift, Caps Lock, symbol coverage, glyphs and layouts passed.");

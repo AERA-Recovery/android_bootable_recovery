@@ -389,6 +389,27 @@ bool GpuRenderer::Present(lv_display_t* display) {
   if (!ready_ || display == nullptr)
     return false;
 
+  // GL errors remain pending until read. A rejected LVGL draw command must
+  // not suppress an otherwise valid scanout (including every later frame).
+  // Keep drawing diagnostics separate from the final composition/DRM result.
+  GLenum draw_error = GL_NO_ERROR;
+  bool context_lost = false;
+  for (int pending = 0; pending < 16; ++pending) {
+    const GLenum error = glGetError();
+    if (error == GL_NO_ERROR) break;
+    if (draw_error == GL_NO_ERROR) draw_error = error;
+    constexpr GLenum kGlContextLost = 0x0507;
+    context_lost |= error == kGlContextLost;
+  }
+  static unsigned int draw_failures = 0;
+  if (draw_error != GL_NO_ERROR) {
+    if (++draw_failures == 1 || draw_failures % 120 == 0)
+      __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                          "LVGL drawing error: %#x (frame %u)", draw_error,
+                          draw_failures);
+    if (context_lost) return false;
+  } else draw_failures = 0;
+
   const unsigned int index = next_buffer_;
   glBindFramebuffer(GL_FRAMEBUFFER, framebuffers_[index]);
   glViewport(0, 0, width_, height_);
@@ -399,7 +420,15 @@ bool GpuRenderer::Present(lv_display_t* display) {
   // No additional axis mirroring is required for the final composition.
   lv_opengles_render_display_texture(display, false, false);
   glFinish();
-  if (glGetError() != GL_NO_ERROR || gr_drm_present(scanouts_[index]) != 0)
+  const GLenum present_error = glGetError();
+  if (present_error != GL_NO_ERROR) {
+    static unsigned int failures = 0;
+    if (++failures == 1 || failures % 120 == 0)
+      __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                          "scanout composition error: %#x", present_error);
+    return false;
+  }
+  if (gr_drm_present(scanouts_[index]) != 0)
     return false;
 
   next_buffer_ = 1U - index;

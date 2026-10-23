@@ -3,6 +3,7 @@
 
 #include <string>
 #include <aeraui/backend.hpp>
+#include "../aeraui/features/plugins/plugin_manager.hpp"
 namespace Json { class Value; }
 
 namespace aeraui::root { struct Progress; }
@@ -31,6 +32,8 @@ struct InstallRequest {
   std::string computer;
   uint64_t bytes = 0;
   aeraui::JobRequest job;
+  bool plugin_install = false;
+  aeraui::plugins::Request plugin;
 };
 struct BackupTransferStatistics {
   uint64_t bytes = 0;

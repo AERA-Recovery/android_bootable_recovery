@@ -13,7 +13,7 @@ license {
 cc_binary {
     name: "aera-netfs",
     recovery: true,
-    srcs: ["main.c", "smb.c", "sftp.c", "filesystem.c"],
+    srcs: ["main.c", "smb.c", "sftp.c", "filesystem.c", "deadline.c"],
     static_libs: ["libsmb2", "libssh2", "libaera_fuse3", "libjson-c"],
     shared_libs: ["libcrypto", "libdl"],
     cflags: ["-D_FILE_OFFSET_BITS=64", "-Wall", "-Wextra", "-Werror", "-Wno-macro-redefined"],

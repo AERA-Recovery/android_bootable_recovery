@@ -14,6 +14,18 @@ int main(int argc, char** argv) {
   assert(!aeraui::appvault::ParsePackagesXml("ABX", document, error));
   const std::string truncated("ABX\0\x10\x32\xff\xff\x00\x04pkg", 14);
   assert(!aeraui::appvault::ParsePackagesXml(truncated, document, error));
+  std::string settings("ABX\0\x10", 5);
+  auto start = [&](const std::string &name) {
+    settings.append("\x32\xff\xff", 3);
+    settings.push_back(0); settings.push_back(static_cast<char>(name.size()));
+    settings += name;
+  };
+  start("settings"); settings.append("\x33\x00\x00", 3);
+  start("namespaceHashes"); settings.append("\x33\x00\x01\x11", 4);
+  assert(!aeraui::appvault::ParsePackagesXml(settings, document, error));
+  assert(aeraui::appvault::ParseSettingsXml(settings, document, error));
+  assert(document.FirstChildElement("settings") && document.FirstChildElement("namespaceHashes"));
+  assert(!aeraui::appvault::ParseSettingsXml(settings.substr(0, settings.size() - 2), document, error));
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i], std::ios::binary);
     assert(file.good());

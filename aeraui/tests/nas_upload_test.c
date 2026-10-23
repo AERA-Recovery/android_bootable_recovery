@@ -8,6 +8,11 @@ static char marker[PATH_MAX];
 static uint64_t expected_size;
 
 double nf_now(void) { return 1.0; }
+int nf_path(const struct nf_config *config,const char *path,char *out,size_t size) {
+    (void)config;
+    int n=snprintf(out,size,"%s",path);
+    return n<0 || (size_t)n>=size ? -ENAMETOOLONG : 0;
+}
 void nf_log(const struct nf_config *config, const char *text, int error) {
     (void)config; (void)text; (void)error;
 }
@@ -89,6 +94,33 @@ int main(void) {
     cancel_upload("/backups/test\n");
     assert(nf_release("/backups/test/boot.win",&info)==-ECANCELED);
     assert(!fs.files && !fs.retained_files && access(cache,F_OK));
+    /* Failed network flushes retain both data and its recovery manifest. */
+    struct nf_file *offline=calloc(1,sizeof(*offline));assert(offline);
+    offline->path=strdup(file.path);offline->cancel_path=strdup(file.cancel_path);
+    offline->cache_fd=open(cache,O_RDWR|O_CREAT|O_EXCL,0600);assert(offline->cache_fd>=0);
+    offline->dirty=1;offline->size=321;
+    assert(!ftruncate(offline->cache_fd,321));
+    snprintf(offline->cache_path,sizeof(offline->cache_path),"%s",cache);
+    snprintf(offline->manifest,sizeof(offline->manifest),"%s/manifest",directory);
+    manifest=open(offline->manifest,O_WRONLY|O_CREAT|O_EXCL,0600);assert(manifest>=0 && !close(manifest));
+    fs.files=offline;fs.offline=1;info.fh=(uint64_t)(uintptr_t)offline;
+    unlink(marker);
+    assert(nf_write("/backups/test/boot.win","x",1,321,&info)==-ENOTCONN);
+    assert(nf_release("/backups/test/boot.win",&info)==-ENOTCONN);
+    assert(!fs.files && fs.retained_files==1 && fs.retained==321);
+    assert(!access(cache,F_OK));
+    char manifest_path[PATH_MAX];snprintf(manifest_path,sizeof(manifest_path),"%s/manifest",directory);
+    assert(!access(manifest_path,F_OK));unlink(manifest_path);
+    struct json_object *lost=json_object_from_file(status);assert(lost);
+    assert(!json_object_get_boolean(json_object_object_get(lost,"connected")));
+    json_object_put(lost);
+    /* Mount metadata must remain available while a remote request owns the lock. */
+    fs.root.st_mode=S_IFDIR|0777;fs.space.f_bsize=4096;
+    pthread_mutex_lock(&remote_mutex);
+    struct stat root;struct statvfs space;
+    assert(!cached_getattr("/",&root,NULL) && S_ISDIR(root.st_mode));
+    assert(!nf_statfs("/",&space) && space.f_bsize==4096);
+    pthread_mutex_unlock(&remote_mutex);
     unlink(marker);unlink(cache);unlink(status);unlink(fs.status_temp);rmdir(directory);
     puts("NAS upload: real byte progress, final confirmation and scoped cancellation passed.");
     return 0;

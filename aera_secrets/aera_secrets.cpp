@@ -297,6 +297,7 @@ void RefreshEarlyWlanNetworks(const Json::Value& primary) {
       !cache["last_ssid"].isString()) return;
   cache["networks"] = primary["networks"].isObject()
       ? primary["networks"] : Json::Value(Json::objectValue);
+  cache["ip_configs"] = primary["ip_configs"];
   WriteDocument(g_early_wlan_path.c_str(), std::move(cache));
 }
 
@@ -362,7 +363,9 @@ bool AeraSecrets::DeleteWlanNetwork(const std::string& ssid) {
   if (ssid.empty()) return false;
   std::lock_guard<std::mutex> guard(g_lock);
   Json::Value root = ReadDocument(kWifiPath);
+  if (root["ip_configs"].isObject()) root["ip_configs"].removeMember(ssid);
   if (!root["networks"].isObject() || !root["networks"].isMember(ssid)) {
+    if (!WriteDocument(kWifiPath, root)) return false;
     RefreshEarlyWlanNetworks(root);
     return true;
   }
@@ -413,6 +416,7 @@ bool AeraSecrets::SaveEarlyWlan(const std::string& path, const WlanSession& sess
   const Json::Value primary = ReadDocument(kWifiPath);
   cache["networks"] = primary["networks"].isObject()
       ? primary["networks"] : Json::Value(Json::objectValue);
+  cache["ip_configs"] = primary["ip_configs"];
   cache["auto_enable"] = session.auto_enable;
   cache["auto_connect"] = session.auto_connect;
   cache["last_ssid"] = session.last_ssid;
@@ -429,9 +433,14 @@ bool AeraSecrets::UsePrimaryWlan(const std::string& connected_ssid) {
     const Json::Value& before = g_early_wlan["networks"][connected_ssid];
     const Json::Value after = primary["networks"].isObject()
         ? primary["networks"][connected_ssid] : Json::Value();
+    const Json::Value before_ip = g_early_wlan["ip_configs"].isObject()
+        ? g_early_wlan["ip_configs"][connected_ssid] : Json::Value();
+    const Json::Value after_ip = primary["ip_configs"].isObject()
+        ? primary["ip_configs"][connected_ssid] : Json::Value();
     std::string old_password, new_password;
     changed = !before.isObject() || !after.isObject() ||
         before["security"] != after["security"] ||
+        before_ip != after_ip ||
         !Open(before["password"], &old_password, nullptr, true) ||
         !Open(after["password"], &new_password, nullptr, true) ||
         old_password != new_password;
@@ -440,6 +449,42 @@ bool AeraSecrets::UsePrimaryWlan(const std::string& connected_ssid) {
   }
   g_early_wlan = Json::Value();
   return changed;
+}
+
+bool AeraSecrets::GetWlanIpConfig(const std::string& ssid, aera::wifi::IpConfig& config) {
+  config = {};
+  std::lock_guard<std::mutex> guard(g_lock);
+  const auto root = g_early_wlan.isObject() ? g_early_wlan : ReadDocument(kWifiPath);
+  if (root["ip_configs"].isNull()) return true;
+  if (!root["ip_configs"].isObject()) return false;
+  const auto& entry = root["ip_configs"][ssid];
+  if (entry.isNull()) return true;  // Existing networks retain DHCP.
+  if (!entry.isObject() || !entry["manual"].isBool() || !entry["prefix"].isInt()) return false;
+  for (const char* key : {"address", "gateway", "dns1", "dns2"})
+    if (!entry[key].isString()) return false;
+  config.manual = entry["manual"].asBool();
+  config.prefix = entry["prefix"].asInt();
+  config.address = entry["address"].asString(); config.gateway = entry["gateway"].asString();
+  config.dns1 = entry["dns1"].asString(); config.dns2 = entry["dns2"].asString();
+  std::string error;
+  return aera::wifi::ValidateIpConfig(config, error);
+}
+
+bool AeraSecrets::SetWlanIpConfig(const std::string& ssid, const aera::wifi::IpConfig& config) {
+  std::string error;
+  if (ssid.empty() || ssid.size() > 32 || !aera::wifi::ValidateIpConfig(config, error)) return false;
+  std::lock_guard<std::mutex> guard(g_lock);
+  if (g_early_wlan.isObject()) return false; // Never overwrite an unreadable primary store.
+  auto root = ReadDocument(kWifiPath);
+  if (!root["ip_configs"].isObject()) root["ip_configs"] = Json::Value(Json::objectValue);
+  Json::Value entry(Json::objectValue);
+  entry["manual"] = config.manual; entry["prefix"] = config.prefix;
+  entry["address"] = config.address; entry["gateway"] = config.gateway;
+  entry["dns1"] = config.dns1; entry["dns2"] = config.dns2;
+  root["ip_configs"][ssid] = entry;
+  if (!WriteDocument(kWifiPath, root)) return false;
+  RefreshEarlyWlanNetworks(root);
+  return true;
 }
 
 bool AeraSecrets::SetNasPassword(const std::string& password, const std::string& protocol) {
@@ -511,6 +556,48 @@ bool AeraSecrets::GetNasPrivateKey(std::string& key) {
   std::lock_guard<std::mutex> guard(g_lock);
   const auto root = ReadDocument(kCredentialPath);
   return Open(root["nas_private_key"], &key) && !key.empty();
+}
+
+namespace {
+bool ValidSimId(const std::string& id) {
+  return id.size()==64&&id.find_first_not_of("0123456789abcdef")==std::string::npos;
+}
+}
+bool AeraSecrets::SetSimPin(const std::string& id,int slot,const std::string& pin) {
+  if(!ValidSimId(id)||slot<1||slot>2||pin.size()<4||pin.size()>8||
+      pin.find_first_not_of("0123456789")!=std::string::npos)return false;
+  std::lock_guard<std::mutex> guard(g_lock);
+  Json::Value root=ReadDocument(kCredentialPath),entry;
+  if(!Seal(pin,&entry,true))return false;
+  entry["slot"]=slot;root["sim_pins"][id]=entry;
+  return WriteDocument(kCredentialPath,std::move(root));
+}
+bool AeraSecrets::GetSimPin(const std::string& id,std::string& pin) {
+  pin.clear();if(!ValidSimId(id))return false;
+  std::lock_guard<std::mutex> guard(g_lock);
+  const auto root=ReadDocument(kCredentialPath);
+  return Open(root["sim_pins"][id],&pin,nullptr,true)&&pin.size()>=4&&pin.size()<=8&&
+      pin.find_first_not_of("0123456789")==std::string::npos;
+}
+bool AeraSecrets::DeleteSimPin(const std::string& id) {
+  if(!ValidSimId(id))return false;
+  std::lock_guard<std::mutex> guard(g_lock);
+  auto root=ReadDocument(kCredentialPath);
+  if(!root["sim_pins"].isObject()||!root["sim_pins"].isMember(id))return true;
+  root["sim_pins"].removeMember(id);
+  return WriteDocument(kCredentialPath,std::move(root));
+}
+std::vector<AeraSecrets::SimPin> AeraSecrets::ListSimPins() {
+  std::lock_guard<std::mutex> guard(g_lock);
+  const auto root=ReadDocument(kCredentialPath);
+  std::vector<SimPin> out;
+  if(!root["sim_pins"].isObject())return out;
+  for(const auto& id:root["sim_pins"].getMemberNames()) {
+    if(!ValidSimId(id))continue;
+    const int slot=root["sim_pins"][id].get("slot",0).asInt();
+    if(slot>=1&&slot<=2)out.push_back({id,slot});
+  }
+  return out;
 }
 
 bool AeraSecrets::AddAdbDevice(const std::string& key,
