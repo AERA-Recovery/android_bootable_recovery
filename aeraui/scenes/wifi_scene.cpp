@@ -243,10 +243,10 @@ void RefreshWifiSettings(WifiUi *state) {
   const std::string endpoint = !state->adb_busy && adb.enabled &&
       !adb.ip_address.empty() ?
       adb.ip_address + ":" + adb.connect_port : "Not available";
-  lv_label_set_text(state->adb_endpoint, endpoint.c_str());
+  i18n::BindLabel(state->adb_endpoint, endpoint.c_str());
   const std::string command = adb.connect_command.empty() ?
       "Enable ADB over Wi-Fi to reveal the PC command." : adb.connect_command;
-  lv_label_set_text(state->adb_command, command.c_str());
+  i18n::BindLabel(state->adb_command, command.c_str());
 
   if (!state->adb_busy && adb.enabled && adb.wifi_connected) {
     lv_obj_clear_flag(state->pair_button, LV_OBJ_FLAG_HIDDEN);
