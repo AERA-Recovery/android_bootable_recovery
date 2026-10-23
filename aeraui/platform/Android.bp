@@ -52,6 +52,8 @@ cc_library_static {
         "libcrypto",
         "libjpeg",
         "libselinux",
+        "libtinyxml2",
+        "libdl",
         "libziparchive",
     ],
     static_libs: [

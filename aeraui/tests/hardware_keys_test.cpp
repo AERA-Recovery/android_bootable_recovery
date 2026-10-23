@@ -15,6 +15,17 @@ int main() {
   s.Update(KEY_RIGHTSHIFT,0);assert(s.Text(KEY_A)=='A');
   s.Update(KEY_CAPSLOCK,0);s.Update(KEY_CAPSLOCK,1);assert(!s.caps);
   assert(s.Text(KEY_Y,true)=='z' && s.Text(KEY_Z,true)=='y');
+  assert(s.Text(KEY_Q,false,true)=='a' && s.Text(KEY_A,false,true)=='q');
+  assert(s.Text(KEY_W,false,true)=='z' && s.Text(KEY_Z,false,true)=='w');
+  assert(s.Text(KEY_SEMICOLON,false,true)=='m' && s.Text(KEY_M,false,true)==',');
+  assert(s.Text(KEY_2,false,true)==0xe9);
+  s.Update(KEY_LEFTSHIFT,1);
+  assert(s.Text(KEY_Q,false,true)=='A' && s.Text(KEY_2,false,true)=='2');
+  assert(s.Text(KEY_M,false,true)=='?' && s.Text(KEY_COMMA,false,true)=='.');
+  s.Update(KEY_LEFTSHIFT,0);
+  s.Update(KEY_CAPSLOCK,0);s.Update(KEY_CAPSLOCK,1);
+  assert(s.Text(KEY_SEMICOLON,false,true)=='M' && s.Text(KEY_2,false,true)==0xe9);
+  s.Update(KEY_CAPSLOCK,0);s.Update(KEY_CAPSLOCK,1);
   s.Update(KEY_LEFTCTRL,1);assert(s.Ctrl());s.Reset();assert(!s.Ctrl()&&!s.Shift());
   assert(s.Text(KEY_KP8)=='8');s.Update(KEY_NUMLOCK,1);assert(s.Text(KEY_KP8)==0);
   for(unsigned key=0;key<=KEY_MAX;++key) {

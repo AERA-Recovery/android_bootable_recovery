@@ -18,6 +18,7 @@ enum class Kind { Files, Packages, Browser, Chat, Gallery, Media, Recorder,
 
 inline Kind ForPlugin(const std::string &id, const std::string &entry,
                       const std::string &category) {
+  if (id == "winlator") return Kind::Mirror;
   if (entry == "browser") return Kind::Browser;
   if (entry == "telegram") return Kind::Chat;
   if (entry == "gallery") return Kind::Gallery;

@@ -186,13 +186,18 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
   result.install = Button(summary, LV_SYMBOL_DOWNLOAD "  Download and install",
       [screen, callback, context] {
         const auto snapshot = update::GetSnapshot();
-        if (!snapshot.available) return;
+        if (!snapshot.CanDownload()) return;
         std::string copy = i18n::Format(
             "%s  /  %s\n%s\n\nThe package's included installer will "
             "control the target partitions and slots.",
             snapshot.release.version.c_str(),
             UpdateSize(snapshot.release.size).c_str(),
             BuildDate(snapshot.release.build_time).c_str());
+        if (snapshot.release.build_time < snapshot.local_build_time) {
+          copy = std::string(i18n::Translate(
+              "This release is older than your installed build. You can still install it.")) +
+              "\n\n" + copy;
+        }
         Sheet(screen, "Install this recovery update?", copy,
               [callback, context] {
                 callback(Action::kDownloadUpdate, context);
@@ -261,7 +266,9 @@ void RefreshUpdateScene(const UpdateScene &scene) {
                             snapshot.release.version.c_str());
       break;
     case update::Phase::kUpToDate:
-      status = "AERA is up to date";
+      status = snapshot.CanDownload() &&
+                       snapshot.release.build_time < snapshot.local_build_time
+                   ? "Older recovery build" : "AERA is up to date";
       break;
     case update::Phase::kDownloading:
       status = "Downloading update";
@@ -282,7 +289,7 @@ void RefreshUpdateScene(const UpdateScene &scene) {
   }
   i18n::BindLabel(scene.status, status.c_str());
   i18n::BindLabel(scene.detail, snapshot.message.empty()
-      ? "Connect to Wi-Fi to check for a newer build."
+      ? "Connect to a network to check for a newer build."
       : snapshot.message.c_str());
 
   const std::string installed = snapshot.device.empty()
@@ -312,7 +319,7 @@ void RefreshUpdateScene(const UpdateScene &scene) {
   SetDisabled(scene.nightly, busy);
   const int actions_width = Landscape(scene.screen) ? 1358 : 1220;
   constexpr int action_gap = 24;
-  if (snapshot.available) {
+  if (snapshot.CanDownload()) {
     const int action_width = (actions_width - action_gap) / 2;
     lv_obj_set_width(scene.check, action_width);
     lv_obj_set_x(scene.install, 46 + action_width + action_gap);
@@ -323,7 +330,7 @@ void RefreshUpdateScene(const UpdateScene &scene) {
     lv_obj_add_flag(scene.install, LV_OBJ_FLAG_HIDDEN);
   }
   SetDisabled(scene.check, busy);
-  SetDisabled(scene.install, busy || !snapshot.available);
+  SetDisabled(scene.install, busy || !snapshot.CanDownload());
   const bool downloading = snapshot.phase == update::Phase::kDownloading;
   const bool verifying = snapshot.phase == update::Phase::kVerifying;
   if (downloading || verifying) {

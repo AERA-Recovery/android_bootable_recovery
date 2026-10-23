@@ -43,7 +43,7 @@ class AbxReader {
  public:
   explicit AbxReader(const std::string& bytes) : bytes_(bytes), position_(4) {}
 
-  bool Parse(tinyxml2::XMLDocument& document) {
+  bool Parse(tinyxml2::XMLDocument& document, bool sibling_roots = false) {
     std::vector<tinyxml2::XMLElement*> stack;
     bool attributes = false;
     bool started = false;
@@ -75,7 +75,7 @@ class AbxReader {
       if (token == 2) {
         if (stack.size() >= 128) return Fail();
         const std::string name = Interned();
-        if (!valid_ || name.empty() || (stack.empty() && document.RootElement())) return Fail();
+        if (!valid_ || name.empty() || (!sibling_roots && stack.empty() && document.RootElement())) return Fail();
         auto* element = document.NewElement(name.c_str());
         if (stack.empty())
           document.InsertEndChild(element);
@@ -245,8 +245,8 @@ class AbxReader {
 };
 }  // namespace
 
-bool ParsePackagesXml(const std::string& bytes, tinyxml2::XMLDocument& document,
-                      std::string& error) {
+static bool ParseAndroidXml(const std::string& bytes, tinyxml2::XMLDocument& document,
+                            std::string& error, bool sibling_roots) {
   document.Clear();
   if (bytes.empty() || bytes.size() > kMaximumBytes) {
     error = "Android package database is missing or too large.";
@@ -254,7 +254,7 @@ bool ParsePackagesXml(const std::string& bytes, tinyxml2::XMLDocument& document,
   }
   const bool binary = bytes.size() >= 4 && bytes.compare(0, 4, "ABX\0", 4) == 0;
   const bool valid = binary
-                         ? AbxReader(bytes).Parse(document)
+                         ? AbxReader(bytes).Parse(document, sibling_roots)
                          : bytes.find('\0') == std::string::npos &&
                                document.Parse(bytes.data(), bytes.size()) == tinyxml2::XML_SUCCESS;
   if (!valid || !document.RootElement()) {
@@ -263,5 +263,15 @@ bool ParsePackagesXml(const std::string& bytes, tinyxml2::XMLDocument& document,
     return false;
   }
   return true;
+}
+
+bool ParsePackagesXml(const std::string& bytes, tinyxml2::XMLDocument& document,
+                      std::string& error) {
+  return ParseAndroidXml(bytes, document, error, false);
+}
+
+bool ParseSettingsXml(const std::string& bytes, tinyxml2::XMLDocument& document,
+                      std::string& error) {
+  return ParseAndroidXml(bytes, document, error, true);
 }
 }  // namespace aeraui::appvault

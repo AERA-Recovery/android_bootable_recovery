@@ -36,6 +36,11 @@ enum class Job {
   kScreenshot,
 };
 
+struct ConsoleCommand {
+  std::string name;
+  std::string executable;
+};
+
 struct Plugin {
   std::string id;
   std::string name;
@@ -67,6 +72,7 @@ struct Plugin {
   std::vector<std::string> permissions;
   Location location = Location::kNone;
   Trust trust = Trust::kOfficial;
+  std::vector<ConsoleCommand> commands;
 };
 
 struct PluginUpdate {

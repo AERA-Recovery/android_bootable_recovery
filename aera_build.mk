@@ -821,6 +821,14 @@ ifeq ($(OF_WORKAROUND_BACKUP_BUG),1)
 endif
 
 LOCAL_CFLAGS += -DAERA_ENABLE_ROOT_MANAGER=$(if $(filter 1,$(AERA_ENABLE_ROOT_MANAGER)),1,0)
+LOCAL_CFLAGS += -DAERA_ENABLE_MOBILE_DATA=$(if $(filter 1,$(AERA_ENABLE_MOBILE_DATA)),1,0)
+
+ifneq ($(strip $(AERA_VENDOR)),)
+ifndef AERA_MOBILE_DATA_VENDOR_CONFIGURED
+AERA_MOBILE_DATA_VENDOR_CONFIGURED := true
+AERA_VENDOR += AERA_ENABLE_MOBILE_DATA="$(if $(filter 1,$(AERA_ENABLE_MOBILE_DATA)),1,0)"
+endif
+endif
 
 # Pass the resolved flag after the vendor hook imports its cached environment.
 # This also supports BoardConfig values and overrides stale lunch exports.

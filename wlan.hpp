@@ -16,6 +16,7 @@ public:
     static bool Scan();
     static bool Connect();
     static bool ConnectSaved();
+    static bool ApplyIpConfiguration(const std::string& ssid);
     static bool ForgetSaved();
     static bool Info();
     // Background status refresh that yields instead of blocking when another WLAN
@@ -46,6 +47,9 @@ private:
     static bool StartInitSupplicantService();
     static bool StopInitSupplicantService();
     static bool StartDhcp();
+    static bool ConfigureIp(const std::string& ssid);
+    static bool WaitForAssociation(const std::string& ssid, int timeout_ms,
+                                   bool* saw_transition = nullptr);
     static bool StopDhcp();
 
     // Info() body, run with g_wlan_op_mutex already held (by Info() or by the

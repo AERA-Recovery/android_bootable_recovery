@@ -15,6 +15,7 @@ void SetFallbackLanguage(const std::string &language);
 bool SelectUiFont(const std::string &id, const std::string &path);
 const std::string &SelectedUiFont();
 const lv_font_t *PreviewFont(const std::string &path, uint32_t size);
+std::string ReadFontName(const std::string &path);
 const lv_font_t *WithLanguageFallback(const lv_font_t *font);
 const lv_font_t *DisplayFont(uint32_t size);
 

@@ -24,6 +24,7 @@
 #include "aera_frp_wipe.hpp"
 #include "aera_remote/backup_cancel.hpp"
 #include "aera_image_flash_mounts.hpp"
+#include "aera_mobile/client.hpp"
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
@@ -1914,6 +1915,8 @@ bool TWPartitionManager::Restore_Partition(PartitionSettings *part_settings) {
 }
 
 int TWPartitionManager::Run_Restore(const string& Restore_Name) {
+  aera::mobile::StorageLease mobile_lease;
+  if (!mobile_lease) return false;
 	if (aera::pc::BackupCancelRequested()) return false;
 	PartitionSettings part_settings;
 	int check_digest;
@@ -2191,6 +2194,8 @@ unsigned long long TWPartitionManager::Get_Restore_Size(
 }
 
 int TWPartitionManager::Wipe_By_Path(string Path) {
+  aera::mobile::StorageLease mobile_lease;
+  if (!mobile_lease) return false;
 	// FRP is never a filesystem wipe and is opt-in at build time.
 	if (TWFunc::Get_Root_Path(Path) == "/frp") {
 		aera_frp::Target target;
@@ -2251,6 +2256,8 @@ int TWPartitionManager::Wipe_By_Path(string Path) {
 }
 
 int TWPartitionManager::Wipe_By_Path(string Path, string New_File_System) {
+  aera::mobile::StorageLease mobile_lease;
+  if (!mobile_lease) return false;
 	if (TWFunc::Get_Root_Path(Path) == "/frp") {
 		LOGERR("FRP does not support filesystem formatting.\n");
 		return false;
@@ -2415,6 +2422,8 @@ static void Update_Encryption_Props_Before_Format() {
 }
 
 int TWPartitionManager::Format_Data(void) {
+  aera::mobile::StorageLease mobile_lease;
+  if (!mobile_lease) return false;
 	if (TWFunc::Block_Operations_Until_Reboot())
 		return false;
 	TWPartition* dat = Find_Partition_By_Path("/data");
@@ -3945,6 +3954,8 @@ bool AeraGrowLogicalPartition(TWPartitionManager* manager, TWPartition* twrp_par
 bool TWPartitionManager::Flash_Image_To_Block(const std::string& path,
         const std::string& filename, const std::string& block, const std::string& name,
         bool validate_only) {
+    aera::mobile::StorageLease mobile_lease;
+    if (!mobile_lease) return false;
     char canonical[PATH_MAX]{};
     struct stat target{};
     uint64_t capacity = 0, expanded = 0;
@@ -4074,6 +4085,8 @@ bool TWPartitionManager::Prepare_Image_Flash_Target(const std::string& target,
 bool TWPartitionManager::Flash_Image(string& path, string& filename,
         const std::function<bool(const string&, uint64_t)>& verify,
         uint64_t stream_bytes, const std::function<bool(const string&)>& stream) {
+    aera::mobile::StorageLease mobile_lease;
+    if (!mobile_lease) return false;
 	if (stream && (!stream_bytes || stream_bytes > INT64_MAX)) return false;
 	twrpRepacker repacker;
 	int partition_count = 0;

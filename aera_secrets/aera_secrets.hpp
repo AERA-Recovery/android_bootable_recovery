@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include "../aera_wlan_ip.hpp"
 
 class AeraSecrets {
  public:
@@ -27,6 +28,8 @@ class AeraSecrets {
                              std::string& security);
   static bool DeleteWlanNetwork(const std::string& ssid);
   static bool ListWlanNetworks(std::vector<std::string>& ssids);
+  static bool GetWlanIpConfig(const std::string& ssid, aera::wifi::IpConfig& config);
+  static bool SetWlanIpConfig(const std::string& ssid, const aera::wifi::IpConfig& config);
   // The early cache contains WLAN only, never NAS or trusted-computer keys.
   static bool LoadEarlyWlan(const std::string& path, WlanSession& session);
   static bool SaveEarlyWlan(const std::string& path, const WlanSession& session);
@@ -40,6 +43,11 @@ class AeraSecrets {
   static bool HasNasPassword();
   static bool SetNasPrivateKey(const std::string& key);
   static bool GetNasPrivateKey(std::string& key);
+  struct SimPin { std::string id; int slot=0; };
+  static bool SetSimPin(const std::string& id,int slot,const std::string& pin);
+  static bool GetSimPin(const std::string& id,std::string& pin);
+  static bool DeleteSimPin(const std::string& id);
+  static std::vector<SimPin> ListSimPins();
 
   static bool AddAdbDevice(const std::string& key,
                            const std::string& name = "");

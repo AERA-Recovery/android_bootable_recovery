@@ -23,6 +23,7 @@
 #include "scene.hpp"
 #include "ui_components.hpp"
 #include "package_review.hpp"
+#include "../core/operation_affinity.hpp"
 
 namespace aeraui {
 namespace {
@@ -56,6 +57,14 @@ struct Files {
   lv_obj_t* work_detail = nullptr;
   lv_obj_t* work_bar = nullptr;
   lv_obj_t* work_cancel = nullptr;
+  lv_obj_t* search_button = nullptr;
+  lv_obj_t* search_clear = nullptr;
+  lv_timer_t* search_timer = nullptr;
+  std::unique_ptr<file_manager::SearchProgress> search;
+  std::thread search_worker;
+  std::string search_query;
+  bool search_mode = false;
+  bool search_recursive = true;
   lv_timer_t* work_timer = nullptr;
   ActionCallback callback = nullptr;
   void* context = nullptr;
@@ -70,6 +79,9 @@ struct Files {
   bool clear_clipboard_after_work = false;
 
   ~Files() {
+    if (search) search->cancel.store(true);
+    if (search_timer) lv_timer_delete(search_timer);
+    if (search_worker.joinable()) search_worker.join();
     work.cancel.store(true);
     if (work_timer != nullptr) lv_timer_delete(work_timer);
     if (worker.joinable()) worker.join();
@@ -196,6 +208,16 @@ void Populate(Files *state);
 void RenderEntries(Files* state);
 void UpdateActionBar(Files* state);
 void OpenFile(Files* state, const Entry& entry);
+void SortEntries(Files* state);
+void StartFileSearch(Files* state);
+
+void StopFileSearch(Files* state) {
+  if (state->search) state->search->cancel.store(true);
+  if (state->search_timer) lv_timer_delete(state->search_timer);
+  state->search_timer = nullptr;
+  if (state->search_worker.joinable()) state->search_worker.join();
+  state->search.reset();
+}
 
 struct MenuAction {
   const char* label;
@@ -577,8 +599,8 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
   auto *title = Label(sheet, "Flash image", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, 48, 118);
   const std::string subtitle_text =
-      "Choose exactly where this raw image will be written. Active slot: " +
-      RecoverySlot();
+      i18n::Format("Choose exactly where this raw image will be written. Active slot: %s",
+                   RecoverySlot().c_str());
   auto *subtitle = Label(sheet, subtitle_text.c_str(),
                          &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(subtitle, 48, 188);
@@ -1186,7 +1208,13 @@ void OpenFile(Files *state, const Entry &entry) {
     Populate(state);
     return;
   }
-  if (IsPicture(entry.name)) {
+  const auto lower_name = Lower(entry.name);
+  if (lower_name.size() > 4 && (lower_name.compare(lower_name.size() - 4, 4, ".ttf") == 0 ||
+                               lower_name.compare(lower_name.size() - 4, 4, ".otf") == 0)) {
+    OpenFontPreview(state->screen, entry.path, [state] {
+      state->callback(Action::kFiles, state->context);
+    });
+  } else if (IsPicture(entry.name)) {
     OpenPicture(state->screen, entry.path);
   } else if (plugins::IsPackageFile(entry.name)) {
     plugins::Plugin plugin;
@@ -1233,7 +1261,7 @@ void OpenFile(Files *state, const Entry &entry) {
     ReviewPackage(state->screen, entry.path, state->callback, state->context);
   } else if (Image(entry.name)) {
     OpenImageTargetPicker(state, entry);
-  } else if (entry.text || (DeferredTextProbe(entry.path) &&
+  } else if (entry.text || ((state->search_mode || DeferredTextProbe(entry.path)) &&
                            file_manager::IsTextFile(entry.path, 1024 * 1024))) {
     OpenTextViewer(state, entry);
   } else {
@@ -1329,7 +1357,7 @@ void FileRow(Files* state, int y, const Entry& entry, bool alternate) {
   const int text_margin = state->selecting ? metrics.text_x + 104
                                            : metrics.text_x + 54;
   SingleLineLabel(name, width - text_margin, metrics.name_font);
-  const std::string detail = EntryDetail(entry);
+  const std::string detail = state->search_mode ? Parent(entry.path) : EntryDetail(entry);
   auto* copy = Label(row, detail.c_str(), metrics.detail_font, kMuted);
   lv_obj_set_pos(copy, metrics.text_x, metrics.detail_y);
   int detail_width = width - text_margin;
@@ -1401,7 +1429,7 @@ void RenderEntries(Files *state) {
   lv_obj_clean(state->list);
   int y = 0;
   const FileListMetrics metrics = FileListLayout();
-  if (gDirectory != "/") {
+  if (!state->search_mode && gDirectory != "/") {
     FileUtilityRow(state, y, LV_SYMBOL_UP, "Parent folder", Parent(gDirectory),
                    [state] {
       gDirectory = Parent(gDirectory);
@@ -1555,7 +1583,12 @@ void UpdateActionBar(Files* state) {
 
 void SetSort(Files* state, SortMode mode) {
   gSortMode = mode;
-  Populate(state);
+  if (state->search_mode) {
+    SortEntries(state);
+    RenderEntries(state);
+  } else {
+    Populate(state);
+  }
 }
 
 const char* SortModeLabel(SortMode mode) {
@@ -1678,7 +1711,7 @@ void OpenSortMenu(Files* state) {
         half_width, 132, direction_labels[index], direction_icons[index],
         [state, subtitle, sort_summary, order_controls, directions, index] {
           gSortAscending = directions[index];
-          Populate(state);
+          SetSort(state, gSortMode);
           for (size_t i = 0; i < order_controls->size(); ++i)
             SetChoiceSelected((*order_controls)[i], i == index);
           const std::string summary = sort_summary();
@@ -1718,7 +1751,153 @@ void OpenCreateMenu(Files* state) {
               });
 }
 
+void FileSearchTick(lv_timer_t* timer) {
+  auto* state = static_cast<Files*>(lv_timer_get_user_data(timer));
+  auto& progress = *state->search;
+  if (!progress.done.load(std::memory_order_acquire)) {
+    const auto text = i18n::Format("Searching: %zu checked / %zu found",
+                                   progress.scanned.load(), progress.found.load());
+    lv_label_set_text(state->summary, text.c_str());
+    return;
+  }
+  if (state->search_worker.joinable()) state->search_worker.join();
+  state->search_timer = nullptr;
+  lv_timer_delete(timer);
+  for (const auto& match : progress.matches) {
+    const auto& metadata = match.metadata;
+    state->entries.push_back({file_manager::BaseName(match.path), match.path,
+        metadata.directory, metadata.symlink, false, metadata.size,
+        metadata.mode, metadata.uid, metadata.gid, metadata.modified});
+  }
+  SortEntries(state);
+  std::string summary = i18n::Format("%zu results for \"%s\"",
+      state->entries.size(), state->search_query.c_str());
+  if (!progress.error.empty())
+    summary = i18n::Format("Cannot open folder: %s", progress.error.c_str());
+  else if (progress.limited)
+    summary += " / " + std::string(i18n::Translate("Search limit reached"));
+  else if (progress.skipped.load())
+    summary += " / " + i18n::Format("%zu inaccessible items skipped", progress.skipped.load());
+  lv_label_set_text(state->summary, summary.c_str());
+  RenderEntries(state);
+  UpdateActionBar(state);
+}
+
+void StartFileSearch(Files* state) {
+  StopFileSearch(state);
+  state->search_mode = true;
+  state->selecting = false;
+  state->selected.clear();
+  state->entries.clear();
+  state->visible = 100;
+  state->search = std::make_unique<file_manager::SearchProgress>();
+  file_manager::SearchRequest request;
+  request.directory = gDirectory;
+  request.query = state->search_query;
+  request.recursive = state->search_recursive;
+  request.hidden = RecoveryPreference(Preference::kHiddenFiles);
+  lv_obj_remove_flag(state->search_clear, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_state(state->search_button, LV_STATE_CHECKED);
+  i18n::BindLabel(state->summary, "Searching files");
+  RenderEntries(state);
+  lv_obj_scroll_to_y(state->list, 0, LV_ANIM_OFF);
+  UpdateActionBar(state);
+  state->search_worker = std::thread([state, request] {
+    operation_affinity::RestoreForWorker();
+    file_manager::Search(request, *state->search);
+  });
+  state->search_timer = lv_timer_create(FileSearchTick, 100, state);
+}
+
+void OpenFileSearch(Files* state) {
+  const bool landscape = Landscape(state->screen);
+  const int screen_width = lv_obj_get_width(state->screen);
+  const int screen_height = lv_obj_get_height(state->screen);
+  auto* overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, screen_width, screen_height);
+  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  const int width = std::min(1900, screen_width - 96);
+  const int left = (screen_width - width) / 2;
+  const int top = StatusBarHeight() + 28;
+  auto* heading = Label(overlay, "Search files", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(heading, left, top);
+  auto* scope = Label(overlay, gDirectory.c_str(), &lv_font_montserrat_28, kMuted);
+  lv_obj_set_pos(scope, left, top + 70);
+  SingleLineLabel(scope, width, &lv_font_montserrat_28);
+  auto* input = TextArea(overlay);
+  lv_textarea_set_one_line(input, true);
+  lv_textarea_set_max_length(input, NAME_MAX);
+  lv_textarea_set_placeholder_text(input, i18n::Translate("File or folder name"));
+  lv_textarea_set_text(input, state->search_query.c_str());
+  lv_obj_set_pos(input, left, top + 126);
+  lv_obj_set_size(input, width, 126);
+  lv_obj_set_style_text_font(input, UiFont(&lv_font_montserrat_36), 0);
+  lv_obj_set_style_text_color(input, kText, 0);
+  lv_obj_set_style_bg_color(input, kMainPanel, 0);
+  lv_obj_set_style_bg_opa(input, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(input, 24, 0);
+  lv_obj_set_style_pad_all(input, 26, 0);
+  auto* recursive = lv_checkbox_create(overlay);
+  lv_checkbox_set_text(recursive, i18n::Translate("Include subfolders"));
+  lv_obj_set_pos(recursive, left + 16, top + 282);
+  lv_obj_set_style_text_font(recursive, UiFont(&lv_font_montserrat_32), 0);
+  lv_obj_set_style_text_color(recursive, kText, 0);
+  lv_obj_set_width(recursive, width - 32);
+  lv_obj_set_style_min_height(recursive, 84, 0);
+  lv_obj_set_style_pad_all(recursive, 14, LV_PART_INDICATOR);
+  lv_obj_set_style_pad_column(recursive, 24, 0);
+  lv_obj_set_style_radius(recursive, 10, LV_PART_INDICATOR);
+  lv_obj_set_style_border_width(recursive, 2, LV_PART_INDICATOR);
+  lv_obj_set_style_border_color(recursive, kMutedStrong, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(recursive, kMainPanel, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(recursive, LV_OPA_COVER, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(recursive, kAccent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_border_color(recursive, kAccent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_image_src(recursive, LV_SYMBOL_OK, LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_image_recolor(recursive, kOnAccent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_image_recolor_opa(recursive, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_image_opa(recursive, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
+  if (state->search_recursive) lv_obj_add_state(recursive, LV_STATE_CHECKED);
+  const int button_y = top + 382;
+  const int half = (width - 24) / 2;
+  auto* cancel = Button(overlay, "Cancel", [overlay] { CloseOverlay(overlay); });
+  lv_obj_set_pos(cancel, left, button_y);
+  lv_obj_set_size(cancel, half, 112);
+  auto* accept = Button(overlay, "Search", [state, input, recursive, overlay] {
+    std::string query = lv_textarea_get_text(input);
+    if (query.find_first_not_of(" \t\r\n") == std::string::npos) return;
+    state->search_query = std::move(query);
+    state->search_recursive = lv_obj_has_state(recursive, LV_STATE_CHECKED);
+    CloseOverlay(overlay);
+    StartFileSearch(state);
+  }, true);
+  lv_obj_set_pos(accept, left + half + 24, button_y);
+  lv_obj_set_size(accept, half, 112);
+  auto* keyboard = lv_keyboard_create(overlay);
+  phone_keyboard::Apply(keyboard);
+  lv_keyboard_set_textarea(keyboard, input);
+  const int keyboard_top = button_y + 152;
+  lv_obj_set_size(keyboard, screen_width,
+      std::min(landscape ? 680 : 1000, screen_height - keyboard_top));
+  lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_add_event_cb(keyboard, [](lv_event_t* event) {
+    lv_obj_send_event(static_cast<lv_obj_t*>(lv_event_get_user_data(event)),
+                      LV_EVENT_CLICKED, nullptr);
+  }, LV_EVENT_READY, accept);
+  lv_obj_add_event_cb(keyboard, [](lv_event_t* event) {
+    CloseOverlay(static_cast<lv_obj_t*>(lv_event_get_user_data(event)));
+  }, LV_EVENT_CANCEL, overlay);
+  text_edit::SetSelectAllOnHold(input, true);
+}
+
 void Populate(Files *state) {
+  StopFileSearch(state);
+  state->search_mode = false;
+  if (state->search_clear) lv_obj_add_flag(state->search_clear, LV_OBJ_FLAG_HIDDEN);
+  if (state->search_button) lv_obj_remove_state(state->search_button, LV_STATE_CHECKED);
   state->entries.clear();
   i18n::BindLabel(state->path_label, gDirectory.c_str());
   DIR *directory = opendir(gDirectory.c_str());
@@ -1742,6 +1921,33 @@ void Populate(Files *state) {
     }
     closedir(directory);
   }
+  SortEntries(state);
+  for (auto iterator = state->selected.begin(); iterator != state->selected.end();) {
+    const bool present = std::any_of(state->entries.begin(), state->entries.end(),
+                                     [&](const Entry& entry) { return entry.path == *iterator; });
+    if (!present)
+      iterator = state->selected.erase(iterator);
+    else
+      ++iterator;
+  }
+  struct statvfs storage{};
+  std::string capacity;
+  if (statvfs(gDirectory.c_str(), &storage) == 0)
+    capacity = i18n::Format("%s available",
+        Size(static_cast<uint64_t>(storage.f_bavail) * storage.f_frsize).c_str());
+  if (RecoveryDataLocked()) capacity = "Internal storage is locked";
+  i18n::BindLabel(state->storage_label, capacity.c_str());
+  std::string summary = directory
+      ? i18n::Format("%zu items", state->entries.size())
+      : i18n::Format("Cannot open folder: %s", strerror(error));
+  if (directory && state->entries.empty()) summary = "No files in this view";
+  i18n::BindLabel(state->summary, summary.c_str());
+  RenderEntries(state);
+  lv_obj_scroll_to_y(state->list, 0, LV_ANIM_OFF);
+  UpdateActionBar(state);
+}
+
+void SortEntries(Files* state) {
   std::sort(state->entries.begin(), state->entries.end(), [](const Entry& a, const Entry& b) {
     if (a.directory != b.directory) return a.directory;
     int comparison = 0;
@@ -1772,33 +1978,11 @@ void Populate(Files *state) {
     if (comparison == 0) comparison = strcasecmp(a.name.c_str(), b.name.c_str());
     return gSortAscending ? comparison < 0 : comparison > 0;
   });
-  for (auto iterator = state->selected.begin(); iterator != state->selected.end();) {
-    const bool present = std::any_of(state->entries.begin(), state->entries.end(),
-                                     [&](const Entry& entry) { return entry.path == *iterator; });
-    if (!present)
-      iterator = state->selected.erase(iterator);
-    else
-      ++iterator;
-  }
-  struct statvfs storage{};
-  std::string capacity;
-  if (statvfs(gDirectory.c_str(), &storage) == 0)
-    capacity = i18n::Format("%s available",
-        Size(static_cast<uint64_t>(storage.f_bavail) * storage.f_frsize).c_str());
-  if (RecoveryDataLocked()) capacity = "Internal storage is locked";
-  i18n::BindLabel(state->storage_label, capacity.c_str());
-  std::string summary = directory
-      ? i18n::Format("%zu items", state->entries.size())
-      : i18n::Format("Cannot open folder: %s", strerror(error));
-  if (directory && state->entries.empty()) summary = "No files in this view";
-  i18n::BindLabel(state->summary, summary.c_str());
-  RenderEntries(state);
-  lv_obj_scroll_to_y(state->list, 0, LV_ANIM_OFF);
-  UpdateActionBar(state);
 }
 }  // namespace
 
 bool NavigateFileBack() {
+  if (gFiles && gFiles->search_mode) { Populate(gFiles); return true; }
   if (!gFiles || gDirectory == "/") return false;
   gDirectory = Parent(gDirectory);
   gFiles->visible = 100;
@@ -1854,11 +2038,11 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   lv_obj_set_size(root, 140, toolbar_height);
   auto* sort = Button(screen, LV_SYMBOL_LIST, [state] { OpenSortMenu(state); });
   lv_obj_set_pos(sort, 512, landscape ? 350 : 496);
-  lv_obj_set_size(sort, 180, toolbar_height);
+  lv_obj_set_size(sort, 140, toolbar_height);
   CenterButtonContent(sort);
   auto* create = Button(screen, LV_SYMBOL_PLUS, [state] { OpenCreateMenu(state); });
-  lv_obj_set_pos(create, 716, landscape ? 350 : 496);
-  lv_obj_set_size(create, 180, toolbar_height);
+  lv_obj_set_pos(create, 676, landscape ? 350 : 496);
+  lv_obj_set_size(create, 140, toolbar_height);
   CenterButtonContent(create);
   auto* select = Button(screen, LV_SYMBOL_OK, [state] {
     state->selecting = !state->selecting;
@@ -1866,16 +2050,42 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     RenderEntries(state);
     UpdateActionBar(state);
   });
-  lv_obj_set_pos(select, 920, landscape ? 350 : 496);
-  lv_obj_set_size(select, 180, toolbar_height);
+  lv_obj_set_pos(select, 840, landscape ? 350 : 496);
+  lv_obj_set_size(select, 140, toolbar_height);
   CenterButtonContent(select);
-  auto *refresh = Button(screen, LV_SYMBOL_REFRESH, [state] { Populate(state); });
-  lv_obj_set_pos(refresh, 1124, landscape ? 350 : 496);
-  lv_obj_set_size(refresh, 180, toolbar_height);
+  state->search_button = Button(screen, "Search", [state] { OpenFileSearch(state); });
+  lv_obj_set_pos(state->search_button, 1004, landscape ? 350 : 496);
+  lv_obj_set_size(state->search_button, 140, toolbar_height);
+  lv_obj_set_style_bg_color(state->search_button, kAccentSoft, LV_STATE_CHECKED);
+  lv_obj_add_flag(lv_obj_get_child(state->search_button, 0), LV_OBJ_FLAG_HIDDEN);
+  auto* search_icon = lv_obj_create(state->search_button);
+  Clear(search_icon);
+  lv_obj_set_size(search_icon, 44, 44);
+  lv_obj_center(search_icon);
+  auto* lens = lv_obj_create(search_icon);
+  Clear(lens);
+  lv_obj_set_size(lens, 30, 30);
+  lv_obj_set_style_radius(lens, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(lens, 4, 0);
+  lv_obj_set_style_border_color(lens, kText, 0);
+  auto* handle = lv_line_create(search_icon);
+  static const lv_point_precise_t handle_points[] = {{26, 26}, {41, 41}};
+  lv_line_set_points(handle, handle_points, 2);
+  lv_obj_set_style_line_width(handle, 4, 0);
+  lv_obj_set_style_line_color(handle, kText, 0);
+  lv_obj_set_style_line_rounded(handle, true, 0);
+  for (auto* object : {search_icon, lens, handle})
+    lv_obj_remove_flag(object, LV_OBJ_FLAG_CLICKABLE);
+  auto *refresh = Button(screen, LV_SYMBOL_REFRESH, [state] {
+    if (state->search_mode) StartFileSearch(state);
+    else Populate(state);
+  });
+  lv_obj_set_pos(refresh, 1168, landscape ? 350 : 496);
+  lv_obj_set_size(refresh, 140, toolbar_height);
   CenterButtonContent(refresh);
 
   if (large) {
-    for (auto* button : {storage, root, sort, create, select, refresh}) {
+    for (auto* button : {storage, root, sort, create, select, state->search_button, refresh}) {
       if (lv_obj_get_child_count(button) == 0) continue;
       lv_obj_set_style_text_font(lv_obj_get_child(button, 0),
                                  UiFont(&lv_font_montserrat_36), 0);
@@ -1890,6 +2100,12 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   state->summary = Label(screen, "", summary_font, kMuted);
   lv_obj_set_pos(state->summary, landscape ? 1460 : 80,
                  landscape ? 424 : 750);
+  SingleLineLabel(state->summary, landscape ? 1480 : 1130, summary_font);
+  state->search_clear = Button(screen, LV_SYMBOL_CLOSE, [state] { Populate(state); });
+  lv_obj_set_pos(state->search_clear, landscape ? 3008 : 1240, landscape ? 410 : 730);
+  lv_obj_set_size(state->search_clear, 88, 80);
+  CenterButtonContent(state->search_clear);
+  lv_obj_add_flag(state->search_clear, LV_OBJ_FLAG_HIDDEN);
   // The file surface reaches the physical bottom. Navigation is a foreground
   // overlay, while bottom padding keeps the final entry scrollable above it.
   state->list = Scroll(screen, landscape ? 500 : 826,

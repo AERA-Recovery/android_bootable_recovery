@@ -16,8 +16,12 @@ find_package(JPEG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
-add_executable(ui_check ui_check.cpp
+add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp
+  ../components/plugin_desktop.cpp
+  ../features/plugin_api/session.cpp ../features/plugin_api/activity.cpp
   ../scenes/developer_scene.cpp
+  ../scenes/mobile_data_scene.cpp
+  ../scenes/update_scene.cpp
   ../features/developer/kernel_settings.cpp
   ../scenes/reboot_scene.cpp ../components/power_transition.cpp
   ../scenes/lock_scene.cpp
@@ -34,6 +38,9 @@ add_executable(ui_check ui_check.cpp
   ../localization/catalog/catalog.cpp
   ../localization/catalog/catalog_generated.cpp
   ../scenes/tool_scene.cpp ../scenes/sideload_scene.cpp
+  ../scenes/font_browser.cpp ../features/fonts/fontsource.cpp
+  ../features/fonts/font_library.cpp
+  ../features/fonts/fontsource_download.cpp
   ../scenes/wifi_scene.cpp ../components/picture_decode.cpp
   ../components/picture_viewer.cpp ../components/wallpaper.cpp
   ../scenes/operation_scene.cpp
@@ -43,12 +50,31 @@ target_include_directories(ui_check PRIVATE .. ../include ../components ../asset
   ../features ../features/files ../localization ../localization/fonts
   ../scenes)
 target_compile_definitions(ui_check PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES)
+target_compile_definitions(ui_check PRIVATE AERA_ENABLE_MOBILE_DATA=1)
 target_compile_definitions(ui_check PRIVATE
   AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets"
   AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets")
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
+foreach(mode unset disabled enabled)
+  add_executable(mobile_data_flag_${mode}_test mobile_data_flag_test.cpp)
+  target_include_directories(mobile_data_flag_${mode}_test PRIVATE ../include)
+  target_compile_options(mobile_data_flag_${mode}_test PRIVATE -UNDEBUG)
+  add_test(NAME mobile_data_flag_${mode} COMMAND mobile_data_flag_${mode}_test)
+endforeach()
+target_compile_definitions(mobile_data_flag_disabled_test PRIVATE AERA_ENABLE_MOBILE_DATA=0)
+target_compile_definitions(mobile_data_flag_enabled_test PRIVATE AERA_ENABLE_MOBILE_DATA=1 EXPECT_MOBILE_DATA=1)
+add_executable(wifi_ip_config_test wifi_ip_config_test.cpp)
+target_compile_options(wifi_ip_config_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME wifi_static_ip_validation COMMAND wifi_ip_config_test)
+add_executable(wifi_dhcp_test wifi_dhcp_test.cpp)
+target_compile_options(wifi_dhcp_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME wifi_dhcp_client COMMAND wifi_dhcp_test)
+add_test(NAME wifi_ip_settings_ui COMMAND ui_check --wifi-ip)
+add_test(NAME mobile_sim_pin_ui COMMAND ui_check --sim-pin)
+add_test(NAME network_tabs_and_mobile_cards COMMAND ui_check --mobile)
+add_test(NAME recovery_channel_install_ui COMMAND ui_check --update-channel)
 add_executable(artillery_test artillery_test.cpp ../features/artillery/game.cpp)
 target_compile_options(artillery_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME artillery_physics_and_unlock COMMAND artillery_test)
@@ -160,6 +186,19 @@ target_include_directories(plugin_api_session_test PRIVATE ..
   ../features)
 target_compile_options(plugin_api_session_test PRIVATE -UNDEBUG)
 add_test(NAME plugin_api_negotiation_and_limits COMMAND plugin_api_session_test)
+add_executable(plugin_descriptor_test plugin_descriptor_test.cpp)
+target_compile_options(plugin_descriptor_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME plugin_descriptor_kernel_compatibility COMMAND plugin_descriptor_test)
+add_executable(console_command_test console_command_test.cpp ../features/plugins/console_commands.cpp)
+target_compile_options(console_command_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME plugin_console_command_registry COMMAND console_command_test)
+add_executable(plugin_activity_test plugin_activity_test.cpp
+  ../features/plugin_api/activity.cpp)
+target_include_directories(plugin_activity_test PRIVATE ../features)
+target_compile_options(plugin_activity_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(plugin_activity_test PRIVATE Threads::Threads)
+add_test(NAME plugin_background_storage_claims COMMAND plugin_activity_test)
+add_test(NAME plugin_background_view_lifetime COMMAND ui_check --plugin-runtime)
 add_executable(sideload_ui_test sideload_ui_test.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
   ../localization/catalog/catalog_generated.cpp
@@ -179,10 +218,30 @@ target_include_directories(file_manager_test PRIVATE .. ../features/files)
 target_compile_options(file_manager_test PRIVATE -UNDEBUG)
 target_link_libraries(file_manager_test PRIVATE Threads::Threads)
 add_test(NAME file_manager_operations COMMAND file_manager_test)
+add_test(NAME file_search_ui COMMAND ui_check --file-search)
 
 set(JSONCPP_WITH_TESTS OFF CACHE BOOL "" FORCE)
 set(JSONCPP_WITH_POST_BUILD_UNITTEST OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LVGL_DIR}/../jsoncpp" jsoncpp)
+target_link_libraries(ui_check PRIVATE jsoncpp_static)
+add_executable(font_library_test font_library_test.cpp ../features/fonts/font_library.cpp)
+target_include_directories(font_library_test PRIVATE .. ../include ../features)
+target_compile_options(font_library_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(font_library_test PRIVATE jsoncpp_static OpenSSL::Crypto)
+add_test(NAME font_library_persistence_and_cleanup COMMAND font_library_test)
+add_executable(fontsource_test fontsource_test.cpp ../features/fonts/fontsource.cpp)
+target_include_directories(fontsource_test PRIVATE ../features)
+target_compile_options(fontsource_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(fontsource_test PRIVATE jsoncpp_static)
+add_test(NAME fontsource_catalog_and_variants COMMAND fontsource_test)
+add_executable(fontsource_download_test fontsource_download_test.cpp
+  ../features/fonts/fontsource.cpp ../features/fonts/fontsource_download.cpp)
+target_include_directories(fontsource_download_test PRIVATE ../features)
+target_compile_options(fontsource_download_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_options(fontsource_download_test PRIVATE -Wl,--wrap=execv)
+target_link_libraries(fontsource_download_test PRIVATE jsoncpp_static Threads::Threads)
+add_test(NAME fontsource_download_cancellation COMMAND fontsource_download_test)
+add_test(NAME font_browser_ui COMMAND ui_check --font-browser)
 add_executable(app_vault_progress_test app_vault_progress_test.cpp)
 target_compile_options(app_vault_progress_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(app_vault_progress_test PRIVATE jsoncpp_static)
@@ -195,6 +254,13 @@ target_link_libraries(smb_browser_test PRIVATE jsoncpp_static Threads::Threads)
 add_test(NAME smb_browse_paths_and_cancellation COMMAND smb_browser_test)
 
 find_package(OpenSSL REQUIRED)
+target_link_libraries(ui_check PRIVATE OpenSSL::Crypto)
+add_executable(custom_font_storage_test custom_font_storage_test.cpp)
+target_include_directories(custom_font_storage_test PRIVATE ..)
+target_compile_options(custom_font_storage_test PRIVATE -UNDEBUG)
+target_link_libraries(custom_font_storage_test PRIVATE OpenSSL::Crypto)
+add_test(NAME custom_font_storage COMMAND custom_font_storage_test)
+add_test(NAME custom_font_ui COMMAND ui_check --custom-font)
 add_executable(pc_storage_test pc_storage_test.cpp ../../aera_remote/pc_storage.cpp)
 target_compile_definitions(pc_storage_test PRIVATE AERA_PC_HOST_TEST=1)
 target_compile_options(pc_storage_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
@@ -214,6 +280,12 @@ if(PkgConfig_FOUND)
     target_link_options(nas_upload_test PRIVATE -Wl,--gc-sections)
     target_link_libraries(nas_upload_test PRIVATE PkgConfig::AERA_HOST_JSONC)
     add_test(NAME nas_cached_upload_progress_and_cancel COMMAND nas_upload_test)
+    find_package(Threads REQUIRED)
+    target_link_libraries(nas_upload_test PRIVATE Threads::Threads)
+    add_executable(nas_deadline_test nas_deadline_test.c ../../nas/native/deadline.c)
+    target_compile_options(nas_deadline_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+    target_link_libraries(nas_deadline_test PRIVATE Threads::Threads)
+    add_test(NAME nas_network_inactivity_deadline COMMAND nas_deadline_test)
   endif()
 endif()
 add_executable(kernel_kmi_test kernel_kmi_test.cpp)
@@ -303,6 +375,12 @@ add_test(NAME native_catalog_round_trip COMMAND catalog_test
 add_test(NAME native_catalog_english_only COMMAND catalog_english_test
   "${CMAKE_CURRENT_SOURCE_DIR}/../localization/catalog/catalog.json")
 
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME chinese_catalog_coverage COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/chinese_catalog_test.py")
+endif()
+
 add_executable(plugin_store_test plugin_store_test.cpp ../scenes/plugin_scene.cpp
   ../features/plugins/store_metadata.cpp ../components/retroarch_icon.cpp
   ../components/text_edit.cpp ../localization/fonts/aera_fallback.cpp
@@ -326,6 +404,7 @@ add_test(NAME touch_single_axis_retention COMMAND touch_input_test single)
 add_test(NAME touch_legacy_release_retention COMMAND touch_input_test legacy)
 
 add_executable(status_gesture_test status_gesture_test.cpp
+  ../features/plugin_api/activity.cpp
   ../components/text_edit.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
   ../localization/catalog/catalog.cpp ../localization/catalog/catalog_generated.cpp)
@@ -335,6 +414,14 @@ target_compile_definitions(status_gesture_test PRIVATE AERA_DEFAULT_LANGUAGE="en
 target_compile_options(status_gesture_test PRIVATE -UNDEBUG)
 target_link_libraries(status_gesture_test PRIVATE lvgl PNG::PNG Threads::Threads jsoncpp_static ZLIB::ZLIB)
 add_test(NAME status_gesture_cancellation COMMAND status_gesture_test)
+get_target_property(STATUS_GESTURE_SOURCES status_gesture_test SOURCES)
+add_executable(quick_settings_mobile_test ${STATUS_GESTURE_SOURCES})
+target_include_directories(quick_settings_mobile_test PRIVATE .. ../include ../components
+  ../features ../localization ../localization/fonts ../scenes)
+target_compile_definitions(quick_settings_mobile_test PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_ENABLE_MOBILE_DATA=1)
+target_compile_options(quick_settings_mobile_test PRIVATE -UNDEBUG)
+target_link_libraries(quick_settings_mobile_test PRIVATE lvgl PNG::PNG Threads::Threads jsoncpp_static ZLIB::ZLIB)
+add_test(NAME quick_settings_mobile_tiles COMMAND quick_settings_mobile_test)
 add_test(NAME status_bar_display_settings COMMAND ui_check --status-bar-settings)
 add_test(NAME theme_engine_categories_and_layout COMMAND ui_check --theme-categories)
 add_test(NAME wallpaper_layout_and_editor COMMAND ui_check --wallpaper-layout)
@@ -377,3 +464,8 @@ add_test(NAME shared_storage_android_access COMMAND shared_storage_test)
 
 add_test(NAME native_buffer_library COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/native_buffer_library_test.py")
+
+add_executable(public_ip_test public_ip_test.cpp)
+target_compile_options(public_ip_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(public_ip_test PRIVATE resolv Threads::Threads)
+add_test(NAME mobile_public_ipv4_parsing COMMAND public_ip_test)

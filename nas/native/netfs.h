@@ -43,6 +43,7 @@ struct nf_ops {
     int (*statfs)(struct nf_remote *, const char *, struct statvfs *);
     int (*readlink)(struct nf_remote *, const char *, char *, size_t);
     int (*symlink)(struct nf_remote *, const char *, const char *);
+    int (*socket_fd)(struct nf_remote *);
 };
 extern const struct nf_ops nf_smb_ops, nf_ssh_ops;
 int nf_load_config(const char *, struct nf_config *);

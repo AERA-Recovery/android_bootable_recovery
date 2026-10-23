@@ -40,7 +40,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
                         &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(caption, 158, 36);
   lv_obj_set_style_text_letter_space(caption, 2, 0);
-  auto *current = Label(slot_card, ("Slot " + active).c_str(),
+  auto *current = Label(slot_card, i18n::Format("Slot %s", active.c_str()).c_str(),
                         &lv_font_montserrat_48, kText);
   lv_obj_set_pos(current, 158, 78);
   auto *hint = Label(slot_card,

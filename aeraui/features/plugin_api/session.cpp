@@ -36,6 +36,7 @@ bool Session::Adopt(int control_fd) {
   }
   control_ = control_fd;
   negotiated_ = false;
+  features_ = 0;
   rate_window_ms_ = NowMs();
   rate_messages_ = 0;
   status_ = "Waiting for plugin handshake";
@@ -61,6 +62,32 @@ bool Session::Send(Kind kind, uint32_t request_id, uint32_t value,
   if (title) snprintf(message.title, sizeof(message.title), "%s", title);
   if (text) snprintf(message.text, sizeof(message.text), "%s", text);
   return Write(message);
+}
+
+bool Session::SendDesktop(uint32_t request_id, int frame, int input, unsigned width, unsigned height) {
+  if (!Negotiated() || !Supports(kFeatureDesktop) || frame < 0 || input < 0) return false;
+  Message message;
+  message.kind = Kind::kDesktopReady;
+  message.request_id = request_id;
+  message.value = width;
+  message.flags = height;
+  int descriptors[] = {frame, input};
+  alignas(cmsghdr) char ancillary[CMSG_SPACE(sizeof(descriptors))]{};
+  iovec iov{&message, sizeof(message)};
+  msghdr packet{};
+  packet.msg_iov = &iov;
+  packet.msg_iovlen = 1;
+  packet.msg_control = ancillary;
+  packet.msg_controllen = sizeof(ancillary);
+  auto *header = CMSG_FIRSTHDR(&packet);
+  header->cmsg_level = SOL_SOCKET;
+  header->cmsg_type = SCM_RIGHTS;
+  header->cmsg_len = CMSG_LEN(sizeof(descriptors));
+  memcpy(CMSG_DATA(header), descriptors, sizeof(descriptors));
+  if (sendmsg(control_, &packet, MSG_DONTWAIT | MSG_NOSIGNAL) ==
+      static_cast<ssize_t>(sizeof(message))) return true;
+  Fail("Could not hand off the desktop channel.");
+  return false;
 }
 
 std::vector<Message> Session::Poll() {
@@ -94,9 +121,14 @@ std::vector<Message> Session::Poll() {
         break;
       }
       negotiated_ = true;
+      // An explicit marker avoids interpreting legacy request IDs as features.
+      // Old hosts ignore the new HELLO request_id entirely.
+      features_ = kFeatureMetrics | kFeatureBackNavigation |
+          ((message.request_id & 0xFFFF0000U) == kFeatureRequestMagic
+              ? message.request_id & kOptionalFeatures : 0U);
       status_ = "Plugin connected";
       if (!Send(Kind::kHelloAck, 0, kProtocolVersion,
-                kFeatureMetrics | kFeatureBackNavigation) ||
+                features_) ||
           !Send(Kind::kLifecycle, 0,
                 static_cast<uint32_t>(Lifecycle::kResume))) break;
       continue;
@@ -115,12 +147,14 @@ void Session::Fail(const char *message) {
   if (control_ >= 0) close(control_);
   control_ = -1;
   negotiated_ = false;
+  features_ = 0;
 }
 
 void Session::Close() {
   if (control_ >= 0) close(control_);
   control_ = -1;
   negotiated_ = false;
+  features_ = 0;
   rate_window_ms_ = 0;
   rate_messages_ = 0;
 }
