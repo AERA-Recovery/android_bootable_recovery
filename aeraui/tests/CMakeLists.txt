@@ -378,6 +378,8 @@ add_test(NAME native_catalog_english_only COMMAND catalog_english_test
 
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
+  add_test(NAME userdata_mapping_cleanup COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/userdata_mapping_test.py")
   add_test(NAME wireless_adb_stop_preserves_usb COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/adb_shutdown_test.py")
   add_test(NAME chinese_catalog_coverage COMMAND "${Python3_EXECUTABLE}"
