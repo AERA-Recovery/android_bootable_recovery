@@ -63,11 +63,11 @@ inline NativeBufferLibrary LoadNativeBufferLibrary(
 }
 
 inline NativeBufferLibrary LoadNativeBufferLibrary(NativeBufferLibraryLog log) {
-  // Preserve the renderer's vendor-first order, but accept a provider only
-  // when it exports every buffer function the renderer needs.
+  // Prefer the recovery-built buffer runtime. Some device trees supply only
+  // a vendor provider; its dependencies must still be compatible with recovery.
   static constexpr const char* paths[] = {
-      "/vendor/lib64/libnativewindow.so",
       "/system/lib64/libnativewindow.so",
+      "/vendor/lib64/libnativewindow.so",
   };
   return LoadNativeBufferLibrary(paths, sizeof(paths) / sizeof(paths[0]), log);
 }

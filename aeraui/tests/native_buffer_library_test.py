@@ -29,8 +29,8 @@ class NativeBufferLibraryTests(unittest.TestCase):
             str(ROOT / "native_buffer_library_driver.cpp"), "-ldl",
             "-o", str(cls.driver),
         ], check=True, capture_output=True, text=True)
-        cls.system = cls.build_library("system", 2)
-        cls.vendor = cls.build_library("vendor", 1)
+        cls.system = cls.build_library("system", 1)
+        cls.vendor = cls.build_library("vendor", 2)
         cls.incomplete = [cls.build_library(f"missing-{i}", 3, symbol)
                           for i, symbol in enumerate(SYMBOLS)]
         cls.broken = cls.root / "broken.so"
@@ -65,24 +65,24 @@ class NativeBufferLibraryTests(unittest.TestCase):
         subprocess.run([str(self.driver), str(first), str(second), str(expected)],
                        check=True, timeout=5, capture_output=True, text=True)
 
-    def test_vendor_wins_when_both_are_complete(self):
-        self.check_selection(self.vendor, self.system, 1)
+    def test_system_wins_when_both_are_complete(self):
+        self.check_selection(self.system, self.vendor, 1)
 
-    def test_missing_vendor_uses_system(self):
-        self.check_selection(self.root / "absent.so", self.system, 2)
+    def test_missing_system_uses_vendor(self):
+        self.check_selection(self.root / "absent.so", self.vendor, 2)
 
-    def test_unloadable_vendor_uses_system(self):
-        self.check_selection(self.broken, self.system, 2)
+    def test_unloadable_system_uses_vendor(self):
+        self.check_selection(self.broken, self.vendor, 2)
 
-    def test_unresolved_dependency_uses_system(self):
-        self.check_selection(self.unresolved, self.system, 2)
+    def test_unresolved_dependency_uses_vendor(self):
+        self.check_selection(self.unresolved, self.vendor, 2)
 
     def test_every_required_symbol_is_checked_and_rejected_handle_is_closed(self):
         for missing in self.incomplete:
             with self.subTest(provider=missing.name):
-                self.check_selection(missing, self.system, 2)
+                self.check_selection(missing, self.vendor, 2)
 
-    def test_incomplete_system_returns_no_provider(self):
+    def test_incomplete_vendor_returns_no_provider(self):
         for missing in self.incomplete:
             with self.subTest(provider=missing.name):
                 self.check_selection(self.root / "absent.so", missing, 0)
