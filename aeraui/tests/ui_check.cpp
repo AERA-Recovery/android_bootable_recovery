@@ -740,6 +740,43 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--russian-corrections")) {
+    assert(i18n::SetLanguage("ru"));
+    auto *page = lv_obj_create(nullptr);
+    BuildRebootScene(page, RecordAction, nullptr);
+    lv_screen_load(page); Tick();
+    auto *android = Find(page, "Android"); assert(android);
+    lv_obj_send_event(android, LV_EVENT_CLICKED, nullptr); Tick();
+    assert(FindLabelContaining(page, i18n::Format("Reboot to %s?", "Android").c_str()));
+    assert(FindLabelContaining(page, i18n::Translate("The current recovery session will end.")));
+    save("/tmp/aera-russian-reboot.png", 1);
+    lv_screen_load(screen); lv_obj_delete(page); Tick();
+    page = lv_obj_create(nullptr); BuildSideloadScene(page, RecordAction, nullptr);
+    lv_screen_load(page); Tick();
+    assert(FindLabelContaining(page, i18n::Translate("Start ADB sideload")));
+    assert(FindLabelContaining(page, i18n::Translate("Start a sideload session")));
+    save("/tmp/aera-russian-sideload.png", 1);
+    lv_screen_load(screen); lv_obj_delete(page); Tick();
+    page = lv_obj_create(nullptr); BuildWifiScene(page, RecordAction, nullptr);
+    lv_screen_load(page); Tick();
+    auto *settings = FindLabelContaining(page, i18n::Translate("Wi-Fi settings")); assert(settings);
+    lv_obj_send_event(lv_obj_get_parent(settings), LV_EVENT_CLICKED, nullptr); Tick();
+    assert(FindLabelContaining(page, i18n::Translate("Not available")));
+    assert(FindLabelContaining(page, i18n::Translate("Enable ADB over Wi-Fi to reveal the PC command.")));
+    save("/tmp/aera-russian-wifi.png", 1);
+    lv_screen_load(screen); lv_obj_delete(page); Tick();
+    page = lv_obj_create(nullptr); BuildToolScene(page, Action::kPreferences, RecordAction, nullptr);
+    lv_screen_load(page); Tick();
+    assert(FindLabelContaining(page, i18n::Translate("Screen-off timeout")));
+    assert(FindLabelContaining(page, i18n::Translate("24-hour clock")));
+    assert(FindLabelContaining(page, i18n::Translate("Gesture navigation")));
+    save("/tmp/aera-russian-preferences.png", 1);
+    lv_screen_load(screen); lv_obj_delete(page);
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Russian reboot, sideload, Wi-Fi and preference translations passed");
+    return 0;
+  }
   if (!strcmp(argv[1], "--font-browser")) {
     test_font_import = true;
     test_mobile_status = true;

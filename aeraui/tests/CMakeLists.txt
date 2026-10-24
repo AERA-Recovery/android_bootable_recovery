@@ -154,6 +154,7 @@ add_test(NAME developer_settings_ui COMMAND ui_check --developer-settings)
 add_test(NAME pc_connection_settings_layout COMMAND ui_check --pc-settings)
 add_test(NAME settings_navigation_and_language_viewport COMMAND ui_check --settings-navigation)
 add_test(NAME preferences_layout COMMAND ui_check --preferences-layout)
+add_test(NAME russian_translation_corrections COMMAND ui_check --russian-corrections)
 add_test(NAME pc_backup_progress_labels COMMAND ui_check --pc-backup-progress)
 add_test(NAME native_backup_controls_and_nas_progress COMMAND ui_check --backup-controls)
 add_test(NAME pc_upload_banner_and_details COMMAND ui_check --pc-upload-progress)
@@ -380,6 +381,8 @@ add_test(NAME native_catalog_english_only COMMAND catalog_english_test
 
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
+  add_test(NAME wireless_adb_stop_preserves_usb COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/adb_shutdown_test.py")
   add_test(NAME chinese_catalog_coverage COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/chinese_catalog_test.py")
 endif()

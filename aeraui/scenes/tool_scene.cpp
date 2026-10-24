@@ -2674,7 +2674,7 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_flex_grow(title, 1);
     lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
     const std::string timeout_text = RecoveryScreenTimeout() == 0 ? i18n::Translate("Never") :
-        std::to_string(RecoveryScreenTimeout()) + " s";
+        i18n::Format("%d s", RecoveryScreenTimeout());
     auto *value = Label(heading, timeout_text.c_str(),
                         &lv_font_montserrat_32, kAccent);
     lv_obj_set_width(value, 146);
@@ -2692,7 +2692,7 @@ void BuildPreferences(Tools *state) {
       const auto code = lv_event_get_code(event);
       if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
       const int seconds = ScreenTimeoutSeconds(lv_slider_get_value(lv_event_get_target_obj(event)));
-      const std::string text = seconds == 0 ? i18n::Translate("Never") : std::to_string(seconds) + " s";
+      const std::string text = seconds == 0 ? i18n::Translate("Never") : i18n::Format("%d s", seconds);
       lv_label_set_text(static_cast<lv_obj_t *>(lv_event_get_user_data(event)), text.c_str());
       if (code == LV_EVENT_RELEASED) RecoverySetScreenTimeout(seconds);
     }, LV_EVENT_ALL, value);

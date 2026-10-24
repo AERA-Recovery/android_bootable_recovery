@@ -193,11 +193,11 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
     OnClick(card, [=] {
       const bool power_off = d.action == Action::kPowerOff;
       const std::string title = power_off
-          ? "Power off device?" : std::string("Reboot to ") + d.name + "?";
-      std::string detail = std::string(d.detail) + ".\n\n";
+          ? i18n::Translate("Power off device?") : i18n::Format("Reboot to %s?", i18n::Translate(d.name));
+      std::string detail = std::string(i18n::Translate(d.detail)) + ".\n\n";
       if (active != "—" && !power_off)
-        detail += "Active slot: " + active + "  •  ";
-      detail += "The current recovery session will end.";
+        detail += i18n::Format("Active slot: %s", active.c_str()) + "  •  ";
+      detail += i18n::Translate("The current recovery session will end.");
       Sheet(screen, title, detail, [=] {
         if (d.action == Action::kRebootFastbootd) {
           const uint32_t transition_duration =
@@ -208,7 +208,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
           return;
         }
         const std::string transition_title = power_off
-            ? "Powering off" : std::string("Rebooting to ") + d.name;
+            ? i18n::Translate("Powering off") : i18n::Format("Rebooting to %s", i18n::Translate(d.name));
         PowerTransition(screen, transition_title,
                         [=] { callback(d.action, context); });
       },
