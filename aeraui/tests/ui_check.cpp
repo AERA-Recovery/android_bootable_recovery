@@ -999,6 +999,48 @@ int main(int argc,char **argv) {
     puts("File search: toolbar, keyboard, recursive results, empty results and Back passed");
     return 0;
   }
+  if (!strcmp(argv[1], "--browser-settings")) {
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      int channels[2];
+      assert(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, channels) == 0);
+      int frame_fd = memfd_create("browser-settings-test",
+                                 MFD_CLOEXEC | MFD_ALLOW_SEALING);
+      assert(frame_fd >= 0 && ftruncate(frame_fd, web::kSharedBytes) == 0);
+      assert(fcntl(frame_fd, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW) == 0);
+      auto *page = lv_obj_create(nullptr);
+      BuildWebScene(page, RecordAction, nullptr, frame_fd, channels[0], false);
+      lv_screen_load(page); lv_obj_update_layout(page);
+      auto *settings = Find(page, LV_SYMBOL_SETTINGS); assert(settings);
+      lv_obj_send_event(settings, LV_EVENT_CLICKED, nullptr); Tick();
+      auto *heading = FindLabel(page, "Browser settings"); assert(heading);
+      auto *overlay = lv_obj_get_parent(heading);
+      auto *home = FindLabel(page, "Homepage"); assert(home);
+      auto *content = lv_obj_get_parent(home);
+      save(landscape ? "/tmp/aera-browser-settings-landscape.png" :
+                       "/tmp/aera-browser-settings-portrait.png", 2);
+      assert(lv_obj_get_width(content) >= 1200);
+      assert(lv_obj_get_height(content) > 700);
+      assert(lv_obj_is_visible(home));
+      auto *zoom = FindType(content, &lv_slider_class); assert(zoom);
+      assert(lv_obj_get_style_bg_opa(zoom, LV_PART_MAIN) == LV_OPA_COVER);
+      assert(lv_obj_get_style_bg_opa(zoom, LV_PART_KNOB) == LV_OPA_COVER);
+      lv_slider_set_value(zoom, 150, LV_ANIM_OFF);
+      lv_obj_send_event(zoom, LV_EVENT_VALUE_CHANGED, nullptr); Tick(2);
+      assert(FindLabel(content, "150%"));
+      auto *save_button = Find(page, "Save browser settings"); assert(save_button);
+      assert(lv_obj_get_y(save_button) > lv_obj_get_y(content));
+      auto *back = Find(overlay, LV_SYMBOL_LEFT); assert(back);
+      lv_obj_send_event(back, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(!Find(page, "Browser settings"));
+      close(channels[1]);
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("Browser settings: visible content and close control passed in both orientations");
+    return 0;
+  }
   if (!strcmp(argv[1], "--sim-pin")) {
     test_mobile_status=true;
     test_mobile.enabled=true;test_mobile.available=true;test_mobile.state="pin_required";
