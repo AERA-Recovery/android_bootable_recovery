@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "launcher.hpp"
+#include "close_descriptors.hpp"
 #include "../../core/operation_affinity.hpp"
 
 #include <aeraui/i18n.hpp>
@@ -72,7 +73,7 @@ bool Process::Start(const std::string &runtime, int &control_fd,
     if (dup2(child_control, 4) < 0) _exit(78);
     close(child_control);
     if (setpgid(0, 0) != 0 || chdir(runtime.c_str()) != 0 ||
-        syscall(SYS_close_range, 5U, ~0U, 0) != 0) {
+        !CloseUnrelatedDescriptors()) {
       _exit(78);
     }
     char *const arguments[] = {

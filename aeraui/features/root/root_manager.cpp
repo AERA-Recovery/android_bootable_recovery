@@ -687,7 +687,7 @@ bool FetchRelease(Provider provider, const Status &device, Progress &progress,
     }
     if (matches != 0) break;
   }
-  release.archive = provider == Provider::kSukiSU;
+  release.archive = ModuleAssetArchive(provider, release.asset_name);
   const bool hash_ok = release.sha256.size() == 64 &&
       std::all_of(release.sha256.begin(), release.sha256.end(), [](unsigned char c) {
         return std::isxdigit(c);

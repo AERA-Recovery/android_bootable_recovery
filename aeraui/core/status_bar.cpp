@@ -19,6 +19,9 @@
 #include "ui_components.hpp"
 #include "circle_battery.hpp"
 #include "wifi_indicator.hpp"
+#include "cellular_indicator.hpp"
+#include "network_tabs.hpp"
+#include "../../aera_remote/pc_connection.hpp"
 #include "browser/session.hpp"
 #include "plugin_api/operations.hpp"
 #include "recorder/service.hpp"
@@ -32,6 +35,7 @@ constexpr int kWifiSpeedWidth = 128;
 constexpr int kWifiSpeedGap = 12;
 constexpr int kWifiSpeedReserved = kWifiSpeedWidth + kWifiSpeedGap;
 constexpr int kSystemIndicatorGap = 12;
+constexpr int kQuickTileColumns = 5;
 
 struct TrafficRate {
   WifiTraffic previous;
@@ -110,8 +114,10 @@ struct StatusState {
   lv_obj_t *clock = nullptr;
   lv_obj_t *mirror = nullptr;
   lv_obj_t *download = nullptr;
+  lv_obj_t *diagnostic = nullptr;
   lv_obj_t *wifi = nullptr;
   widgets::WifiIndicator wifi_icon;
+  widgets::CellularIndicator cellular;
   lv_obj_t *wifi_speed = nullptr;
   lv_obj_t *temperature = nullptr;
   lv_obj_t *temperature_cpu = nullptr, *temperature_battery = nullptr;
@@ -129,14 +135,22 @@ struct StatusState {
   lv_obj_t *sheet = nullptr;
   lv_obj_t *shade_wifi = nullptr;
   lv_obj_t *shade_wifi_detail = nullptr;
+  lv_obj_t *shade_mobile = nullptr;
+  lv_obj_t *shade_mobile_detail = nullptr;
+  lv_obj_t *shade_pc = nullptr;
+  lv_obj_t *shade_pc_detail = nullptr;
+  bool shade_has_mobile = false, shade_has_recorder = false;
+  int tile_offset = 0, tile_y = 0, tile_width = 0, tile_height = 0, tile_gap = 0;
   lv_obj_t *shade_rotation = nullptr;
   lv_obj_t *shade_rotation_detail = nullptr;
   lv_obj_t *shade_flashlight = nullptr;
   lv_obj_t *shade_flashlight_detail = nullptr;
-  lv_obj_t *shade_reboot = nullptr;
-  lv_obj_t *shade_reboot_detail = nullptr;
+  lv_obj_t *shade_logcat = nullptr;
+  lv_obj_t *shade_logcat_detail = nullptr;
   lv_obj_t *shade_recorder = nullptr;
   lv_obj_t *shade_recorder_detail = nullptr;
+  lv_obj_t *shade_reboot = nullptr;
+  lv_obj_t *shade_reboot_detail = nullptr;
   lv_obj_t *shade_update = nullptr;
   lv_obj_t *shade_update_title = nullptr;
   lv_obj_t *shade_update_detail = nullptr;
@@ -167,6 +181,7 @@ int32_t gStatusIndentLeft = 54;
 int32_t gStatusIndentRight = 54;
 lv_obj_t *gOpenShade = nullptr;
 std::vector<StatusState *> gStatusBars;
+std::string gDiagnosticNotice;
 
 void ShadeDeleted(lv_event_t *event) {
   auto *shade = lv_event_get_target_obj(event);
@@ -213,14 +228,20 @@ void AnimateShade(StatusState *state, bool open) {
     state->sheet = nullptr;
     state->shade_wifi = nullptr;
     state->shade_wifi_detail = nullptr;
+    state->shade_mobile = nullptr;
+    state->shade_mobile_detail = nullptr;
+    state->shade_pc = nullptr;
+    state->shade_pc_detail = nullptr;
     state->shade_rotation = nullptr;
     state->shade_rotation_detail = nullptr;
     state->shade_flashlight = nullptr;
     state->shade_flashlight_detail = nullptr;
-    state->shade_reboot = nullptr;
-    state->shade_reboot_detail = nullptr;
+    state->shade_logcat = nullptr;
+    state->shade_logcat_detail = nullptr;
     state->shade_recorder = nullptr;
     state->shade_recorder_detail = nullptr;
+    state->shade_reboot = nullptr;
+    state->shade_reboot_detail = nullptr;
     state->shade_update = nullptr;
     state->shade_update_title = nullptr;
     state->shade_update_detail = nullptr;
@@ -257,12 +278,25 @@ lv_obj_t *QuickTile(StatusState *state, int x, int y, int width, int height,
   lv_obj_set_style_border_width(tile, 2, 0);
   lv_obj_set_style_transform_scale(tile, 252, LV_STATE_PRESSED);
   auto *icon = Label(tile, symbol, &lv_font_montserrat_48, kAccent);
-  lv_obj_set_pos(icon, 30, 30);
-  auto *name = Label(tile, title, &lv_font_montserrat_32, kText);
-  lv_obj_set_pos(name, 30, height >= 270 ? 128 : 112);
+  const bool compact = height < 212;
+  lv_obj_set_pos(icon, compact ? 24 : 30, compact ? (height - 48) / 2 : 30);
+  auto *name = Label(tile, title, compact ? &lv_font_montserrat_24 : &lv_font_montserrat_32, kText);
+  const int text_width = width - (compact ? 128 : 60);
+  const int name_y = compact ? 12 : height >= 270 ? 128 : 112;
+  const int detail_y = compact ? 56 : height >= 270 ? 198 : 168;
+  lv_obj_set_pos(name, compact ? 104 : 30, name_y);
+  lv_obj_set_width(name, text_width);
+  lv_point_t name_size{};
+  lv_text_get_size(&name_size, i18n::Translate(title), UiFont(compact ? &lv_font_montserrat_24 : &lv_font_montserrat_32),
+      0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+  if (name_size.x > text_width) {
+    widgets::FitLabelToLines(name, text_width, compact ? 1 : 2,
+        {height >= 270 ? &lv_font_montserrat_28 : &lv_font_montserrat_24, &lv_font_montserrat_20});
+    lv_obj_set_height(name, detail_y - name_y);
+  }
   *detail = Label(tile, "", &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_pos(*detail, 30, height >= 270 ? 198 : 168);
-  lv_obj_set_width(*detail, width - 60);
+  lv_obj_set_pos(*detail, compact ? 104 : 30, detail_y);
+  lv_obj_set_width(*detail, text_width);
   lv_label_set_long_mode(*detail, LV_LABEL_LONG_DOT);
   return tile;
 }
@@ -276,10 +310,16 @@ void TileClicked(lv_event_t *event) {
   if (target == state->shade_wifi) {
     if (RecoveryWifiStatus().supported)
       state->callback(Action::kQuickWifiToggle, state->context);
+  } else if (target == state->shade_mobile) {
+    state->callback(Action::kQuickMobileToggle, state->context);
+  } else if (target == state->shade_pc) {
+    state->callback(Action::kQuickPcToggle, state->context);
   } else if (target == state->shade_rotation) {
     state->callback(Action::kToggleRotation, state->context);
   } else if (target == state->shade_flashlight) {
     RecoverySetFlashlight(!RecoveryFlashlightEnabled());
+  } else if (target == state->shade_logcat) {
+    RecoveryToggleDiagnosticLogging();
   } else if (target == state->shade_reboot) {
     state->callback(Action::kOpenReboot, state->context);
     return;
@@ -288,6 +328,41 @@ void TileClicked(lv_event_t *event) {
       state->callback(Action::kToggleRecording, state->context);
   }
   RefreshShade(state);
+}
+
+void RebuildQuickTiles(StatusState *state) {
+  for (auto **tile : {&state->shade_wifi, &state->shade_mobile, &state->shade_rotation,
+      &state->shade_flashlight, &state->shade_logcat, &state->shade_recorder,
+      &state->shade_pc, &state->shade_reboot}) {
+    if (*tile) lv_obj_delete(*tile);
+    *tile = nullptr;
+  }
+  state->shade_mobile_detail = state->shade_recorder_detail = nullptr;
+  state->shade_has_mobile = MobileDataEnabled();
+  state->shade_has_recorder = recorder::Installed() || recorder::Active();
+  unsigned index = 0;
+  auto add = [&](lv_obj_t **tile, lv_obj_t **detail, const char *symbol, const char *title) {
+    *tile = QuickTile(state, state->tile_offset + (index % kQuickTileColumns) * (state->tile_width + state->tile_gap),
+        state->tile_y + (index / kQuickTileColumns) * (state->tile_height + state->tile_gap),
+        state->tile_width, state->tile_height, symbol, title, detail);
+    lv_obj_add_event_cb(*tile, TileClicked, LV_EVENT_CLICKED, state);
+    ++index;
+  };
+  add(&state->shade_wifi, &state->shade_wifi_detail, LV_SYMBOL_WIFI, "Wi-Fi");
+  if (state->shade_has_mobile) {
+    add(&state->shade_mobile, &state->shade_mobile_detail, "", "Mobile data");
+    auto *icon = widgets::NetworkModeIcon(state->shade_mobile, true, 48);
+    lv_obj_set_pos(icon, state->tile_height < 212 ? 12 : 18,
+        state->tile_height < 212 ? (state->tile_height - 72) / 2 : 18);
+  }
+  add(&state->shade_rotation, &state->shade_rotation_detail, LV_SYMBOL_REFRESH, "Rotation");
+  add(&state->shade_flashlight, &state->shade_flashlight_detail, LV_SYMBOL_EYE_OPEN, "Flashlight");
+  add(&state->shade_logcat, &state->shade_logcat_detail, LV_SYMBOL_FILE, "Logcat");
+  if (state->shade_has_recorder)
+    add(&state->shade_recorder, &state->shade_recorder_detail, LV_SYMBOL_VIDEO, "Recorder");
+  add(&state->shade_pc, &state->shade_pc_detail, LV_SYMBOL_USB, "PC connection");
+  add(&state->shade_reboot, &state->shade_reboot_detail, LV_SYMBOL_POWER, "Reboot");
+  i18n::BindLabel(state->shade_reboot_detail, "Power menu");
 }
 
 void BrightnessChanged(lv_event_t *event) {
@@ -430,42 +505,27 @@ void BuildShade(StatusState *state) {
   lv_obj_add_event_cb(close, CloseShade, LV_EVENT_CLICKED, state);
 
   const int tile_gap = landscape ? 24 : 20;
-  const int tile_width = (content_width - tile_gap * 4) / 5;
+  const int tile_width = (content_width - tile_gap * (kQuickTileColumns - 1)) / kQuickTileColumns;
   const int tile_y = landscape ? 228 : 262;
-  const int tile_height = landscape ? 250 : 286;
-  state->shade_wifi = QuickTile(state, offset, tile_y, tile_width, tile_height,
-                                LV_SYMBOL_WIFI, "Wi-Fi",
-                                &state->shade_wifi_detail);
-  state->shade_rotation = QuickTile(
-      state, offset + tile_width + tile_gap, tile_y, tile_width, tile_height,
-      LV_SYMBOL_REFRESH, "Rotation", &state->shade_rotation_detail);
-  state->shade_flashlight = QuickTile(
-      state, offset + (tile_width + tile_gap) * 2, tile_y, tile_width,
-      tile_height, LV_SYMBOL_EYE_OPEN, "Flashlight",
-      &state->shade_flashlight_detail);
-  state->shade_reboot = QuickTile(
-      state, offset + (tile_width + tile_gap) * 3, tile_y, tile_width,
-      tile_height, LV_SYMBOL_POWER, "Reboot", &state->shade_reboot_detail);
-  state->shade_recorder = QuickTile(
-      state, offset + (tile_width + tile_gap) * 4, tile_y, tile_width,
-      tile_height, LV_SYMBOL_VIDEO, "Recorder", &state->shade_recorder_detail);
-  i18n::BindLabel(state->shade_reboot_detail, "Power menu");
-  for (auto *tile : {state->shade_wifi, state->shade_rotation,
-                     state->shade_flashlight, state->shade_reboot,
-                     state->shade_recorder})
-    lv_obj_add_event_cb(tile, TileClicked, LV_EVENT_CLICKED, state);
+  // Fit both rows above brightness without growing the shade or its footer.
+  const int shortcut_y = state->shade_height - 200;
+  const int update_y = shortcut_y - 126 - 24;
+  const int slider_y = update_y - 62;
+  const int brightness_y = slider_y - 78;
+  const int tile_height = std::min(landscape ? 250 : 286, (brightness_y - tile_y - 44 - tile_gap) / 2);
+  state->tile_offset = offset; state->tile_y = tile_y;
+  state->tile_width = tile_width; state->tile_height = tile_height; state->tile_gap = tile_gap;
+  RebuildQuickTiles(state);
 
   auto *brightness_title = Label(state->sheet, "Brightness",
                                   &lv_font_montserrat_32, kText);
-  const int brightness_y = landscape ? 530 : 620;
   lv_obj_set_pos(brightness_title, offset + 2, brightness_y);
   state->brightness_value = Label(state->sheet, "", &lv_font_montserrat_32,
                                   kAccent);
   lv_obj_align(state->brightness_value, LV_ALIGN_TOP_RIGHT,
                -(screen_width - offset - content_width), brightness_y);
   state->brightness_slider = lv_slider_create(state->sheet);
-  lv_obj_set_pos(state->brightness_slider, offset + 2,
-                 landscape ? 635 : 730);
+  lv_obj_set_pos(state->brightness_slider, offset + 2, slider_y);
   lv_obj_set_size(state->brightness_slider, content_width - 4, 22);
   lv_slider_set_range(state->brightness_slider, 10, 100);
   const int brightness = std::max(10, RecoveryBrightness());
@@ -477,7 +537,6 @@ void BuildShade(StatusState *state) {
   lv_obj_add_event_cb(state->brightness_slider, BrightnessChanged,
                       LV_EVENT_RELEASED, state);
 
-  const int update_y = landscape ? 735 : 855;
   state->shade_download = lv_obj_create(state->sheet);
   NoScroll(state->shade_download);
   lv_obj_set_pos(state->shade_download, offset, update_y);
@@ -542,7 +601,6 @@ void BuildShade(StatusState *state) {
   // Keep the shortcut row attached to the bottom of the shade instead of
   // leaving a large, visually empty footer below it.  Deriving the position
   // from the actual shade height also keeps it consistent across devices.
-  const int shortcut_y = state->shade_height - 200;
   const int shortcut_gap = 24;
   const int shortcut_width = (content_width - shortcut_gap * 2) / 3;
   AddShortcut(state, offset, shortcut_y, shortcut_width,
@@ -641,6 +699,8 @@ std::string FormatDownloadSpeed(uint64_t bytes_per_second) {
 
 void RefreshShade(StatusState *state) {
   if (state == nullptr || state->shade == nullptr) return;
+  if (state->shade_has_mobile != MobileDataEnabled() ||
+      state->shade_has_recorder != (recorder::Installed() || recorder::Active())) RebuildQuickTiles(state);
   const auto wifi = RecoveryWifiStatus();
   std::string wifi_detail;
   if (!wifi.supported)
@@ -653,6 +713,15 @@ void RefreshShade(StatusState *state) {
     wifi_detail = wifi.enabled ? "On" : "Off";
   i18n::BindLabel(state->shade_wifi_detail, wifi_detail.c_str());
   StyleTile(state->shade_wifi, wifi.enabled, wifi.supported && !wifi.busy);
+  if (state->shade_mobile) {
+    const auto mobile = RecoveryMobileStatus();
+    i18n::BindLabel(state->shade_mobile_detail, mobile.state == "pin_required" ? "SIM PIN required" :
+        mobile.connected ? "Connected" : mobile.enabled ? "Connecting..." : "Off");
+    StyleTile(state->shade_mobile, mobile.enabled, mobile.available && !RecoveryDataLocked());
+  }
+  const auto pc = aera::pc::GetStatus();
+  i18n::BindLabel(state->shade_pc_detail, pc.enabled ? "On" : "Off");
+  StyleTile(state->shade_pc, pc.enabled, !RecoveryDataLocked());
 
   const bool landscape =
       lv_display_get_rotation(lv_display_get_default()) !=
@@ -668,11 +737,35 @@ void RefreshShade(StatusState *state) {
                                      : torch_enabled ? "On" : "Off");
   StyleTile(state->shade_flashlight, torch_enabled, torch_supported);
   StyleTile(state->shade_reboot, false);
+  const auto diagnostic = RecoveryDiagnosticLogStatus();
+  std::string diagnostic_detail;
+  if (diagnostic.recording) {
+    char elapsed[32];
+    snprintf(elapsed, sizeof(elapsed), "%02llu:%02llu",
+        static_cast<unsigned long long>(diagnostic.elapsed_seconds / 60),
+        static_cast<unsigned long long>(diagnostic.elapsed_seconds % 60));
+    diagnostic_detail = std::string(elapsed) + " / " + i18n::Translate("Stop");
+  } else diagnostic_detail = i18n::Translate(diagnostic.working ? "Working…" :
+      !diagnostic.error.empty() ? "Failed" : !diagnostic.path.empty() ? "Saved" : "Start logging");
+  i18n::BindLabel(state->shade_logcat_detail, diagnostic_detail.c_str());
+  StyleTile(state->shade_logcat, diagnostic.recording, !diagnostic.working);
+  if (diagnostic.working) lv_obj_add_state(state->shade_logcat, LV_STATE_DISABLED);
+  else lv_obj_remove_state(state->shade_logcat, LV_STATE_DISABLED);
+  if (!diagnostic.recording && !diagnostic.working && state->screen == lv_screen_active() &&
+      state->shade_visible > 0 && (!diagnostic.path.empty() || !diagnostic.error.empty())) {
+    const auto notice = diagnostic.path + diagnostic.error;
+    if (gDiagnosticNotice != notice) {
+      gDiagnosticNotice = notice;
+      widgets::Sheet(state->screen, "Logcat", diagnostic.error.empty() ?
+          i18n::Format("Saved to %s", diagnostic.path.c_str()).c_str() :
+          i18n::Translate(diagnostic.error.c_str()));
+    }
+  }
 
   const auto recording = recorder::GetSnapshot();
   const bool recorder_installed = recorder::Installed();
   const bool recorder_active = recorder::Active();
-  i18n::BindLabel(state->shade_recorder_detail,
+  if (state->shade_recorder) i18n::BindLabel(state->shade_recorder_detail,
       !recorder_installed && !recorder_active ? "Not installed" :
       recording.state == recorder::State::kRecording ? "Recording" :
       recording.state == recorder::State::kFinalizing ? "Saving…" :
@@ -680,9 +773,30 @@ void RefreshShade(StatusState *state) {
        recording.state == recorder::State::kStarting) ? "Starting…" : "Ready");
   StyleTile(state->shade_recorder, recorder_active,
             recorder_installed || recorder_active);
+  for (auto *detail : {state->shade_wifi_detail, state->shade_mobile_detail, state->shade_rotation_detail,
+      state->shade_flashlight_detail, state->shade_logcat_detail, state->shade_recorder_detail,
+      state->shade_pc_detail, state->shade_reboot_detail}) {
+    if (!detail) continue;
+    lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
+    widgets::FitLabelToLines(detail, state->tile_width - (state->tile_height < 212 ? 128 : 60), 1,
+        {&lv_font_montserrat_24, &lv_font_montserrat_20, &lv_font_montserrat_18});
+    lv_obj_set_height(detail, lv_font_get_line_height(lv_obj_get_style_text_font(detail, LV_PART_MAIN)));
+  }
 
   const auto update = update::GetSnapshot();
   const auto download = web::CurrentDownloadSummary();
+  const int notice_width = lv_obj_get_width(state->sheet) - state->tile_offset * 2;
+  const int card_width = download.available && update.available ? (notice_width - 24) / 2 : notice_width;
+  for (auto *card : {state->shade_download, state->shade_update})
+    if (card) lv_obj_set_width(card, card_width);
+  for (auto *label : {state->shade_download_title, state->shade_download_detail,
+      state->shade_update_title, state->shade_update_detail})
+    if (label) {
+      lv_obj_set_width(label, card_width - 142);
+      lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    }
+  if (state->shade_download_progress)
+    lv_obj_set_width(state->shade_download_progress, card_width - 142);
   if (state->shade_download != nullptr) {
     if (download.available) {
       const bool active = download.active_count > 0;
@@ -716,8 +830,9 @@ void RefreshShade(StatusState *state) {
     }
   }
   if (state->shade_update != nullptr) {
-    lv_obj_set_y(state->shade_update,
-                 (landscape ? 735 : 855) + (download.available ? 148 : 0));
+    lv_obj_set_pos(state->shade_update,
+        state->tile_offset + (download.available ? card_width + 24 : 0),
+        lv_obj_get_y(state->shade_download));
     if (update.available) {
       const std::string title = i18n::Format(
           "AERA %s available", update.release.version.c_str());
@@ -780,13 +895,16 @@ void Refresh(StatusState *state, bool refresh_battery) {
   lv_obj_update_layout(state->bar);
 
   const auto connection = RecoveryWifiConnection();
+  const auto mobile = RecoveryMobileStatus();
+  const bool show_mobile = mobile.enabled && !connection.connected;
+  const bool network_connected = connection.connected || mobile.connected;
   const auto display = RecoveryWifiStatusDisplay();
-  const auto traffic = connection.connected && display.show_speed ? RecoveryWifiTraffic() : WifiTraffic{};
+  const auto traffic = network_connected && display.show_speed ? RecoveryNetworkTraffic() : WifiTraffic{};
   const auto speed = TrafficText(state->traffic_rate.Sample(traffic, lv_tick_get()));
   lv_label_set_text(state->wifi_speed, speed.c_str());
   widgets::FitLabelToLines(state->wifi_speed, kWifiSpeedWidth, 1,
       {&lv_font_montserrat_24, &lv_font_montserrat_20, &lv_font_montserrat_18, &lv_font_montserrat_16});
-  const bool show_speed = connection.connected && display.show_speed && traffic.valid;
+  const bool show_speed = network_connected && display.show_speed && traffic.valid;
   auto temperature_display = RecoveryTemperatureDisplay();
   const auto temperatures = RecoveryTemperatures();
   const auto *temperature_font = TemperatureFont(temperature_display.size);
@@ -842,10 +960,17 @@ void Refresh(StatusState *state, bool refresh_battery) {
   const int temperature_reserved = temperature_width ? temperature_width + kSystemIndicatorGap : 0;
   lv_obj_set_size(state->temperature, std::max(1, temperature_width), lv_font_get_line_height(temperature_font));
   // Reserve only the width currently used by the battery percentage/charge text.
-  const int wifi_right = lv_obj_get_x(circle_battery ? state->battery_circle.root :
+  const int battery_left = lv_obj_get_x(circle_battery ? state->battery_circle.root :
       show_percentage ? state->battery_text : state->battery_body) - 24;
-  const int network_reserved = (connection.connected ? widgets::kWifiIndicatorWidth + 26 +
-      (show_speed ? kWifiSpeedReserved : 0) : 0) + temperature_reserved;
+  const int cellular_reserved = show_mobile ? widgets::kCellularWidth + 18 : 0;
+  const int wifi_right = battery_left - cellular_reserved;
+  if (show_mobile) {
+    widgets::UpdateCellularIndicator(state->cellular, mobile);
+    lv_obj_align(state->cellular.root, LV_ALIGN_LEFT_MID, battery_left - widgets::kCellularWidth, 0);
+    lv_obj_remove_flag(state->cellular.root, LV_OBJ_FLAG_HIDDEN);
+  } else lv_obj_add_flag(state->cellular.root, LV_OBJ_FLAG_HIDDEN);
+  const int network_reserved = (connection.connected ? widgets::kWifiIndicatorWidth + 26 : 0) +
+      (show_speed ? kWifiSpeedReserved : 0) + temperature_reserved;
   const auto recording = recorder::GetSnapshot();
   const bool recording_active = recorder::Active();
   if (recording_active) {
@@ -870,6 +995,9 @@ void Refresh(StatusState *state, bool refresh_battery) {
   lv_obj_update_layout(state->bar);
   const auto download = web::CurrentDownloadSummary();
   const int recording_reserved = recording_active ? lv_obj_get_width(state->recording) + 48 : 0;
+  const auto diagnostic = RecoveryDiagnosticLogStatus();
+  const bool diagnostic_active = diagnostic.recording || diagnostic.working;
+  const int diagnostic_reserved = diagnostic_active ? 52 : 0;
   const int download_reserved = download.active_count ? 90 : 0;
   lv_obj_t *activity_anchor = state->clock;
   int activity_gap = 26;
@@ -881,7 +1009,7 @@ void Refresh(StatusState *state, bool refresh_battery) {
             : std::string(LV_SYMBOL_USB) + "  USB Mirror";
     i18n::BindLabel(state->mirror, text.c_str());
     const int available = wifi_right - network_reserved - recording_reserved -
-        download_reserved - lv_obj_get_x(state->clock) - lv_obj_get_width(state->clock) - 26;
+        download_reserved - diagnostic_reserved - lv_obj_get_x(state->clock) - lv_obj_get_width(state->clock) - 26;
     lv_obj_set_width(state->mirror, std::clamp(available, 0, 330));
     lv_obj_align_to(state->mirror, activity_anchor,
                     LV_ALIGN_OUT_RIGHT_MID, activity_gap, 0);
@@ -901,6 +1029,13 @@ void Refresh(StatusState *state, bool refresh_battery) {
   } else {
     lv_obj_add_flag(state->download, LV_OBJ_FLAG_HIDDEN);
   }
+  lv_obj_update_layout(state->bar);
+  if (diagnostic_active) {
+    lv_obj_align_to(state->diagnostic, activity_anchor, LV_ALIGN_OUT_RIGHT_MID, activity_gap, 0);
+    lv_obj_remove_flag(state->diagnostic, LV_OBJ_FLAG_HIDDEN);
+    activity_anchor = state->diagnostic;
+    activity_gap = 18;
+  } else lv_obj_add_flag(state->diagnostic, LV_OBJ_FLAG_HIDDEN);
   lv_obj_update_layout(state->bar);
   lv_obj_align_to(state->recording_dot, activity_anchor,
                   LV_ALIGN_OUT_RIGHT_MID, activity_gap, 0);
@@ -939,7 +1074,9 @@ void Refresh(StatusState *state, bool refresh_battery) {
   if (show_speed) {
     lv_obj_update_layout(state->bar);
     const int left = lv_obj_get_x(activity_anchor) + lv_obj_get_width(activity_anchor) + 26;
-    const int x = std::max(left, int(lv_obj_get_x(state->wifi_icon.root)) - kWifiSpeedReserved);
+    const int anchor = connection.connected ? lv_obj_get_x(state->wifi_icon.root) :
+        show_mobile ? lv_obj_get_x(state->cellular.root) : wifi_right;
+    const int x = std::max(left, anchor - kWifiSpeedReserved);
     lv_obj_align(state->wifi_speed, LV_ALIGN_LEFT_MID, x, 0);
     lv_obj_remove_flag(state->wifi_speed, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -948,8 +1085,8 @@ void Refresh(StatusState *state, bool refresh_battery) {
 
   lv_obj_update_layout(state->bar);
   const int temperature_left = lv_obj_get_x(activity_anchor) + lv_obj_get_width(activity_anchor) + 26;
-  const int temperature_right = (connection.connected ? lv_obj_get_x(show_speed ? state->wifi_speed :
-      state->wifi_icon.root) : wifi_right + 24) - kSystemIndicatorGap;
+  const int temperature_right = (show_speed ? lv_obj_get_x(state->wifi_speed) :
+      connection.connected ? lv_obj_get_x(state->wifi_icon.root) : wifi_right + 24) - kSystemIndicatorGap;
   // Keep all selected values readable when a narrow bar cannot fit their preferred size.
   for (const auto *font : {TemperatureFont(20), UiFont(&lv_font_montserrat_16)}) {
     if (temperature_width <= temperature_right - temperature_left) break;
@@ -1083,6 +1220,14 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
   lv_obj_set_width(state->download, 64);
   lv_obj_add_flag(state->download, LV_OBJ_FLAG_HIDDEN);
 
+  state->diagnostic = Label(bar, LV_SYMBOL_FILE, &lv_font_montserrat_28, kAmber);
+  lv_obj_set_width(state->diagnostic, 34);
+  lv_obj_add_flag(state->diagnostic, LV_OBJ_FLAG_HIDDEN);
+  widgets::OnClick(state->diagnostic, [state] {
+    BuildShade(state);
+    AnimateShade(state, true);
+  });
+
   state->recording_dot = lv_obj_create(bar);
   NoScroll(state->recording_dot);
   lv_obj_set_size(state->recording_dot, 16, 16);
@@ -1111,6 +1256,11 @@ void AttachStatusBar(lv_obj_t *screen, void (*callback)(Action, void *),
 
   state->wifi = Label(bar, "", &lv_font_montserrat_32, kMutedStrong);
   state->wifi_icon = widgets::CreateWifiIndicator(bar);
+  state->cellular = widgets::CreateCellularIndicator(bar);
+  widgets::OnClick(state->cellular.root, [state] {
+    if (state->callback) state->callback(Action::kMobileData, state->context);
+  });
+  lv_obj_add_flag(state->cellular.root, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(state->wifi_icon.root, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_width(state->wifi, 660);
   lv_obj_set_style_text_align(state->wifi, LV_TEXT_ALIGN_LEFT, 0);

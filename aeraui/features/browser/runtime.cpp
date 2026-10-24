@@ -158,7 +158,8 @@ bool Extract(Reader &reader, int root, const RuntimeSpec &spec) {
     size_t length = Little(header.data(), 2);
     unsigned mode = Little(header.data() + 2, 2);
     uint64_t size = Little(header.data() + 4, 8);
-    if (!length || length >= 240 || size > 100U * 1024 * 1024 ||
+    if (!length || length >= 240 || size > 512ULL * 1024 * 1024 ||
+        size > spec.expanded_bytes ||
         (mode != 0 && mode != 0644 && mode != 0755)) return false;
     std::string name(length, '\0');
     if (!reader.Read(name.data(), length) || !PathSafe(name) || !names.insert(name).second) return false;

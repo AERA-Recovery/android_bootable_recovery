@@ -107,7 +107,9 @@ inline bool Handle(unsigned code,int value,const hardware_keys::State &keys) {
       else lv_obj_send_event(input,LV_EVENT_READY,nullptr);
       break;
     default: {
-      unsigned c=keys.Text(code,RecoveryKeyboardLayout()==KeyboardLayout::kQwertz);
+      const auto layout=RecoveryKeyboardLayout();
+      unsigned c=keys.Text(code,layout==KeyboardLayout::kQwertz,
+                          layout==KeyboardLayout::kAzerty);
       if(c)lv_textarea_add_char(input,c);
     }
   }

@@ -58,6 +58,8 @@ enum class Action {
     kApplyPluginAutoUpdates,
     kInstallLocalPlugin,
     kPluginApp,
+    kPluginDesktopOpen,
+    kPluginDesktopClose,
     kUnlock,
     kQuickWifiToggle,
     kToggleRotation,
@@ -84,6 +86,9 @@ enum class Action {
     kThemeNavigation,
     kThemeLock,
     kDeveloperSettings,
+    kMobileData,
+    kQuickMobileToggle,
+    kQuickPcToggle,
 };
 
 enum class DecryptionCompletion {
@@ -153,7 +158,7 @@ class Engine final {
     void SetPointer(const PointerEvent& event);
     void SetMouseConnected(bool connected);
     void MouseMove(int dx, int dy);
-    void MouseButton(bool pressed);
+    void MouseButton(bool pressed, int button = 1);
     void MouseWheel(int steps);
     bool KeyboardKey(unsigned code, int value);
     void ResetKeyboard();

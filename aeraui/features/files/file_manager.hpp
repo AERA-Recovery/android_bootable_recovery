@@ -35,6 +35,33 @@ struct Metadata {
   std::string link_target;
 };
 
+struct SearchRequest {
+  std::string directory;
+  std::string query;
+  bool recursive = true;
+  bool hidden = false;
+  size_t maximum_results = 2000;
+};
+
+struct SearchMatch {
+  std::string path;
+  Metadata metadata;
+};
+
+struct SearchProgress {
+  std::atomic<bool> cancel{false};
+  std::atomic<bool> done{false};
+  std::atomic<size_t> scanned{0};
+  std::atomic<size_t> found{0};
+  std::atomic<size_t> skipped{0};
+  // Read these only after observing done with acquire ordering.
+  bool limited = false;
+  std::string error;
+  std::vector<SearchMatch> matches;
+};
+
+void Search(const SearchRequest& request, SearchProgress& progress);
+
 struct Snapshot {
   unsigned percent = 0;
   bool done = false;

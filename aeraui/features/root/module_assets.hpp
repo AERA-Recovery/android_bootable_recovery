@@ -15,8 +15,15 @@ inline std::vector<std::string> ModuleAssetNames(Provider provider,
               "aarch64-" + kmi + "_kernelsu.ko",
               kmi + "_kernelsu.ko"};
     case Provider::kSukiSU:
-      return {"aarch64-" + kmi + "-lkm.zip"};
+      return {"lkm-aarch64-" + kmi + "_kernelsu.ko",
+              "aarch64-" + kmi + "-lkm.zip"};
   }
   return {};
+}
+
+inline bool ModuleAssetArchive(Provider provider, const std::string &name) {
+  constexpr char suffix[] = "-lkm.zip";
+  return provider == Provider::kSukiSU && name.size() >= sizeof(suffix) - 1 &&
+      name.compare(name.size() - (sizeof(suffix) - 1), sizeof(suffix) - 1, suffix) == 0;
 }
 }  // namespace aeraui::root

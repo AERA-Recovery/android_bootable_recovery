@@ -13,7 +13,7 @@ static bool online = true, automatic = false;
 static Action last_action = Action::kNone;
 static std::vector<plugins::Plugin> catalog, installed;
 
-namespace aeraui::wallpaper { bool Attach(lv_obj_t *) { return false; } }
+namespace aeraui::wallpaper { bool Attach(lv_obj_t *, bool) { return false; } }
 namespace aeraui {
 void AttachStatusBar(lv_obj_t *, void (*)(Action, void *), void *, StatusBarAction, bool) {}
 int32_t StatusBarHeight() { return 165; }

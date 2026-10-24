@@ -11,10 +11,16 @@
 #include "update/payload_inspector.hpp"
 #include "update/payload_arb.hpp"
 #include "update/payload_full_flash.hpp"
+#include "update/update_manager.hpp"
 #include "picture_viewer.hpp"
 #include "picture_decode.hpp"
 #include "browser/runtime.hpp"
 #include "browser/protocol.hpp"
+#include "localization/fonts/custom_font_storage.hpp"
+#include "localization/fonts/aera_fallback.hpp"
+#include "font_browser.hpp"
+#include "fonts/font_library.hpp"
+#include <json/json.h>
 #include <cassert>
 #include <chrono>
 #include <cmath>
@@ -29,6 +35,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 using namespace aeraui;
+namespace aeraui::update {
+static Snapshot test_snapshot;
+static Channel test_channel = Channel::kStable;
+Snapshot GetSnapshot() { return test_snapshot; }
+Channel GetChannel() { return test_channel; }
+bool SetChannel(Channel channel) { test_channel = channel; test_snapshot = {}; return true; }
+}
 #include "../../aera_remote/pc_connection.hpp"
 namespace aera::pc {
 static Status pc_status;
@@ -143,12 +156,47 @@ bool RecoverySetWallpaperLayout(const WallpaperLayout &layout) {
 }
 static LockTheme lock_theme;
 WifiConnection RecoveryWifiConnection() { return {}; }
+static MobileStatus test_mobile;
+static bool test_mobile_status=false,test_data_locked=false;
+static bool test_mobile_switching=false;
+static std::vector<MobileSavedPin> test_mobile_saved;
+MobileStatus RecoveryMobileStatus() {
+  if(test_mobile_status)return test_mobile;
+  MobileStatus status;
+  status.available = true;
+  status.message = "Mobile data is off";
+  return status;
+}
+void RecoveryStartMobileService() {}
+MobilePublicIp RecoveryMobilePublicIp(const MobileStatus &) { return {}; }
+bool RecoveryConnectMobile(const std::string &, int, std::string *) { return true; }
+bool RecoveryDisconnectMobile(std::string *) { return true; }
+bool RecoverySwitchMobileSim(const std::string &,int,std::string *) { return true; }
+bool RecoveryMobileSimSwitching() { return test_mobile_switching; }
+bool RecoveryUnlockMobileSim(const std::string &,bool,std::string *) { return true; }
+std::vector<MobileSavedPin> RecoverySavedMobilePins() { return test_mobile_saved; }
+bool RecoveryMobilePinAutoAvailable(const MobileStatus &status) {
+  if(test_data_locked||status.pin_retries<=1)return false;
+  for(const auto &saved:test_mobile_saved)if(saved.id==status.sim_id)return true;
+  return false;
+}
+bool RecoveryForgetMobilePin(const std::string &,std::string *) { return true; }
+std::string RecoveryMobileApn() { return {}; }
+int RecoveryMobileSubscription() { return 0; }
+static bool mobile_auto_connect = false;
+bool RecoveryMobileAutoConnect() { return mobile_auto_connect; }
+bool RecoverySetMobileAutoConnect(bool enabled, std::string *) { mobile_auto_connect = enabled; return true; }
+bool RecoverySetMobileConfiguration(const std::string &, int, std::string *) { return true; }
+void RecoveryPollMobileAutoConnect() {}
+bool RecoveryNetworkConnected() { return RecoveryWifiConnection().connected || RecoveryMobileStatus().connected; }
 LockTheme RecoveryLockTheme() { return lock_theme; }
 bool RecoverySetLockTheme(const LockTheme &theme) {
   if (!ValidLockTheme(theme)) return false;
   lock_theme = theme; return true;
 }
 bool RecoveryFlashlightSupported() { return true; }
+DiagnosticLogStatus RecoveryDiagnosticLogStatus() { return {}; }
+void RecoveryToggleDiagnosticLogging() {}
 bool RecoveryFlashlightEnabled() { return false; }
 bool RecoverySetFlashlight(bool) { return true; }
 bool RecoverySetWallpaperPath(const std::string &path) { wallpaper_path = path; return true; }
@@ -164,16 +212,69 @@ bool RecoveryTintedIconBackgrounds() { return tinted_icon_backgrounds; }
 bool RecoverySetTintedIconBackgrounds(bool enabled) {
   tinted_icon_backgrounds = enabled; return true;
 }
-std::string RecoveryUiFont() { return {}; }
-bool RecoverySetUiFont(const std::string &) { return true; }
+static std::string test_ui_font;
+static bool test_font_import = false;
+std::string RecoveryUiFont() { return test_ui_font; }
+bool RecoverySetUiFont(const std::string &id) { test_ui_font = id; return true; }
+std::string RecoveryUiFontPath(const std::string &id) {
+  fonts::CustomFontStorage storage(file_root + "/AERA/Fonts");
+  if (storage.Has(id)) return storage.Path(id);
+  fonts::SavedFont saved;
+  return fonts::FontLibrary(file_root + "/AERA/Fonts/Library").Find(id, saved) ? saved.path : std::string{};
+}
+std::string RecoveryCustomFont() {
+  if (!test_ui_font.empty() && !RecoveryUiFontPath(test_ui_font).empty()) return test_ui_font;
+  const auto ids = fonts::CustomFontStorage(file_root + "/AERA/Fonts").List();
+  return ids.empty() ? std::string{} : ids.back();
+}
+std::string RecoveryUiFontName(const std::string &id) {
+  fonts::SavedFont saved;
+  if (fonts::FontLibrary(file_root + "/AERA/Fonts/Library").Find(id, saved)) return saved.family;
+  const auto name = fonts::ReadFontName(RecoveryUiFontPath(id));
+  return name.empty() ? "Custom font" : name;
+}
+std::vector<fonts::SavedFont> RecoverySavedUiFonts() {
+  return fonts::FontLibrary(file_root + "/AERA/Fonts/Library").List();
+}
+bool RecoverySaveUiFont(const std::string &source, const fonts::SavedFont &metadata,
+                        std::string *id, std::string *error) {
+  const auto path = file_root + "/AERA/Fonts/Library";
+  std::filesystem::create_directories(path);
+  std::string saved;
+  if (!fonts::FontLibrary(path).Save(source, metadata, saved, error)) return false;
+  if (id) *id = saved;
+  return true;
+}
+bool RecoveryUseSavedUiFont(const std::string &id, std::string *) {
+  const auto path = RecoveryUiFontPath(id);
+  if (path.empty() || !fonts::SelectUiFont(id, path)) return false;
+  test_ui_font = id;
+  return true;
+}
+bool RecoveryDeleteSavedUiFont(const std::string &id, bool reset_active, std::string *error) {
+  if (id == test_ui_font && !reset_active) return false;
+  if (!fonts::FontLibrary(file_root + "/AERA/Fonts/Library").Remove(id, error)) return false;
+  if (id == test_ui_font) { test_ui_font.clear(); fonts::SelectUiFont({}, {}); }
+  return true;
+}
+bool RecoveryImportUiFont(const std::string &source, std::string *error) {
+  if (!fonts::PreviewFont(source, 24)) return false;
+  const auto directory = file_root + "/AERA/Fonts";
+  std::filesystem::create_directories(directory);
+  fonts::CustomFontStorage storage(directory);
+  const auto id = storage.Import(source, error);
+  if (id.empty() || !fonts::SelectUiFont(id, storage.Path(id))) return false;
+  test_ui_font = id;
+  storage.Prune(id);
+  return true;
+}
 InterfaceSize RecoveryInterfaceSize() { return interface_size; }
 bool RecoverySetInterfaceSize(InterfaceSize size) {
   return static_cast<int>(size) >= 0 && static_cast<int>(size) <= 3;
 }
 KeyboardLayout RecoveryKeyboardLayout() { return KeyboardLayout::kQwerty; }
 bool RecoverySetKeyboardLayout(KeyboardLayout layout) {
-  return layout == KeyboardLayout::kQwerty ||
-         layout == KeyboardLayout::kQwertz;
+  return KeyboardLayoutCode(layout) != nullptr;
 }
 static int home_grid_columns = 3;
 static std::vector<HomePluginPreference> home_layout;
@@ -275,6 +376,8 @@ int32_t StatusBarHeight() { return 165; }
 bool StatusBarShadeOpen() { return false; }
 void RefreshStatusBars() {}
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
+  if (kind == "storage" && test_font_import)
+    return {{"Internal storage", file_root, 0}};
   if (kind == "wipe") return {{"FRP","/frp",524288},{"Dalvik / ART cache","DALVIK",0},{"Data","/data",23000000000},
     {"Internal storage","INTERNAL",12000000000},{"Metadata","/metadata",40960000},
     {"USB storage","/usb-otg",32000000000}};
@@ -313,7 +416,7 @@ bool RecoverySetActiveSlot(const std::string &slot) {
   active_slot = slot;
   return true;
 }
-bool RecoveryDataLocked() { return false; }
+bool RecoveryDataLocked() { return test_data_locked; }
 std::vector<AndroidUser> RecoveryAndroidUsers() {
   return {{0, "Owner", 3, true}, {10, "Work profile", 2, false}};
 }
@@ -374,6 +477,7 @@ WifiStatus RecoveryWifiStatus() {
   return status;
 }
 int RecoveryRunWifi(const WifiRequest &request) { wifi_request = request; return 0; }
+WifiIpConfig RecoveryWifiIpConfig(const std::string &) { return {}; }
 bool RecoveryWifiAutoEnable() { return wifi_auto_enable; }
 bool RecoveryWifiAutoConnect() { return wifi_auto_connect; }
 bool RecoverySetWifiAutoEnable(bool enabled) { wifi_auto_enable = enabled; return true; }
@@ -456,7 +560,7 @@ std::vector<AdbPairedDevice> RecoveryAdbPairedDevices() {
 bool RecoveryForgetAdbDevice(const std::string &) { return true; }
 static plugins::Request selected_plugin_request;
 void SetPluginRequest(const plugins::Request &request) { selected_plugin_request = request; }
-void SetSelectedPluginId(const std::string &) {}
+void TestPluginRuntime(lv_obj_t *screen);
 }
 namespace aeraui::plugins {
 std::vector<Plugin> Installed() { return home_plugins; }
@@ -590,6 +694,7 @@ static void AssertVisibleCaret(lv_obj_t *input) {
   assert(lv_obj_get_style_border_side(input, LV_PART_CURSOR) == LV_BORDER_SIDE_LEFT);
   assert(lv_obj_get_style_anim_duration(input, LV_PART_CURSOR) > 0);
 }
+#include "gpu_context.hpp"
 int main(int argc,char **argv) {
   assert(argc==2);
   char fixture_dir[]="/tmp/aera-restore-test-XXXXXX"; assert(mkdtemp(fixture_dir));
@@ -609,6 +714,7 @@ int main(int argc,char **argv) {
         << std::string(160 * 1024, 'x');
   }
   std::filesystem::create_directory(backup_root+"/AERA-test-backup");
+  gpu_test::Initialize();
   lv_init();
   i18n::Initialize("en");
   const lv_font_t *latin_font = design::UiFont(&lv_font_montserrat_32);
@@ -619,17 +725,510 @@ int main(int argc,char **argv) {
     assert(glyph.adv_w > 0);
   }
   std::vector<uint8_t> frame(1440*3168*4);
-  auto *display=lv_display_create(1440,3168);
-  lv_display_set_buffers(display,frame.data(),nullptr,frame.size(),LV_DISPLAY_RENDER_MODE_DIRECT);
-  lv_display_set_flush_cb(display,[](lv_display_t *d,const lv_area_t *,uint8_t *){lv_display_flush_ready(d);});
+  auto *display = gpu_test::enabled ? lv_opengles_texture_create(1440, 3168)
+                                    : lv_display_create(1440,3168);
+  if (gpu_test::enabled) lv_display_set_flush_cb(display, gpu_test::Flush);
+  else {
+    lv_display_set_buffers(display,frame.data(),nullptr,frame.size(),LV_DISPLAY_RENDER_MODE_DIRECT);
+    lv_display_set_flush_cb(display,[](lv_display_t *d,const lv_area_t *,uint8_t *){lv_display_flush_ready(d);});
+  }
   auto save=[&](const char *path, int ticks = 40) {
-    Tick(ticks); png_image image{}; image.version=PNG_IMAGE_VERSION;
+    Tick(ticks);
+    if (gpu_test::enabled) glReadPixels(0, 0, 1440, 3168, GL_RGBA, GL_UNSIGNED_BYTE, frame.data());
+    png_image image{}; image.version=PNG_IMAGE_VERSION;
     image.width=lv_display_get_horizontal_resolution(display);
     image.height=lv_display_get_vertical_resolution(display);
     image.format=PNG_FORMAT_BGRA;
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--russian-corrections")) {
+    assert(i18n::SetLanguage("ru"));
+    auto *page = lv_obj_create(nullptr);
+    BuildRebootScene(page, RecordAction, nullptr);
+    lv_screen_load(page); Tick();
+    auto *android = Find(page, "Android"); assert(android);
+    lv_obj_send_event(android, LV_EVENT_CLICKED, nullptr); Tick();
+    assert(FindLabelContaining(page, i18n::Format("Reboot to %s?", "Android").c_str()));
+    assert(FindLabelContaining(page, i18n::Translate("The current recovery session will end.")));
+    save("/tmp/aera-russian-reboot.png", 1);
+    lv_screen_load(screen); lv_obj_delete(page); Tick();
+    page = lv_obj_create(nullptr); BuildSideloadScene(page, RecordAction, nullptr);
+    lv_screen_load(page); Tick();
+    assert(FindLabelContaining(page, i18n::Translate("Start ADB sideload")));
+    assert(FindLabelContaining(page, i18n::Translate("Start a sideload session")));
+    save("/tmp/aera-russian-sideload.png", 1);
+    lv_screen_load(screen); lv_obj_delete(page); Tick();
+    page = lv_obj_create(nullptr); BuildWifiScene(page, RecordAction, nullptr);
+    lv_screen_load(page); Tick();
+    auto *settings = FindLabelContaining(page, i18n::Translate("Wi-Fi settings")); assert(settings);
+    lv_obj_send_event(lv_obj_get_parent(settings), LV_EVENT_CLICKED, nullptr); Tick();
+    assert(FindLabelContaining(page, i18n::Translate("Not available")));
+    assert(FindLabelContaining(page, i18n::Translate("Enable ADB over Wi-Fi to reveal the PC command.")));
+    save("/tmp/aera-russian-wifi.png", 1);
+    lv_screen_load(screen); lv_obj_delete(page); Tick();
+    page = lv_obj_create(nullptr); BuildToolScene(page, Action::kPreferences, RecordAction, nullptr);
+    lv_screen_load(page); Tick();
+    assert(FindLabelContaining(page, i18n::Translate("Screen-off timeout")));
+    assert(FindLabelContaining(page, i18n::Translate("24-hour clock")));
+    assert(FindLabelContaining(page, i18n::Translate("Gesture navigation")));
+    save("/tmp/aera-russian-preferences.png", 1);
+    lv_screen_load(screen); lv_obj_delete(page);
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Russian reboot, sideload, Wi-Fi and preference translations passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--font-browser")) {
+    test_font_import = true;
+    test_mobile_status = true;
+    test_mobile.connected = true;
+    std::ifstream font_input(std::string(AERA_COMMON_FONT_ROOT) + "/Roboto-Regular.ttf", std::ios::binary);
+    const std::string font_bytes((std::istreambuf_iterator<char>(font_input)), {});
+    assert(!font_bytes.empty());
+    std::atomic<unsigned> requests{0};
+    auto fetch = [&font_bytes, &requests](const std::string& url, size_t limit,
+        std::atomic<bool>& cancel, std::string& bytes, std::string&) {
+      ++requests;
+      if (cancel.load()) return false;
+      if (fontsource::FontUrl(url)) { assert(font_bytes.size() + url.size() < limit); bytes = font_bytes + url; return true; }
+      Json::Value root;
+      if (url == "https://api.fontsource.org/v1/fonts") {
+        root = Json::Value(Json::arrayValue);
+        for (int i = 0; i < 20; ++i) {
+          Json::Value item;
+          item["id"] = "font-" + std::to_string(i);
+          item["family"] = "Font " + std::to_string(i);
+          item["category"] = "sans-serif";
+          item["subsets"].append("latin");
+          root.append(item);
+        }
+      } else {
+        const auto id = url.substr(url.find_last_of('/') + 1);
+        root["id"] = id; root["family"] = "Font " + id.substr(5);
+        root["category"] = "sans-serif"; root["subsets"].append("latin");
+        root["license"] = "OFL-1.1";
+        for (const auto* weight : {"400", "700"})
+          root["variants"][weight]["normal"]["latin"]["url"]["ttf"] =
+              "https://cdn.jsdelivr.net/fontsource/fonts/" + id + "@1.0.0/latin-" + weight + "-normal.ttf";
+      }
+      bytes = Json::writeString(Json::StreamWriterBuilder{}, root); return true;
+    };
+    for (bool landscape : {false, true}) {
+      test_ui_font.clear(); fonts::SelectUiFont({}, {});
+      std::filesystem::remove_all(file_root + "/AERA/Fonts/Library");
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto* page = lv_obj_create(nullptr); lv_screen_load(page); Tick();
+      OpenFontBrowser(page, [] {}, fetch); Tick(100);
+      assert(Find(page, "Font 0"));
+      auto* text = FindLabel(page, "The quick brown fox 0123456789"); assert(text);
+      assert(lv_obj_get_style_text_font(text, LV_PART_MAIN) != design::UiFont(&lv_font_montserrat_48));
+      assert(!Overlaps(text, FindLabel(page, "Font 0")));
+      save(landscape ? "/tmp/aera-font-browser-landscape.png" : "/tmp/aera-font-browser-portrait.png", 2);
+      lv_obj_send_event(Find(page, "Font 0"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      auto* use = Find(page, "Use this font"); assert(use && !lv_obj_has_state(use, LV_STATE_DISABLED));
+      auto* download = Find(page, "Download"); assert(download && !lv_obj_has_state(download, LV_STATE_DISABLED));
+      lv_obj_send_event(download, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoveryUiFont().empty());
+      assert(Find(page, "Downloaded"));
+      assert(RecoverySavedUiFonts().size() == 1);
+      AssertInside(use, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      save(landscape ? "/tmp/aera-font-detail-landscape.png" : "/tmp/aera-font-detail-portrait.png", 2);
+      auto* style = Find(page, "400 / Regular"); assert(style);
+      lv_obj_send_event(style, LV_EVENT_CLICKED, nullptr); Tick();
+      auto* bold = Find(page, "700 / Regular"); assert(bold);
+      lv_obj_send_event(bold, LV_EVENT_CLICKED, nullptr); Tick(100);
+      lv_obj_send_event(Find(page, LV_SYMBOL_EDIT), LV_EVENT_CLICKED, nullptr); Tick();
+      auto* preview_keyboard = FindType(page, &lv_keyboard_class); assert(preview_keyboard);
+      assert(lv_obj_is_visible(preview_keyboard));
+      AssertInside(preview_keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto* preview_input = FindType(page, &lv_textarea_class); assert(preview_input);
+      assert(!Overlaps(preview_keyboard, preview_input));
+      assert(!Overlaps(preview_keyboard, Find(page, "Apply")));
+      PressKeyboardKey(preview_keyboard, "a");
+      assert(!strcmp(lv_textarea_get_text(preview_input), "a"));
+      lv_obj_send_event(Find(page, "Apply"), LV_EVENT_CLICKED, nullptr); Tick();
+      assert(FindLabel(page, "a"));
+      use = Find(page, "Use this font"); assert(use && !lv_obj_has_state(use, LV_STATE_DISABLED));
+      lv_obj_send_event(use, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(fonts::CustomFontId(RecoveryUiFont()));
+      assert(std::filesystem::exists(RecoveryUiFontPath(RecoveryUiFont())));
+      assert(RecoverySavedUiFonts().size() == 2);
+      assert(RecoveryUiFontName(RecoveryUiFont()) == "Font 0");
+      OpenFontBrowser(page, [] {}, fetch); Tick(100);
+      auto* search = Find(page, "Search fonts"); assert(search);
+      lv_obj_send_event(search, LV_EVENT_CLICKED, nullptr); Tick();
+      auto* input = FindType(page, &lv_textarea_class); assert(input);
+      auto* keyboard = FindType(page, &lv_keyboard_class); assert(keyboard);
+      assert(lv_obj_is_visible(keyboard));
+      AssertInside(keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      assert(!Overlaps(keyboard, input));
+      assert(!Overlaps(keyboard, Find(page, "Search")));
+      assert(!Overlaps(keyboard, Find(page, "Cancel")));
+      save(landscape ? "/tmp/aera-font-search-landscape.png" : "/tmp/aera-font-search-portrait.png", 2);
+      PressKeyboardKey(keyboard, "f");
+      assert(!strcmp(lv_textarea_get_text(input), "f"));
+      lv_textarea_set_text(input, "Font 19");
+      lv_obj_send_event(Find(page, "Search"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      assert(Find(page, "Font 19") && !Find(page, "Font 0"));
+      assert(widgets::DismissModal(page)); Tick();
+      assert(!Find(page, "My fonts"));
+      test_mobile.connected = false;
+      const auto before_offline = requests.load();
+      OpenFontBrowser(page, [] {}, fetch); Tick(100);
+      assert(Find(page, "Font 0"));
+      assert(requests.load() == before_offline);
+      save(landscape ? "/tmp/aera-my-fonts-landscape.png" : "/tmp/aera-my-fonts-portrait.png", 2);
+      lv_obj_send_event(Find(page, "Font 0"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      use = Find(page, "Use this font"); assert(use && !lv_obj_has_state(use, LV_STATE_DISABLED));
+      lv_obj_send_event(use, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoverySavedUiFonts().size() == 2);
+      OpenFontBrowser(page, [] {}, fetch); Tick(100);
+      lv_obj_send_event(Find(page, "Font 0"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      auto* active = Find(page, "Active"); assert(active && lv_obj_has_state(active, LV_STATE_DISABLED));
+      auto* trash = Find(page, LV_SYMBOL_TRASH); assert(trash);
+      lv_obj_send_event(trash, LV_EVENT_CLICKED, nullptr); Tick();
+      ConfirmSettingsModal(page); Tick(100);
+      assert(RecoveryUiFont().empty());
+      assert(RecoverySavedUiFonts().size() == 1);
+      assert(requests.load() == before_offline);
+      assert(widgets::DismissModal(page)); Tick();
+      test_mobile.connected = true;
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+    }
+    std::atomic<bool> cancelled{false};
+    OpenFontBrowser(screen, [] {}, [&cancelled](const std::string&, size_t,
+        std::atomic<bool>& cancel, std::string&, std::string&) {
+      while (!cancel.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      cancelled.store(true); return false;
+    });
+    Tick(); assert(widgets::DismissModal(screen)); Tick(100);
+    assert(cancelled.load());
+    fonts::SelectUiFont({}, {});
+    std::filesystem::remove_all(backup_root);
+    puts("Font browser UI: real previews, variant selection, apply, close and both orientations passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--custom-font")) {
+    test_font_import = true;
+    const std::string asset = std::string(AERA_COMMON_FONT_ROOT) + "/Roboto-Regular.ttf";
+    const auto source = file_root + "/preview.ttf";
+    std::filesystem::copy_file(asset, source);
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      auto* page = lv_obj_create(nullptr);
+      BuildFilesScene(page, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      auto* row = Find(page, "preview.ttf"); assert(row);
+      lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr); Tick();
+      auto* use = Find(page, "Use this font"); assert(use);
+      auto* cancel = Find(page, "Cancel"); assert(cancel);
+      AssertInside(use, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(cancel, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      assert(!Overlaps(use, cancel));
+      save(landscape ? "/tmp/aera-custom-font-preview-landscape.png" :
+                       "/tmp/aera-custom-font-preview-portrait.png", 2);
+      lv_obj_send_event(use, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(fonts::CustomFontId(RecoveryUiFont()));
+      assert(std::filesystem::exists(RecoveryUiFontPath(RecoveryUiFont())));
+      assert(last_action == Action::kFiles);
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+      page = lv_obj_create(nullptr);
+      BuildToolScene(page, Action::kThemeTypography, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      assert(Find(page, "Roboto"));
+      assert(!Find(page, "Load custom font"));
+      assert(Find(page, "Browse fonts"));
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+    }
+    std::filesystem::remove(source);
+    assert(!RecoveryUiFontPath(RecoveryUiFont()).empty());
+    fonts::SelectUiFont({}, {});
+    std::filesystem::remove_all(backup_root);
+    puts("Custom font UI: file action, preview, persistent import and theme picker passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--file-search")) {
+    std::filesystem::create_directories(file_root + "/nested");
+    std::ofstream(file_root + "/nested/Alpha-Result.txt") << "nested match";
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      auto* page = lv_obj_create(nullptr);
+      BuildFilesScene(page, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      auto* root = Find(page, "Root"); assert(root);
+      for (const auto* icon : {LV_SYMBOL_LIST, LV_SYMBOL_PLUS, LV_SYMBOL_OK,
+                               "Search", LV_SYMBOL_REFRESH}) {
+        auto* button = Find(page, icon);
+        assert(button);
+        assert(lv_obj_get_width(button) == lv_obj_get_width(root));
+      }
+      lv_obj_send_event(Find(page, "Search"), LV_EVENT_CLICKED, nullptr); Tick();
+      auto* input = FindType(page, &lv_textarea_class); assert(input);
+      auto* keyboard = FindType(page, &lv_keyboard_class); assert(keyboard);
+      auto* overlay = lv_obj_get_parent(FindLabel(page, "Search files"));
+      auto* search = Find(overlay, "Search"); assert(search);
+      auto* cancel = Find(page, "Cancel"); assert(cancel);
+      AssertInside(input, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      AssertInside(keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      assert(!Overlaps(input, keyboard));
+      assert(!Overlaps(search, keyboard));
+      assert(!Overlaps(cancel, keyboard));
+      lv_textarea_set_text(input, "ALPHA");
+      save(landscape ? "/tmp/aera-file-search-dialog-landscape.png" :
+                       "/tmp/aera-file-search-dialog-portrait.png", 2);
+      lv_obj_send_event(keyboard, LV_EVENT_READY, nullptr); Tick(100);
+      assert(Find(page, "alpha.txt") && Find(page, "Alpha-Result.txt"));
+      assert(!Find(page, "broken.log"));
+      assert(Find(page, "2 results for \"ALPHA\""));
+      save(landscape ? "/tmp/aera-file-search-results-landscape.png" :
+                       "/tmp/aera-file-search-results-portrait.png", 2);
+      assert(NavigateFileBack()); Tick();
+      assert(Find(page, "broken.log"));
+      assert(!Find(page, "Alpha-Result.txt"));
+      lv_obj_send_event(Find(page, "Search"), LV_EVENT_CLICKED, nullptr); Tick();
+      input = FindType(page, &lv_textarea_class);
+      lv_textarea_set_text(input, "no-match-at-all");
+      overlay = lv_obj_get_parent(FindLabel(page, "Search files"));
+      lv_obj_send_event(Find(overlay, "Search"), LV_EVENT_CLICKED, nullptr); Tick(100);
+      assert(Find(page, "0 results for \"no-match-at-all\""));
+      assert(NavigateFileBack());
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("File search: toolbar, keyboard, recursive results, empty results and Back passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--sim-pin")) {
+    test_mobile_status=true;
+    test_mobile.enabled=true;test_mobile.available=true;test_mobile.state="pin_required";
+    test_mobile.sim_state="pin_required";test_mobile.sim_slot=1;test_mobile.pin_retries=3;
+    test_mobile.sim_id=std::string(64,'a');test_mobile.pin_request="first";
+    test_data_locked=true;PollMobilePinPrompt(screen,true);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 1"));
+    test_data_locked=false;PollMobilePinPrompt(screen,false);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 1"));
+    test_mobile_switching=true;PollMobilePinPrompt(screen,true);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 1"));test_mobile_switching=false;
+    PollMobilePinPrompt(screen,true);Tick();assert(FindLabel(screen,"Unlock SIM 1"));
+    auto *cancel=Find(screen,"Cancel");assert(cancel);
+    save("/tmp/aera-sim-pin-portrait.png");
+    lv_obj_send_event(cancel,LV_EVENT_CLICKED,nullptr);Tick();
+    PollMobilePinPrompt(screen,true);Tick();assert(!FindLabel(screen,"Unlock SIM 1"));
+    test_mobile.sim_slot=2;test_mobile.sim_id=std::string(64,'b');test_mobile.pin_request="second";
+    PollMobilePinPrompt(screen,true);Tick();assert(FindLabel(screen,"Unlock SIM 2"));
+    test_mobile.state="verifying_pin";PollMobilePinPrompt(screen,true);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 2"));
+    test_mobile.state="pin_required";test_mobile.pin_request="remembered";
+    test_mobile_saved={{test_mobile.sim_id,2}};
+    PollMobilePinPrompt(screen,true);Tick();assert(!FindLabel(screen,"Unlock SIM 2"));
+    test_mobile.pin_result="failed";test_mobile_saved.clear();
+    PollMobilePinPrompt(screen,true);Tick();assert(FindLabel(screen,"Unlock SIM 2"));
+    lv_display_set_resolution(display,3168,1440);
+    save("/tmp/aera-sim-pin-landscape.png");
+    test_mobile.state="off";test_mobile.enabled=false;PollMobilePinPrompt(screen,true);Tick();
+    assert(!FindLabel(screen,"Unlock SIM 2"));
+    test_mobile.state="pin_required";test_mobile.enabled=true;test_mobile.pin_retries=1;
+    test_mobile.pin_result.clear();test_mobile.pin_request="last-attempt";test_mobile_saved={{test_mobile.sim_id,2}};
+    PollMobilePinPrompt(screen,true);Tick();assert(FindLabel(screen,"Unlock SIM 2"));
+    lv_deinit();std::filesystem::remove_all(backup_root);return 0;
+  }
+  if (!strcmp(argv[1], "--mobile")) {
+    test_mobile_status=true;test_mobile.available=true;
+    test_mobile.state="off";test_mobile.message="Mobile data is off";
+    for(int surface=0;surface<4;++surface) {
+    for(int density:{1,3}) {
+    design::ApplySurfaceStyle(surface);design::ApplyInterfaceSize(density);
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *page = lv_obj_create(nullptr);
+      BuildMobileDataScene(page, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      assert(FindLabel(page, "Mobile data"));
+      auto *network_title = FindLabel(page, "Network"); assert(network_title);
+      auto *wifi_tab = Find(page, "Wi-Fi"); assert(wifi_tab);
+      lv_area_t title_bounds{}, tab_bounds{};
+      lv_obj_get_coords(network_title, &title_bounds); lv_obj_get_coords(wifi_tab, &tab_bounds);
+      assert(title_bounds.y2 < tab_bounds.y1);
+      assert(tab_bounds.x1==64&&lv_obj_get_height(wifi_tab)==128);
+      auto *wifi_symbol=FindLabel(wifi_tab,LV_SYMBOL_WIFI);assert(wifi_symbol);
+      auto *wifi_icon=lv_obj_get_parent(wifi_symbol);
+      AssertContained(wifi_symbol,wifi_icon);AssertContained(wifi_icon,wifi_tab);
+      assert(lv_obj_get_style_text_font(wifi_symbol,LV_PART_MAIN)==&lv_font_montserrat_48);
+      auto *mobile_tab=Find(page,"Mobile data");assert(mobile_tab);
+      assert(lv_obj_get_style_border_width(mobile_tab,LV_PART_MAIN)==3);
+      assert(lv_color_eq(lv_obj_get_style_bg_color(mobile_tab,LV_PART_MAIN),design::kMainPanel));
+      assert(!Overlaps(wifi_tab,mobile_tab));
+      auto *detail=FindLabel(page,"Mobile data is off");assert(detail);
+      auto *hero=lv_obj_get_parent(detail);
+      assert(Bounds(hero).y1>tab_bounds.y2);
+      assert(lv_obj_get_style_radius(hero,LV_PART_MAIN)==36);
+      AssertContained(detail,hero);
+      assert(Find(page, "SIM 1") && Find(page, "SIM 2"));
+      auto *sim=Find(page,"Default");assert(sim);
+      assert(lv_obj_get_style_border_width(sim,LV_PART_MAIN)==3);
+      assert(lv_color_eq(lv_obj_get_style_bg_color(sim,LV_PART_MAIN),design::kMainPanel));
+      assert(lv_obj_get_style_radius(lv_obj_get_parent(lv_obj_get_parent(sim)),LV_PART_MAIN)==36);
+      auto *automatic = Find(page, "Auto-connect on boot"); assert(automatic);
+      assert(lv_obj_get_style_radius(automatic,LV_PART_MAIN)==36);
+      AssertContained(FindLabel(automatic,"Auto-connect on boot"),automatic);
+      const bool previous = RecoveryMobileAutoConnect();
+      lv_obj_send_event(automatic, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoveryMobileAutoConnect() != previous);
+      if(surface==0&&density==1)
+        save(landscape ? "/tmp/aera-mobile-landscape.png" : "/tmp/aera-mobile-portrait.png");
+      test_mobile.connected=true;test_mobile.enabled=true;test_mobile.signal_valid=true;
+      test_mobile.operator_name="Test network";test_mobile.technology="4G";
+      test_mobile.signal_dbm=-90;test_mobile.message="Mobile data connected";
+      Tick();assert(FindLabel(page,"Connected"));assert(FindLabel(page,"Test network / 4G"));
+      assert(FindLabel(page,"-90 dBm"));
+      test_mobile={};test_mobile.available=true;test_mobile.state="off";test_mobile.message="Mobile data is off";
+      lv_obj_send_event(wifi_tab,LV_EVENT_CLICKED,nullptr);assert(last_action==Action::kWifi);
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+
+      page=lv_obj_create(nullptr);const auto wifi=BuildWifiScene(page,RecordAction,nullptr);
+      lv_screen_load(page);Tick();
+      wifi_tab=Find(page,"Wi-Fi");mobile_tab=Find(page,"Mobile data");
+      assert(wifi_tab&&mobile_tab&&lv_obj_get_height(wifi_tab)==128);
+      wifi_symbol=FindLabel(wifi_tab,LV_SYMBOL_WIFI);assert(wifi_symbol);
+      AssertContained(wifi_symbol,lv_obj_get_parent(wifi_symbol));
+      assert(lv_obj_get_style_border_width(wifi_tab,LV_PART_MAIN)==3);
+      assert(lv_color_eq(lv_obj_get_style_bg_color(wifi_tab,LV_PART_MAIN),design::kMainPanel));
+      auto *wifi_hero=lv_obj_get_parent(wifi.status);
+      assert(Bounds(wifi_hero).y1>Bounds(wifi_tab).y2);
+      auto *settings_label=FindLabelContaining(page,"Wi-Fi settings");assert(settings_label);
+      auto *settings_button=lv_obj_get_parent(settings_label);
+      assert(lv_obj_get_width(settings_button)==360);
+      assert(!Overlaps(settings_button,wifi_tab)&&!Overlaps(settings_button,mobile_tab));
+      AssertInside(settings_button,landscape?3168:1440,landscape?1440:3168);
+      AssertInside(wifi.list,landscape?3168:1440,landscape?1440:3168);
+      if(surface==0&&density==1)
+        save(landscape?"/tmp/aera-network-wifi-landscape.png":"/tmp/aera-network-wifi-portrait.png");
+      lv_obj_send_event(mobile_tab,LV_EVENT_CLICKED,nullptr);assert(last_action==Action::kMobileData);
+      lv_screen_load(screen);lv_obj_delete(page);Tick();
+    }
+    }
+    }
+    lv_deinit();std::filesystem::remove_all(backup_root);return 0;
+  }
+  if (!strcmp(argv[1], "--update-channel")) {
+    for (const char* installed_type : {"Stable", "Beta", "Alpha", "Nightly"}) {
+    for (auto channel : {update::Channel::kStable, update::Channel::kNightly}) {
+      update::test_channel = channel;
+      for (uint64_t release_time : {90ULL, 100ULL, 110ULL}) {
+        auto &snapshot = update::test_snapshot;
+        snapshot = {};
+        snapshot.device = "infiniti";
+        snapshot.local_build_time = 100;
+        snapshot.local_build_type = installed_type;
+        snapshot.channel = channel;
+        snapshot.release.version = "R1.0";
+        snapshot.release.build_type = channel == update::Channel::kStable ? "Stable" : "Nightly";
+        snapshot.release.build_time = release_time;
+        snapshot.release.size = 50 * 1024 * 1024;
+        snapshot.release.filename = "AERA-infiniti.zip";
+        snapshot.release.changelog = {"Channel release notes"};
+        snapshot.checked = true;
+        snapshot.installable = true;
+        snapshot.available = release_time > snapshot.local_build_time;
+        snapshot.phase = snapshot.available ? update::Phase::kAvailable : update::Phase::kUpToDate;
+        const auto installed_channel = snapshot.local_build_type == "Nightly"
+            ? update::Channel::kNightly : update::Channel::kStable;
+        const bool can_install = release_time > 100 || installed_channel != channel;
+        assert(snapshot.CanDownload() == can_install);
+        auto *page = lv_obj_create(nullptr);
+        const auto scene = BuildUpdateScene(page, RecordAction, nullptr);
+        lv_screen_load(page); Tick(2);
+        assert(lv_obj_has_flag(scene.install, LV_OBJ_FLAG_HIDDEN) == !can_install);
+        assert(lv_obj_has_state(scene.install, LV_STATE_DISABLED) == !can_install);
+        if (can_install && release_time < snapshot.local_build_time) {
+          assert(FindLabel(page, "Older recovery build"));
+          assert(!snapshot.available); // Still not an automatic update notification.
+        }
+        const int callbacks = callback_count;
+        if (can_install) {
+          lv_obj_send_event(scene.install, LV_EVENT_CLICKED, nullptr); Tick(2);
+          assert(callback_count == callbacks); // Installation still requires confirmation.
+          assert(FindLabel(page, "Install this recovery update?"));
+        }
+        if (can_install && release_time < snapshot.local_build_time) {
+          assert(FindLabelContaining(page, "This release is older than your installed build."));
+          if (channel == update::Channel::kStable) save("/tmp/aera-update-older.png", 2);
+        }
+        lv_screen_load(screen); lv_obj_delete(page);
+      }
+    }
+    }
+    auto &snapshot = update::test_snapshot;
+    snapshot.checked = false; assert(!snapshot.CanDownload());
+    snapshot.checked = true; snapshot.installable = false; assert(!snapshot.CanDownload());
+    auto *page = lv_obj_create(nullptr);
+    const auto scene = BuildUpdateScene(page, RecordAction, nullptr);
+    lv_screen_load(page); Tick(2);
+    assert(lv_obj_has_flag(scene.install, LV_OBJ_FLAG_HIDDEN));
+    lv_screen_load(screen); lv_obj_delete(page);
+    snapshot.installable = true; snapshot.release.size = 0; assert(!snapshot.CanDownload());
+    // After installing Stable, repeated checks/toggling tabs cannot reinstall
+    // that same Stable, but returning to Nightly remains possible.
+    snapshot.release.size = 50 * 1024 * 1024;
+    snapshot.local_build_type = "Stable"; snapshot.local_build_time = 90;
+    snapshot.channel = update::Channel::kStable; snapshot.release.build_time = 90;
+    assert(!snapshot.CanDownload());
+    snapshot.channel = update::Channel::kNightly;
+    assert(snapshot.CanDownload());
+    snapshot.channel = update::Channel::kStable;
+    assert(!snapshot.CanDownload());
+    for (const char* unknown : {"", "Unknown"}) {
+      snapshot.local_build_type = unknown;
+      assert(!snapshot.CanDownload());
+    }
+    std::filesystem::remove_all(backup_root);
+    return 0;
+  }
+  if (!strcmp(argv[1], "--wifi-ip")) {
+    auto *wifi = lv_obj_create(nullptr); BuildWifiScene(wifi, RecordAction, nullptr);
+    lv_screen_load(wifi); Tick(2);
+    lv_obj_send_event(Find(wifi, "Saved network"), LV_EVENT_CLICKED, nullptr);
+    lv_obj_send_event(Find(wifi, "IP settings"), LV_EVENT_CLICKED, nullptr); Tick(2);
+    auto *mode = Find(wifi, "Static IP"); assert(mode);
+    lv_obj_send_event(mode, LV_EVENT_CLICKED, nullptr); Tick(2);
+    assert(Find(wifi, "IP address") && Find(wifi, "Subnet mask / prefix"));
+    auto *page = lv_obj_get_parent(lv_obj_get_parent(mode));
+    auto *save_button = Find(page, "Save"); assert(save_button);
+    const int callbacks = callback_count;
+    lv_obj_send_event(save_button, LV_EVENT_CLICKED, nullptr);
+    assert(callback_count == callbacks); // Invalid input never starts a worker.
+    assert(Find(wifi, "Enter a valid IPv4 address."));
+    lv_obj_send_event(Find(page, "Not set"), LV_EVENT_CLICKED, nullptr); Tick(2);
+    auto *field = FindType(page, &lv_textarea_class); assert(field);
+    auto *ip_keyboard = FindType(page, &lv_keyboard_class); assert(ip_keyboard);
+    assert(lv_keyboard_get_mode(ip_keyboard) == LV_KEYBOARD_MODE_NUMBER);
+    assert(!strcmp(lv_buttonmatrix_get_button_text(ip_keyboard, 11), LV_SYMBOL_BACKSPACE));
+    assert(lv_color_eq(lv_obj_get_style_text_color(field, LV_PART_MAIN), design::kText));
+    lv_area_t field_bounds; lv_obj_get_coords(field, &field_bounds);
+    assert(field_bounds.y1 > 3168 / 2);
+    lv_textarea_set_text(field, "192.168.178.50");
+    save("/tmp/aera-wifi-ip-keyboard.png", 2);
+    lv_obj_send_event(Find(page, "Done"), LV_EVENT_CLICKED, nullptr); Tick(2);
+    assert(Find(page, "192.168.178.50"));
+    save("/tmp/aera-wifi-ip.png", 2);
+    lv_obj_send_event(Find(page, "Automatic (DHCP)"), LV_EVENT_CLICKED, nullptr);
+    lv_obj_send_event(save_button, LV_EVENT_CLICKED, nullptr);
+    assert(last_action == Action::kRunWifiOperation);
+    assert(GetWifiRequest().operation == WifiOperation::kSaveIpConfig);
+    assert(!GetWifiRequest().ip_config.manual && GetWifiRequest().ssid == "Saved network");
+    lv_screen_load(screen); lv_obj_delete(wifi);
+    std::filesystem::remove_all(backup_root);
+    return 0;
+  }
+  if (!strcmp(argv[1], "--plugin-runtime")) {
+    TestPluginRuntime(screen);
+    save("/tmp/aera-plugin-activity.png", 2);
+    std::filesystem::remove_all(backup_root);
+    return 0;
+  }
   if (!strcmp(argv[1], "--artillery")) {
     for (bool landscape : {false, true}) {
       const int width = landscape ? 3168 : 1440;

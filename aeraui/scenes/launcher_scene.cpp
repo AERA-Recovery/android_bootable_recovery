@@ -17,6 +17,8 @@
 #include "retroarch_icon.hpp"
 #include "ui_components.hpp"
 #include "webkit_icon.hpp"
+#include "desktop_icon.hpp"
+#include <cstring>
 
 namespace aeraui {
 namespace {
@@ -77,7 +79,10 @@ lv_obj_t *AppIconPlate(lv_obj_t *parent, const char *symbol,
   auto *plate = lv_obj_create(parent);
   Clear(plate);
   lv_obj_set_size(plate, size, size);
-  if (terminal_icon) {
+  if (!strcmp(symbol, "aera-desktop")) {
+    auto *mark = DesktopIcon(plate, accent, size);
+    lv_obj_center(mark);
+  } else if (terminal_icon) {
     auto *mark = MaterialTerminalIcon(plate, accent, size);
     lv_obj_center(mark);
   } else if (webkit_icon) {
@@ -95,6 +100,7 @@ lv_obj_t *AppIconPlate(lv_obj_t *parent, const char *symbol,
 }
 
 const char *GenericPluginIcon(const plugins::Plugin &plugin) {
+  if (plugin.icon == "desktop") return "aera-desktop";
   if (plugin.id == "mirror") return LV_SYMBOL_VIDEO;
   if (plugin.id.find("settings") != std::string::npos)
     return LV_SYMBOL_SAVE;

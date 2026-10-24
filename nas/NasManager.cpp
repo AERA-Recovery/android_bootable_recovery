@@ -46,6 +46,7 @@ std::chrono::steady_clock::time_point sample_time;
 struct Stats {
     uint64_t bytes=0,pending=0,files=0,retained=0,errors=0,uploading=0,uploaded=0,total=0;
     pid_t pid=-1;
+    bool connected=false;
 };
 bool HelperAlive(pid_t pid) {
     if (pid <= 1 || kill(pid,0)) return false;
@@ -54,16 +55,17 @@ bool HelperAlive(pid_t pid) {
     std::getline(in,name);
     return name == "aera-netfs";
 }
-bool ReadStats(Stats& stats) {
+bool ReadStats(Stats& stats, bool require_connected=true) {
     std::ifstream input(kStats);
     Json::Value root;
     Json::CharReaderBuilder reader;
     std::string error;
     if (!Json::parseFromStream(reader,input,&root,&error) || root["version"].asInt()!=1 ||
-        !root["pid"].isInt() || !root["connected"].asBool()) return false;
+        !root["pid"].isInt() || !root["connected"].isBool()) return false;
     for (const char *key : {"written","pending_bytes","pending_files","write_errors"})
         if (!root[key].isUInt64()) return false;
     stats.pid=root["pid"].asInt();
+    stats.connected=root["connected"].asBool();
     stats.bytes=root["written"].asUInt64();
     stats.pending=root["pending_bytes"].asUInt64();
     stats.files=root["pending_files"].asUInt64();
@@ -72,7 +74,7 @@ bool ReadStats(Stats& stats) {
     stats.uploading=root.get("uploading_files",Json::UInt64(0)).asUInt64();
     stats.uploaded=root.get("uploading_bytes",Json::UInt64(0)).asUInt64();
     stats.total=root.get("uploading_total",Json::UInt64(0)).asUInt64();
-    return HelperAlive(stats.pid);
+    return HelperAlive(stats.pid) && (!require_connected || stats.connected);
 }
 std::string CacheMode() {
     std::string mode=DataManager::GetStrValue(TW_NAS_CACHE_MODE);
@@ -304,7 +306,7 @@ bool NasManager::Unmount() {
     last_error.clear();DataManager::SetValue(TW_NAS_LAST_ERROR,"");
     if (!IsMounted()) {DataManager::SetValue(TW_NAS_MOUNTED,0);return true;}
     Stats stats;
-    if (ReadStats(stats) && stats.files>stats.retained) {
+    if (ReadStats(stats,false) && stats.files>stats.retained) {
         SetError("NAS still has open writes. Close open files before disconnecting.");return false;
     }
     if (umount2(Mount_Point.c_str(),0)) {
@@ -320,6 +322,8 @@ bool NasManager::Unmount() {
 }
 bool NasManager::SelectAsStorage() {
     if (!IsMounted()) {SetError("NAS is not mounted. Connect before selecting it as storage.");return false;}
+    Stats stats;
+    if (!ReadStats(stats)) {SetError("NAS connection lost. Disconnect and reconnect before selecting it as storage.");return false;}
     DataManager::SetValue("tw_storage_path",Mount_Point);
     DataManager::SetValue(TW_ZIP_LOCATION_VAR,Mount_Point);
     DataManager::SetValue(TW_USE_EXTERNAL_STORAGE,1);
@@ -330,6 +334,11 @@ bool NasManager::SelectAsStorage() {
 bool NasManager::RefreshStatus() {
     bool mounted=IsMounted();
     DataManager::SetValue(TW_NAS_MOUNTED,mounted?1:0);
+    Stats stats;
+    if (mounted && ReadStats(stats,false) && !stats.connected) {
+        DataManager::SetValue(TW_NAS_STATUS_TEXT,"NAS connection lost. Disconnect and reconnect; cached files are preserved.");
+        return true;
+    }
     DataManager::SetValue(TW_NAS_STATUS_TEXT,mounted ? "NAS mounted at "+Mount_Point+(CacheMode()=="data" ? " using write cache" : " without disk cache") : "NAS not mounted");
     return mounted;
 }

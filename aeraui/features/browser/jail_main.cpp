@@ -200,7 +200,7 @@ static void WriteResolverConfig(int root) {
   const int etc = openat(root, "etc", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (etc < 0) Die("browser resolver directory");
   std::string contents;
-  const char *keys[] = {"net.wlan0.dns1", "net.wlan0.dns2", "net.dns1", "net.dns2"};
+  const char *keys[] = {"net.dns1", "net.dns2"};
   for (const char *key : keys) {
     char value[PROP_VALUE_MAX]{};
     if (__system_property_get(key, value) <= 0) continue;
@@ -407,6 +407,16 @@ int main(int argc, char **argv) {
         recorder ? "aera-recorder" : "aera-browser"), "private hostname");
   Check(minijail_enter_chroot(jail, root.c_str()), "private filesystem");
   Check(minijail_bind(jail, root.c_str(), "/", 0), "read-only runtime");
+  struct stat resolver_info{};
+  struct statfs resolver_fs{};
+  if (!retroarch && !doom && !media && !recorder && !streams_media &&
+      !lstat("/etc/resolv.conf", &resolver_info) && S_ISREG(resolver_info.st_mode) &&
+      resolver_info.st_uid == 0 && !statfs("/etc/resolv.conf", &resolver_fs) &&
+      (resolver_fs.f_type == 0x01021994 || resolver_fs.f_type == 0x858458f6)) {
+    // Keep DNS live across WLAN/mobile handovers without giving the client
+    // write access to recovery's resolver or exposing the host /etc directory.
+    Check(minijail_bind(jail, "/etc/resolv.conf", "/etc/resolv.conf", 0), "live read-only resolver");
+  }
   const unsigned long flags = MS_NOSUID | MS_NODEV | MS_NOEXEC;
   const char *proc_options =
       SupportsProcSubsetPid() ? "hidepid=2,subset=pid" : "hidepid=2";

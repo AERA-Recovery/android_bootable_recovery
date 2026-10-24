@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -30,6 +31,7 @@
 #include "twcommon.h"
 #include "twrp-functions.hpp"
 #include "aera_supplicant_link.hpp"
+#include "aera_wlan_dhcp.hpp"
 
 #ifndef LOGINFO
 #define LOGINFO(...) printf(__VA_ARGS__)
@@ -46,6 +48,7 @@
 // deliberately coarser than g_supp_mutex (which only guards a single ctrl-socket
 // exchange). Recursive because Scan()/Connect()/ConnectSaved() call Enable().
 static std::recursive_mutex g_wlan_op_mutex;
+static std::string g_static_ip_iface;
 
 static const char* WLAN_TMP_DIR        = "/tmp/wlan";
 static const char* WLAN_LIST_DIR       = "/tmp/wlan/list";
@@ -468,36 +471,7 @@ bool Wlan::Connect() {
     gui_print("Connect to network with new config...\n");
     gui_print(" \n");
 
-    // Wait for association via supplicant events instead of polling STATUS on a
-    // fixed 1s cadence: each iteration blocks up to 1.5s for a relevant event,
-    // then confirms the SSID via STATUS. Bounded to ~15s worst case but returns
-    // the instant CTRL-EVENT-CONNECTED lands.
-    bool completed = false;
-
-    for (int tries = 0; tries < 12 && !completed; ++tries) {
-        std::string ev;
-        bool got_event = SuppWaitEvent({"CTRL-EVENT-CONNECTED", "CTRL-EVENT-DISCONNECTED",
-                                        "CTRL-EVENT-ASSOC-REJECT", "CTRL-EVENT-AUTH-REJECT"},
-                                       1500, ev);
-
-        std::string status;
-        if (SuppCmd("STATUS", status)) {
-            std::string wpa_state;
-            std::string current_ssid;
-            std::string ip_addr;
-            ParseSupplicantStatus(status, wpa_state, current_ssid, ip_addr);
-
-            gui_print("Connection state: %s (%d/12)\n", wpa_state.c_str(), tries);
-
-            if (wpa_state == "COMPLETED" && current_ssid == ssid) {
-                completed = true;
-                break;
-            }
-        }
-
-        if (!got_event)
-            usleep(500 * 1000);
-    }
+    const bool completed = WaitForAssociation(ssid, 20000);
 
     if (!completed) {
         gui_print(" \n");
@@ -519,8 +493,8 @@ bool Wlan::Connect() {
     gui_print("Getting dhcp ip...\n");
     gui_print(" \n");
 
-    if (!StartDhcp()) {
-        gui_print("WLAN: DHCP failed\n");
+    if (!ConfigureIp(ssid)) {
+        gui_print("WLAN: IP configuration failed\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
         DataManager::SetValue("tw_wlan_connected", 0);
@@ -804,39 +778,8 @@ bool Wlan::ConnectSaved() {
         return false;
     }
 
-    int tries = 0;
-    const int max_tries = 10;
-    bool completed = false;
     bool saw_transition = false;
-
-    while (tries < max_tries) {
-        std::string ev;
-        bool got_event = SuppWaitEvent({"CTRL-EVENT-CONNECTED", "CTRL-EVENT-DISCONNECTED",
-                                        "CTRL-EVENT-ASSOC-REJECT", "CTRL-EVENT-AUTH-REJECT"},
-                                       2000, ev);
-        if (!got_event)
-            usleep(1000 * 1000);
-
-        std::string status;
-        if (SuppCmd("STATUS", status)) {
-            std::string wpa_state;
-            std::string current_ssid;
-            std::string ip_addr;
-            ParseSupplicantStatus(status, wpa_state, current_ssid, ip_addr);
-
-            gui_print("Saved connection state: %s (%d/%d)\n", wpa_state.c_str(), tries, max_tries);
-
-            if (wpa_state != "COMPLETED")
-                saw_transition = true;
-
-            if (wpa_state == "COMPLETED" && current_ssid == ssid) {
-                completed = true;
-                break;
-            }
-        }
-
-        tries++;
-    }
+    bool completed = WaitForAssociation(ssid, 20000, &saw_transition);
 
     if (!completed) {
         gui_print("WLAN: saved association failed\n");
@@ -851,26 +794,8 @@ bool Wlan::ConnectSaved() {
         gui_print("WLAN: saved association was already completed; forcing reassociation before DHCP\n");
         SuppCmd("REASSOCIATE");
 
-        completed = false;
-
-        for (int i = 0; i < max_tries; ++i) {
-            usleep(1000 * 1000);
-
-            std::string status;
-            if (SuppCmd("STATUS", status)) {
-                std::string wpa_state;
-                std::string current_ssid;
-                std::string ip_addr;
-                ParseSupplicantStatus(status, wpa_state, current_ssid, ip_addr);
-
-                gui_print("Saved reassociation state: %s (%d/%d)\n", wpa_state.c_str(), i, max_tries);
-
-                if (wpa_state == "COMPLETED" && current_ssid == ssid) {
-                    completed = true;
-                    break;
-                }
-            }
-        }
+        usleep(200 * 1000);
+        completed = WaitForAssociation(ssid, 10000);
 
         if (!completed) {
             gui_print("WLAN: saved reassociation failed\n");
@@ -887,8 +812,8 @@ bool Wlan::ConnectSaved() {
 
     gui_print("Getting dhcp ip for saved network...\n");
 
-    if (!StartDhcp()) {
-        gui_print("WLAN: DHCP failed on saved network\n");
+    if (!ConfigureIp(ssid)) {
+        gui_print("WLAN: IP configuration failed on saved network\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
         DataManager::SetValue("tw_wlan_connected", 0);
@@ -975,9 +900,46 @@ bool Wlan::InfoLocked()
     std::string ip_addr;
     ParseSupplicantStatus(status, wpa_state, ssid, ip_addr);
 
+    static auto renew_after = std::chrono::steady_clock::time_point{};
+    const auto now = std::chrono::steady_clock::now();
+    if (wpa_state == "COMPLETED" && !ssid.empty() && ip_addr.empty() && now >= renew_after &&
+        ssid == DataManager::GetStrValue("of_wlan_last_ssid")) {
+        // Supplicant may find a saved AP only after ConnectSaved timed out.
+        renew_after = now + std::chrono::seconds(10);
+        if (ConfigureIp(ssid) && SuppCmd("STATUS", status))
+            ParseSupplicantStatus(status, wpa_state, ssid, ip_addr);
+    }
     DataManager::SetValue("wlan_info_state", wpa_state);
 
     if (wpa_state == "COMPLETED" && !ssid.empty() && !ip_addr.empty()) {
+        // A carrier loss can remove the WLAN default route while supplicant
+        // retains the association's IPv4. Renew only our known network lease;
+        // an intentionally gateway-less LAN must remain usable as configured.
+        const auto iface = GetIface();
+        char gateway[PROPERTY_VALUE_MAX]{}, configured_ip[PROPERTY_VALUE_MAX]{};
+        property_get(("net." + iface + ".gateway").c_str(), gateway, "");
+        property_get(("net." + iface + ".ipaddress").c_str(), configured_ip, "");
+        in_addr gateway_address{};
+        if (ssid == DataManager::GetStrValue("of_wlan_last_ssid") && ip_addr == configured_ip &&
+            inet_pton(AF_INET, gateway, &gateway_address) == 1 && gateway_address.s_addr) {
+            std::ifstream routes("/proc/net/route");
+            if (!routes) return false;
+            std::string line;
+            bool routed = false;
+            while (std::getline(routes, line)) {
+                std::istringstream fields(line);
+                std::string device, destination, next_hop;
+                unsigned flags = 0;
+                if (fields >> device >> destination >> next_hop >> std::hex >> flags)
+                    routed |= device == iface && destination == "00000000" && (flags & 1);
+            }
+            if (routes.bad()) return false;
+            if (!routed) {
+                if (!ConfigureIp(ssid) || !SuppCmd("STATUS", status)) return false;
+                ParseSupplicantStatus(status, wpa_state, ssid, ip_addr);
+                if (wpa_state != "COMPLETED" || ip_addr.empty()) return false;
+            }
+        }
         // The WLAN worker refreshes RSSI; status-bar rendering only reads it.
         std::string signal;
         int rssi = -999;
@@ -1353,17 +1315,142 @@ bool Wlan::PrepareStableMacFirmware() {
     return true;
 }
 
+bool Wlan::WaitForAssociation(const std::string& ssid, int timeout_ms, bool* saw_transition) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    std::string previous_state;
+    for (;;) {
+        std::string status, state, current_ssid, address;
+        if (SuppCmd("STATUS", status) && ParseSupplicantStatus(status, state, current_ssid, address)) {
+            if (state != previous_state) gui_print("WLAN connection state: %s\n", state.c_str());
+            previous_state = state;
+            if (saw_transition && state != "COMPLETED") *saw_transition = true;
+            if (state == "COMPLETED" && current_ssid == ssid) return true;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) return false;
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+        std::string event;
+        // Events only wake a new status check. Queued disconnect/reject events
+        // must never consume a retry count before real association has time.
+        SuppWaitEvent({"CTRL-EVENT-CONNECTED", "CTRL-EVENT-DISCONNECTED",
+                       "CTRL-EVENT-ASSOC-REJECT", "CTRL-EVENT-AUTH-REJECT"},
+                       static_cast<int>(std::min<int64_t>(remaining, 250)), event);
+        usleep(20 * 1000);
+    }
+}
+
+bool Wlan::ApplyIpConfiguration(const std::string& ssid) {
+    std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
+    std::string status, state, current_ssid, address;
+    if (!SuppCmd("STATUS", status) ||
+        !ParseSupplicantStatus(status, state, current_ssid, address) ||
+        state != "COMPLETED" || current_ssid != ssid) return false;
+    const bool result = ConfigureIp(ssid);
+    InfoLocked();
+    return result;
+}
+
+bool Wlan::ConfigureIp(const std::string& ssid) {
+    aera::wifi::IpConfig config;
+    std::string error;
+    if (!AeraSecrets::GetWlanIpConfig(ssid, config) ||
+        !aera::wifi::ValidateIpConfig(config, error)) return false;
+    const auto iface = GetIface();
+    if (iface.empty() || iface.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") != std::string::npos)
+        return false;
+    if (!config.manual && g_static_ip_iface.empty()) return StartDhcp();
+    std::string ip = FindBinary({"/system/bin/ip", "/sbin/ip"});
+    if (ip.empty()) ip = GetBusyboxBinary() + " ip";
+    // Only this Wi-Fi interface's IPv4 configuration is replaced. IPv6,
+    // USB networking and other interfaces are left untouched.
+    if (!RunCommand(ip + " -4 route flush dev " + iface) ||
+        !RunCommand(ip + " -4 addr flush dev " + iface + " scope global")) return false;
+    g_static_ip_iface = iface;
+    if (!config.manual) {
+        if (!StartDhcp()) return false;
+        g_static_ip_iface.clear();
+        return true;
+    }
+    if (!RunCommand(ip + " -4 addr add " + config.address + "/" +
+                    std::to_string(config.prefix) + " dev " + iface)) return false;
+    if (!config.gateway.empty() &&
+        !RunCommand(ip + " -4 route add default via " + config.gateway + " dev " + iface)) return false;
+    std::string resolver;
+    for (const auto& dns : {config.dns1, config.dns2})
+        if (!dns.empty()) resolver += "nameserver " + dns + "\n";
+    if (!WriteFile("/system/etc/resolv.conf", resolver)) return false;
+    property_set(("net." + iface + ".ipaddress").c_str(), config.address.c_str());
+    property_set(("net." + iface + ".gateway").c_str(), config.gateway.c_str());
+    property_set(("net." + iface + ".dns1").c_str(), config.dns1.c_str());
+    property_set(("net." + iface + ".dns2").c_str(), config.dns2.c_str());
+    property_set("net.dns1", config.dns1.c_str()); property_set("net.dns2", config.dns2.c_str());
+    return true;
+}
+
 bool Wlan::StartDhcp() {
     const std::string iface = GetIface();
-    const std::string dhcptool = "/system/bin/dhcptool";
-
-    if (!FileExists(dhcptool)) {
-        gui_print("WLAN: dhcptool binary not found\n");
+    if (iface.empty() || iface.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") != std::string::npos)
         return false;
+
+    char directory[] = "/tmp/aera-dhcp-XXXXXX";
+    if (!mkdtemp(directory)) return false;
+    const std::string hook = std::string(directory) + "/lease-hook";
+    const std::string lease_file = hook + ".lease";
+    const std::string applets = std::string(directory) + "/applets";
+    struct Cleanup {
+        std::string hook, lease, applets, directory;
+        ~Cleanup() {
+            unlink(hook.c_str()); unlink(lease.c_str()); unlink(applets.c_str());
+            rmdir(directory.c_str());
+        }
+    } cleanup {hook, lease_file, applets, directory};
+
+    std::vector<std::string> client;
+    const std::string standalone = FindBinary({"/system/bin/udhcpc", "/sbin/udhcpc"});
+    if (!standalone.empty()) {
+        client = {standalone};
+    } else {
+        const std::string busybox = GetBusyboxBinary();
+        std::string available;
+        if (!busybox.empty() && aera::wifi::RunDhcpProcess({busybox, "--list"}, applets, 2000) == 0 &&
+            ReadFile(applets, available) && ("\n" + available).find("\nudhcpc\n") != std::string::npos)
+            client = {busybox, "udhcpc"};
     }
 
-    if (!RunCommand(dhcptool + " " + iface + " >/tmp/dhcptool.log 2>&1"))
-        return false;
+    if (!client.empty()) {
+        if (!WriteFile(hook, aera::wifi::kDhcpHook) || chmod(hook.c_str(), 0700) != 0) return false;
+        std::string ip = FindBinary({"/system/bin/ip", "/sbin/ip"});
+        if (ip.empty()) ip = GetBusyboxBinary() + " ip";
+        // A failed network switch must not retain the previous network's IPv4 lease.
+        if (!RunCommand(ip + " -4 route flush dev " + iface) ||
+            !RunCommand(ip + " -4 addr flush dev " + iface + " scope global")) return false;
+        client.insert(client.end(), {"-f", "-n", "-q", "-i", iface, "-t", "4", "-T", "4", "-s", hook});
+        LOGINFO("WLAN: requesting DHCP lease with udhcpc on %s (30s deadline)\n", iface.c_str());
+        const int result = aera::wifi::RunDhcpProcess(client, "/tmp/dhcptool.log", 30000);
+        aera::wifi::DhcpLease lease;
+        if (result != 0 || !aera::wifi::ReadDhcpLease(lease_file, lease)) {
+            LOGERR("WLAN: DHCP lease acquisition failed (rc=%d); see /tmp/dhcptool.log\n", result);
+            return false;
+        }
+        if (!RunCommand(ip + " -4 addr add " + lease.address + "/" + std::to_string(lease.prefix) + " dev " + iface) ||
+            (!lease.gateway.empty() && !RunCommand(ip + " -4 route add default via " + lease.gateway + " dev " + iface)))
+            return false;
+        const std::string prefix = "net." + iface;
+        property_set((prefix + ".ipaddress").c_str(), lease.address.c_str());
+        property_set((prefix + ".gateway").c_str(), lease.gateway.c_str());
+        for (size_t index = 0; index < 4; ++index)
+            property_set((prefix + ".dns" + std::to_string(index + 1)).c_str(),
+                         index < lease.dns.size() ? lease.dns[index].c_str() : "");
+        g_static_ip_iface.clear();
+        LOGINFO("WLAN: DHCP assigned %s/%d gateway %s\n", lease.address.c_str(), lease.prefix, lease.gateway.c_str());
+    } else {
+        // Retain compatibility with builds whose BusyBox omits the DHCP applet.
+        if (!FileExists(BIN_DHCPTOOL) ||
+            aera::wifi::RunDhcpProcess({BIN_DHCPTOOL, iface}, "/tmp/dhcptool.log", 30000) != 0) {
+            LOGERR("WLAN: legacy DHCP failed or exceeded its 30s deadline\n");
+            return false;
+        }
+    }
 
     /*
      * dhcptool publishes DNS servers as Android properties, but recovery has

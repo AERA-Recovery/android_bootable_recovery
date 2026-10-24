@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated": "2026-10-15",
+  "generated": "2026-10-23",
   "architecture": "aarch64",
   "providers": [
     {
@@ -31,12 +31,12 @@
       "id": "sukisu-ultra",
       "name": "SukiSU Ultra",
       "repository": "SukiSU-Ultra/SukiSU-Ultra",
-      "version": "v4.2.0",
+      "version": "v4.2.1-r1",
       "assets": [
-        {"kmi":"android14-6.1","name":"aarch64-android14-6.1-lkm.zip","size":107139,"sha256":"043cb8ed21fd16b1bd67769881d283cd9b45fb4811ad32985608fe11c21215cd","archive":true},
-        {"kmi":"android15-6.6","name":"aarch64-android15-6.6-lkm.zip","size":91847,"sha256":"ac6703e2639f41ddb069bc6ee3e7147b989f0d93e247a3360237e533997398bb","archive":true},
-        {"kmi":"android16-6.12","name":"aarch64-android16-6.12-lkm.zip","size":107275,"sha256":"faf8897e7e5f602cddaf872c7a8558bfd138a1bf6835611a7198a7c7ddddfdd4","archive":true},
-        {"kmi":"android17-6.18","name":"aarch64-android17-6.18-lkm.zip","size":100071,"sha256":"e5fb492efd6d5935b46b49efb3111562fb6e9cd489afa569a42f27080bf81bd9","archive":true}
+        {"kmi":"android14-6.1","name":"lkm-aarch64-android14-6.1_kernelsu.ko","size":542952,"sha256":"e62e6130a6f0abc009fe4a0164fa74d8575c5b115bc3a646c105977ed98d64db","archive":false},
+        {"kmi":"android15-6.6","name":"lkm-aarch64-android15-6.6_kernelsu.ko","size":436152,"sha256":"8e9b805decedc53936109a686bdd4216e806e2438c99b87d34ee1fdc82e1897d","archive":false},
+        {"kmi":"android16-6.12","name":"lkm-aarch64-android16-6.12_kernelsu.ko","size":512888,"sha256":"6bd6632b27cb80de73537cc47bc7cf505a1fd5437830efbe019c289226fd34f0","archive":false},
+        {"kmi":"android17-6.18","name":"lkm-aarch64-android17-6.18_kernelsu.ko","size":481944,"sha256":"7fb235ec7cdf4441a83d4d116273c35f03fa326eed3153b0e722982eb9594cfe","archive":false}
       ]
     }
   ]

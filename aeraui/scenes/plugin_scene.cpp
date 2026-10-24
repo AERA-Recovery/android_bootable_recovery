@@ -14,6 +14,7 @@
 #include "plugins/plugin_manager.hpp"
 #include "plugins/store_metadata.hpp"
 #include "retroarch_icon.hpp"
+#include "desktop_icon.hpp"
 #include "ui_components.hpp"
 
 namespace aeraui {
@@ -106,10 +107,10 @@ void Request(State *state, plugins::Job job, const std::string &id = "", size_t 
   if (!state || state->busy) return;
   const bool online_job = job != plugins::Job::kRemove &&
       job != plugins::Job::kInstallLocalMemory && job != plugins::Job::kInstallLocalStorage;
-  if (online_job && !RecoveryWifiConnection().connected && job != plugins::Job::kScreenshot) {
+  if (online_job && !RecoveryNetworkConnected() && job != plugins::Job::kScreenshot) {
     i18n::BindLabel(state->scene.status, "Offline");
     Sheet(state->screen, "Plugin Store is offline",
-          "Connect AERA to Wi-Fi, then try Refresh store again.");
+          "Connect AERA to a network, then try Refresh store again.");
     return;
   }
   plugins::Request request;
@@ -163,7 +164,7 @@ void Detail(State *state, const std::vector<plugins::Plugin> &catalog,
   if (!plugin) { state->detail_id.clear(); Render(state); return; }
   const int width = lv_obj_get_width(state->scene.list) - 56;
   int y = 28;
-  auto *plate = plugin->id == "retroarch"
+  auto *plate = plugin->icon == "desktop" ? DesktopIcon(state->scene.list, kAccent, 112) : plugin->id == "retroarch"
       ? RetroArchIconPlate(state->scene.list, kText, 112)
       : IconPlate(state->scene.list, Icon(*plugin), kAccent, IconBackground(), 112);
   lv_obj_set_pos(plate, 28, y);
@@ -413,7 +414,7 @@ void Render(State *state) {
     const auto *local = Find(installed, release.id);
     if (local && plugins::IsUpdateAvailable(*local, release)) ++update_count;
   }
-  if (state->busy || !update_count || !RecoveryWifiConnection().connected)
+  if (state->busy || !update_count || !RecoveryNetworkConnected())
     lv_obj_add_state(state->update_all, LV_STATE_DISABLED);
   else lv_obj_remove_state(state->update_all, LV_STATE_DISABLED);
   if (state->view == View::kStore) items = catalog;
@@ -462,7 +463,7 @@ void Render(State *state) {
     lv_obj_set_style_bg_opa(row, category_row++ % 2 == 0 ? LV_OPA_30 : LV_OPA_TRANSP, 0);
     lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
     const bool unofficial = local && local->trust == plugins::Trust::kUnofficial;
-    auto *plate = plugin.id == "retroarch" ? RetroArchIconPlate(row, kText, 84)
+    auto *plate = plugin.icon == "desktop" ? DesktopIcon(row, kAccent, 84) : plugin.id == "retroarch" ? RetroArchIconPlate(row, kText, 84)
         : IconPlate(row, Icon(plugin), update || unofficial ? kAmber : kAccent, IconBackground(), 84);
     lv_obj_set_pos(plate, 28, 32);
     lv_obj_remove_flag(plate, LV_OBJ_FLAG_CLICKABLE);
@@ -491,7 +492,7 @@ void Render(State *state) {
     const char *text = !query.empty() || state->category_index ? "No matching plugins." :
         state->view == View::kUpdates ? "All plugins are up to date." :
         state->view == View::kInstalled ? "No plugins installed." :
-        "Connect to Wi-Fi and refresh the store.";
+        "Connect to a network and refresh the store.";
     PlaceText(state->scene.list, 64, i18n::Translate(text), &lv_font_montserrat_32, kMuted, width - 56);
   }
 }
@@ -608,7 +609,7 @@ PluginScene BuildPluginScene(lv_obj_t *screen, ActionCallback callback, void *co
   state->update_all = StoreButton(screen, "Update all", [state] { Request(state, plugins::Job::kUpdateAll); }, true);
   lv_obj_set_pos(state->update_all, 80 + (width + 24) / 2, top + 138);
   lv_obj_set_size(state->update_all, (width - 24) / 2, 116);
-  state->scene.status = Label(screen, RecoveryWifiConnection().connected ? "Ready" : "Offline", &lv_font_montserrat_24, kMuted);
+  state->scene.status = Label(screen, RecoveryNetworkConnected() ? "Ready" : "Offline", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(state->scene.status, 80, top + 282);
   lv_obj_set_width(state->scene.status, width);
   lv_label_set_long_mode(state->scene.status, LV_LABEL_LONG_MODE_DOTS);
