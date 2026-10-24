@@ -18,6 +18,8 @@ inline char kModalMarker;
 // Long-lived overlays such as the Media viewer own timers and reusable child
 // objects. Back must ask them to close instead of deleting their subtree.
 inline char kPersistentModalMarker;
+// In-page Back handlers are not overlays and must not block remote operations.
+inline char kPageBackMarker;
 // Claimed only after an actual long press; normal edge gestures stay unchanged.
 inline lv_obj_t *kPointerDragOwner = nullptr;
 inline bool PointerDragActive() {
@@ -39,7 +41,7 @@ inline bool DismissModal(lv_obj_t *screen) {
   for (int i = static_cast<int>(lv_obj_get_child_count(screen)) - 1; i >= 0; --i) {
     auto *child = lv_obj_get_child(screen, i);
     void *marker = lv_obj_get_user_data(child);
-    if (marker == &kPersistentModalMarker &&
+    if ((marker == &kPersistentModalMarker || marker == &kPageBackMarker) &&
         !lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN)) {
       lv_obj_send_event(child, LV_EVENT_CANCEL, nullptr);
       return true;

@@ -285,8 +285,8 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
             if (event.code == REL_X) engine.MouseMove(event.value, 0);
             if (event.code == REL_Y) engine.MouseMove(0, event.value);
             if (event.code == REL_WHEEL) engine.MouseWheel(event.value);
-        } else if (event.code == BTN_LEFT) {
-            engine.MouseButton(event.value != 0);
+        } else if (event.code == BTN_LEFT || event.code == BTN_RIGHT || event.code == BTN_MIDDLE) {
+            engine.MouseButton(event.value != 0, event.code == BTN_LEFT ? 1 : event.code == BTN_MIDDLE ? 2 : 3);
         }
         return false;
     }

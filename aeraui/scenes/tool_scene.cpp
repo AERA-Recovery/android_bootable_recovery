@@ -4,6 +4,8 @@
 #include "aeraui/screen_timeout.hpp"
 #include "phone_keyboard.hpp"
 #include "picture_decode.hpp"
+#include "file_manager.hpp"
+#include "font_browser.hpp"
 #include "ui_components.hpp"
 #include "circle_battery.hpp"
 #include "partition_layout.hpp"
@@ -394,9 +396,7 @@ void CloseBackupActions(lv_obj_t *overlay) {
 void ConfirmBackupDeletion(Tools *state, const std::string &path,
                            const std::string &name) {
   Sheet(state->screen, "Delete backup?",
-        "Permanently delete " + name +
-            " and every partition stored inside it?\n\n"
-            "This cannot be undone.",
+        i18n::Format("Permanently delete %s and every partition stored inside it?\n\nThis cannot be undone.", name.c_str()),
         [state, path] {
           if (RecoveryDeleteBackup(path)) {
             RestoreFolders(state);
@@ -756,30 +756,28 @@ void Review(Tools *state) {
   if (request.job == Job::kBackup) {
     uint64_t bytes = 0;
     for (const auto &v : state->volumes) if (state->selected.count(v.path)) bytes += v.bytes;
-    text = "Destination\n" + RecoveryBackupRoot() +
-           "\n\nA new dated backup folder will be created.\n\nEstimated size: " + Size(bytes) +
-           "\nBefore compression; actual archive size may differ.\n";
-    if (RecoveryDataLocked()) text += "\nStorage is locked. This is not a decrypted user-data backup.\n";
+    text = i18n::Format("Destination\n%s\n\nA new dated backup folder will be created.\n\nEstimated size: %s\nBefore compression; actual archive size may differ.\n",
+                        RecoveryBackupRoot().c_str(), Size(bytes).c_str());
+    if (RecoveryDataLocked()) text += i18n::Translate("\nStorage is locked. This is not a decrypted user-data backup.\n");
   } else if (request.job == Job::kRestore) {
-    text = "Source\n" + request.path +
-           "\n\nRestoring overwrites the selected partitions.\n";
-  } else text = "This permanently erases the selected contents.\n";
-  text += "\nSelected partitions\n";
+    text = i18n::Format("Source\n%s\n\nRestoring overwrites the selected partitions.\n", request.path.c_str());
+  } else text = i18n::Translate("This permanently erases the selected contents.\n");
+  text += i18n::Translate("\nSelected partitions\n");
   for (const auto &v : state->volumes) {
     if (state->selected.count(v.path))
-      text += "\n" + v.name + "  (" + v.path + ")";
+      text += "\n" + std::string(i18n::Translate(v.name.c_str())) + "  (" + v.path + ")";
   }
   if (request.job == Job::kWipe) {
-    text += "\n\nWhat will be erased\n";
+    text += i18n::Translate("\n\nWhat will be erased\n");
     for (const auto &v : state->volumes)
-      if (state->selected.count(v.path)) text += "\n" + v.name + ": " + WipeDescription(v.path);
+      if (state->selected.count(v.path)) text += "\n" + std::string(i18n::Translate(v.name.c_str())) + ": " + i18n::Translate(WipeDescription(v.path).c_str());
   }
-  text += "\n\nActive slot: " + RecoverySlot();
+  text += i18n::Format("\n\nActive slot: %s", RecoverySlot().c_str());
   if (request.job == Job::kBackup)
-    text += state->compression ? "\nCompression on. Digests included." :
-                                "\nCompression off. Digests included.";
-  if (request.job == Job::kRestore) text += "\nDigest verification enabled.";
-  Sheet(state->screen, "Review " + request.title, text,
+    text += i18n::Translate(state->compression ? "\nCompression on. Digests included." :
+                                "\nCompression off. Digests included.");
+  if (request.job == Job::kRestore) text += i18n::Translate("\nDigest verification enabled.");
+  Sheet(state->screen, i18n::Format("Review %s", i18n::Translate(request.title.c_str())), text,
         [state, request] { Run(state, request); });
 }
 
@@ -2319,6 +2317,11 @@ void BuildThemeHome(Tools *state) {
   RestoreThemeScroll(state);
 }
 
+bool IsFontFile(const std::string &name) {
+  return name.size() > 4 && (strcasecmp(name.c_str() + name.size() - 4, ".ttf") == 0 ||
+                            strcasecmp(name.c_str() + name.size() - 4, ".otf") == 0);
+}
+
 void BuildThemeTypography(Tools *state) {
   ThemePage(state, "Text & size");
   auto *density = ThemeGroup(state->list, "Density");
@@ -2334,6 +2337,9 @@ void BuildThemeTypography(Tools *state) {
   auto *typefaces = ThemeGroup(state->list, "Typography");
   struct FontChoice { std::string id, family, path; };
   std::vector<FontChoice> fonts_available{{"", "AERA Default", ""}};
+  const auto custom = RecoveryCustomFont();
+  if (!custom.empty())
+    fonts_available.push_back({custom, RecoveryUiFontName(custom), RecoveryUiFontPath(custom)});
   for (const auto &plugin : plugins::Installed()) {
     if (!plugins::IsThemeExtension(plugin)) continue;
     plugins::Plugin verified;
@@ -2362,6 +2368,10 @@ void BuildThemeTypography(Tools *state) {
     lv_obj_set_width(sample, LV_PCT(100));
     lv_label_set_long_mode(sample, LV_LABEL_LONG_WRAP);
   }
+  auto *browse_fonts = Button(state->list, "Browse fonts", [state] {
+    OpenFontBrowser(state->screen, [state] { RefreshTheme(state); });
+  });
+  lv_obj_set_size(browse_fonts, LV_PCT(100), 120);
   ThemeReset(state, ThemeSection::kTypography);
   RestoreThemeScroll(state);
 }
@@ -2568,7 +2578,8 @@ void BuildPreferences(Tools *state) {
   PreferenceEntry(state, LV_SYMBOL_KEYBOARD, "Language", language_name,
                   [state] { Open(state, Action::kLanguage); });
   PreferenceEntry(state, LV_SYMBOL_KEYBOARD, "Keyboard layout",
-      RecoveryKeyboardLayout() == KeyboardLayout::kQwertz ? "QWERTZ" : "QWERTY",
+      RecoveryKeyboardLayout() == KeyboardLayout::kAzerty ? "AZERTY" :
+          RecoveryKeyboardLayout() == KeyboardLayout::kQwertz ? "QWERTZ" : "QWERTY",
       [state] {
     auto *overlay = lv_obj_create(state->screen);
     Clear(overlay);
@@ -2585,9 +2596,11 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_flex_flow(sheet, LV_FLEX_FLOW_COLUMN);
     lv_obj_center(sheet);
     auto *choices = ThemeGroup(sheet, "Keyboard layout");
-    for (int i = 0; i < 2; ++i)
-      ThemeChoice(choices, i ? "QWERTZ" : "QWERTY",
-          i18n::Translate(i ? "Y and Z exchanged" : "International default"),
+    static constexpr const char *names[] = {"QWERTY", "QWERTZ", "AZERTY"};
+    static constexpr const char *details[] = {
+        "International default", "Y and Z exchanged", "French layout"};
+    for (int i = 0; i < 3; ++i)
+      ThemeChoice(choices, names[i], i18n::Translate(details[i]),
           static_cast<int>(RecoveryKeyboardLayout()) == i, [state, overlay, i] {
         if (!RecoverySetKeyboardLayout(static_cast<KeyboardLayout>(i)) || !AutoSaveSettings(state)) return;
         lv_obj_delete_async(overlay);
@@ -2661,7 +2674,7 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_flex_grow(title, 1);
     lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
     const std::string timeout_text = RecoveryScreenTimeout() == 0 ? i18n::Translate("Never") :
-        std::to_string(RecoveryScreenTimeout()) + " s";
+        i18n::Format("%d s", RecoveryScreenTimeout());
     auto *value = Label(heading, timeout_text.c_str(),
                         &lv_font_montserrat_32, kAccent);
     lv_obj_set_width(value, 146);
@@ -2679,7 +2692,7 @@ void BuildPreferences(Tools *state) {
       const auto code = lv_event_get_code(event);
       if (code != LV_EVENT_VALUE_CHANGED && code != LV_EVENT_RELEASED) return;
       const int seconds = ScreenTimeoutSeconds(lv_slider_get_value(lv_event_get_target_obj(event)));
-      const std::string text = seconds == 0 ? i18n::Translate("Never") : std::to_string(seconds) + " s";
+      const std::string text = seconds == 0 ? i18n::Translate("Never") : i18n::Format("%d s", seconds);
       lv_label_set_text(static_cast<lv_obj_t *>(lv_event_get_user_data(event)), text.c_str());
       if (code == LV_EVENT_RELEASED) RecoverySetScreenTimeout(seconds);
     }, LV_EVENT_ALL, value);
@@ -3429,7 +3442,7 @@ void BuildMenu(Tools *state) {
     {LV_SYMBOL_DRIVE, "Mounts", "Mount or unmount recovery volumes", Action::kMounts},
     {LV_SYMBOL_USB, "ADB Sideload", "Receive and install a ZIP package over USB", Action::kSideload},
     {LV_SYMBOL_LIST, "Recovery log", "Read output and troubleshoot operations", Action::kLogs},
-    {LV_SYMBOL_WIFI, "Wi-Fi", "Networks, saved credentials and connection test", Action::kWifi},
+    {LV_SYMBOL_WIFI, ConnectivityTitle(), "Networks, saved credentials and connection test", Action::kWifi},
     {LV_SYMBOL_SHUFFLE, "Network Storage", "Connect and mount SFTP or SMB storage", Action::kNas},
     {LV_SYMBOL_SETTINGS, "Root Manager", "Patch init_boot and manage KernelSU modules", Action::kRootManager},
     {LV_SYMBOL_KEYBOARD, "Android Users", "Unlock additional users on demand", Action::kUsers},
@@ -3512,6 +3525,71 @@ void SetUserDecryptRequest(const UserDecryptRequest &request) {
 
 UserDecryptRequest GetUserDecryptRequest() {
   return selected_user_decrypt;
+}
+
+void OpenFontPreview(lv_obj_t *screen, const std::string &path, std::function<void()> applied) {
+  struct stat info{};
+  const lv_font_t *font = nullptr;
+  if (IsFontFile(path) && lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
+      info.st_size > 0 && info.st_size <= 32 * 1024 * 1024)
+    font = fonts::PreviewFont(path, 48);
+  if (!font) {
+    Sheet(screen, "Font unavailable", "AERA could not load this font.");
+    return;
+  }
+  const int width = lv_obj_get_width(screen);
+  const int height = lv_obj_get_height(screen);
+  const int top = StatusBarHeight();
+  auto *overlay = lv_obj_create(screen);
+  Clear(overlay);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  lv_obj_set_pos(overlay, 0, top);
+  lv_obj_set_size(overlay, width, height - top);
+  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  auto *heading = Label(overlay, "Font preview", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(heading, 64, 32);
+  auto *name = Label(overlay, file_manager::BaseName(path).c_str(), &lv_font_montserrat_28, kMuted);
+  lv_obj_set_pos(name, 64, 112);
+  SingleLineLabel(name, width - 128, &lv_font_montserrat_28);
+  auto *samples = lv_obj_create(overlay);
+  Clear(samples);
+  lv_obj_set_pos(samples, 64, 206);
+  lv_obj_set_size(samples, width - 128, height - top - 426);
+  lv_obj_add_flag(samples, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(samples, LV_DIR_VER);
+  lv_obj_set_flex_flow(samples, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(samples, 48, 0);
+  auto *preview_font = new lv_font_t(*font);
+  preview_font->fallback = fonts::WithLanguageFallback(&lv_font_montserrat_48);
+  lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
+    delete static_cast<lv_font_t *>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, preview_font);
+  for (const auto *sample : {"Aa Bb Cc 0123456789", "The quick brown fox jumps over the lazy dog.",
+                             "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz", "!? @#$% & () [] {}"}) {
+    auto *label = lv_label_create(samples);
+    lv_label_set_text(label, sample);
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(label, preview_font, 0);
+    lv_obj_set_style_text_color(label, kText, 0);
+  }
+  const int button_width = (width - 152) / 2;
+  auto *cancel = Button(overlay, "Cancel", [overlay] { lv_obj_delete_async(overlay); });
+  lv_obj_set_size(cancel, button_width, 120);
+  lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 64, -36);
+  auto *use = Button(overlay, "Use this font", [overlay, path, applied] {
+    std::string error;
+    if (!RecoveryImportUiFont(path, &error)) {
+      Sheet(overlay, "Font unavailable", error);
+      return;
+    }
+    lv_obj_report_style_change(nullptr);
+    lv_obj_delete_async(overlay);
+    if (applied) applied();
+  }, true);
+  lv_obj_set_size(use, button_width, 120);
+  lv_obj_align(use, LV_ALIGN_BOTTOM_RIGHT, -64, -36);
 }
 
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void *context) {

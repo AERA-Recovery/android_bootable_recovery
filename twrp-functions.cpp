@@ -21,6 +21,7 @@
 */
 
 #include <stdio.h>
+#include "aera_mobile/client.hpp"
 #include <stdlib.h>
 #include <string>
 #include <unistd.h>
@@ -1098,6 +1099,11 @@ void TWFunc::Update_Intent_File(string Intent)
 // reboot: Reboot the system. Return -1 on error, no return on success
 int TWFunc::tw_reboot(RebootCommand command)
 {
+    aera::mobile::StorageLease mobile_lease;
+    if (!mobile_lease) {
+        LOGERR("Mobile modem could not stop. Reboot recovery manually before flashing.\n");
+        return -1;
+    }
 	DataManager::Flush();
 	Update_Log_File();
 

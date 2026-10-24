@@ -105,6 +105,39 @@ class PcConnectionTest(unittest.TestCase):
         type(self).token = approved["token"]
         self.assertTrue(self.request("/api/status")[1]["remembered"])
 
+    def test_01z_manual_plugin_packages(self):
+        for official in (False, True):
+            data = b"plugin-fixture-official" if official else b"plugin-fixture-unofficial"
+            status, job = self.prepare(data, name="test.aerap", kind="plugin")
+            self.assertEqual(status, 200)
+            status, ready = self.request("/api/upload/" + job["id"], data, method="PUT")
+            self.assertEqual(status, 200)
+            self.assertTrue(ready["plugin_install"])
+            self.assertEqual(ready["package_info"]["plugin_id"], "fixture-plugin")
+            self.assertEqual(ready["package_info"]["unofficial"], not official)
+            request = {"id":job["id"], "confirm":True}
+            if not official:
+                self.assertEqual(self.request("/api/install", request)[0], 409)
+                request["allow_unofficial"] = True
+            self.assertEqual(self.request("/api/install", {**request, "install_method":"fast"})[0], 400)
+            self.assertEqual(self.request("/api/install", request)[0], 200)
+            self.command("run")
+            self.wait_phase("completed")
+        bad = b"not a plugin"
+        _, job = self.prepare(bad, name="invalid.aerap", kind="plugin")
+        self.assertEqual(self.request("/api/upload/"+job["id"], bad, method="PUT")[0], 200)
+        self.assertEqual(self.request("/api/install", {"id":job["id"], "confirm":True, "allow_unofficial":True})[0], 409)
+        self.request("/api/cancel", {"id":job["id"]})
+        existing = self.root / "local.aerap"
+        existing.write_bytes(b"plugin-fixture-official")
+        status, ready = self.request("/api/files/prepare", {"path":str(existing)})
+        self.assertEqual(status, 200)
+        self.assertTrue(ready["plugin_install"])
+        self.assertEqual(self.request("/api/install", {"id":ready["id"], "confirm":True})[0], 200)
+        self.wait_phase("completed")
+        self.assertTrue(existing.is_file())  # Files installs never delete the source.
+        self.command("hold")
+
     def test_01a_usb_survives_wifi_and_address_changes(self):
         status, initial = self.request("/api/status")
         self.assertEqual(status, 200)
@@ -542,6 +575,28 @@ class PcConnectionTest(unittest.TestCase):
         self.command("busy")
         self.assertEqual(self.request("/api/log/flashes")[0], 409)
         self.assertEqual(self.request("/api/log/flash/" + names[-1])[0], 409)
+        self.command("idle")
+
+    def test_05bc_manual_diagnostics_have_separate_authenticated_downloads(self):
+        folder = self.root / "AERA" / "logs" / "Diagnostics"
+        folder.mkdir(parents=True, exist_ok=True)
+        name = "debug_20261022_100000_ABCDEF_SUCCESS.zip"
+        with zipfile.ZipFile(folder / name, "w") as report:
+            report.writestr("summary.txt", "Manual diagnostic recording\n")
+            report.writestr("logcat.txt", "manual fixture\n")
+        self.assertEqual(self.request("/api/log/diagnostics", token="")[0], 401)
+        self.assertEqual(self.request("/api/log/diagnostic/" + name, token="")[0], 401)
+        status, listing = self.request("/api/log/diagnostics")
+        self.assertEqual(status, 200)
+        self.assertEqual([entry["name"] for entry in listing["reports"]], [name])
+        status, content = self.request("/api/log/diagnostic/" + name, raw=True)
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(content)) as report:
+            self.assertEqual(report.read("logcat.txt"), b"manual fixture\n")
+        self.assertEqual(self.request("/api/log/flash/" + name)[0], 404)
+        self.assertNotEqual(self.request("/api/log/diagnostic/../keep.zip")[0], 200)
+        self.command("busy")
+        self.assertEqual(self.request("/api/log/diagnostics")[0], 409)
         self.command("idle")
 
     def test_05b_network_storage_metadata_and_queue(self):

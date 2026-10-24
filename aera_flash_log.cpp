@@ -14,6 +14,8 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
+#include <mutex>
+#include <thread>
 #include <signal.h>
 #include <spawn.h>
 #include <sys/file.h>
@@ -27,9 +29,9 @@ extern char **environ;
 namespace aera::flashlog {
 namespace {
 using Clock = std::chrono::steady_clock;
-std::atomic<bool> active{false};
+std::array<std::atomic<bool>, 2> active{};
 const char *const files[] = {"summary.txt", "summary.txt.tmp", "logcat.txt", "logcat.previous.txt",
-    "recovery.log", "recovery.previous.log", "kernel.log", "kernel.previous.log", ".owner"};
+    "recovery.log", "recovery.previous.log", "kernel.log", "kernel.previous.log", "state.txt", ".owner"};
 
 bool Write(int fd, const char *data, size_t bytes) {
   while (bytes) {
@@ -48,21 +50,21 @@ bool Text(const std::string &path, const std::string &text, bool append = false)
   fsync(fd); close(fd);
   return okay;
 }
-bool Stem(const std::string &name) {
-  if (name.size() != 28 || name.compare(0, 6, "flash_") || name[14] != '_' || name[21] != '_') return false;
+bool Stem(const std::string &name, bool manual = false) {
+  if (name.size() != 28 || name.compare(0, 6, manual ? "debug_" : "flash_") || name[14] != '_' || name[21] != '_') return false;
   for (size_t i = 6; i < 21; ++i)
     if (i != 14 && !std::isdigit(static_cast<unsigned char>(name[i]))) return false;
   for (size_t i = 22; i < 28; ++i)
     if (!std::isalnum(static_cast<unsigned char>(name[i]))) return false;
   return true;
 }
-bool ArchiveName(const std::string &name) {
-  if (name.size() < 28 || !Stem(name.substr(0, 28))) return false;
+bool ArchiveName(const std::string &name, bool manual = false) {
+  if (name.size() < 28 || !Stem(name.substr(0, 28), manual)) return false;
   const auto suffix = name.substr(28);
   return suffix == "_SUCCESS.zip" || suffix == "_FAILED.zip" || suffix == "_INCOMPLETE.zip";
 }
 struct Entry { std::string name; struct stat st{}; };
-std::vector<Entry> Entries(const std::string &root, bool raw = false) {
+std::vector<Entry> Entries(const std::string &root, bool raw = false, bool manual = false) {
   std::vector<Entry> result;
   const int fd = open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (fd < 0) return result;
@@ -70,10 +72,10 @@ std::vector<Entry> Entries(const std::string &root, bool raw = false) {
   if (!dir) { close(fd); return result; }
   while (auto *item = readdir(dir)) {
     const std::string name = item->d_name;
-    if (!ArchiveName(name) && !(raw && Stem(name))) continue;
+    if (!ArchiveName(name, manual) && !(raw && Stem(name, manual))) continue;
     Entry entry; entry.name = name;
     if (fstatat(fd, name.c_str(), &entry.st, AT_SYMLINK_NOFOLLOW)) continue;
-    if (ArchiveName(name) ? !S_ISREG(entry.st.st_mode) : !S_ISDIR(entry.st.st_mode)) continue;
+    if (ArchiveName(name, manual) ? !S_ISREG(entry.st.st_mode) : !S_ISDIR(entry.st.st_mode)) continue;
     result.push_back(entry);
   }
   closedir(dir);
@@ -91,11 +93,11 @@ bool Owned(const std::string &path) {
   const auto count = read(fd, marker, sizeof(marker)); close(fd);
   return count == 18 && !memcmp(marker, "AERA_FLASH_LOG_V1\n", 18);
 }
-void RemoveRaw(const std::string &path) {
+void RemoveRaw(const std::string &path, bool manual = false) {
   if (!Owned(path)) return;
   const auto stem = path.substr(path.find_last_of('/') + 1);
-  if (!Stem(stem)) return;
-  for (const auto &root : PlatformDirectories())
+  if (!Stem(stem, manual)) return;
+  for (const auto &root : PlatformDirectories(manual))
     for (const auto *suffix : {"_SUCCESS.zip.part", "_FAILED.zip.part", "_INCOMPLETE.zip.part"})
       unlink((root + "/" + stem + suffix).c_str());
   const int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -103,21 +105,21 @@ void RemoveRaw(const std::string &path) {
   for (const auto *file : files) unlinkat(fd, file, 0);
   close(fd); rmdir(path.c_str());
 }
-void Prune(const std::string &root, size_t keep) {
+void Prune(const std::string &root, size_t keep, bool manual = false) {
   size_t count = 0;
-  for (const auto &entry : Entries(root, true)) {
+  for (const auto &entry : Entries(root, true, manual)) {
     const auto path = root + "/" + entry.name;
     if (S_ISDIR(entry.st.st_mode) && !Owned(path)) continue;
     if (++count <= keep) continue;
-    if (S_ISDIR(entry.st.st_mode)) RemoveRaw(path);
+    if (S_ISDIR(entry.st.st_mode)) RemoveRaw(path, manual);
     else unlink(path.c_str());
   }
 }
-void PruneAll(const std::string &protected_path = "") {
+void PruneAll(const std::string &protected_path = "", bool manual = false) {
   struct Item { std::string path, name; mode_t mode; timespec modified; };
   std::vector<Item> entries;
-  for (const auto &root : PlatformDirectories())
-    for (const auto &entry : Entries(root, true)) {
+  for (const auto &root : PlatformDirectories(manual))
+    for (const auto &entry : Entries(root, true, manual)) {
       const auto path = root + "/" + entry.name;
       if (path == protected_path || (S_ISDIR(entry.st.st_mode) && !Owned(path))) continue;
       entries.push_back({path, entry.name, entry.st.st_mode, entry.st.st_mtim});
@@ -129,7 +131,7 @@ void PruneAll(const std::string &protected_path = "") {
   });
   const size_t keep = protected_path.empty() ? 2 : 1;
   for (size_t i = keep; i < entries.size(); ++i) {
-    if (S_ISDIR(entries[i].mode)) RemoveRaw(entries[i].path);
+    if (S_ISDIR(entries[i].mode)) RemoveRaw(entries[i].path, manual);
     else unlink(entries[i].path.c_str());
   }
 }
@@ -138,7 +140,7 @@ int Lock(const std::string &root) {
   if (fd >= 0 && flock(fd, LOCK_EX | LOCK_NB)) { close(fd); return -1; }
   return fd;
 }
-bool Package(const Options &options, const std::string &path, const std::string &suffix) {
+bool Package(const Options &options, const std::string &path, const std::string &suffix, std::string *saved = nullptr) {
   if (!options.archive) return false;
   const auto root = options.archive_directory.empty() ? options.directory : options.archive_directory;
   const std::string final = root + "/" + path.substr(path.find_last_of('/') + 1) + suffix + ".zip";
@@ -155,18 +157,19 @@ bool Package(const Options &options, const std::string &path, const std::string 
   const int fd = open(root.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (fd >= 0) { fsync(fd); close(fd); }
   if (options.permissions) options.permissions(final);
-  RemoveRaw(path);
+  if (saved) *saved = final;
+  RemoveRaw(path, options.manual);
   return true;
 }
 void Recover(const Options &options) {
-  for (const auto &entry : Entries(options.directory, true)) {
+  for (const auto &entry : Entries(options.directory, true, options.manual)) {
     if (!S_ISDIR(entry.st.st_mode)) continue;
     const auto path = options.directory + "/" + entry.name;
     if (!Owned(path)) continue;
     Text(path + "/summary.txt", "\nRecording recovered after an interrupted process or unfinished report packaging.\n", true);
     Package(options, path, "_INCOMPLETE");
   }
-  Prune(options.directory, 2);
+  Prune(options.directory, 2, options.manual);
 }
 
 // Two bounded segments retain the most recent output without growing forever.
@@ -182,6 +185,7 @@ class Tail {
       if (size_ == limit_) {
         close(fd_); fd_ = -1;
         if (rename(current_.c_str(), previous_.c_str())) return;
+        ++rotations_;
         size_ = 0; Open();
       }
       const size_t bytes = std::min(count, limit_ - size_);
@@ -189,11 +193,13 @@ class Tail {
       data += bytes; count -= bytes; size_ += bytes;
     }
   }
+  bool Truncated() const { return rotations_ > 1; }
  private:
   void Open() { fd_ = open(current_.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600); }
   std::string current_, previous_;
   size_t limit_, size_ = 0;
   int fd_ = -1;
+  unsigned rotations_ = 0;
 };
 class Child {
  public:
@@ -222,6 +228,7 @@ class Child {
   }
   ~Child() { Stop(); if (fd_ >= 0) close(fd_); }
   int fd() const { return fd_; }
+  ssize_t Read(char *buffer, size_t size) { return fd_ < 0 ? 0 : read(fd_, buffer, size); }
   void Drain(Tail &tail) {
     if (fd_ < 0) return;
     std::array<char, 16384> buffer{};
@@ -233,7 +240,7 @@ class Child {
       tail.Add(buffer.data(), count);
     }
   }
-  void Stop() {
+  void Stop(bool bounded = false) {
     if (pid_ <= 0) return;
     int status;
     pid_t result;
@@ -241,7 +248,12 @@ class Child {
     if (result == 0) {
       kill(-pid_, SIGTERM);
       for (int i = 0; i < 20 && (result = waitpid(pid_, &status, WNOHANG)) == 0; ++i) usleep(10000);
-      if (result == 0) { kill(-pid_, SIGKILL); while (waitpid(pid_, &status, 0) < 0 && errno == EINTR) {} }
+      if (result == 0) {
+        kill(-pid_, SIGKILL);
+        if (bounded) {
+          for (int i = 0; i < 20 && waitpid(pid_, &status, WNOHANG) == 0; ++i) usleep(10000);
+        } else while (waitpid(pid_, &status, 0) < 0 && errno == EINTR) {}
+      }
     }
     pid_ = -1;
   }
@@ -249,6 +261,37 @@ class Child {
   pid_t pid_ = -1;
   int fd_ = -1;
 };
+
+std::string Snapshot(const Options &options, const char *phase) {
+  if (options.diagnostics.empty()) return {};
+  const size_t limit = kManualStateLimit / 2;
+  std::string output = "\n===== " + std::string(phase) + " =====\n";
+  auto append = [&](const std::string &text) {
+    if (output.size() < limit - 128) output.append(text, 0, std::min(text.size(), limit - 128 - output.size()));
+  };
+  const auto deadline = Clock::now() + std::chrono::seconds(4);
+  for (const auto &command : options.diagnostics) {
+    if (Clock::now() >= deadline) { append("\n[snapshot time limit reached]\n"); break; }
+    if (output.size() >= limit - 128) break;
+    append("\n--- " + command.first + " ---\n");
+    Child child(command.second);
+    if (child.fd() < 0) { append("[unavailable]\n"); continue; }
+    const auto command_deadline = std::min(deadline, Clock::now() + std::chrono::milliseconds(600));
+    bool eof = false;
+    std::array<char, 16384> buffer{};
+    while (Clock::now() < command_deadline && output.size() < limit - 128) {
+      const auto count = child.Read(buffer.data(), buffer.size());
+      if (count > 0) append(std::string(buffer.data(), count));
+      else if (count == 0) { eof = true; break; }
+      else if (errno != EAGAIN && errno != EINTR) break;
+      else { pollfd descriptor{child.fd(), POLLIN, 0}; poll(&descriptor, 1, 20); }
+    }
+    child.Stop(true);
+    if (!eof) append("\n[command stopped at its time or output limit]\n");
+  }
+  if (output.size() >= limit - 128) output += "\n[snapshot output limit reached]\n";
+  return output;
+}
 }  // namespace
 
 bool SensitiveSetting(const std::string &key) {
@@ -278,6 +321,7 @@ struct Recording::Session {
   std::atomic<bool> stop{false};
   pthread_t thread{};
   bool started = false;
+  bool logcat_truncated = false, recovery_truncated = false;
   std::unique_ptr<Child> logcat_process;
   Clock::time_point begin = Clock::now();
 
@@ -287,7 +331,7 @@ struct Recording::Session {
     if (started) pthread_join(thread, nullptr);
     if (recovery >= 0) close(recovery);
     if (lock >= 0) close(lock);
-    active.store(false);
+    active[options.manual].store(false);
   }
   void ReadRecovery(Tail &tail, bool final = false) {
     if (recovery < 0) return;
@@ -321,26 +365,29 @@ struct Recording::Session {
       if (descriptor.revents & POLLHUP) usleep(100000);
     }
     child.Stop(); child.Drain(logcat); ReadRecovery(output, true);
+    logcat_truncated = logcat.Truncated();
+    recovery_truncated = output.Truncated();
   }
 };
 
-Recording::Recording(const std::string &file, const std::string &method, const std::string &details) {
+Recording::Recording(const std::string &file, const std::string &method, const std::string &details, bool manual) {
   bool expected = false;
-  if (!active.compare_exchange_strong(expected, true)) return;
-  auto session = std::make_unique<Session>(PlatformOptions(file, method, details));
+  if (!active[manual].compare_exchange_strong(expected, true)) return;
+  auto session = std::make_unique<Session>(PlatformOptions(file, method, details, manual));
+  session->options.manual = manual;
   if (session->options.directory.empty() || (session->lock = Lock(session->options.directory)) < 0) return;
-  auto previous = PlatformOptions("", "", "");
+  auto previous = PlatformOptions("", "", "", manual);
   previous.directory = session->options.directory;
   Recover(previous);
   char date[32]; const time_t now = time(nullptr); struct tm local{};
-  localtime_r(&now, &local); strftime(date, sizeof(date), "flash_%Y%m%d_%H%M%S_", &local);
+  localtime_r(&now, &local); strftime(date, sizeof(date), manual ? "debug_%Y%m%d_%H%M%S_" : "flash_%Y%m%d_%H%M%S_", &local);
   std::string pattern = session->options.directory + "/" + date + "XXXXXX";
   std::vector<char> buffer(pattern.begin(), pattern.end()); buffer.push_back(0);
   if (!mkdtemp(buffer.data())) return;
   session->path = buffer.data();
   if (!Text(session->path + "/.owner", "AERA_FLASH_LOG_V1\n") ||
       !Text(session->path + "/summary.txt", session->options.summary + "\nRecording state: unfinished until a final result is appended.\n")) return;
-  PruneAll(session->path);
+  PruneAll(session->path, manual);
   session->recovery = open(session->options.recovery_log.c_str(), O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
   struct stat st{};
   if (session->recovery >= 0) {
@@ -352,9 +399,14 @@ Recording::Recording(const std::string &file, const std::string &method, const s
         static_cast<Session *>(data)->Run(); return nullptr;
       }, session.get()) == 0) session->started = true;
   else Text(session->path + "/logcat.txt", "Recording worker could not be started.\n");
+  if (!session->options.diagnostics.empty())
+    Text(session->path + "/state.txt", Snapshot(session->options, "State at recording start"));
   session_ = std::move(session);
 }
 Recording::~Recording() = default;
+bool Recording::Started() const {
+  return session_ && session_->started && session_->logcat_process && session_->logcat_process->fd() >= 0;
+}
 int Recording::Finish(int result) {
   if (!session_) return result;
   auto &session = *session_;
@@ -364,8 +416,9 @@ int Recording::Finish(int result) {
     Tail output(session.path + "/recovery.log", session.path + "/recovery.previous.log", session.options.recovery_limit);
     session.ReadRecovery(output, true);
   }
+  bool kernel_truncated = false;
   {
-    Tail kernel(session.path + "/kernel.log", session.path + "/kernel.previous.log", 2 * 1024 * 1024);
+    Tail kernel(session.path + "/kernel.log", session.path + "/kernel.previous.log", session.options.kernel_limit);
     Child child(session.options.kernel);
     const auto deadline = Clock::now() + std::chrono::seconds(1);
     while (child.fd() >= 0 && Clock::now() < deadline) {
@@ -373,12 +426,18 @@ int Recording::Finish(int result) {
       poll(&descriptor, 1, 30);
       if (descriptor.revents & POLLHUP) { child.Drain(kernel); break; }
     }
+    kernel_truncated = kernel.Truncated();
   }
+  if (!session.options.diagnostics.empty())
+    Text(session.path + "/state.txt", Snapshot(session.options, "State at recording stop"), true);
   std::string end = "\nResult: " + std::string(result == 0 ? "SUCCESS" : "FAILED") +
       "\nReturn code: " + std::to_string(result) + "\nDuration: " +
       std::to_string(std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - session.begin).count()) + " seconds\n";
   if (session.options.final_summary) end += session.options.final_summary();
   end += "\nLogcat/recovery output is size-limited; earlier output may have been rotated.\n";
+  if (session.options.manual) end += "Earlier output discarded by rotation:\nLogcat: " +
+      std::string(session.logcat_truncated ? "yes" : "no") + "\nRecovery: " +
+      (session.recovery_truncated ? "yes" : "no") + "\nKernel: " + (kernel_truncated ? "yes" : "no") + "\n";
   const auto summary = session.path + "/summary.txt";
   const auto temporary_summary = summary + ".tmp";
   if (!Text(temporary_summary, session.options.summary + end) ||
@@ -386,28 +445,28 @@ int Recording::Finish(int result) {
     unlink(temporary_summary.c_str());
     Text(summary, end, true);
   }
-  session.options.archive_directory = PlatformOptions("", "", "").archive_directory;
-  if (!Package(session.options, session.path, result == 0 ? "_SUCCESS" : "_FAILED")) {
+  session.options.archive_directory = PlatformOptions("", "", "", session.options.manual).archive_directory;
+  if (!Package(session.options, session.path, result == 0 ? "_SUCCESS" : "_FAILED", &archive_path_)) {
     session.options.archive_directory = session.options.directory;
-    Package(session.options, session.path, result == 0 ? "_SUCCESS" : "_FAILED");
+    Package(session.options, session.path, result == 0 ? "_SUCCESS" : "_FAILED", &archive_path_);
   }
-  PruneAll();
+  PruneAll("", session.options.manual);
   session_.reset();
   return result;
 }
-std::vector<Report> Reports() {
+std::vector<Report> Reports(bool manual) {
   std::vector<Report> reports;
-  const auto directories = PlatformDirectories();
+  const auto directories = PlatformDirectories(manual);
   for (const auto &directory : directories) {
     const int lock = Lock(directory);
     if (lock >= 0) {
-      auto options = PlatformOptions("", "", ""); options.directory = directory;
+      auto options = PlatformOptions("", "", "", manual); options.directory = directory;
       Recover(options); close(lock);
     }
   }
-  if (!active.load()) PruneAll();
+  if (!active[manual].load()) PruneAll("", manual);
   for (const auto &directory : directories) {
-    for (const auto &entry : Entries(directory))
+    for (const auto &entry : Entries(directory, false, manual))
       reports.push_back({entry.name, directory + "/" + entry.name,
           static_cast<uint64_t>(entry.st.st_size), entry.st.st_mtim.tv_sec,
           static_cast<int32_t>(entry.st.st_mtim.tv_nsec)});
@@ -418,9 +477,9 @@ std::vector<Report> Reports() {
   if (reports.size() > 2) reports.resize(2);
   return reports;
 }
-int OpenReport(const std::string &name, uint64_t *bytes) {
-  if (!ArchiveName(name)) return -1;
-  for (const auto &report : Reports()) if (report.name == name) {
+int OpenReport(const std::string &name, uint64_t *bytes, bool manual) {
+  if (!ArchiveName(name, manual)) return -1;
+  for (const auto &report : Reports(manual)) if (report.name == name) {
     const int fd = open(report.path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
     if (fd < 0) continue;
     struct stat st{};
@@ -428,5 +487,57 @@ int OpenReport(const std::string &name, uint64_t *bytes) {
     *bytes = st.st_size; return fd;
   }
   return -1;
+}
+
+namespace {
+struct ManualRecorder {
+  std::mutex mutex;
+  std::thread worker;
+  std::unique_ptr<Recording> recording;
+  ManualStatus status;
+  Clock::time_point begin;
+  ~ManualRecorder() { if (worker.joinable()) worker.join(); }
+};
+ManualRecorder &Manual() { static ManualRecorder recorder; return recorder; }
+}
+
+ManualStatus GetManualStatus() {
+  auto &recorder = Manual();
+  std::lock_guard<std::mutex> guard(recorder.mutex);
+  auto status = recorder.status;
+  if (status.state == ManualState::kRecording || status.state == ManualState::kSaving)
+    status.elapsed_seconds = std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - recorder.begin).count();
+  return status;
+}
+
+void ToggleManual() {
+  auto &recorder = Manual();
+  std::lock_guard<std::mutex> guard(recorder.mutex);
+  if (recorder.status.state == ManualState::kStarting || recorder.status.state == ManualState::kSaving) return;
+  if (recorder.worker.joinable()) recorder.worker.join();
+  const bool start = recorder.status.state != ManualState::kRecording;
+  recorder.status.state = start ? ManualState::kStarting : ManualState::kSaving;
+  recorder.status.error.clear();
+  recorder.worker = std::thread([&recorder, start] {
+    if (start) {
+      auto recording = std::make_unique<Recording>("", "Manual Quick Settings recording", "", true);
+      const bool started = recording->Started();
+      if (!started) recording.reset();
+      std::lock_guard<std::mutex> guard(recorder.mutex);
+      recorder.status = {};
+      recorder.status.state = started ? ManualState::kRecording : ManualState::kFailed;
+      if (started) { recorder.begin = Clock::now(); recorder.recording = std::move(recording); }
+      else recorder.status.error = "Logcat capture could not be started.";
+    } else {
+      std::unique_ptr<Recording> recording;
+      { std::lock_guard<std::mutex> guard(recorder.mutex); recording = std::move(recorder.recording); }
+      if (recording) recording->Finish(0);
+      const auto path = recording ? recording->ArchivePath() : "";
+      std::lock_guard<std::mutex> guard(recorder.mutex);
+      recorder.status.path = path;
+      recorder.status.state = path.empty() ? ManualState::kFailed : ManualState::kIdle;
+      if (path.empty()) recorder.status.error = "Could not save diagnostic report.";
+    }
+  });
 }
 }  // namespace aera::flashlog

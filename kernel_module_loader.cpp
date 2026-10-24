@@ -4,6 +4,13 @@
 #include "data.hpp"
 #include <cutils/properties.h>
 #include <dirent.h>
+#include <algorithm>
+#include <errno.h>
+#include <fcntl.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <android-base/unique_fd.h>
 
 #ifdef TW_INCLUDE_CRYPTO
 #include <android-base/file.h>
@@ -208,10 +215,12 @@ bool KernelModuleLoader::Load_Post_Decrypt_Modules() {
 
 	for (const auto& mod : post_decrypt_modules_requested) {
 		bool already_loaded = false;
+		std::string canonical_name = mod;
+		std::replace(canonical_name.begin(), canonical_name.end(), '-', '_');
 
 		for (auto&& module_line : loaded_modules) {
 			auto module = TWFunc::Split_String(module_line, " ")[0];
-			if ((module + ".ko") == mod) {
+			if ((module + ".ko") == canonical_name) {
 				LOGINFO("Post-decrypt module already loaded: %s\n", mod.c_str());
 				already_loaded = true;
 				break;
@@ -227,15 +236,19 @@ bool KernelModuleLoader::Load_Post_Decrypt_Modules() {
 			continue;
 		}
 
-		std::string cmd = "insmod " + full_path;
 		LOGINFO("Loading post-decrypt module: %s\n", full_path.c_str());
 
-		int rc = TWFunc::Exec_Cmd(cmd);
+		// Avoid fork handlers in active vendor graphics libraries after UI startup.
+		android::base::unique_fd fd(open(full_path.c_str(), O_RDONLY | O_CLOEXEC));
+		int rc = fd.ok() ? syscall(__NR_finit_module, fd.get(), "", 0) : -1;
+		int error = errno;
 		if (rc == 0) {
 			LOGINFO("Post-decrypt module loaded: %s\n", mod.c_str());
 			modules_loaded++;
+		} else if (error == EEXIST) {
+			LOGINFO("Post-decrypt module already loaded: %s\n", mod.c_str());
 		} else {
-			LOGINFO("Post-decrypt module failed to load: %s (rc=%d)\n", mod.c_str(), rc);
+			LOGINFO("Post-decrypt module failed to load: %s (%s)\n", mod.c_str(), strerror(error));
 		}
 	}
 

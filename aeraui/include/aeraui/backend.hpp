@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
+#include "../../../aera_wlan_ip.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -7,8 +8,50 @@
 #include "aeraui/lock_theme.hpp"
 #include "aeraui/home_layout.hpp"
 #include "aeraui/kernel_settings.hpp"
+#include "aeraui/fonts.hpp"
 
 namespace aeraui {
+inline constexpr bool MobileDataEnabled() {
+#if defined(AERA_ENABLE_MOBILE_DATA) && AERA_ENABLE_MOBILE_DATA == 1
+  return true;
+#else
+  return false;
+#endif
+}
+inline constexpr const char *ConnectivityTitle() { return MobileDataEnabled() ? "Network" : "Wi-Fi"; }
+struct MobileSim {
+  int slot=0,retries=-1;
+  std::string id,state;
+};
+struct MobileSavedPin { std::string id; int slot=0; };
+struct MobileStatus {
+  bool available = false, enabled = false, connected = false;
+  bool registered = false, signal_valid = false, running = false;
+  int signal_dbm = 0, bars = -1, subscription = 0;
+  std::string state, message, technology, operator_name, address, interface;
+  int sim_slot=0,pin_retries=-1,pin_attempt=0;
+  std::string sim_id,sim_state,pin_request,pin_result_request,pin_result_id,pin_result;
+  std::vector<MobileSim> sims;
+};
+MobileStatus RecoveryMobileStatus();
+struct MobilePublicIp { std::string address; bool pending = false; };
+MobilePublicIp RecoveryMobilePublicIp(const MobileStatus &status);
+void RecoveryStartMobileService();
+bool RecoveryConnectMobile(const std::string &apn, int subscription, std::string *error);
+bool RecoveryDisconnectMobile(std::string *error);
+bool RecoverySwitchMobileSim(const std::string &apn,int subscription,std::string *error);
+bool RecoveryMobileSimSwitching();
+bool RecoveryUnlockMobileSim(const std::string &pin,bool remember,std::string *error);
+std::vector<MobileSavedPin> RecoverySavedMobilePins();
+bool RecoveryMobilePinAutoAvailable(const MobileStatus &status);
+bool RecoveryForgetMobilePin(const std::string &id,std::string *error);
+std::string RecoveryMobileApn();
+int RecoveryMobileSubscription();
+bool RecoveryMobileAutoConnect();
+bool RecoverySetMobileAutoConnect(bool enabled, std::string *error);
+bool RecoverySetMobileConfiguration(const std::string &apn, int subscription, std::string *error);
+void RecoveryPollMobileAutoConnect();
+bool RecoveryNetworkConnected();
 std::vector<kernel::Setting> RecoveryDeveloperSettings();
 bool RecoverySetDeveloperSetting(const std::string &id, const std::string &value,
                                  bool remember, std::string *error);
@@ -236,6 +279,13 @@ void RecoverySetScreenTimeout(int seconds);
 bool RecoveryFlashlightSupported();
 bool RecoveryFlashlightEnabled();
 bool RecoverySetFlashlight(bool enabled);
+struct DiagnosticLogStatus {
+  bool recording = false, working = false;
+  uint64_t elapsed_seconds = 0;
+  std::string path, error;
+};
+DiagnosticLogStatus RecoveryDiagnosticLogStatus();
+void RecoveryToggleDiagnosticLogging();
 bool RecoveryMtpEnabled();
 bool RecoverySetMtp(bool enabled);
 enum class Preference {
@@ -287,7 +337,16 @@ bool RecoverySetSurfaceStyle(SurfaceStyle style);
 bool RecoveryTintedIconBackgrounds();
 bool RecoverySetTintedIconBackgrounds(bool enabled);
 std::string RecoveryUiFont();
+std::string RecoveryUiFontName(const std::string &id);
 bool RecoverySetUiFont(const std::string &plugin_id);
+std::string RecoveryUiFontPath(const std::string &id);
+std::string RecoveryCustomFont();
+bool RecoveryImportUiFont(const std::string &source, std::string *error);
+std::vector<fonts::SavedFont> RecoverySavedUiFonts();
+bool RecoverySaveUiFont(const std::string &source, const fonts::SavedFont &metadata,
+                        std::string *id, std::string *error);
+bool RecoveryUseSavedUiFont(const std::string &id, std::string *error);
+bool RecoveryDeleteSavedUiFont(const std::string &id, bool reset_active, std::string *error);
 enum class InterfaceSize {
   kSmall = 0,
   kNormal = 1,
@@ -296,7 +355,20 @@ enum class InterfaceSize {
 };
 InterfaceSize RecoveryInterfaceSize();
 bool RecoverySetInterfaceSize(InterfaceSize size);
-enum class KeyboardLayout { kQwerty = 0, kQwertz = 1 };
+enum class KeyboardLayout { kQwerty = 0, kQwertz = 1, kAzerty = 2 };
+inline const char *KeyboardLayoutCode(KeyboardLayout layout) {
+  switch (layout) {
+    case KeyboardLayout::kQwerty: return "qwerty";
+    case KeyboardLayout::kQwertz: return "qwertz";
+    case KeyboardLayout::kAzerty: return "azerty";
+  }
+  return nullptr;
+}
+inline KeyboardLayout KeyboardLayoutFromCode(const std::string &code) {
+  if (code == "qwertz") return KeyboardLayout::kQwertz;
+  if (code == "azerty") return KeyboardLayout::kAzerty;
+  return KeyboardLayout::kQwerty;
+}
 KeyboardLayout RecoveryKeyboardLayout();
 bool RecoverySetKeyboardLayout(KeyboardLayout layout);
 std::vector<HomePluginPreference> RecoveryHomePluginLayout();
@@ -447,17 +519,22 @@ enum class WifiOperation {
   kDisableAdb,
   kEnableFastbootWifi,
   kDisableFastbootWifi,
+  kSaveIpConfig,
 };
+using WifiIpConfig = aera::wifi::IpConfig;
 struct WifiRequest {
   WifiOperation operation = WifiOperation::kScan;
   std::string ssid;
   std::string password;
   bool use_saved_credentials = false;
+  WifiIpConfig ip_config;
 };
+WifiIpConfig RecoveryWifiIpConfig(const std::string &ssid);
 void RecoveryWifiInitialize();
 void RecoveryWifiInitializeEarly();
 WifiConnection RecoveryWifiConnection();
 WifiTraffic RecoveryWifiTraffic();
+WifiTraffic RecoveryNetworkTraffic();
 WifiStatusDisplay RecoveryWifiStatusDisplay();
 bool RecoverySetWifiStatusDisplay(const WifiStatusDisplay &display, bool save = true);
 WifiStatus RecoveryWifiStatus();
