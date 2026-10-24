@@ -318,6 +318,8 @@ struct MatteTexture {
 
 inline void MainBackground(lv_obj_t *screen) {
   Screen(screen);
+  // Percentage-sized overlays need resolved bounds before choosing a texture.
+  lv_obj_update_layout(screen);
   // A user wallpaper replaces only the canvas. Appearance still supplies the
   // text, panel, dialog and navigation colours layered above it.
   if (wallpaper::Attach(screen)) return;

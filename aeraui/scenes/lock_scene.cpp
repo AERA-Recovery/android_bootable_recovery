@@ -237,6 +237,7 @@ void Touch(lv_event_t *event) {
 }
 lv_obj_t *BuildLockScene(lv_obj_t *parent,ActionCallback callback,void *context,
                          bool preview,const LockTheme *theme,bool ambient) {
+  lv_obj_update_layout(parent);
   auto *s=new LockState;
   s->theme=theme?*theme:RecoveryLockTheme();s->callback=callback;s->context=context;s->preview=preview;
   s->ambient=ambient;
