@@ -211,9 +211,9 @@ void RefreshDownloads(WebScene *s) {
     auto *name = Label(row, download.name.c_str(),
                        &lv_font_montserrat_32, kText);
     lv_obj_set_pos(name, 88, 24);
-    lv_obj_set_width(name, width -
-        (download.status == web::DownloadStatus::kActive ? 265 : 130));
-    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    SingleLineLabel(name, width -
+        (download.status == web::DownloadStatus::kActive ? 265 : 130),
+        &lv_font_montserrat_32);
     std::string detail;
     if (download.status == web::DownloadStatus::kActive) {
       detail = FormatBytes(download.received_bytes);
@@ -233,8 +233,7 @@ void RefreshDownloads(WebScene *s) {
     auto *status = Label(row, detail.c_str(), &lv_font_montserrat_24,
                          kMutedStrong);
     lv_obj_set_pos(status, 88, 78);
-    lv_obj_set_width(status, width - 125);
-    lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
+    SingleLineLabel(status, width - 125, &lv_font_montserrat_24);
     auto *progress = lv_bar_create(row);
     lv_obj_set_pos(progress, 88, 137);
     lv_obj_set_size(progress, width - 126, 10);

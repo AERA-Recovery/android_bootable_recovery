@@ -1779,6 +1779,30 @@ lv_obj_t *ThemeChoice(lv_obj_t *parent, const char *name,
   return choice;
 }
 
+lv_obj_t *ThemeColorChoice(lv_obj_t *parent, const char *name, bool selected,
+                           Handler action, uint32_t rgb,
+                           bool colour_wheel = false) {
+  auto *choice = ThemeChoice(parent, name, "", selected, std::move(action));
+  auto *heading = lv_obj_get_child(choice, 0);
+  lv_obj_t *swatch = nullptr;
+  if (colour_wheel) {
+    swatch = HueSaturationDisk(heading, 64);
+  } else {
+    swatch = lv_obj_create(heading);
+    Clear(swatch);
+    lv_obj_set_size(swatch, 64, 64);
+    lv_obj_set_style_radius(swatch, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(swatch, Color(rgb), 0);
+    lv_obj_set_style_bg_opa(swatch, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(swatch, 2, 0);
+    lv_obj_set_style_border_color(swatch, kMainLine, 0);
+    lv_obj_set_style_border_opa(swatch, LV_OPA_50, 0);
+    lv_obj_remove_flag(swatch, LV_OBJ_FLAG_CLICKABLE);
+  }
+  lv_obj_move_to_index(swatch, 0);
+  return choice;
+}
+
 void ThemeRange(Tools *state, lv_obj_t *parent, const char *title, int value,
                  int minimum, int maximum,
                  std::function<void(int, bool)> change) {
@@ -2278,16 +2302,16 @@ void BuildThemeAppearance(Tools *state) {
     });
   auto *accents = ThemeGroup(state->list, "Accent palettes", 3);
   for (const auto &preset : kAccentPresets) {
-    auto *card = ThemeChoice(accents, preset.name, "", RecoveryAccentColor() == preset.rgb,
+    ThemeColorChoice(accents, preset.name, RecoveryAccentColor() == preset.rgb,
         [state, preset] {
       if (!RecoverySetAccentColor(preset.rgb)) return;
       ApplyAccent(preset.rgb);
       RefreshTheme(state);
-    }, LV_SYMBOL_TINT);
-    lv_obj_set_style_text_color(lv_obj_get_child(lv_obj_get_child(card, 0), 0), Color(preset.rgb), 0);
+    }, preset.rgb);
   }
-  ThemeChoice(accents, "User select", "", !IsPresetAccent(RecoveryAccentColor()),
-              [state] { OpenAccentPicker(state); }, LV_SYMBOL_PLUS);
+  ThemeColorChoice(accents, "User select", !IsPresetAccent(RecoveryAccentColor()),
+                   [state] { OpenAccentPicker(state); },
+                   RecoveryAccentColor(), true);
   auto *surfaces = ThemeGroup(state->list, "Surface style");
   const char *surface_names[]{"Solid", "Frosted", "Outline", "Elevated"};
   const char *surface_details[]{"Opaque and clean", "Translucent blur", "Borders, little fill", "Shadow and depth"};
@@ -2553,8 +2577,11 @@ void BuildThemeLock(Tools *state) {
     range("Clock size", &LockTheme::clock_size, 60, 180);
     auto *colors = ThemeGroup(state->list, "Clock colour");
     const char *names[]{"Follow accent", "White", "User select"};
-    for (int i = 0; i < 3; ++i)
-      ThemeChoice(colors, names[i], "", editor->theme.colour == i, [state, editor, colors, i] {
+    for (int i = 0; i < 3; ++i) {
+      const uint32_t rgb = i == 0 ? RecoveryAccentColor()
+          : i == 1 ? 0xffffff : editor->theme.rgb;
+      ThemeColorChoice(colors, names[i], editor->theme.colour == i,
+          [state, editor, colors, i] {
         if (i == 2) {
           OpenAccentPicker(state, [editor, state, colors](uint32_t rgb) {
             editor->theme.colour = 2;
@@ -2578,7 +2605,8 @@ void BuildThemeLock(Tools *state) {
           editor->Save();
           RefreshTheme(state);
         }
-      }, LV_SYMBOL_TINT);
+      }, rgb, i == 2);
+    }
   } else if (state->lock_tab == 1) {
     choices("Date style", &LockTheme::date_style, {"Full", "Short", "Numeric", "Stacked", "Hidden"});
     range("Date size", &LockTheme::date_size, 60, 200);
