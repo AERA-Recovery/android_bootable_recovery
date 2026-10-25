@@ -2394,6 +2394,28 @@ bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy policy) {
   if (value < 0 || value > 2) return false;
   return DataManager::SetValue("aera_browser_cookies", value, 1) == 0;
 }
+FileSortSettings RecoveryFileSortSettings() {
+  LoadAeraPreferencesIfAvailable();
+  FileSortSettings settings;
+  const int mode = DataManager::GetIntValue("aera_file_sort_mode");
+  if (mode >= 0 && mode <= 3) settings.mode = static_cast<FileSortMode>(mode);
+  settings.ascending = DataManager::GetStrValue("aera_file_sort_ascending") != "0";
+  return settings;
+}
+bool RecoverySetFileSortSettings(const FileSortSettings &settings) {
+  const int mode = static_cast<int>(settings.mode);
+  if (mode < 0 || mode > 3) return false;
+  const auto previous = RecoveryFileSortSettings();
+  const auto apply = [](const FileSortSettings &value) {
+    return DataManager::SetValue("aera_file_sort_mode", static_cast<int>(value.mode)) == 0 &&
+        DataManager::SetValue("aera_file_sort_ascending", value.ascending ? 1 : 0) == 0;
+  };
+  // External storage can still be browsed while internal storage is locked.
+  // Keep sorting usable for this session without attempting a persistent write.
+  if (apply(settings) && (RecoveryDataLocked() || SaveAeraPreferences())) return true;
+  apply(previous);
+  return false;
+}
 bool RecoverySavePreferences() { return SaveAeraPreferences(); }
 bool RecoveryAutoSavePreferences() { return SaveAeraPreferences(true); }
 bool RecoveryPcAutoEnable() {
@@ -3359,6 +3381,11 @@ void LoadAeraPreferencesIfAvailable() {
     if (early_key) continue;
     if (key == "hidden")
       DataManager::SetValue("tw_hidden_files", value);
+    else if (key == "file_sort_mode" &&
+             (value == "0" || value == "1" || value == "2" || value == "3"))
+      DataManager::SetValue("aera_file_sort_mode", value);
+    else if (key == "file_sort_ascending" && (value == "0" || value == "1"))
+      DataManager::SetValue("aera_file_sort_ascending", value);
     else if (key == "compression") DataManager::SetValue(TW_USE_COMPRESSION_VAR, value);
     else if (key == "sha256") DataManager::SetValue(TW_USE_SHA2, value);
     else if (key == "verify_zip") DataManager::SetValue(TW_SIGNED_ZIP_VERIFY_VAR, value);
@@ -3408,6 +3435,8 @@ bool SaveAeraPreferences(bool require_early) {
   output << "clock24=" << DataManager::GetIntValue("tw_military_time") << '\n'
          << "developer_settings=" << CaptureCurrentEarlyUiPreferences().developer_settings << '\n'
          << "hidden=" << DataManager::GetIntValue("tw_hidden_files") << '\n'
+         << "file_sort_mode=" << DataManager::GetIntValue("aera_file_sort_mode") << '\n'
+         << "file_sort_ascending=" << (DataManager::GetStrValue("aera_file_sort_ascending") != "0" ? 1 : 0) << '\n'
          << "compression=" << DataManager::GetIntValue(TW_USE_COMPRESSION_VAR) << '\n'
          << "sha256=" << DataManager::GetIntValue(TW_USE_SHA2) << '\n'
          << "backup_checksums=" << (DataManager::GetIntValue(TW_SKIP_DIGEST_GENERATE_VAR) == 0 ? 1 : 0) << '\n'

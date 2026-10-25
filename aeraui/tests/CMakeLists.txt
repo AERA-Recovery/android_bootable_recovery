@@ -142,6 +142,7 @@ add_test(NAME button_drag_cancel COMMAND button_cancel_test)
 add_test(NAME ui_confirmation_navigation_preferences
   COMMAND ui_check "${LVGL_DIR}/examples/libs/libpng/png_demo.png")
 add_test(NAME file_timestamp_layout COMMAND ui_check --file-dates)
+add_test(NAME file_sort_preferences_and_toggle COMMAND ui_check --file-sort)
 add_test(NAME settings_autosave_and_reset COMMAND ui_check --settings)
 add_test(NAME lock_screen_customisation COMMAND ui_check --lock-theme)
 add_test(NAME themed_home_artwork COMMAND ui_check --art)

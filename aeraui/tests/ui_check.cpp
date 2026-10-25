@@ -310,6 +310,20 @@ BrowserCookiePolicy RecoveryBrowserCookiePolicy() {
   return BrowserCookiePolicy::kFirstParty;
 }
 bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy) { return true; }
+FileSortSettings RecoveryFileSortSettings() {
+  FileSortSettings settings;
+  int mode = 0;
+  std::ifstream input(backup_root + "/file-sort.preferences");
+  if (input >> mode >> settings.ascending && mode >= 0 && mode <= 3)
+    settings.mode = static_cast<FileSortMode>(mode);
+  return settings;
+}
+bool RecoverySetFileSortSettings(const FileSortSettings &settings) {
+  if (!save_succeeds) return false;
+  std::ofstream output(backup_root + "/file-sort.preferences");
+  output << static_cast<int>(settings.mode) << ' ' << settings.ascending;
+  return bool(output);
+}
 bool RecoverySavePreferences() { return save_succeeds; }
 bool RecoveryPcAutoEnable() { return false; }
 bool RecoverySetPcAutoEnable(bool) { return true; }
@@ -3324,6 +3338,59 @@ int main(int argc,char **argv) {
     puts("Settings destinations and language viewport match all five docks and four sizes");
     return 0;
   }
+  if (!strcmp(argv[1], "--file-sort")) {
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      assert(RecoverySetFileSortSettings({FileSortMode::kName, true}));
+      auto *page = lv_obj_create(nullptr);
+      auto open = [&] {
+        BuildFilesScene(page, RecordAction, nullptr);
+        lv_screen_load(page); Tick(2);
+        lv_obj_send_event(Find(page, LV_SYMBOL_LIST), LV_EVENT_CLICKED, nullptr);
+        Tick(2);
+        assert(!Find(page, "Ascending") && !Find(page, "Descending"));
+      };
+      auto check = [&](const char *name, FileSortMode mode, bool ascending) {
+        auto *card = Find(page, name); assert(card);
+        assert(lv_obj_has_state(card, LV_STATE_CHECKED));
+        auto *arrow = FindLabel(card, ascending ? LV_SYMBOL_UP : LV_SYMBOL_DOWN);
+        assert(arrow && lv_obj_is_visible(arrow));
+        assert(lv_obj_get_x(arrow) > lv_obj_get_width(card) / 2);
+        const auto saved = RecoveryFileSortSettings();
+        assert(saved.mode == mode && saved.ascending == ascending);
+      };
+      open(); check("Name", FileSortMode::kName, true);
+      lv_obj_send_event(Find(page, "Name"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      check("Name", FileSortMode::kName, false);
+      for (const auto &[name, mode] : std::vector<std::pair<const char *, FileSortMode>>{
+          {"Size", FileSortMode::kSize}, {"Date", FileSortMode::kDate},
+          {"Type", FileSortMode::kType}, {"Name", FileSortMode::kName}}) {
+        lv_obj_send_event(Find(page, name), LV_EVENT_CLICKED, nullptr); Tick(2);
+        check(name, mode, false);
+        lv_obj_send_event(Find(page, name), LV_EVENT_CLICKED, nullptr); Tick(2);
+        check(name, mode, true);
+        lv_obj_send_event(Find(page, name), LV_EVENT_CLICKED, nullptr); Tick(2);
+        check(name, mode, false);
+      }
+      auto *alpha = Find(page, "alpha.txt");
+      auto *long_name = Find(page, "long-file-name-for-layout-validation.txt");
+      assert(alpha && long_name && lv_obj_get_y(alpha) > lv_obj_get_y(long_name));
+      save(landscape ? "/tmp/aera-file-sort-landscape.png" : "/tmp/aera-file-sort-portrait.png");
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+      page = lv_obj_create(nullptr); open();
+      check("Name", FileSortMode::kName, false);
+      save_succeeds = false;
+      lv_obj_send_event(Find(page, "Size"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      check("Name", FileSortMode::kName, false);
+      assert(Find(page, "Could not save preferences"));
+      save_succeeds = true;
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("File sorting: four cards, repeat-tap direction, file order, persistence and save failure passed");
+    return 0;
+  }
   if (!strcmp(argv[1], "--file-dates")) {
     for (bool landscape : {false, true}) for (bool clock24 : {false, true})
       for (auto size : {InterfaceSize::kSmall, InterfaceSize::kNormal,
@@ -3668,10 +3735,10 @@ int main(int argc,char **argv) {
         lv_obj_send_event(Find(files, LV_SYMBOL_LIST), LV_EVENT_CLICKED, nullptr);
         Tick();
         assert(Find(files, "Date"));
-        assert(Find(files, "Ascending"));
-        assert(Find(files, "Descending"));
+        assert(!Find(files, "Ascending"));
+        assert(!Find(files, "Descending"));
         lv_obj_send_event(Find(files, "Date"), LV_EVENT_CLICKED, nullptr);
-        lv_obj_send_event(Find(files, "Descending"), LV_EVENT_CLICKED, nullptr);
+        lv_obj_send_event(Find(files, "Date"), LV_EVENT_CLICKED, nullptr);
         Tick();
         auto* sort_overlay = lv_obj_get_child(
             files, static_cast<int32_t>(lv_obj_get_child_count(files)) - 1);

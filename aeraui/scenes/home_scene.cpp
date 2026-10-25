@@ -28,7 +28,7 @@
 namespace aeraui {
 namespace {
 using namespace widgets;
-enum class SortMode { kName, kSize, kDate, kType };
+using SortMode = FileSortMode;
 enum class ClipboardMode { kNone, kCopy, kCut };
 struct Clipboard {
   ClipboardMode mode = ClipboardMode::kNone;
@@ -2279,14 +2279,22 @@ void UpdateActionBar(Files* state) {
       state->list, bar_height + NavigationHeight(state->screen) + 40, 0);
 }
 
-void SetSort(Files* state, SortMode mode) {
-  gSortMode = mode;
+bool SetSort(Files* state, SortMode mode) {
+  const FileSortSettings settings{
+      mode, mode == gSortMode ? !gSortAscending : gSortAscending};
+  if (!RecoverySetFileSortSettings(settings)) {
+    Sheet(state->screen, "Sort files", "Could not save preferences");
+    return false;
+  }
+  gSortMode = settings.mode;
+  gSortAscending = settings.ascending;
   if (state->search_mode) {
     SortEntries(state);
     RenderEntries(state);
   } else {
     Populate(state);
   }
+  return true;
 }
 
 const char* SortModeLabel(SortMode mode) {
@@ -2321,7 +2329,7 @@ void OpenSortMenu(Files* state) {
   const int width = landscape
       ? std::min(1900, static_cast<int>(lv_obj_get_width(state->screen)) - 128)
       : 1312;
-  const int height = 660;
+  const int height = 500;
   auto* sheet = lv_obj_create(overlay);
   Panel(sheet, 44, kMainSheet);
   lv_obj_set_size(sheet, width, height);
@@ -2357,9 +2365,14 @@ void OpenSortMenu(Files* state) {
                              Handler handler) {
     ChoiceControl control;
     control.button = Button(sheet, "", std::move(handler));
+    Panel(control.button, 26, kMainPanel);
+    Interactive(control.button, kMainSelected);
     lv_obj_set_pos(control.button, x, y);
     lv_obj_set_size(control.button, width, height);
     lv_obj_set_style_radius(control.button, 26, 0);
+    lv_obj_set_style_border_width(control.button, 1, 0);
+    lv_obj_set_style_border_color(control.button, kMainLine, 0);
+    lv_obj_set_style_border_opa(control.button, LV_OPA_30, 0);
     lv_obj_set_style_bg_color(control.button, kAccentSoft, LV_STATE_CHECKED);
     lv_obj_set_style_bg_opa(control.button, LV_OPA_COVER, LV_STATE_CHECKED);
     lv_obj_set_style_border_width(control.button, 3, LV_STATE_CHECKED);
@@ -2368,11 +2381,11 @@ void OpenSortMenu(Files* state) {
     auto* icon = Label(control.button, symbol, &lv_font_montserrat_36, kAccent);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 28, 0);
     auto* label = Label(control.button, text, &lv_font_montserrat_32, kText);
-    FitLabelToLines(label, width - 150, 1,
+    FitLabelToLines(label, width - 190, 1,
                     {&lv_font_montserrat_32, &lv_font_montserrat_28,
                      &lv_font_montserrat_24});
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 92, 0);
-    control.marker = Label(control.button, LV_SYMBOL_OK,
+    control.marker = Label(control.button, gSortAscending ? LV_SYMBOL_UP : LV_SYMBOL_DOWN,
                            &lv_font_montserrat_28, kAccent);
     lv_obj_align(control.marker, LV_ALIGN_RIGHT_MID, -26, 0);
     return control;
@@ -2390,33 +2403,16 @@ void OpenSortMenu(Files* state) {
         margin + column * (half_width + gap), 176 + row * 142,
         half_width, 132, SortModeLabel(modes[index]), mode_icons[index],
         [state, subtitle, sort_summary, sort_controls, modes, index] {
-          SetSort(state, modes[index]);
-          for (size_t i = 0; i < sort_controls->size(); ++i)
+          if (!SetSort(state, modes[index])) return;
+          for (size_t i = 0; i < sort_controls->size(); ++i) {
+            lv_label_set_text((*sort_controls)[i].marker,
+                              gSortAscending ? LV_SYMBOL_UP : LV_SYMBOL_DOWN);
             SetChoiceSelected((*sort_controls)[i], i == index);
+          }
           const std::string summary = sort_summary();
           lv_label_set_text(subtitle, summary.c_str());
         });
     SetChoiceSelected((*sort_controls)[index], gSortMode == modes[index]);
-  }
-
-  auto order_controls = std::make_shared<std::array<ChoiceControl, 2>>();
-  const std::array<bool, 2> directions{true, false};
-  const std::array<const char*, 2> direction_labels{"Ascending", "Descending"};
-  const std::array<const char*, 2> direction_icons{LV_SYMBOL_UP, LV_SYMBOL_DOWN};
-  for (size_t index = 0; index < directions.size(); ++index) {
-    (*order_controls)[index] = make_choice(
-        margin + static_cast<int>(index) * (half_width + gap), 468,
-        half_width, 132, direction_labels[index], direction_icons[index],
-        [state, subtitle, sort_summary, order_controls, directions, index] {
-          gSortAscending = directions[index];
-          SetSort(state, gSortMode);
-          for (size_t i = 0; i < order_controls->size(); ++i)
-            SetChoiceSelected((*order_controls)[i], i == index);
-          const std::string summary = sort_summary();
-          lv_label_set_text(subtitle, summary.c_str());
-        });
-    SetChoiceSelected((*order_controls)[index],
-                      gSortAscending == directions[index]);
   }
 
   AnimateEnter(sheet, 0, 34);
@@ -2689,6 +2685,9 @@ bool NavigateFileBack() {
 }
 
 void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
+  const auto saved_sort = RecoveryFileSortSettings();
+  gSortMode = saved_sort.mode;
+  gSortAscending = saved_sort.ascending;
   const InterfaceSize interface_size = RecoveryInterfaceSize();
   ApplyInterfaceSize(static_cast<int>(interface_size));
   const bool large = interface_size == InterfaceSize::kLarge ||

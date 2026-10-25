@@ -193,6 +193,13 @@ PayloadFlashProgress RecoveryPayloadFlashProgress();
 std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names);
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder);
 std::string RecoveryStorage();
+enum class FileSortMode { kName, kSize, kDate, kType };
+struct FileSortSettings {
+  FileSortMode mode = FileSortMode::kName;
+  bool ascending = true;
+};
+FileSortSettings RecoveryFileSortSettings();
+bool RecoverySetFileSortSettings(const FileSortSettings &settings);
 std::string RecoveryInternalStorage();
 std::string RecoveryBackupRoot();
 void RecoveryEnsurePcStorage();
