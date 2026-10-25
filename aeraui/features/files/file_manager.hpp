@@ -12,7 +12,7 @@
 
 namespace aeraui::file_manager {
 
-enum class Operation { kCopy, kMove, kDelete, kMeasure };
+enum class Operation { kCopy, kMove, kDelete, kMeasure, kExtract, kCompress };
 enum class Conflict { kReplace, kKeepBoth, kSkip };
 
 struct Request {
@@ -20,6 +20,19 @@ struct Request {
   Conflict conflict = Conflict::kKeepBoth;
   std::vector<std::string> sources;
   std::string destination;
+  // Archive member paths are relative to the archive root. An empty list
+  // extracts the complete archive.
+  std::vector<std::string> archive_members;
+  // Writable formats are currently "zip" and "7z".
+  std::string archive_format = "zip";
+  // Remove a newly-created destination if extraction fails before writing it.
+  bool cleanup_empty_destination = false;
+};
+
+struct ArchiveEntry {
+  std::string path;
+  bool directory = false;
+  uint64_t size = 0;
 };
 
 struct Metadata {
@@ -107,6 +120,10 @@ std::string Parent(const std::string& path);
 std::string Join(const std::string& directory, const std::string& name);
 bool ValidName(const std::string& name, std::string& error);
 bool Exists(const std::string& path);
+bool IsArchiveFile(const std::string& name);
+bool SafeArchiveEntryPath(const std::string& path);
+bool ListArchive(const std::string& archive, std::vector<ArchiveEntry>& entries,
+                 std::string& error);
 bool IsTextFile(const std::string& path, uint64_t maximum_bytes);
 bool ReadText(const std::string& path, uint64_t maximum_bytes, std::string& text, bool& truncated,
               std::string& error);

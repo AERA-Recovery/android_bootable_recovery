@@ -7,19 +7,26 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <locale.h>
+#include <poll.h>
+#include <signal.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <sys/xattr.h>
 #include <unistd.h>
 #include <algorithm>
 #include <array>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 #include <set>
 #include <cwchar>
 #include <cwctype>
+
+extern char** environ;
 
 namespace aeraui::file_manager {
 namespace {
@@ -28,6 +35,257 @@ struct Totals {
   uint64_t bytes = 0;
   size_t items = 0;
 };
+
+std::string Error(const std::string& action, const std::string& path);
+std::string SanitizeDisplayText(const std::string& input);
+void AddError(Progress& progress, const std::string& message);
+
+struct ArchiveInfo {
+  uint64_t bytes = 0;
+  size_t entries = 0;
+};
+
+const char* ArchiveTool() {
+  for (const char* path : {"/system/bin/7za", "/sbin/7za", "/usr/bin/7z",
+                           "/usr/bin/7za"})
+    if (access(path, X_OK) == 0) return path;
+  return nullptr;
+}
+
+void ParseArchivePercent(const std::string& text, Progress& progress,
+                         uint64_t total_bytes) {
+  for (size_t index = 0; index < text.size(); ++index) {
+    if (text[index] != '%') continue;
+    size_t start = index;
+    while (start > 0 && std::isdigit(static_cast<unsigned char>(text[start - 1]))) --start;
+    if (start == index) continue;
+    const unsigned value = static_cast<unsigned>(std::strtoul(
+        text.substr(start, index - start).c_str(), nullptr, 10));
+    if (value > 100) continue;
+    const unsigned displayed = std::min(95U, value * 95U / 100U);
+    progress.percent.store(std::max(progress.percent.load(), displayed));
+    if (total_bytes != 0)
+      progress.completed_bytes.store(total_bytes * displayed / 100U);
+  }
+}
+
+bool RunArchiveTool(const std::vector<std::string>& arguments, Progress& progress,
+                    std::string& output, size_t output_limit, bool report_progress,
+                    uint64_t total_bytes, const std::string& working_directory = {}) {
+  const char* tool = ArchiveTool();
+  if (tool == nullptr) {
+    AddError(progress, "Archive extraction support is unavailable in this build.");
+    return false;
+  }
+  int pipes[2] = {-1, -1};
+  if (pipe(pipes) != 0) {
+    AddError(progress, Error("Cannot start archive extractor", tool));
+    return false;
+  }
+  fcntl(pipes[0], F_SETFD, FD_CLOEXEC);
+  fcntl(pipes[1], F_SETFD, FD_CLOEXEC);
+  const int flags = fcntl(pipes[0], F_GETFL, 0);
+  if (flags >= 0) fcntl(pipes[0], F_SETFL, flags | O_NONBLOCK);
+
+  const pid_t child = fork();
+  if (child == 0) {
+    setpgid(0, 0);
+    if (!working_directory.empty() && chdir(working_directory.c_str()) != 0) _exit(126);
+    const int null_input = open("/dev/null", O_RDONLY | O_CLOEXEC);
+    if (null_input >= 0) dup2(null_input, STDIN_FILENO);
+    dup2(pipes[1], STDOUT_FILENO);
+    dup2(pipes[1], STDERR_FILENO);
+    close(pipes[0]);
+    close(pipes[1]);
+    if (null_input > STDERR_FILENO) close(null_input);
+    std::vector<char*> argv;
+    argv.reserve(arguments.size() + 2);
+    argv.push_back(const_cast<char*>(tool));
+    for (const std::string& argument : arguments)
+      argv.push_back(const_cast<char*>(argument.c_str()));
+    argv.push_back(nullptr);
+    execve(tool, argv.data(), environ);
+    _exit(127);
+  }
+  close(pipes[1]);
+  if (child < 0) {
+    close(pipes[0]);
+    AddError(progress, Error("Cannot start archive extractor", tool));
+    return false;
+  }
+  setpgid(child, child);
+
+  bool exited = false;
+  bool stream_open = true;
+  bool overflow = false;
+  int status = 0;
+  std::string percent_tail;
+  while (!exited || stream_open) {
+    if (progress.cancel.load() && !exited) {
+      kill(-child, SIGKILL);
+      kill(child, SIGKILL);
+    }
+    pollfd descriptor{pipes[0], static_cast<short>(POLLIN | POLLHUP), 0};
+    poll(&descriptor, 1, exited ? 0 : 75);
+    if (descriptor.revents & (POLLIN | POLLHUP)) {
+      std::array<char, 8192> buffer{};
+      while (true) {
+        const ssize_t count = read(pipes[0], buffer.data(), buffer.size());
+        if (count > 0) {
+          const std::string chunk(buffer.data(), static_cast<size_t>(count));
+          if (report_progress) {
+            ParseArchivePercent(percent_tail + chunk, progress, total_bytes);
+            const std::string combined = percent_tail + chunk;
+            percent_tail = combined.substr(combined.size() > 16 ? combined.size() - 16 : 0);
+          }
+          if (output.size() + static_cast<size_t>(count) <= output_limit)
+            output.append(buffer.data(), static_cast<size_t>(count));
+          else
+            overflow = true;
+          continue;
+        }
+        if (count == 0) stream_open = false;
+        if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+          stream_open = false;
+        break;
+      }
+    }
+    if (!exited) {
+      const pid_t waited = waitpid(child, &status, WNOHANG);
+      if (waited == child) exited = true;
+      else if (waited < 0 && errno != EINTR) {
+        exited = true;
+        status = -1;
+      }
+    }
+    if (exited && !(descriptor.revents & (POLLIN | POLLHUP))) {
+      std::array<char, 8192> buffer{};
+      const ssize_t count = read(pipes[0], buffer.data(), buffer.size());
+      if (count > 0) {
+        if (output.size() + static_cast<size_t>(count) <= output_limit)
+          output.append(buffer.data(), static_cast<size_t>(count));
+        else
+          overflow = true;
+      } else if (count == 0 || (count < 0 && errno != EINTR)) {
+        stream_open = false;
+      }
+    }
+  }
+  close(pipes[0]);
+  if (!exited) {
+    do { errno = 0; } while (waitpid(child, &status, 0) < 0 && errno == EINTR);
+  }
+  if (overflow) AddError(progress, "The archive listing is too large to validate safely.");
+  return !overflow && !progress.cancel.load() && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+bool ParseArchiveListing(const std::string& listing, ArchiveInfo& info,
+                         std::vector<ArchiveEntry>* entries, std::string& error) {
+  std::istringstream input(listing);
+  std::string line;
+  std::string path;
+  uint64_t size = 0;
+  bool encrypted = false;
+  bool link = false;
+  bool directory = false;
+  auto finish = [&]() -> bool {
+    if (path.empty()) return true;
+    if (!SafeArchiveEntryPath(path)) {
+      error = "Unsafe archive path: " + SanitizeDisplayText(path);
+      return false;
+    }
+    if (encrypted) {
+      error = "Password-protected archives are not supported yet.";
+      return false;
+    }
+    if (link) {
+      error = "Archives containing symbolic or hard links are not extracted for safety.";
+      return false;
+    }
+    if (info.entries >= 100000 || UINT64_MAX - info.bytes < size) {
+      error = "The archive contains too many files or reports an invalid size.";
+      return false;
+    }
+    ++info.entries;
+    info.bytes += size;
+    if (entries != nullptr) entries->push_back({path, directory, size});
+    path.clear();
+    size = 0;
+    encrypted = false;
+    link = false;
+    directory = false;
+    return true;
+  };
+  while (std::getline(input, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.empty()) {
+      if (!finish()) return false;
+      continue;
+    }
+    const size_t separator = line.find(" = ");
+    if (separator == std::string::npos) continue;
+    const std::string key = line.substr(0, separator);
+    const std::string value = line.substr(separator + 3);
+    if (key == "Path") {
+      if (!path.empty() && !finish()) return false;
+      path = value;
+    } else if (key == "Size") {
+      char* end = nullptr;
+      errno = 0;
+      const unsigned long long parsed = std::strtoull(value.c_str(), &end, 10);
+      if (errno != 0 || end == value.c_str() || *end != '\0') {
+        error = "The archive reports an invalid expanded size.";
+        return false;
+      }
+      size = static_cast<uint64_t>(parsed);
+    } else if (key == "Encrypted" && value == "+") {
+      encrypted = true;
+    } else if (key == "Folder" && value == "+") {
+      directory = true;
+    } else if ((key == "Symbolic Link" || key == "Hard Link") && !value.empty()) {
+      link = true;
+    }
+  }
+  if (!finish()) return false;
+  if (info.entries == 0) {
+    error = "The archive is empty or its format is unsupported.";
+    return false;
+  }
+  return true;
+}
+
+bool ValidateExtractedTree(const std::string& path, size_t& entries,
+                           Progress& progress) {
+  struct stat info{};
+  if (lstat(path.c_str(), &info) != 0) {
+    AddError(progress, Error("Cannot inspect extracted item", path));
+    return false;
+  }
+  if (++entries > 100000) {
+    AddError(progress, "The extracted archive contains too many items.");
+    return false;
+  }
+  if (S_ISREG(info.st_mode)) return true;
+  if (!S_ISDIR(info.st_mode)) {
+    AddError(progress, "The archive created an unsupported file type: " + path);
+    return false;
+  }
+  DIR* directory = opendir(path.c_str());
+  if (directory == nullptr) {
+    AddError(progress, Error("Cannot inspect extracted folder", path));
+    return false;
+  }
+  bool okay = true;
+  while (auto* item = readdir(directory)) {
+    if (!std::strcmp(item->d_name, ".") || !std::strcmp(item->d_name, "..")) continue;
+    if (!ValidateExtractedTree(Join(path, item->d_name), entries, progress)) {
+      okay = false;
+      break;
+    }
+  }
+  closedir(directory);
+  return okay;
+}
 
 std::string Error(const std::string& action, const std::string& path) {
   return action + " " + path + ": " + std::strerror(errno);
@@ -504,6 +762,336 @@ void RollBackReplacement(const std::string& destination, const std::string& back
     AddError(progress, Error("Cannot restore previous destination", destination));
 }
 
+bool ArchiveMemberSelected(const ArchiveEntry& entry,
+                           const std::vector<std::string>& members) {
+  if (members.empty()) return true;
+  for (const std::string& member : members) {
+    if (entry.path == member) return true;
+    if (entry.path.size() > member.size() &&
+        entry.path.compare(0, member.size(), member) == 0 &&
+        entry.path[member.size()] == '/')
+      return true;
+  }
+  return false;
+}
+
+std::string LastArchiveMessage(const std::string& output) {
+  std::istringstream stream(output);
+  std::string line;
+  std::string last;
+  while (std::getline(stream, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    line = SanitizeDisplayText(line);
+    if (!line.empty()) last = line;
+  }
+  return last;
+}
+
+bool CompressionSourceSafe(const std::string& path, Progress& progress) {
+  if (progress.cancel.load()) return false;
+  struct stat info{};
+  if (lstat(path.c_str(), &info) != 0) {
+    AddError(progress, Error("Cannot inspect", path));
+    return false;
+  }
+  if (S_ISLNK(info.st_mode)) {
+    AddError(progress, "Symbolic links cannot be compressed safely: " + path);
+    return false;
+  }
+  if (S_ISREG(info.st_mode)) return true;
+  if (!S_ISDIR(info.st_mode)) {
+    AddError(progress, "Unsupported file type: " + path);
+    return false;
+  }
+  DIR* directory = opendir(path.c_str());
+  if (directory == nullptr) {
+    AddError(progress, Error("Cannot open", path));
+    return false;
+  }
+  bool okay = true;
+  while (auto* item = readdir(directory)) {
+    if (!std::strcmp(item->d_name, ".") || !std::strcmp(item->d_name, "..")) continue;
+    if (!CompressionSourceSafe(Join(path, item->d_name), progress)) {
+      okay = false;
+      break;
+    }
+  }
+  closedir(directory);
+  return okay;
+}
+
+std::string CommonSourceParent(const std::vector<std::string>& sources) {
+  if (sources.empty()) return {};
+  std::string common = Canonical(Parent(sources.front()));
+  if (common.empty()) return {};
+  for (const std::string& source : sources) {
+    const std::string path = Canonical(source);
+    if (path.empty()) return {};
+    while (common != "/" &&
+           !(path.size() > common.size() && path.compare(0, common.size(), common) == 0 &&
+             path[common.size()] == '/'))
+      common = Parent(common);
+  }
+  return common;
+}
+
+void CompressArchive(const Request& request, Progress& progress) {
+  if (request.sources.empty()) {
+    AddError(progress, "Select at least one file or folder to compress.");
+    return;
+  }
+  if (request.archive_format != "zip" && request.archive_format != "7z") {
+    AddError(progress, "This archive format cannot be created.");
+    return;
+  }
+  if (request.destination.empty() || Exists(request.destination)) {
+    AddError(progress, "An item with the archive name already exists.");
+    return;
+  }
+  const std::string output_directory = Parent(request.destination);
+  const Metadata output_info = Inspect(output_directory);
+  if (!output_info.directory || output_info.symlink ||
+      access(output_directory.c_str(), W_OK) != 0) {
+    AddError(progress, "The archive destination is not writable.");
+    return;
+  }
+  Totals totals;
+  for (const std::string& source : request.sources) {
+    if (!CompressionSourceSafe(source, progress) ||
+        !MeasureNode(source, totals, progress, false))
+      return;
+  }
+  progress.total_bytes.store(totals.bytes);
+  progress.total_items.store(totals.items);
+  progress.result_bytes.store(totals.bytes);
+  struct statvfs space{};
+  if (statvfs(output_directory.c_str(), &space) == 0) {
+    const uint64_t available = static_cast<uint64_t>(space.f_bavail) * space.f_frsize;
+    const uint64_t required = totals.bytes + std::min<uint64_t>(64ULL * 1024ULL * 1024ULL,
+                                                                totals.bytes / 20 + 1024 * 1024);
+    if (required > available) {
+      AddError(progress, "Not enough free space to create this archive.");
+      return;
+    }
+  }
+  const std::string working_directory = CommonSourceParent(request.sources);
+  if (working_directory.empty()) {
+    AddError(progress, "Cannot determine a safe archive source folder.");
+    return;
+  }
+  std::string temporary_template = Join(output_directory, ".aera-compress-XXXXXX");
+  std::vector<char> temporary_buffer(temporary_template.begin(), temporary_template.end());
+  temporary_buffer.push_back('\0');
+  const int placeholder = mkstemp(temporary_buffer.data());
+  if (placeholder < 0) {
+    AddError(progress, Error("Cannot create temporary archive in", output_directory));
+    return;
+  }
+  close(placeholder);
+  unlink(temporary_buffer.data());
+  const std::string temporary = temporary_buffer.data();
+  struct ArchiveCleanup {
+    std::string path;
+    bool keep = false;
+    ~ArchiveCleanup() { if (!keep) unlink(path.c_str()); }
+  } cleanup{temporary, false};
+
+  std::vector<std::string> arguments = {
+      "a", "-y", "-bd", "-bb1", "-bsp1", "-bso1", "-bse1",
+      request.archive_format == "zip" ? "-tzip" : "-t7z", "-mx=5", temporary};
+  for (const std::string& source : request.sources) {
+    const std::string canonical = Canonical(source);
+    std::string relative = canonical.substr(working_directory == "/" ? 1
+                                                                      : working_directory.size() + 1);
+    if (relative.empty() || !SafeArchiveEntryPath(relative)) {
+      AddError(progress, "Cannot add an unsafe source path to the archive.");
+      return;
+    }
+    arguments.push_back(relative);
+  }
+  SetText(progress, "Compressing files", BaseName(request.destination));
+  std::string output;
+  if (!RunArchiveTool(arguments, progress, output, 2U * 1024U * 1024U, true,
+                      totals.bytes, working_directory)) {
+    if (!progress.cancel.load() && progress.errors.load() == 0) {
+      const std::string reason = LastArchiveMessage(output);
+      AddError(progress, reason.empty() ? "Archive creation failed." : reason);
+    }
+    return;
+  }
+  const int archive = open(temporary.c_str(), O_RDONLY | O_CLOEXEC);
+  if (archive < 0 || fsync(archive) != 0) {
+    if (archive >= 0) close(archive);
+    AddError(progress, Error("Cannot sync new archive", temporary));
+    return;
+  }
+  close(archive);
+  if (rename(temporary.c_str(), request.destination.c_str()) != 0) {
+    AddError(progress, Error("Cannot save new archive", request.destination));
+    return;
+  }
+  cleanup.keep = true;
+  SyncParentDirectory(request.destination);
+  aera::shared_storage::Normalize(request.destination);
+  progress.completed_bytes.store(totals.bytes);
+  progress.completed_items.store(totals.items);
+}
+
+void ExtractArchive(const Request& request, Progress& progress) {
+  if (request.sources.size() != 1) {
+    AddError(progress, "Archive extraction requires exactly one archive.");
+    return;
+  }
+  const std::string& archive = request.sources.front();
+  const Metadata source = Inspect(archive);
+  const Metadata destination_info = Inspect(request.destination);
+  if (!source.regular || source.symlink) {
+    AddError(progress, "The selected archive is no longer available.");
+    return;
+  }
+  if (!destination_info.directory || destination_info.symlink ||
+      access(request.destination.c_str(), W_OK) != 0) {
+    AddError(progress, "The extraction destination is not writable.");
+    return;
+  }
+  struct DestinationCleanup {
+    std::string path;
+    bool enabled = false;
+    bool keep = false;
+    ~DestinationCleanup() {
+      if (enabled && !keep) rmdir(path.c_str());
+    }
+  } destination_cleanup{request.destination, request.cleanup_empty_destination, false};
+
+  SetText(progress, "Reading archive", BaseName(archive));
+  std::string listing;
+  if (!RunArchiveTool({"l", "-slt", "-ba", "-sccUTF-8", archive}, progress, listing,
+                      32U * 1024U * 1024U, false, 0)) {
+    if (!progress.cancel.load() && progress.errors.load() == 0)
+      AddError(progress, "Cannot read this archive.");
+    return;
+  }
+  ArchiveInfo info;
+  std::vector<ArchiveEntry> entries;
+  std::string validation_error;
+  if (!ParseArchiveListing(listing, info, &entries, validation_error)) {
+    AddError(progress, validation_error);
+    return;
+  }
+  for (const std::string& member : request.archive_members) {
+    if (!SafeArchiveEntryPath(member)) {
+      AddError(progress, "An unsafe archive item was selected.");
+      return;
+    }
+  }
+  uint64_t selected_bytes = 0;
+  size_t selected_items = 0;
+  for (const ArchiveEntry& entry : entries) {
+    if (!ArchiveMemberSelected(entry, request.archive_members)) continue;
+    if (UINT64_MAX - selected_bytes < entry.size) {
+      AddError(progress, "The archive reports an invalid expanded size.");
+      return;
+    }
+    selected_bytes += entry.size;
+    ++selected_items;
+  }
+  if (!request.archive_members.empty() && selected_items == 0) {
+    AddError(progress, "The selected archive items are no longer available.");
+    return;
+  }
+  progress.total_bytes.store(selected_bytes);
+  progress.total_items.store(selected_items);
+  progress.result_bytes.store(selected_bytes);
+
+  struct statvfs space{};
+  if (statvfs(request.destination.c_str(), &space) == 0) {
+    const uint64_t available = static_cast<uint64_t>(space.f_bavail) * space.f_frsize;
+    constexpr uint64_t reserve = 64ULL * 1024ULL * 1024ULL;
+    if (selected_bytes > available ||
+        (available > selected_bytes && available - selected_bytes < reserve)) {
+      AddError(progress, "Not enough free space to extract this archive.");
+      return;
+    }
+  }
+
+  std::string stage_template = Join(request.destination, ".aera-extract-XXXXXX");
+  std::vector<char> stage_buffer(stage_template.begin(), stage_template.end());
+  stage_buffer.push_back('\0');
+  char* created = mkdtemp(stage_buffer.data());
+  if (created == nullptr) {
+    AddError(progress, Error("Cannot create extraction workspace in", request.destination));
+    return;
+  }
+  const std::string stage = created;
+  struct StageCleanup {
+    std::string path;
+    ~StageCleanup() { if (!path.empty()) RemoveNodeQuiet(path); }
+  } cleanup{stage};
+
+  std::vector<std::string> arguments = {
+      "x", "-y", "-aoa", "-bb1", "-bsp1", "-bso1", "-bse1",
+      "-sccUTF-8", "-o" + stage, archive};
+  for (const std::string& member : request.archive_members) {
+    arguments.push_back("-i!" + member);
+    const auto found = std::find_if(entries.begin(), entries.end(),
+                                    [&member](const ArchiveEntry& entry) {
+                                      return entry.path == member;
+                                    });
+    if (found != entries.end() && found->directory)
+      arguments.push_back("-i!" + member + "/*");
+  }
+  SetText(progress, "Extracting archive", BaseName(archive));
+  std::string output;
+  if (!RunArchiveTool(arguments, progress, output, 2U * 1024U * 1024U, true,
+                      selected_bytes)) {
+    if (!progress.cancel.load() && progress.errors.load() == 0) {
+      const std::string reason = LastArchiveMessage(output);
+      AddError(progress, reason.empty() ? "Archive extraction failed." : reason);
+    }
+    return;
+  }
+  size_t extracted_entries = 0;
+  if (!ValidateExtractedTree(stage, extracted_entries, progress)) return;
+
+  DIR* directory = opendir(stage.c_str());
+  if (directory == nullptr) {
+    AddError(progress, Error("Cannot inspect extracted files in", stage));
+    return;
+  }
+  std::vector<std::string> children;
+  while (auto* item = readdir(directory)) {
+    if (!std::strcmp(item->d_name, ".") || !std::strcmp(item->d_name, "..")) continue;
+    children.emplace_back(item->d_name);
+  }
+  closedir(directory);
+  for (const std::string& name : children) {
+    if (progress.cancel.load()) return;
+    const std::string child = Join(stage, name);
+    std::string destination = Join(request.destination, name);
+    std::string replacement_backup;
+    if (!PrepareDestination(child, destination, request, progress, replacement_backup)) continue;
+    aera::shared_storage::RepairOnExit shared_permissions(destination);
+    if (rename(child.c_str(), destination.c_str()) == 0) {
+      FinishReplacement(replacement_backup, progress);
+      continue;
+    }
+    const int move_error = errno;
+    if (move_error == EXDEV && CopyNode(child, destination, progress) &&
+        RemoveNodeQuiet(child)) {
+      FinishReplacement(replacement_backup, progress);
+      continue;
+    }
+    if (move_error != EXDEV) {
+      errno = move_error;
+      AddError(progress, Error("Cannot place extracted item", destination));
+    }
+    RollBackReplacement(destination, replacement_backup, progress);
+  }
+  progress.completed_bytes.store(selected_bytes);
+  progress.completed_items.store(selected_items);
+  destination_cleanup.keep = progress.errors.load() == 0 && !progress.cancel.load();
+}
+
 }  // namespace
 
 void Progress::Reset() {
@@ -623,6 +1211,71 @@ bool ValidName(const std::string& name, std::string& error) {
 bool Exists(const std::string& path) {
   struct stat info{};
   return lstat(path.c_str(), &info) == 0;
+}
+
+bool IsArchiveFile(const std::string& name) {
+  std::string lower = name;
+  std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char value) {
+    return static_cast<char>(std::tolower(value));
+  });
+  for (const char* extension : {".zip", ".rar", ".7z", ".tar", ".tar.gz", ".tgz",
+                                ".tar.bz2", ".tbz", ".tbz2", ".tar.xz", ".txz",
+                                ".gz", ".bz2", ".xz", ".lzma", ".cab", ".iso",
+                                ".cpio", ".apk", ".jar"}) {
+    const size_t length = std::strlen(extension);
+    if (lower.size() >= length &&
+        lower.compare(lower.size() - length, length, extension) == 0)
+      return true;
+  }
+  return false;
+}
+
+bool SafeArchiveEntryPath(const std::string& input) {
+  if (input.empty() || input.size() > PATH_MAX || input.front() == '/' || input.front() == '\\')
+    return false;
+  if (input.size() >= 2 && std::isalpha(static_cast<unsigned char>(input[0])) &&
+      input[1] == ':')
+    return false;
+  std::string path = input;
+  std::replace(path.begin(), path.end(), '\\', '/');
+  std::istringstream components(path);
+  std::string component;
+  while (std::getline(components, component, '/')) {
+    if (component == "..") return false;
+    for (unsigned char value : component)
+      if (value == 0 || value < 0x20 || value == 0x7f) return false;
+  }
+  return true;
+}
+
+bool ListArchive(const std::string& archive, std::vector<ArchiveEntry>& entries,
+                 std::string& error) {
+  entries.clear();
+  error.clear();
+  const Metadata metadata = Inspect(archive);
+  if (!metadata.regular || metadata.symlink) {
+    error = "Only regular archive files can be opened.";
+    return false;
+  }
+  Progress progress;
+  progress.Reset();
+  std::string listing;
+  if (!RunArchiveTool({"l", "-slt", "-ba", "-sccUTF-8", archive}, progress, listing,
+                      32U * 1024U * 1024U, false, 0)) {
+    const Snapshot snapshot = progress.Get();
+    error = snapshot.detail.empty() ? "Cannot read this archive." : snapshot.detail;
+    return false;
+  }
+  ArchiveInfo info;
+  if (!ParseArchiveListing(listing, info, &entries, error)) {
+    entries.clear();
+    return false;
+  }
+  std::sort(entries.begin(), entries.end(), [](const ArchiveEntry& left,
+                                                const ArchiveEntry& right) {
+    return left.path < right.path;
+  });
+  return true;
 }
 
 bool IsTextFile(const std::string& path, uint64_t maximum_bytes) {
@@ -826,6 +1479,28 @@ void Search(const SearchRequest& request, SearchProgress& progress) {
 
 void Run(const Request& request, Progress& progress) {
   progress.Reset();
+  if (request.operation == Operation::kCompress) {
+    CompressArchive(request, progress);
+    progress.cancelled.store(progress.cancel.load());
+    progress.success.store(!progress.cancel.load() && progress.errors.load() == 0);
+    if (!progress.cancel.load() && progress.errors.load() == 0) progress.percent.store(100);
+    SetText(progress, progress.cancel.load()        ? "Cancelled"
+                      : progress.errors.load() == 0 ? "Complete"
+                                                    : "Compression failed");
+    progress.done.store(true);
+    return;
+  }
+  if (request.operation == Operation::kExtract) {
+    ExtractArchive(request, progress);
+    progress.cancelled.store(progress.cancel.load());
+    progress.success.store(!progress.cancel.load() && progress.errors.load() == 0);
+    if (!progress.cancel.load() && progress.errors.load() == 0) progress.percent.store(100);
+    SetText(progress, progress.cancel.load()        ? "Cancelled"
+                      : progress.errors.load() == 0 ? "Complete"
+                                                    : "Extraction failed");
+    progress.done.store(true);
+    return;
+  }
   SetText(progress, request.operation == Operation::kMeasure ? "Calculating size" : "Preparing");
   Totals totals;
   for (const auto& source : request.sources) {

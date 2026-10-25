@@ -919,8 +919,8 @@ void OpenTextEditor(Files* state, const std::string& path, const std::string& in
   lv_obj_set_user_data(overlay, &kModalMarker);
   Clear(overlay);
   lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_style_bg_color(overlay, kCanvas, 0);
-  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  Header(overlay, "Extract to", "Choose a destination folder.", state->callback,
+         state->context);
   const bool landscape = Landscape(state->screen);
   const int screen_width = lv_obj_get_width(state->screen);
   const int screen_height = lv_obj_get_height(state->screen);
@@ -1161,21 +1161,449 @@ void RenameEntry(Files* state, const Entry& entry) {
              });
 }
 
+struct FolderPicker {
+  Files* files = nullptr;
+  lv_obj_t* overlay = nullptr;
+  lv_obj_t* path = nullptr;
+  lv_obj_t* list = nullptr;
+  std::string directory;
+  std::function<void(const std::string&)> chosen;
+};
+
+void RenderFolderPicker(FolderPicker* picker) {
+  if (picker == nullptr || picker->list == nullptr) return;
+  lv_label_set_text(picker->path, picker->directory.c_str());
+  lv_obj_clean(picker->list);
+  lv_obj_update_layout(picker->list);
+  std::vector<std::string> folders;
+  if (DIR* directory = opendir(picker->directory.c_str())) {
+    while (auto* item = readdir(directory)) {
+      if (!std::strcmp(item->d_name, ".") || !std::strcmp(item->d_name, "..")) continue;
+      const std::string path = file_manager::Join(picker->directory, item->d_name);
+      const auto metadata = file_manager::Inspect(path);
+      if (metadata.directory && !metadata.symlink) folders.emplace_back(item->d_name);
+    }
+    closedir(directory);
+  }
+  std::sort(folders.begin(), folders.end(), [](const std::string& left,
+                                                const std::string& right) {
+    return Lower(left) < Lower(right);
+  });
+  const int width = std::max(320, static_cast<int>(lv_obj_get_width(picker->list)));
+  int y = 0;
+  for (const std::string& name : folders) {
+    auto* row = Button(picker->list, "", [picker, name] {
+      picker->directory = file_manager::Join(picker->directory, name);
+      RenderFolderPicker(picker);
+    });
+    lv_obj_set_pos(row, 0, y);
+    lv_obj_set_size(row, width, 112);
+    auto* icon = Label(row, LV_SYMBOL_DIRECTORY, &lv_font_montserrat_32, kAccent);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 28, 0);
+    auto* label = Label(row, name.c_str(), &lv_font_montserrat_28, kText);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 86, 0);
+    SingleLineLabel(label, width - 150, &lv_font_montserrat_28);
+    y += 120;
+  }
+}
+
+void OpenFolderPicker(Files* state, const std::string& initial,
+                      std::function<void(const std::string&)> chosen) {
+  auto* overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, kCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  auto* picker = new FolderPicker{state, overlay, nullptr, nullptr, initial,
+                                  std::move(chosen)};
+  lv_obj_add_event_cb(overlay, [](lv_event_t* event) {
+    delete static_cast<FolderPicker*>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, picker);
+  const int width = lv_obj_get_width(state->screen);
+  const int height = lv_obj_get_height(state->screen);
+  const bool landscape = Landscape(state->screen);
+  const int navigation_height = NavigationHeight(overlay);
+  const int toolbar_y = landscape ? 330 : 496;
+  const int path_y = landscape ? 286 : 430;
+  const int list_y = toolbar_y + 132;
+  const int action_y = height - navigation_height - 154;
+  auto* close = Button(overlay, LV_SYMBOL_CLOSE, [overlay] { CloseOverlay(overlay); });
+  lv_obj_set_pos(close, width - 164, landscape ? 190 : 240);
+  lv_obj_set_size(close, 104, 104);
+  CenterButtonContent(close);
+  picker->path = Label(overlay, initial.c_str(), &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(picker->path, 64, path_y);
+  SingleLineLabel(picker->path, width - 250, &lv_font_montserrat_24);
+  auto* storage = Button(overlay, "Storage  " LV_SYMBOL_DOWN, [picker] {
+    auto volumes = RecoveryVolumes("storage");
+    if (volumes.empty()) return;
+    size_t next = 0;
+    for (size_t index = 0; index < volumes.size(); ++index) {
+      if (picker->directory == volumes[index].path ||
+          picker->directory.rfind(volumes[index].path + "/", 0) == 0) {
+        next = (index + 1) % volumes.size();
+        break;
+      }
+    }
+    picker->directory = volumes[next].path;
+    RenderFolderPicker(picker);
+  });
+  lv_obj_set_pos(storage, 64, toolbar_y);
+  lv_obj_set_size(storage, 280, 104);
+  auto* root = Button(overlay, "Root", [picker] {
+    picker->directory = "/";
+    RenderFolderPicker(picker);
+  });
+  lv_obj_set_pos(root, 364, toolbar_y);
+  lv_obj_set_size(root, 170, 104);
+  auto* up = Button(overlay, LV_SYMBOL_UP, [picker] {
+    picker->directory = file_manager::Parent(picker->directory);
+    RenderFolderPicker(picker);
+  });
+  lv_obj_set_pos(up, 554, toolbar_y);
+  lv_obj_set_size(up, 120, 104);
+  CenterButtonContent(up);
+  picker->list = lv_obj_create(overlay);
+  Clear(picker->list);
+  lv_obj_set_pos(picker->list, 64, list_y);
+  lv_obj_set_size(picker->list, width - 128, std::max(200, action_y - list_y - 24));
+  lv_obj_add_flag(picker->list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(picker->list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(picker->list, LV_SCROLLBAR_MODE_ACTIVE);
+  auto* cancel = Button(overlay, "Cancel", [overlay] { CloseOverlay(overlay); });
+  lv_obj_set_pos(cancel, 64, action_y);
+  lv_obj_set_size(cancel, (width - 148) / 2, 120);
+  auto* select = Button(overlay, "Extract here", [picker] {
+    const std::string destination = picker->directory;
+    auto chosen = picker->chosen;
+    CloseOverlay(picker->overlay);
+    chosen(destination);
+  }, true);
+  lv_obj_set_pos(select, 84 + (width - 148) / 2, action_y);
+  lv_obj_set_size(select, (width - 148) / 2, 120);
+  Navigation(overlay, Action::kNone, state->callback, state->context);
+  RenderFolderPicker(picker);
+}
+
+void StartArchiveExtraction(Files* state, const Entry& archive,
+                            const std::string& destination,
+                            std::vector<std::string> members = {},
+                            bool cleanup_empty_destination = false) {
+  file_manager::Request request;
+  request.operation = file_manager::Operation::kExtract;
+  request.conflict = file_manager::Conflict::kKeepBoth;
+  request.sources = {archive.path};
+  request.destination = destination;
+  request.archive_members = std::move(members);
+  request.cleanup_empty_destination = cleanup_empty_destination;
+  StartWork(state, "Extracting archive", request, true, false);
+}
+
+std::string ArchiveFolderName(const std::string& filename) {
+  std::string lower = Lower(filename);
+  size_t extension_length = 0;
+  for (const char* extension : {".tar.bz2", ".tar.gz", ".tar.xz", ".tbz2", ".zip",
+                                ".rar", ".7z", ".tar", ".tgz", ".tbz", ".txz",
+                                ".gz", ".bz2", ".xz", ".lzma", ".cab", ".iso",
+                                ".cpio", ".apk", ".jar"}) {
+    const size_t length = std::strlen(extension);
+    if (lower.size() >= length &&
+        lower.compare(lower.size() - length, length, extension) == 0) {
+      extension_length = length;
+      break;
+    }
+  }
+  std::string name = extension_length == 0 ? filename
+                                           : filename.substr(0, filename.size() - extension_length);
+  if (name.empty()) name = "Archive";
+  while (name.size() > 220) {
+    name.pop_back();
+    while (!name.empty() &&
+           (static_cast<unsigned char>(name.back()) & 0xc0) == 0x80)
+      name.pop_back();
+  }
+  return name;
+}
+
+void StartArchiveExtractionHere(Files* state, const Entry& archive,
+                                std::vector<std::string> members = {}) {
+  const std::string parent = file_manager::Parent(archive.path);
+  const std::string stem = ArchiveFolderName(archive.name);
+  std::string destination = file_manager::Join(parent, stem);
+  for (unsigned index = 1; file_manager::Exists(destination) && index < 10000; ++index)
+    destination = file_manager::Join(parent, stem + " (" + std::to_string(index) + ")");
+  if (file_manager::Exists(destination)) {
+    Sheet(state->screen, "Cannot extract archive",
+          "A unique destination folder could not be created.");
+    return;
+  }
+  std::string error;
+  if (!file_manager::CreateDirectory(destination, error)) {
+    Sheet(state->screen, "Cannot extract archive", error);
+    return;
+  }
+  StartArchiveExtraction(state, archive, destination, std::move(members), true);
+}
+
+struct ArchiveBrowser {
+  Files* files = nullptr;
+  Entry archive;
+  lv_obj_t* overlay = nullptr;
+  lv_obj_t* path = nullptr;
+  lv_obj_t* list = nullptr;
+  lv_obj_t* selection = nullptr;
+  std::vector<file_manager::ArchiveEntry> entries;
+  std::string directory;
+  std::set<std::string> selected;
+};
+
+std::vector<file_manager::ArchiveEntry> VisibleArchiveEntries(const ArchiveBrowser* browser) {
+  std::vector<file_manager::ArchiveEntry> visible;
+  std::set<std::string> seen;
+  const std::string prefix = browser->directory.empty() ? "" : browser->directory + "/";
+  for (const auto& entry : browser->entries) {
+    if (entry.path.compare(0, prefix.size(), prefix) != 0) continue;
+    std::string remainder = entry.path.substr(prefix.size());
+    while (!remainder.empty() && remainder.back() == '/') remainder.pop_back();
+    if (remainder.empty()) continue;
+    const size_t slash = remainder.find('/');
+    const std::string name = remainder.substr(0, slash);
+    const std::string path = prefix + name;
+    if (!seen.insert(path).second) continue;
+    visible.push_back({path, slash != std::string::npos || entry.directory,
+                       slash == std::string::npos ? entry.size : 0});
+  }
+  std::sort(visible.begin(), visible.end(), [](const auto& left, const auto& right) {
+    if (left.directory != right.directory) return left.directory > right.directory;
+    return Lower(file_manager::BaseName(left.path)) < Lower(file_manager::BaseName(right.path));
+  });
+  return visible;
+}
+
+void RenderArchiveBrowser(ArchiveBrowser* browser) {
+  lv_label_set_text(browser->path,
+                    browser->directory.empty() ? "/" : browser->directory.c_str());
+  lv_label_set_text(browser->selection,
+                    browser->selected.empty()
+                        ? i18n::Translate("No selection - the complete archive will be extracted")
+                        : i18n::Format("%zu selected", browser->selected.size()).c_str());
+  lv_obj_clean(browser->list);
+  lv_obj_update_layout(browser->list);
+  const auto visible = VisibleArchiveEntries(browser);
+  const int width = std::max(320, static_cast<int>(lv_obj_get_width(browser->list)));
+  int y = 0;
+  for (const auto& entry : visible) {
+    const bool selected = browser->selected.count(entry.path) != 0;
+    auto* row = lv_button_create(browser->list);
+    Clear(row);
+    lv_obj_set_pos(row, 0, y);
+    lv_obj_set_size(row, width, 124);
+    lv_obj_set_style_radius(row, 22, 0);
+    lv_obj_set_style_bg_color(row, selected ? kAccentSoft : kMainPanel, 0);
+    lv_obj_set_style_bg_opa(row, selected ? LV_OPA_COVER : LV_OPA_30, 0);
+    OnClickOrHold(row, [browser, entry] {
+      if (entry.directory) {
+        browser->directory = entry.path;
+      } else if (browser->selected.erase(entry.path) == 0) {
+        browser->selected.insert(entry.path);
+      }
+      RenderArchiveBrowser(browser);
+    }, [browser, entry] {
+      if (browser->selected.erase(entry.path) == 0) browser->selected.insert(entry.path);
+      RenderArchiveBrowser(browser);
+    });
+    auto* icon = Label(row, entry.directory ? LV_SYMBOL_DIRECTORY : LV_SYMBOL_FILE,
+                       &lv_font_montserrat_32, selected ? kAccent : kMutedStrong);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 28, 0);
+    const std::string name = file_manager::BaseName(entry.path);
+    auto* label = Label(row, name.c_str(), &lv_font_montserrat_28, kText);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 86, entry.directory ? 0 : -18);
+    SingleLineLabel(label, width - 190, &lv_font_montserrat_28);
+    if (!entry.directory) {
+      auto* size = Label(row, Size(entry.size).c_str(), &lv_font_montserrat_20, kMuted);
+      lv_obj_align(size, LV_ALIGN_LEFT_MID, 86, 24);
+    }
+    auto* mark = Label(row, selected ? LV_SYMBOL_OK : (entry.directory ? LV_SYMBOL_RIGHT : "○"),
+                       &lv_font_montserrat_28, selected ? kAccent : kMutedStrong);
+    lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -30, 0);
+    y += 132;
+  }
+}
+
+std::vector<std::string> ArchiveSelection(const ArchiveBrowser* browser) {
+  return {browser->selected.begin(), browser->selected.end()};
+}
+
+void OpenArchiveBrowser(Files* state, const Entry& archive) {
+  std::vector<file_manager::ArchiveEntry> entries;
+  std::string error;
+  if (!file_manager::ListArchive(archive.path, entries, error)) {
+    Sheet(state->screen, "Cannot open archive", error);
+    return;
+  }
+  auto* overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  Header(overlay, "Archive", "Browse and extract compressed files.", state->callback,
+         state->context);
+  auto* browser = new ArchiveBrowser{state, archive, overlay, nullptr, nullptr, nullptr,
+                                     std::move(entries), {}, {}};
+  lv_obj_add_event_cb(overlay, [](lv_event_t* event) {
+    delete static_cast<ArchiveBrowser*>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, browser);
+  const int width = lv_obj_get_width(state->screen);
+  const int height = lv_obj_get_height(state->screen);
+  const bool landscape = Landscape(state->screen);
+  const int navigation_height = NavigationHeight(overlay);
+  const int archive_y = landscape ? 290 : 430;
+  const int toolbar_y = landscape ? 354 : 500;
+  const int path_y = toolbar_y + 112;
+  const int list_y = path_y + 58;
+  const int action_y = height - navigation_height - 154;
+  auto* archive_label = Label(overlay, archive.name.c_str(), &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(archive_label, 64, archive_y);
+  SingleLineLabel(archive_label, width - 250, &lv_font_montserrat_32);
+  auto* close = Button(overlay, LV_SYMBOL_CLOSE, [overlay] { CloseOverlay(overlay); });
+  lv_obj_set_pos(close, width - 164, landscape ? 190 : 240);
+  lv_obj_set_size(close, 104, 104);
+  CenterButtonContent(close);
+  browser->path = Label(overlay, "/", &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(browser->path, 64, path_y);
+  SingleLineLabel(browser->path, width - 128, &lv_font_montserrat_24);
+  auto* up = Button(overlay, LV_SYMBOL_UP, [browser] {
+    if (!browser->directory.empty()) browser->directory = file_manager::Parent(browser->directory);
+    if (browser->directory == "/") browser->directory.clear();
+    RenderArchiveBrowser(browser);
+  });
+  lv_obj_set_pos(up, 64, toolbar_y);
+  lv_obj_set_size(up, 120, 96);
+  CenterButtonContent(up);
+  auto* all = Button(overlay, "Select all", [browser] {
+    const auto visible = VisibleArchiveEntries(browser);
+    bool all_selected = !visible.empty();
+    for (const auto& entry : visible)
+      if (browser->selected.count(entry.path) == 0) all_selected = false;
+    for (const auto& entry : visible) {
+      if (all_selected) browser->selected.erase(entry.path);
+      else browser->selected.insert(entry.path);
+    }
+    RenderArchiveBrowser(browser);
+  });
+  lv_obj_set_pos(all, 204, toolbar_y);
+  lv_obj_set_size(all, 240, 96);
+  browser->selection = Label(overlay, "", &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(browser->selection, 474, toolbar_y + 28);
+  SingleLineLabel(browser->selection, width - 538, &lv_font_montserrat_24);
+  browser->list = lv_obj_create(overlay);
+  Clear(browser->list);
+  lv_obj_set_pos(browser->list, 64, list_y);
+  lv_obj_set_size(browser->list, width - 128, std::max(220, action_y - list_y - 24));
+  lv_obj_add_flag(browser->list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(browser->list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(browser->list, LV_SCROLLBAR_MODE_ACTIVE);
+  const int button_width = (width - 148) / 2;
+  auto* here = Button(overlay, "Extract here", [browser] {
+    StartArchiveExtractionHere(browser->files, browser->archive,
+                               ArchiveSelection(browser));
+    CloseOverlay(browser->overlay);
+  }, true);
+  lv_obj_set_pos(here, 64, action_y);
+  lv_obj_set_size(here, button_width, 118);
+  auto* to = Button(overlay, "Extract to", [browser] {
+    Files* files = browser->files;
+    const Entry archive = browser->archive;
+    const auto selected = ArchiveSelection(browser);
+    const std::string initial = file_manager::Parent(archive.path);
+    CloseOverlay(browser->overlay);
+    OpenFolderPicker(files, initial, [files, archive, selected](const std::string& destination) {
+      StartArchiveExtraction(files, archive, destination, selected);
+    });
+  });
+  lv_obj_set_pos(to, 84 + button_width, action_y);
+  lv_obj_set_size(to, button_width, 118);
+  Navigation(overlay, Action::kNone, state->callback, state->context);
+  RenderArchiveBrowser(browser);
+}
+
+void ChooseCompressionName(Files* state, std::vector<std::string> paths,
+                           const std::string& format) {
+  if (paths.empty()) return;
+  std::string suggested = paths.size() == 1 ? file_manager::BaseName(paths.front()) : "Archive";
+  const std::string extension = format == "7z" ? ".7z" : ".zip";
+  suggested += extension;
+  NameDialog(state, "Create archive", "Archive name", suggested, "Compress",
+             [state, paths = std::move(paths), format, extension](const std::string& entered,
+                                                                  std::string& error) {
+    std::string name = entered;
+    const std::string lower = Lower(name);
+    if (lower.size() < extension.size() ||
+        lower.compare(lower.size() - extension.size(), extension.size(), extension) != 0)
+      name += extension;
+    const std::string destination = file_manager::Join(gDirectory, name);
+    if (file_manager::Exists(destination)) {
+      error = "An item with this archive name already exists.";
+      return false;
+    }
+    file_manager::Request request;
+    request.operation = file_manager::Operation::kCompress;
+    request.sources = paths;
+    request.destination = destination;
+    request.archive_format = format;
+    StartWork(state, "Compressing files", request, true, false);
+    return true;
+  });
+}
+
+void OpenCompressionMenu(Files* state, std::vector<std::string> paths) {
+  if (paths.empty()) return;
+  const std::string detail = paths.size() == 1
+      ? file_manager::BaseName(paths.front())
+      : i18n::Format("%zu selected items", paths.size());
+  ActionSheet(state, "Compress", detail,
+              {{"ZIP archive", LV_SYMBOL_FILE,
+                [state, paths] { ChooseCompressionName(state, paths, "zip"); }},
+               {"7z archive", LV_SYMBOL_FILE,
+                [state, paths] { ChooseCompressionName(state, paths, "7z"); }}});
+}
+
 void OpenEntryMenu(Files* state, const Entry& entry) {
-  ActionSheet(
-      state, entry.name, entry.directory ? i18n::Translate("Folder") : Size(entry.bytes),
-      {
+  std::vector<MenuAction> actions = {
           { "Open", entry.directory ? LV_SYMBOL_DIRECTORY : LV_SYMBOL_FILE,
             [state, entry] { OpenFile(state, entry); } },
           { "Copy", LV_SYMBOL_COPY,
             [state, entry] { SetClipboard(state, ClipboardMode::kCopy, { entry.path }); } },
           { "Cut", LV_SYMBOL_EDIT,
             [state, entry] { SetClipboard(state, ClipboardMode::kCut, { entry.path }); } },
+          { "Compress", LV_SYMBOL_SAVE,
+            [state, entry] { OpenCompressionMenu(state, {entry.path}); } },
           { "Rename", LV_SYMBOL_EDIT, [state, entry] { RenameEntry(state, entry); } },
           { "Information", LV_SYMBOL_LIST, [state, entry] { OpenInformation(state, entry); } },
           { "Delete", LV_SYMBOL_TRASH, [state, entry] { DeletePaths(state, { entry.path }); },
             true },
-      });
+      };
+  if (!entry.directory && !entry.symlink && file_manager::IsArchiveFile(entry.name)) {
+    actions.insert(actions.begin() + 1,
+                   {"Browse archive", LV_SYMBOL_LIST,
+                    [state, entry] { OpenArchiveBrowser(state, entry); }});
+    actions.insert(actions.begin() + 2,
+                   {"Extract here", LV_SYMBOL_DOWNLOAD,
+                    [state, entry] {
+                      StartArchiveExtractionHere(state, entry);
+                    }});
+    actions.insert(actions.begin() + 3,
+                   {"Extract to", LV_SYMBOL_DIRECTORY,
+                    [state, entry] {
+                      OpenFolderPicker(state, file_manager::Parent(entry.path),
+                                       [state, entry](const std::string& destination) {
+                        StartArchiveExtraction(state, entry, destination);
+                      });
+                    }});
+  }
+  ActionSheet(state, entry.name,
+              entry.directory ? i18n::Translate("Folder") : Size(entry.bytes),
+              std::move(actions));
 }
 
 bool DeferredTextProbe(const std::string &path) {
@@ -1259,6 +1687,8 @@ void OpenFile(Files *state, const Entry &entry) {
     }
   } else if (Zip(entry.name)) {
     ReviewPackage(state->screen, entry.path, state->callback, state->context);
+  } else if (file_manager::IsArchiveFile(entry.name)) {
+    OpenArchiveBrowser(state, entry);
   } else if (Image(entry.name)) {
     OpenImageTargetPicker(state, entry);
   } else if (entry.text || ((state->search_mode || DeferredTextProbe(entry.path)) &&
@@ -1274,6 +1704,7 @@ std::string EntryDetail(const Entry& entry) {
   if (entry.directory) return i18n::Translate("Folder");
   const char* kind = plugins::IsPackageFile(entry.name) ? "AERA plugin package"
                      : Zip(entry.name)                  ? "ZIP package"
+                     : file_manager::IsArchiveFile(entry.name) ? "Compressed archive"
                      : Image(entry.name)                ? "Flashable image"
                      : IsPicture(entry.name)            ? "Image preview"
                      : entry.text                       ? "Text file"
@@ -1296,6 +1727,7 @@ const char* EntryIcon(const Entry& entry) {
   if (entry.directory) return LV_SYMBOL_DIRECTORY;
   if (entry.symlink) return LV_SYMBOL_RIGHT;
   if (IsPicture(entry.name)) return LV_SYMBOL_IMAGE;
+  if (file_manager::IsArchiveFile(entry.name)) return LV_SYMBOL_DOWNLOAD;
   if (Image(entry.name)) return LV_SYMBOL_UPLOAD;
   if (entry.text) return LV_SYMBOL_EDIT;
   return LV_SYMBOL_FILE;
@@ -1480,8 +1912,10 @@ void UpdateActionBar(Files* state) {
                             : interface_size == InterfaceSize::kLarge ? 180
                             : interface_size == InterfaceSize::kNormal ? 146
                                                                        : 108;
-  const int button_width = interface_size == InterfaceSize::kSpacious ? 220
-                           : interface_size == InterfaceSize::kSmall ? 170 : 190;
+  const int button_width = state->selecting
+      ? (landscape ? 190 : interface_size == InterfaceSize::kSmall ? 140 : 160)
+      : interface_size == InterfaceSize::kSpacious ? 220
+        : interface_size == InterfaceSize::kSmall ? 170 : 190;
   const lv_font_t* action_font = interface_size == InterfaceSize::kSpacious
       ? &lv_font_montserrat_48
       : interface_size == InterfaceSize::kLarge
@@ -1540,6 +1974,9 @@ void UpdateActionBar(Files* state) {
         add("Copy", [state] { SetClipboard(state, ClipboardMode::kCopy, SelectedPaths(state)); });
     auto* cut =
         add("Cut", [state] { SetClipboard(state, ClipboardMode::kCut, SelectedPaths(state)); });
+    auto* compress = add("Compress", [state] {
+      OpenCompressionMenu(state, SelectedPaths(state));
+    });
     auto* remove = add("Delete", [state] { DeletePaths(state, SelectedPaths(state)); }, true);
     add(LV_SYMBOL_CLOSE, [state] {
       state->selecting = false;
@@ -1550,6 +1987,7 @@ void UpdateActionBar(Files* state) {
     if (state->selected.empty()) {
       lv_obj_add_state(copy, LV_STATE_DISABLED);
       lv_obj_add_state(cut, LV_STATE_DISABLED);
+      lv_obj_add_state(compress, LV_STATE_DISABLED);
       lv_obj_add_state(remove, LV_STATE_DISABLED);
     }
     if (state->selected.size() == state->entries.size() && !state->entries.empty())
