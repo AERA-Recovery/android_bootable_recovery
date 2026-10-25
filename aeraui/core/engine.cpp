@@ -769,6 +769,10 @@ public:
       DismissRecents();
       return;
     }
+    if (decryption_active_ && lock_overlay_ == nullptr) {
+      if (!decrypt_running_) widgets::DismissModal(lv_screen_active());
+      return;
+    }
     if (lock_overlay_ != nullptr || !backend_ready_ || decryption_active_ ||
         operation_running_ || (nas_running_ && nas_interactive_) || plugin_running_)
       return;

@@ -135,6 +135,13 @@ int aeraui::RecoveryDecrypt(const std::string &credential, int user_id) {
 namespace aeraui {
 namespace {
 void LoadAeraPreferencesIfAvailable();
+// An explicit choice made before /data is unlocked wins over later disk loads.
+std::string gSessionLanguage;
+std::mutex gSessionLanguageMutex;
+std::string SessionLanguageOr(const std::string &stored) {
+  std::lock_guard<std::mutex> lock(gSessionLanguageMutex);
+  return gSessionLanguage.empty() ? stored : gSessionLanguage;
+}
 bool WriteFileAtomically(const std::string &path, const std::string &contents);
 kernel::Settings gDeveloperSettings;
 bool SaveAeraPreferences(bool require_early = false);
@@ -2342,7 +2349,7 @@ bool RecoverySetDockHideInApps(bool enabled) {
 std::string RecoveryLanguage() {
   LoadAeraPreferencesIfAvailable();
   const std::string language = DataManager::GetStrValue("tw_language");
-  return language.empty() ? AERA_DEFAULT_LANGUAGE : language;
+  return SessionLanguageOr(language.empty() ? std::string(AERA_DEFAULT_LANGUAGE) : language);
 }
 bool RecoverySetLanguage(const std::string &language) {
   if (language.empty() || language.size() > 16) return false;
@@ -2350,7 +2357,10 @@ bool RecoverySetLanguage(const std::string &language) {
     if (!(std::isalnum(character) || character == '_' || character == '-'))
       return false;
   }
-  return DataManager::SetValue("tw_language", language, 1) == 0;
+  if (DataManager::SetValue("tw_language", language, 1) != 0) return false;
+  std::lock_guard<std::mutex> lock(gSessionLanguageMutex);
+  gSessionLanguage = language;
+  return true;
 }
 std::string RecoveryBrowserHomepage() {
   LoadAeraPreferencesIfAvailable();
@@ -3080,7 +3090,7 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue("aera_themed_home_icons", preferences.themed_home_icons);
   DataManager::SetValue("aera_interface_size", preferences.interface_size);
   DataManager::SetValue("aera_ui_font", preferences.ui_font);
-  DataManager::SetValue("tw_language", preferences.language);
+  DataManager::SetValue("tw_language", SessionLanguageOr(preferences.language));
   DataManager::SetValue("aera_keyboard_layout", preferences.keyboard_layout);
   DataManager::SetValue("aera_home_grid_columns", preferences.home_grid_columns);
   DataManager::SetValue("aera_dock_layout", preferences.dock_layout);
