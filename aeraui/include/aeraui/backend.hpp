@@ -308,11 +308,13 @@ enum class Preference {
   kPreserveAbl,
   kBackupChecksums,
   kVerifyBackupChecksums,
+  kPreserveSplash,
 };
 bool RecoveryPreference(Preference preference);
 bool RecoverySetPreference(Preference preference, bool enabled);
 bool RecoveryPreservationSupported();
 bool RecoveryAblPreservationSupported();
+bool RecoverySplashPreservationSupported();
 bool RecoverySha256Available();
 int RecoveryUtcOffset();  // Minutes east of UTC.
 bool RecoverySetUtcOffset(int minutes);

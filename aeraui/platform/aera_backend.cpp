@@ -5,6 +5,7 @@
 #include <aeraui/screen_timeout.hpp>
 #include "../../aera_remote/backup_cancel.hpp"
 #include "../../aera_flash_log.hpp"
+#include "../../twrpinstall/splash_preservation.hpp"
 #include "../../aera_mobile/client.hpp"
 #include "../../aera_mobile/android_apn.hpp"
 #include <json/json.h>
@@ -2106,6 +2107,7 @@ static const char *PreferenceVariable(Preference preference) {
     case Preference::kRecents: return "aera_recents_enabled";
     case Preference::kPreserveRecovery: return AERA_PRESERVE_RECOVERY_VAR;
     case Preference::kPreserveAbl: return AERA_PRESERVE_ABL_VAR;
+    case Preference::kPreserveSplash: return AERA_PRESERVE_SPLASH_VAR;
     case Preference::kBackupChecksums: return TW_SKIP_DIGEST_GENERATE_VAR;
     case Preference::kVerifyBackupChecksums: return "aera_verify_backup_checksums";
   }
@@ -2126,11 +2128,15 @@ bool RecoveryPreservationSupported() {
 bool RecoveryAblPreservationSupported() {
   return DataManager::GetIntValue(AERA_ABL_PRESERVATION_SUPPORTED) != 0;
 }
+bool RecoverySplashPreservationSupported() {
+  return aera::preservation::FindSplash().bytes != 0;
+}
 bool RecoverySha256Available() { return DataManager::GetIntValue(TW_NO_SHA2) == 0; }
 bool RecoverySetPreference(Preference preference, bool enabled) {
   const char *variable = PreferenceVariable(preference);
   if (!variable || (preference == Preference::kSha256 && !RecoverySha256Available()) ||
-      (preference == Preference::kPreserveAbl && !RecoveryAblPreservationSupported())) return false;
+      (preference == Preference::kPreserveAbl && !RecoveryAblPreservationSupported()) ||
+      (preference == Preference::kPreserveSplash && enabled && !RecoverySplashPreservationSupported())) return false;
   if (DataManager::SetValue(variable,
       preference == Preference::kBackupChecksums ? (enabled ? 0 : 1) : (enabled ? 1 : 0)) != 0)
     return false;
@@ -2462,6 +2468,7 @@ bool RecoverySetDeveloperSetting(const std::string &id, const std::string &value
 bool RecoveryResetDeveloperSettings(std::string *error) {
   RecoveryDeveloperSettings();
   const bool restored = gDeveloperSettings.ResetAll(error);
+  DataManager::SetValue(AERA_PRESERVE_SPLASH_VAR, 0);
   DataManager::SetValue("aera_developer_settings", kernel::Encode(gDeveloperSettings.Saved()), 1);
   const bool saved = RecoveryAutoSavePreferences();
   if (!saved && error) *error = "Settings storage could not be saved.";
@@ -2638,6 +2645,7 @@ struct EarlyUiPreferences {
   int haptic_action;
   int preserve_recovery;
   int preserve_abl;
+  int preserve_splash;
   int backup_checksums;
   int verify_backup_checksums;
   int wifi_show_speed;
@@ -2721,6 +2729,7 @@ EarlyUiPreferences DefaultEarlyUiPreferences() {
   preferences.preserve_recovery =
       DataManager::GetIntValue(AERA_RECOVERY_PRESERVATION_SUPPORTED) != 0 ? 1 : 0;
   preferences.preserve_abl = 0;
+  preferences.preserve_splash = 0;
   preferences.backup_checksums = 1;
   preferences.verify_backup_checksums = 1;
   preferences.wifi_show_speed = 1;
@@ -2792,6 +2801,8 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
       DataManager::GetIntValue(AERA_PRESERVE_RECOVERY_VAR) != 0 ? 1 : 0;
   preferences.preserve_abl =
       DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) != 0 ? 1 : 0;
+  preferences.preserve_splash =
+      DataManager::GetIntValue(AERA_PRESERVE_SPLASH_VAR) != 0 ? 1 : 0;
   preferences.backup_checksums = DataManager::GetIntValue(TW_SKIP_DIGEST_GENERATE_VAR) == 0 ? 1 : 0;
   preferences.verify_backup_checksums = DataManager::GetStrValue("aera_verify_backup_checksums") != "0" ? 1 : 0;
   preferences.wifi_show_speed = DataManager::GetStrValue("aera_wifi_show_speed") != "0" ? 1 : 0;
@@ -3023,6 +3034,9 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "preserve_abl") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->preserve_abl = parsed;
+  } else if (key == "preserve_splash") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->preserve_splash = parsed;
   } else if (key == "backup_checksums") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->backup_checksums = parsed;
@@ -3127,6 +3141,7 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue(AERA_PRESERVE_RECOVERY_VAR,
                         preferences.preserve_recovery);
   DataManager::SetValue(AERA_PRESERVE_ABL_VAR, preferences.preserve_abl);
+  DataManager::SetValue(AERA_PRESERVE_SPLASH_VAR, preferences.preserve_splash);
   DataManager::SetValue(TW_SKIP_DIGEST_GENERATE_VAR, preferences.backup_checksums ? 0 : 1);
   DataManager::SetValue("aera_verify_backup_checksums", preferences.verify_backup_checksums);
   DataManager::SetValue(TW_SKIP_DIGEST_CHECK_VAR, preferences.verify_backup_checksums);
@@ -3225,6 +3240,7 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "haptic_action=" << preferences.haptic_action << '\n'
          << "preserve_recovery=" << preferences.preserve_recovery << '\n'
          << "preserve_abl=" << preferences.preserve_abl << '\n'
+         << "preserve_splash=" << preferences.preserve_splash << '\n'
          << "backup_checksums=" << preferences.backup_checksums << '\n'
          << "verify_backup_checksums=" << preferences.verify_backup_checksums << '\n'
          << "wifi_show_speed=" << preferences.wifi_show_speed << '\n'
@@ -3444,6 +3460,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "verify_zip=" << DataManager::GetIntValue(TW_SIGNED_ZIP_VERIFY_VAR) << '\n'
          << "preserve_recovery=" << DataManager::GetIntValue(AERA_PRESERVE_RECOVERY_VAR) << '\n'
          << "preserve_abl=" << DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) << '\n'
+         << "preserve_splash=" << DataManager::GetIntValue(AERA_PRESERVE_SPLASH_VAR) << '\n'
          << "plugin_auto_update=" << DataManager::GetIntValue("aera_plugin_auto_update") << '\n'
          << "pc_auto_enable=" << DataManager::GetIntValue("aera_pc_auto_enable") << '\n'
          << "update_nightly=" << DataManager::GetIntValue("aera_update_nightly") << '\n'

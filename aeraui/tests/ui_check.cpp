@@ -57,7 +57,7 @@ bool CancelUpload(const std::string &) { upload_cancelled = true; return true; }
 }
 static std::string backup_root;
 static std::string file_root;
-static bool preferences[12] = {true, false, true, true, false, false, false, true,
+static bool preferences[13] = {true, false, true, true, false, false, false, true,
                                true, false, true, true};
 static int utc_offset = 120;
 static uint32_t accent_color = design::kDefaultAccentRgb;
@@ -84,6 +84,7 @@ bool aeraui::RecoverySetDeveloperSetting(const std::string &id, const std::strin
 }
 bool aeraui::RecoveryResetDeveloperSettings(std::string *) {
   for (auto &setting : developer_settings) { setting.current = setting.baseline; setting.saved.clear(); }
+  preferences[static_cast<int>(Preference::kPreserveSplash)] = false;
   return true;
 }
 void aeraui::RecoveryPollDeveloperSettings() {}
@@ -129,6 +130,8 @@ bool RecoveryPreference(Preference p) { return preferences[static_cast<int>(p)];
 bool RecoverySetPreference(Preference p, bool enabled) { preferences[static_cast<int>(p)] = enabled; return true; }
 bool RecoveryPreservationSupported() { return preservation_supported; }
 bool RecoveryAblPreservationSupported() { return abl_preservation_supported; }
+static bool splash_preservation_supported = true;
+bool RecoverySplashPreservationSupported() { return splash_preservation_supported; }
 bool RecoverySha256Available() { return true; }
 int RecoveryUtcOffset() { return utc_offset; }
 bool RecoverySetUtcOffset(int minutes) { utc_offset = minutes; return true; }
@@ -3165,6 +3168,58 @@ int main(int argc,char **argv) {
     lv_display_delete(display); lv_deinit();
     std::filesystem::remove_all(backup_root);
     puts("Menu PC settings fit six languages, four sizes and both orientations");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--splash-preservation")) {
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *page = lv_obj_create(nullptr);
+      BuildDeveloperScene(page, RecordAction, nullptr); lv_screen_load(page); Tick();
+      lv_obj_send_event(Find(page, "Storage"), LV_EVENT_CLICKED, nullptr);
+      lv_screen_load(screen); lv_obj_delete(page);
+      page = lv_obj_create(nullptr);
+      BuildDeveloperScene(page, RecordAction, nullptr); lv_screen_load(page); Tick();
+      auto *row = lv_obj_get_parent(Find(page, "Keep splash")); assert(row);
+      auto *toggle = FindType(row, &lv_switch_class); assert(toggle);
+      assert(!lv_obj_has_state(toggle, LV_STATE_CHECKED));
+      const int saves = autosave_count;
+      lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoveryPreference(Preference::kPreserveSplash));
+      assert(lv_obj_has_state(toggle, LV_STATE_CHECKED) && autosave_count == saves + 1);
+      save_succeeds = false;
+      lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoveryPreference(Preference::kPreserveSplash)); // Failed saves roll back.
+      save_succeeds = true;
+      lv_screen_load(screen); lv_obj_delete(page);
+      page = lv_obj_create(nullptr);
+      BuildDeveloperScene(page, RecordAction, nullptr); lv_screen_load(page); Tick();
+      row = lv_obj_get_parent(Find(page, "Keep splash"));
+      assert(lv_obj_has_state(FindType(row, &lv_switch_class), LV_STATE_CHECKED));
+      lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(!RecoveryPreference(Preference::kPreserveSplash));
+      AssertContained(row, lv_obj_get_parent(row));
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+    }
+    payload::Info info;
+    info.valid = info.is_payload = true;
+    info.partitions = {{"boot", 4096, 1, true, {}, std::string(32, 'b')},
+                       {"splash", 4096, 1, true, {}, std::string(32, 's')}};
+    const std::vector<PayloadFlashTarget> targets = {
+      {"boot", "/boot", 8192, false, 0, {}}, {"splash", "/splash", 8192, false, 0, {}}};
+    for (bool enabled : {false, true}) for (bool supported : {false, true}) {
+      preferences[static_cast<int>(Preference::kPreserveSplash)] = enabled;
+      splash_preservation_supported = supported;
+      auto protect = payload::ProtectedPartitions();
+      assert(bool(protect.count("splash")) == (enabled && supported));
+      std::vector<std::string> names; std::string error;
+      assert(payload::PlanFullFlash(info, targets, names, error, protect));
+      assert(names.size() == ((enabled && supported) ? 1U : 2U));
+    }
+    splash_preservation_supported = true;
+    preferences[static_cast<int>(Preference::kPreserveSplash)] = false;
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Splash toggle, autosave rollback, layouts and payload protection passed.");
     return 0;
   }
   if (!strcmp(argv[1], "--payload-protection")) {
