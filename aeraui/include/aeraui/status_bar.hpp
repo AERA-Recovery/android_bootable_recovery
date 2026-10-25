@@ -26,6 +26,7 @@ int32_t StatusBarHeight();
 // True while the pull-down shade (including its closing animation) owns
 // pointer input above the current scene.
 bool StatusBarShadeOpen();
+void CloseStatusBarShades();
 // UI-thread refresh for immediate status display preference previews.
 void RefreshStatusBars();
 

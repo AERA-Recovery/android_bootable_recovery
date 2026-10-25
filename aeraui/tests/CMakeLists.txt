@@ -144,6 +144,12 @@ add_test(NAME ui_confirmation_navigation_preferences
 add_test(NAME file_timestamp_layout COMMAND ui_check --file-dates)
 add_test(NAME settings_autosave_and_reset COMMAND ui_check --settings)
 add_test(NAME lock_screen_customisation COMMAND ui_check --lock-theme)
+add_test(NAME landscape_overlay_rotation COMMAND ui_check --landscape-overlays)
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME lock_rotation_dispatch COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/lock_rotation_test.py")
+endif()
 add_test(NAME themed_home_artwork COMMAND ui_check --art)
 add_test(NAME themed_home_layout COMMAND ui_check --home-art)
 add_test(NAME manual_slot_switch_warning COMMAND ui_check --slot-warning)
