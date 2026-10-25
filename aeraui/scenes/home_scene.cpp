@@ -1346,6 +1346,195 @@ void StartArchiveExtractionHere(Files* state, const Entry& archive,
   StartArchiveExtraction(state, archive, destination, std::move(members), true);
 }
 
+struct ArchiveSourcePicker {
+  Files* files = nullptr;
+  lv_obj_t* overlay = nullptr;
+  lv_obj_t* path = nullptr;
+  lv_obj_t* list = nullptr;
+  lv_obj_t* summary = nullptr;
+  lv_obj_t* add = nullptr;
+  std::string directory;
+  std::string excluded;
+  std::set<std::string> selected;
+  std::function<void(std::vector<std::string>)> chosen;
+};
+
+struct ArchiveSourceEntry {
+  std::string name;
+  std::string path;
+  bool directory = false;
+  uint64_t size = 0;
+};
+
+std::vector<ArchiveSourceEntry> VisibleArchiveSources(const ArchiveSourcePicker* picker) {
+  std::vector<ArchiveSourceEntry> entries;
+  if (DIR* directory = opendir(picker->directory.c_str())) {
+    while (auto* item = readdir(directory)) {
+      if (!std::strcmp(item->d_name, ".") || !std::strcmp(item->d_name, "..")) continue;
+      const std::string path = file_manager::Join(picker->directory, item->d_name);
+      if (path == picker->excluded) continue;
+      const auto metadata = file_manager::Inspect(path);
+      if (metadata.symlink || (!metadata.directory && !metadata.regular)) continue;
+      entries.push_back({item->d_name, path, metadata.directory, metadata.size});
+    }
+    closedir(directory);
+  }
+  std::sort(entries.begin(), entries.end(), [](const auto& left, const auto& right) {
+    if (left.directory != right.directory) return left.directory > right.directory;
+    return Lower(left.name) < Lower(right.name);
+  });
+  return entries;
+}
+
+void RenderArchiveSourcePicker(ArchiveSourcePicker* picker) {
+  if (picker == nullptr || picker->list == nullptr) return;
+  lv_label_set_text(picker->path, picker->directory.c_str());
+  const std::string summary = picker->selected.empty()
+      ? i18n::Translate("Select files or hold folders to add")
+      : i18n::Format("%zu selected", picker->selected.size());
+  lv_label_set_text(picker->summary, summary.c_str());
+  if (picker->selected.empty()) lv_obj_add_state(picker->add, LV_STATE_DISABLED);
+  else lv_obj_remove_state(picker->add, LV_STATE_DISABLED);
+  lv_obj_clean(picker->list);
+  lv_obj_update_layout(picker->list);
+  const int width = std::max(320, static_cast<int>(lv_obj_get_width(picker->list)));
+  int y = 0;
+  for (const auto& entry : VisibleArchiveSources(picker)) {
+    const bool selected = picker->selected.count(entry.path) != 0;
+    auto* row = lv_button_create(picker->list);
+    Clear(row);
+    lv_obj_set_pos(row, 0, y);
+    lv_obj_set_size(row, width, 124);
+    lv_obj_set_style_radius(row, 22, 0);
+    lv_obj_set_style_bg_color(row, selected ? kAccentSoft : kMainPanel, 0);
+    lv_obj_set_style_bg_opa(row, selected ? LV_OPA_COVER : LV_OPA_30, 0);
+    OnClickOrHold(row, [picker, entry] {
+      if (entry.directory) {
+        picker->directory = entry.path;
+      } else if (picker->selected.erase(entry.path) == 0) {
+        picker->selected.insert(entry.path);
+      }
+      RenderArchiveSourcePicker(picker);
+    }, [picker, entry] {
+      if (picker->selected.erase(entry.path) == 0) picker->selected.insert(entry.path);
+      RenderArchiveSourcePicker(picker);
+    });
+    auto* icon = Label(row, entry.directory ? LV_SYMBOL_DIRECTORY : LV_SYMBOL_FILE,
+                       &lv_font_montserrat_32, selected ? kAccent : kMutedStrong);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 28, 0);
+    auto* label = Label(row, entry.name.c_str(), &lv_font_montserrat_28, kText);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 86, entry.directory ? 0 : -18);
+    SingleLineLabel(label, width - 190, &lv_font_montserrat_28);
+    if (!entry.directory) {
+      auto* size = Label(row, Size(entry.size).c_str(), &lv_font_montserrat_20, kMuted);
+      lv_obj_align(size, LV_ALIGN_LEFT_MID, 86, 24);
+    }
+    auto* mark = Label(row, selected ? LV_SYMBOL_OK : (entry.directory ? LV_SYMBOL_RIGHT : "○"),
+                       &lv_font_montserrat_28, selected ? kAccent : kMutedStrong);
+    lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -30, 0);
+    y += 132;
+  }
+}
+
+void OpenArchiveSourcePicker(Files* state, const std::string& initial,
+                             const std::string& excluded,
+                             std::function<void(std::vector<std::string>)> chosen) {
+  auto* overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, kCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  Header(overlay, "Add to ZIP", "Choose files or hold folders to select them.",
+         state->callback, state->context);
+  auto* picker = new ArchiveSourcePicker{state, overlay, nullptr, nullptr, nullptr, nullptr,
+                                         initial, excluded, {}, std::move(chosen)};
+  lv_obj_add_event_cb(overlay, [](lv_event_t* event) {
+    delete static_cast<ArchiveSourcePicker*>(lv_event_get_user_data(event));
+  }, LV_EVENT_DELETE, picker);
+  const int width = lv_obj_get_width(state->screen);
+  const int height = lv_obj_get_height(state->screen);
+  const bool landscape = Landscape(state->screen);
+  const int navigation_height = NavigationHeight(overlay);
+  const int toolbar_y = landscape ? 330 : 496;
+  const int path_y = landscape ? 286 : 430;
+  const int list_y = toolbar_y + 132;
+  const int action_y = height - navigation_height - 154;
+  auto* close = Button(overlay, LV_SYMBOL_CLOSE, [overlay] { CloseOverlay(overlay); });
+  lv_obj_set_pos(close, width - 164, landscape ? 190 : 240);
+  lv_obj_set_size(close, 104, 104);
+  CenterButtonContent(close);
+  picker->path = Label(overlay, initial.c_str(), &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(picker->path, 64, path_y);
+  SingleLineLabel(picker->path, width - 250, &lv_font_montserrat_24);
+  auto* storage = Button(overlay, "Storage  " LV_SYMBOL_DOWN, [picker] {
+    auto volumes = RecoveryVolumes("storage");
+    if (volumes.empty()) return;
+    size_t next = 0;
+    for (size_t index = 0; index < volumes.size(); ++index) {
+      if (picker->directory == volumes[index].path ||
+          picker->directory.rfind(volumes[index].path + "/", 0) == 0) {
+        next = (index + 1) % volumes.size();
+        break;
+      }
+    }
+    picker->directory = volumes[next].path;
+    RenderArchiveSourcePicker(picker);
+  });
+  lv_obj_set_pos(storage, 64, toolbar_y);
+  lv_obj_set_size(storage, 280, 104);
+  auto* root = Button(overlay, "Root", [picker] {
+    picker->directory = "/";
+    RenderArchiveSourcePicker(picker);
+  });
+  lv_obj_set_pos(root, 364, toolbar_y);
+  lv_obj_set_size(root, 170, 104);
+  auto* up = Button(overlay, LV_SYMBOL_UP, [picker] {
+    picker->directory = file_manager::Parent(picker->directory);
+    RenderArchiveSourcePicker(picker);
+  });
+  lv_obj_set_pos(up, 554, toolbar_y);
+  lv_obj_set_size(up, 120, 104);
+  CenterButtonContent(up);
+  auto* all = Button(overlay, "Select all", [picker] {
+    const auto visible = VisibleArchiveSources(picker);
+    bool all_selected = !visible.empty();
+    for (const auto& entry : visible)
+      if (picker->selected.count(entry.path) == 0) all_selected = false;
+    for (const auto& entry : visible) {
+      if (all_selected) picker->selected.erase(entry.path);
+      else picker->selected.insert(entry.path);
+    }
+    RenderArchiveSourcePicker(picker);
+  });
+  lv_obj_set_pos(all, 694, toolbar_y);
+  lv_obj_set_size(all, 240, 104);
+  picker->summary = Label(overlay, "", &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(picker->summary, 964, toolbar_y + 32);
+  SingleLineLabel(picker->summary, width - 1028, &lv_font_montserrat_24);
+  picker->list = lv_obj_create(overlay);
+  Clear(picker->list);
+  lv_obj_set_pos(picker->list, 64, list_y);
+  lv_obj_set_size(picker->list, width - 128, std::max(200, action_y - list_y - 24));
+  lv_obj_add_flag(picker->list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(picker->list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(picker->list, LV_SCROLLBAR_MODE_ACTIVE);
+  auto* cancel = Button(overlay, "Cancel", [overlay] { CloseOverlay(overlay); });
+  lv_obj_set_pos(cancel, 64, action_y);
+  lv_obj_set_size(cancel, (width - 148) / 2, 120);
+  picker->add = Button(overlay, "Add selected", [picker] {
+    if (picker->selected.empty()) return;
+    std::vector<std::string> selected(picker->selected.begin(), picker->selected.end());
+    auto chosen = picker->chosen;
+    CloseOverlay(picker->overlay);
+    chosen(std::move(selected));
+  }, true);
+  lv_obj_set_pos(picker->add, 84 + (width - 148) / 2, action_y);
+  lv_obj_set_size(picker->add, (width - 148) / 2, 120);
+  Navigation(overlay, Action::kNone, state->callback, state->context);
+  RenderArchiveSourcePicker(picker);
+}
+
 struct ArchiveBrowser {
   Files* files = nullptr;
   Entry archive;
@@ -1353,6 +1542,7 @@ struct ArchiveBrowser {
   lv_obj_t* path = nullptr;
   lv_obj_t* list = nullptr;
   lv_obj_t* selection = nullptr;
+  lv_obj_t* remove = nullptr;
   std::vector<file_manager::ArchiveEntry> entries;
   std::string directory;
   std::set<std::string> selected;
@@ -1388,6 +1578,10 @@ void RenderArchiveBrowser(ArchiveBrowser* browser) {
                     browser->selected.empty()
                         ? i18n::Translate("No selection - the complete archive will be extracted")
                         : i18n::Format("%zu selected", browser->selected.size()).c_str());
+  if (browser->remove != nullptr) {
+    if (browser->selected.empty()) lv_obj_add_state(browser->remove, LV_STATE_DISABLED);
+    else lv_obj_remove_state(browser->remove, LV_STATE_DISABLED);
+  }
   lv_obj_clean(browser->list);
   lv_obj_update_layout(browser->list);
   const auto visible = VisibleArchiveEntries(browser);
@@ -1435,7 +1629,13 @@ std::vector<std::string> ArchiveSelection(const ArchiveBrowser* browser) {
   return {browser->selected.begin(), browser->selected.end()};
 }
 
-void OpenArchiveBrowser(Files* state, const Entry& archive) {
+bool EditableZip(const std::string& name) {
+  const std::string lower = Lower(name);
+  return lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".zip") == 0;
+}
+
+void OpenArchiveBrowser(Files* state, const Entry& archive,
+                        const std::string& initial_directory = {}) {
   std::vector<file_manager::ArchiveEntry> entries;
   std::string error;
   if (!file_manager::ListArchive(archive.path, entries, error)) {
@@ -1449,7 +1649,7 @@ void OpenArchiveBrowser(Files* state, const Entry& archive) {
   Header(overlay, "Archive", "Browse and extract compressed files.", state->callback,
          state->context);
   auto* browser = new ArchiveBrowser{state, archive, overlay, nullptr, nullptr, nullptr,
-                                     std::move(entries), {}, {}};
+                                     nullptr, std::move(entries), initial_directory, {}};
   lv_obj_add_event_cb(overlay, [](lv_event_t* event) {
     delete static_cast<ArchiveBrowser*>(lv_event_get_user_data(event));
   }, LV_EVENT_DELETE, browser);
@@ -1493,9 +1693,69 @@ void OpenArchiveBrowser(Files* state, const Entry& archive) {
   });
   lv_obj_set_pos(all, 204, toolbar_y);
   lv_obj_set_size(all, 240, 96);
+  const bool editable = EditableZip(archive.name);
+  int selection_x = 474;
+  if (editable) {
+    auto* add = Button(overlay, LV_SYMBOL_PLUS, [browser] {
+      const std::string initial = file_manager::Parent(browser->archive.path);
+      OpenArchiveSourcePicker(browser->files, initial, browser->archive.path,
+                              [browser](std::vector<std::string> sources) {
+        if (sources.empty()) return;
+        file_manager::Request request;
+        request.operation = file_manager::Operation::kArchiveAdd;
+        request.sources = std::move(sources);
+        request.destination = browser->archive.path;
+        request.archive_directory = browser->directory;
+        Files* files = browser->files;
+        const Entry archive = browser->archive;
+        const std::string directory = browser->directory;
+        CloseOverlay(browser->overlay);
+        StartWork(files, "Adding to ZIP", request, true, false,
+                  [files, archive, directory](const file_manager::Snapshot&) {
+                    if (file_manager::Exists(archive.path))
+                      OpenArchiveBrowser(files, archive, directory);
+                  });
+      });
+    });
+    lv_obj_set_pos(add, 464, toolbar_y);
+    lv_obj_set_size(add, 104, 96);
+    CenterButtonContent(add);
+    browser->remove = Button(overlay, LV_SYMBOL_TRASH, [browser] {
+      const auto selected = ArchiveSelection(browser);
+      if (selected.empty()) return;
+      const std::string detail = selected.size() == 1
+          ? file_manager::BaseName(selected.front())
+          : i18n::Format("%zu selected ZIP items", selected.size());
+      Sheet(browser->files->screen, "Delete from ZIP?",
+            i18n::Format("%s\n\nThe ZIP will be safely rewritten and verified before the original is replaced.",
+                         detail.c_str()),
+            [browser, selected] {
+              file_manager::Request request;
+              request.operation = file_manager::Operation::kArchiveDelete;
+              request.destination = browser->archive.path;
+              request.archive_members = selected;
+              Files* files = browser->files;
+              const Entry archive = browser->archive;
+              const std::string directory = browser->directory;
+              CloseOverlay(browser->overlay);
+              StartWork(files, "Updating ZIP", request, true, false,
+                        [files, archive, directory](const file_manager::Snapshot&) {
+                          if (file_manager::Exists(archive.path))
+                            OpenArchiveBrowser(files, archive, directory);
+                        });
+            });
+    });
+    lv_obj_set_pos(browser->remove, 588, toolbar_y);
+    lv_obj_set_size(browser->remove, 104, 96);
+    lv_obj_set_style_border_width(browser->remove, 1, 0);
+    lv_obj_set_style_border_color(browser->remove, kRed, 0);
+    lv_obj_set_style_border_opa(browser->remove, LV_OPA_60, 0);
+    CenterButtonContent(browser->remove);
+    selection_x = 722;
+  }
   browser->selection = Label(overlay, "", &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_pos(browser->selection, 474, toolbar_y + 28);
-  SingleLineLabel(browser->selection, width - 538, &lv_font_montserrat_24);
+  lv_obj_set_pos(browser->selection, selection_x, toolbar_y + 28);
+  SingleLineLabel(browser->selection, width - selection_x - 64, &lv_font_montserrat_24);
   browser->list = lv_obj_create(overlay);
   Clear(browser->list);
   lv_obj_set_pos(browser->list, 64, list_y);

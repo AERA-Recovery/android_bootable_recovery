@@ -12,7 +12,16 @@
 
 namespace aeraui::file_manager {
 
-enum class Operation { kCopy, kMove, kDelete, kMeasure, kExtract, kCompress };
+enum class Operation {
+  kCopy,
+  kMove,
+  kDelete,
+  kMeasure,
+  kExtract,
+  kCompress,
+  kArchiveAdd,
+  kArchiveDelete,
+};
 enum class Conflict { kReplace, kKeepBoth, kSkip };
 
 struct Request {
@@ -23,6 +32,9 @@ struct Request {
   // Archive member paths are relative to the archive root. An empty list
   // extracts the complete archive.
   std::vector<std::string> archive_members;
+  // Folder inside an archive where newly-added sources are placed. Empty is
+  // the archive root.
+  std::string archive_directory;
   // Writable formats are currently "zip" and "7z".
   std::string archive_format = "zip";
   // Remove a newly-created destination if extraction fails before writing it.

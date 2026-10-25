@@ -1092,6 +1092,303 @@ void ExtractArchive(const Request& request, Progress& progress) {
   destination_cleanup.keep = progress.errors.load() == 0 && !progress.cancel.load();
 }
 
+bool ZipArchivePath(const std::string& path) {
+  std::string lower = path;
+  std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char value) {
+    return static_cast<char>(std::tolower(value));
+  });
+  return lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".zip") == 0;
+}
+
+bool CopyArchiveForEditing(const std::string& archive, std::string& temporary,
+                           Progress& progress) {
+  struct stat info{};
+  if (lstat(archive.c_str(), &info) != 0 || !S_ISREG(info.st_mode) ||
+      S_ISLNK(info.st_mode)) {
+    AddError(progress, "The ZIP archive is no longer available.");
+    return false;
+  }
+  const int input = open(archive.c_str(), O_RDONLY | O_CLOEXEC);
+  if (input < 0) {
+    AddError(progress, Error("Cannot read", archive));
+    return false;
+  }
+  const int output = CreateTemporaryFile(archive, "aera-zip-edit", info.st_mode & 07777,
+                                         temporary);
+  if (output < 0) {
+    close(input);
+    AddError(progress, Error("Cannot create an archive workspace beside", archive));
+    return false;
+  }
+  bool okay = true;
+  std::vector<char> buffer(1024 * 1024);
+  while (!progress.cancel.load()) {
+    ssize_t count = read(input, buffer.data(), buffer.size());
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0) {
+      AddError(progress, Error("Cannot read", archive));
+      okay = false;
+      break;
+    }
+    if (count == 0) break;
+    ssize_t offset = 0;
+    while (offset < count) {
+      const ssize_t written = write(output, buffer.data() + offset,
+                                    static_cast<size_t>(count - offset));
+      if (written < 0 && errno == EINTR) continue;
+      if (written <= 0) {
+        AddError(progress, Error("Cannot prepare", archive));
+        okay = false;
+        break;
+      }
+      offset += written;
+    }
+    if (!okay) break;
+  }
+  if (progress.cancel.load()) okay = false;
+  if (okay && fsync(output) != 0) {
+    AddError(progress, Error("Cannot sync archive workspace", temporary));
+    okay = false;
+  }
+  if (okay) {
+    fchown(output, info.st_uid, info.st_gid);
+    fchmod(output, info.st_mode & 07777);
+  }
+  close(output);
+  close(input);
+  if (!okay) {
+    unlink(temporary.c_str());
+    temporary.clear();
+  }
+  return okay;
+}
+
+bool CreateArchiveStagePath(const std::string& stage, const std::string& relative,
+                            std::string& path, Progress& progress) {
+  path = stage;
+  if (relative.empty()) return true;
+  if (!SafeArchiveEntryPath(relative)) {
+    AddError(progress, "The destination inside the ZIP is unsafe.");
+    return false;
+  }
+  size_t start = 0;
+  while (start < relative.size()) {
+    const size_t slash = relative.find('/', start);
+    const std::string part = relative.substr(start, slash - start);
+    path = Join(path, part);
+    if (mkdir(path.c_str(), 0700) != 0 && errno != EEXIST) {
+      AddError(progress, Error("Cannot create archive workspace", path));
+      return false;
+    }
+    const Metadata info = Inspect(path);
+    if (!info.directory || info.symlink) {
+      AddError(progress, "The archive workspace is not a safe directory.");
+      return false;
+    }
+    if (slash == std::string::npos) break;
+    start = slash + 1;
+  }
+  return true;
+}
+
+bool ValidateEditedArchive(const std::string& archive, Progress& progress) {
+  std::string output;
+  if (!RunArchiveTool({"t", "-bd", "-bso0", "-bse1", archive}, progress, output,
+                      2U * 1024U * 1024U, false, 0)) {
+    if (!progress.cancel.load() && progress.errors.load() == 0)
+      AddError(progress, "The edited ZIP did not pass its integrity test.");
+    return false;
+  }
+  std::string listing;
+  if (!RunArchiveTool({"l", "-slt", "-ba", "-sccUTF-8", archive}, progress, listing,
+                      32U * 1024U * 1024U, false, 0)) {
+    if (!progress.cancel.load() && progress.errors.load() == 0)
+      AddError(progress, "The edited ZIP could not be read back.");
+    return false;
+  }
+  ArchiveInfo info;
+  std::string error;
+  if (!ParseArchiveListing(listing, info, nullptr, error)) {
+    AddError(progress, error);
+    return false;
+  }
+  return true;
+}
+
+void EditZipArchive(const Request& request, Progress& progress) {
+  const std::string& archive = request.destination;
+  if (!ZipArchivePath(archive)) {
+    AddError(progress, "Only ZIP archives can be edited.");
+    return;
+  }
+  const Metadata archive_info = Inspect(archive);
+  const Metadata parent_info = Inspect(Parent(archive));
+  if (!archive_info.regular || archive_info.symlink || !parent_info.directory ||
+      parent_info.symlink || access(Parent(archive).c_str(), W_OK) != 0) {
+    AddError(progress, "The selected ZIP archive is not writable.");
+    return;
+  }
+
+  SetText(progress, "Reading ZIP", BaseName(archive));
+  std::string listing;
+  if (!RunArchiveTool({"l", "-slt", "-ba", "-sccUTF-8", archive}, progress, listing,
+                      32U * 1024U * 1024U, false, 0)) {
+    if (!progress.cancel.load() && progress.errors.load() == 0)
+      AddError(progress, "Cannot read this ZIP archive.");
+    return;
+  }
+  ArchiveInfo listed_info;
+  std::vector<ArchiveEntry> entries;
+  std::string validation_error;
+  if (!ParseArchiveListing(listing, listed_info, &entries, validation_error)) {
+    AddError(progress, validation_error);
+    return;
+  }
+
+  std::string temporary;
+  if (!CopyArchiveForEditing(archive, temporary, progress)) return;
+  struct TemporaryCleanup {
+    std::string path;
+    bool keep = false;
+    ~TemporaryCleanup() { if (!keep && !path.empty()) unlink(path.c_str()); }
+  } temporary_cleanup{temporary, false};
+
+  std::string output;
+  if (request.operation == Operation::kArchiveDelete) {
+    if (request.archive_members.empty()) {
+      AddError(progress, "Select at least one ZIP item to delete.");
+      return;
+    }
+    for (const std::string& member : request.archive_members) {
+      if (!SafeArchiveEntryPath(member)) {
+        AddError(progress, "An unsafe ZIP item was selected.");
+        return;
+      }
+    }
+    std::vector<std::string> selected;
+    uint64_t selected_bytes = 0;
+    for (const ArchiveEntry& entry : entries) {
+      if (!ArchiveMemberSelected(entry, request.archive_members)) continue;
+      selected.push_back(entry.path);
+      selected_bytes += entry.size;
+    }
+    if (selected.empty()) {
+      AddError(progress, "The selected ZIP items are no longer available.");
+      return;
+    }
+    if (selected.size() == entries.size()) {
+      AddError(progress, "A ZIP cannot be left empty. Delete the ZIP itself instead.");
+      return;
+    }
+    progress.total_bytes.store(selected_bytes);
+    progress.total_items.store(selected.size());
+    SetText(progress, "Removing ZIP items", BaseName(archive));
+    // Keep command lines bounded for archives containing very large trees.
+    // -spd makes names literal, so brackets and wildcard characters in valid
+    // filenames cannot accidentally select neighbouring entries.
+    for (size_t first = 0; first < selected.size() && !progress.cancel.load(); first += 256) {
+      const size_t last = std::min(selected.size(), first + 256);
+      std::vector<std::string> arguments = {
+          "d", "-y", "-spd", "-bd", "-bb1", "-bsp1", "-bso1", "-bse1", temporary,
+          "--"};
+      arguments.insert(arguments.end(), selected.begin() + first, selected.begin() + last);
+      output.clear();
+      if (!RunArchiveTool(arguments, progress, output, 2U * 1024U * 1024U, true,
+                          selected_bytes)) {
+        if (!progress.cancel.load() && progress.errors.load() == 0) {
+          const std::string reason = LastArchiveMessage(output);
+          AddError(progress, reason.empty() ? "Could not remove items from the ZIP." : reason);
+        }
+        return;
+      }
+    }
+    progress.completed_bytes.store(selected_bytes);
+    progress.completed_items.store(selected.size());
+  } else {
+    if (request.sources.empty()) {
+      AddError(progress, "Select at least one file or folder to add.");
+      return;
+    }
+    if (!request.archive_directory.empty() &&
+        !SafeArchiveEntryPath(request.archive_directory)) {
+      AddError(progress, "The destination inside the ZIP is unsafe.");
+      return;
+    }
+    Totals totals;
+    std::set<std::string> names;
+    for (const std::string& source : request.sources) {
+      if (SameNode(source, archive)) {
+        AddError(progress, "A ZIP cannot be added to itself.");
+        return;
+      }
+      if (!CompressionSourceSafe(source, progress) ||
+          !MeasureNode(source, totals, progress, false))
+        return;
+      const std::string name = BaseName(source);
+      if (!names.insert(name).second) {
+        AddError(progress, "Selected items with the same name cannot be added together.");
+        return;
+      }
+    }
+    progress.total_bytes.store(totals.bytes);
+    progress.total_items.store(totals.items);
+    progress.result_bytes.store(totals.bytes);
+    std::string stage_template = Join(Parent(archive), ".aera-zip-add-XXXXXX");
+    std::vector<char> stage_buffer(stage_template.begin(), stage_template.end());
+    stage_buffer.push_back('\0');
+    char* created = mkdtemp(stage_buffer.data());
+    if (created == nullptr) {
+      AddError(progress, Error("Cannot create ZIP workspace in", Parent(archive)));
+      return;
+    }
+    struct StageCleanup {
+      std::string path;
+      ~StageCleanup() { if (!path.empty()) RemoveNodeQuiet(path); }
+    } stage_cleanup{created};
+    std::string target_directory;
+    if (!CreateArchiveStagePath(created, request.archive_directory, target_directory,
+                                progress))
+      return;
+    std::vector<std::string> staged;
+    for (const std::string& source : request.sources) {
+      const std::string destination = Join(target_directory, BaseName(source));
+      if (!CopyNode(source, destination, progress)) return;
+      staged.push_back(request.archive_directory.empty()
+                           ? BaseName(source)
+                           : request.archive_directory + "/" + BaseName(source));
+    }
+    std::vector<std::string> arguments = {
+        "a", "-y", "-spd", "-bd", "-bb1", "-bsp1", "-bso1", "-bse1", "-tzip",
+        temporary, "--"};
+    arguments.insert(arguments.end(), staged.begin(), staged.end());
+    SetText(progress, "Adding ZIP items", BaseName(archive));
+    if (!RunArchiveTool(arguments, progress, output, 2U * 1024U * 1024U, true,
+                        totals.bytes, created)) {
+      if (!progress.cancel.load() && progress.errors.load() == 0) {
+        const std::string reason = LastArchiveMessage(output);
+        AddError(progress, reason.empty() ? "Could not add items to the ZIP." : reason);
+      }
+      return;
+    }
+  }
+
+  if (progress.cancel.load() || !ValidateEditedArchive(temporary, progress)) return;
+  const int edited = open(temporary.c_str(), O_RDONLY | O_CLOEXEC);
+  if (edited < 0 || fsync(edited) != 0) {
+    if (edited >= 0) close(edited);
+    AddError(progress, Error("Cannot sync edited ZIP", temporary));
+    return;
+  }
+  close(edited);
+  if (rename(temporary.c_str(), archive.c_str()) != 0) {
+    AddError(progress, Error("Cannot save edited ZIP", archive));
+    return;
+  }
+  temporary_cleanup.keep = true;
+  SyncParentDirectory(archive);
+  aera::shared_storage::Normalize(archive);
+}
+
 }  // namespace
 
 void Progress::Reset() {
@@ -1498,6 +1795,18 @@ void Run(const Request& request, Progress& progress) {
     SetText(progress, progress.cancel.load()        ? "Cancelled"
                       : progress.errors.load() == 0 ? "Complete"
                                                     : "Extraction failed");
+    progress.done.store(true);
+    return;
+  }
+  if (request.operation == Operation::kArchiveAdd ||
+      request.operation == Operation::kArchiveDelete) {
+    EditZipArchive(request, progress);
+    progress.cancelled.store(progress.cancel.load());
+    progress.success.store(!progress.cancel.load() && progress.errors.load() == 0);
+    if (!progress.cancel.load() && progress.errors.load() == 0) progress.percent.store(100);
+    SetText(progress, progress.cancel.load()        ? "Cancelled"
+                      : progress.errors.load() == 0 ? "Complete"
+                                                    : "ZIP update failed");
     progress.done.store(true);
     return;
   }
