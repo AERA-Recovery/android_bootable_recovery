@@ -1182,7 +1182,7 @@ payload::FlashProgressStore gPayloadProgress;
 PayloadFlashProgress RecoveryPayloadFlashProgress() { return gPayloadProgress.Read(); }
 static int RecoveryRunJobImpl(const JobRequest &request);
 int RecoveryRunJob(const JobRequest &request) {
-  const bool needs_mobile_stop = request.job == Job::kInstall || request.job == Job::kSideload ||
+  const bool needs_mobile_stop = request.job == Job::kInstall ||
       request.job == Job::kFlashImage || request.job == Job::kFlashPayload ||
       request.job == Job::kRestore || request.job == Job::kWipe || request.job == Job::kFormatData;
   std::unique_ptr<aera::mobile::StorageLease> mobile_lease;
