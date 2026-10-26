@@ -147,24 +147,39 @@ std::string Lower(std::string value) {
   return value;
 }
 
-std::string SuggestedImageTarget(const std::string &name) {
+std::string SuggestedImageTarget(const std::string &name,
+                                 const std::vector<Volume> &targets) {
   const std::string lower = Lower(name);
+  std::string partition_name = lower;
+  const size_t slash = partition_name.find_last_of("/\\");
+  if (slash != std::string::npos) partition_name.erase(0, slash + 1);
+  if (partition_name.size() > 4 &&
+      partition_name.compare(partition_name.size() - 4, 4, ".img") == 0)
+    partition_name.resize(partition_name.size() - 4);
+
+  auto exact_target = [&](const std::string &candidate) -> std::string {
+    for (const auto &target : targets) {
+      std::string path = Lower(target.path);
+      if (!path.empty() && path.front() == '/') path.erase(0, 1);
+      if (path == candidate) return target.path;
+    }
+    return {};
+  };
+  if (const std::string exact = exact_target(partition_name); !exact.empty())
+    return exact;
+  if (partition_name.size() > 2 && partition_name[partition_name.size() - 2] == '_' &&
+      (partition_name.back() == 'a' || partition_name.back() == 'b')) {
+    partition_name.resize(partition_name.size() - 2);
+    if (const std::string exact = exact_target(partition_name); !exact.empty())
+      return exact;
+  }
+
   if (lower.find("init_boot") != std::string::npos) return "/init_boot";
   if (lower.find("vendor_boot") != std::string::npos) return "/vendor_boot";
   if (lower.find("system_ext") != std::string::npos) return "/system_ext";
   if (lower.find("system_dlkm") != std::string::npos) return "/system_dlkm";
   if (lower.find("vendor_dlkm") != std::string::npos) return "/vendor_dlkm";
   if (lower.find("odm_dlkm") != std::string::npos) return "/odm_dlkm";
-  if (lower.find("my_engineering") != std::string::npos) return "/my_engineering";
-  if (lower.find("my_manifest") != std::string::npos) return "/my_manifest";
-  if (lower.find("my_product") != std::string::npos) return "/my_product";
-  if (lower.find("my_company") != std::string::npos) return "/my_company";
-  if (lower.find("my_carrier") != std::string::npos) return "/my_carrier";
-  if (lower.find("my_region") != std::string::npos) return "/my_region";
-  if (lower.find("my_bigball") != std::string::npos) return "/my_bigball";
-  if (lower.find("my_heytap") != std::string::npos) return "/my_heytap";
-  if (lower.find("my_stock") != std::string::npos) return "/my_stock";
-  if (lower.find("my_preload") != std::string::npos) return "/my_preload";
   if (lower.find("product") != std::string::npos) return "/product";
   if (lower.find("vendor") != std::string::npos) return "/vendor";
   if (lower.find("system") != std::string::npos) return "/system";
@@ -733,7 +748,7 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
     lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -28, 0);
   };
 
-  const std::string suggestion = SuggestedImageTarget(entry.name);
+  const std::string suggestion = SuggestedImageTarget(entry.name, targets);
   const auto recommended = std::find_if(
       targets.begin(), targets.end(), [&](const Volume &target) {
         return target.path == suggestion ||

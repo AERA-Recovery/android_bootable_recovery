@@ -2274,8 +2274,8 @@ int main(int argc,char **argv) {
         {"vendor", 1000, 250, PayloadPhase::Verifying},
         {"product", 1000, 700, PayloadPhase::Writing},
         {"system_ext", 1000, 400, PayloadPhase::Writing},
-        {"my_product", 1000, 300, PayloadPhase::Writing},
-        {"my_stock", 1000, 200, PayloadPhase::Writing},
+        {"oem_product", 1000, 300, PayloadPhase::Writing},
+        {"oem_stock", 1000, 200, PayloadPhase::Writing},
         {"vendor_dlkm", 1000, 600, PayloadPhase::Verifying},
         {"odm", 1000, 900, PayloadPhase::Writing},
         {"boot", 100, 0, PayloadPhase::Queued}}};
