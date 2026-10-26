@@ -1433,7 +1433,8 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
           const auto start = std::chrono::steady_clock::now();
           gPayloadProgress.Set(i, PayloadPhase::Verifying);
           const bool verified = payload::VerifyWrittenFd(held[i].get(), image_sizes[i], image_hashes[i], errors[i],
-              [&](uint64_t done, uint64_t) { gPayloadProgress.Set(i, PayloadPhase::Verifying, done); });
+              [&](uint64_t done, uint64_t) { gPayloadProgress.Set(i, PayloadPhase::Verifying, done); },
+              !targets[i].raw);
           if (verified) {
             ++verified_count;
             gPayloadProgress.Set(i, PayloadPhase::Verified, image_sizes[i]);
