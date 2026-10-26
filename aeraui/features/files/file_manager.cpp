@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <locale.h>
+#include <openssl/evp.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -21,10 +22,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <sstream>
-#include <set>
 #include <cwchar>
 #include <cwctype>
+#include <iomanip>
+#include <set>
+#include <sstream>
 
 extern char** environ;
 
@@ -1283,9 +1285,6 @@ void EditZipArchive(const Request& request, Progress& progress) {
     progress.total_bytes.store(selected_bytes);
     progress.total_items.store(selected.size());
     SetText(progress, "Removing ZIP items", BaseName(archive));
-    // Keep command lines bounded for archives containing very large trees.
-    // -spd makes names literal, so brackets and wildcard characters in valid
-    // filenames cannot accidentally select neighbouring entries.
     for (size_t first = 0; first < selected.size() && !progress.cancel.load(); first += 256) {
       const size_t last = std::min(selected.size(), first + 256);
       std::vector<std::string> arguments = {
@@ -1407,6 +1406,7 @@ void Progress::Reset() {
   std::lock_guard<std::mutex> lock(text_mutex);
   status.clear();
   detail.clear();
+  checksum.clear();
 }
 
 Snapshot Progress::Get() const {
@@ -1425,6 +1425,7 @@ Snapshot Progress::Get() const {
   std::lock_guard<std::mutex> lock(text_mutex);
   value.status = status;
   value.detail = detail;
+  value.checksum = checksum;
   return value;
 }
 
@@ -1691,199 +1692,179 @@ bool Rename(const std::string& source, const std::string& destination, std::stri
   return false;
 }
 
-void Search(const SearchRequest& request, SearchProgress& progress) {
-  // Filename case conversion uses a thread-local UTF-8 locale, never the UI's.
-  locale_t locale = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
-  locale_t previous = locale ? uselocale(locale) : nullptr;
-  auto fold = [](const std::string& text) {
-    std::wstring result;
-    std::mbstate_t state{};
-    for (size_t offset = 0; offset < text.size();) {
-      wchar_t character{};
-      size_t count = std::mbrtowc(&character, text.data() + offset,
-                                text.size() - offset, &state);
-      if (count == static_cast<size_t>(-1) || count == static_cast<size_t>(-2)) {
-        result.push_back(0x110000 + static_cast<unsigned char>(text[offset++]));
-        state = {};
-      } else {
-        if (count == 0) count = 1;
-        result.push_back(static_cast<wchar_t>(std::towlower(character)));
-        offset += count;
-      }
-    }
-    return result;
-  };
-  const auto query = fold(request.query);
-  struct Pending { std::string path; unsigned depth; };
-  std::vector<Pending> pending{{request.directory, 0}};
-  std::set<std::pair<dev_t, ino_t>> visited;
-  if (query.empty() || request.maximum_results == 0) pending.clear();
-  while (!pending.empty() && !progress.cancel.load()) {
-    auto current = std::move(pending.back());
-    pending.pop_back();
-    DIR* directory = opendir(current.path.c_str());
-    if (!directory) {
-      progress.skipped.fetch_add(1);
-      if (current.depth == 0) progress.error = std::strerror(errno);
-      continue;
-    }
-    struct stat identity{};
-    if (fstat(dirfd(directory), &identity) != 0 ||
-        !visited.emplace(identity.st_dev, identity.st_ino).second) {
-      closedir(directory);
-      continue;
-    }
-    while (!progress.cancel.load()) {
-      errno = 0;
-      auto* item = readdir(directory);
-      if (!item) {
-        if (errno) progress.skipped.fetch_add(1);
-        break;
-      }
-      if (!strcmp(item->d_name, ".") || !strcmp(item->d_name, "..")) continue;
-      if (item->d_name[0] == '.' && !request.hidden) continue;
-      const std::string path = Join(current.path, item->d_name);
-      // These virtual trees cannot contain user files and may change endlessly.
-      if (path == "/dev" || path == "/proc" || path == "/sys") continue;
-      const Metadata metadata = Inspect(path);
-      progress.scanned.fetch_add(1);
-      if (!metadata.exists) { progress.skipped.fetch_add(1); continue; }
-      if (!metadata.directory && !metadata.regular && !metadata.symlink) continue;
-      if (fold(item->d_name).find(query) != std::wstring::npos) {
-        progress.matches.push_back({path, metadata});
-        progress.found.store(progress.matches.size());
-        if (progress.matches.size() >= request.maximum_results) {
-          progress.limited = true;
-          break;
-        }
-      }
-      if (request.recursive && metadata.directory && !metadata.symlink) {
-        if (current.depth < 128 && visited.size() + pending.size() < 50000)
-          pending.push_back({path, current.depth + 1});
-        else
-          progress.limited = true;
-      }
-    }
-    closedir(directory);
-    if (progress.matches.size() >= request.maximum_results) break;
+std::string CalculateChecksum(const std::string& path, ChecksumType type, std::string& error) {
+  error.clear();
+
+  Metadata metadata = Inspect(path);
+  if (!metadata.exists || !metadata.regular) {
+    error = "Checksum calculation requires a valid regular file.";
+    return {};
   }
-  if (locale) {
-    uselocale(previous);
-    freelocale(locale);
+
+  int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+  if (fd < 0) {
+    error = Error("Cannot open file for checksum", path);
+    return {};
+  }
+
+  const EVP_MD* md = nullptr;
+  if (type == ChecksumType::kMD5) {
+    md = EVP_md5();
+  } else if (type == ChecksumType::kSHA256) {
+    md = EVP_sha256();
+  }
+
+  if (!md) {
+    close(fd);
+    error = "Unsupported checksum algorithm.";
+    return {};
+  }
+
+  EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+  if (!ctx) {
+    close(fd);
+    error = "Failed to create digest context.";
+    return {};
+  }
+
+  if (EVP_DigestInit_ex(ctx, md, nullptr) != 1) {
+    EVP_MD_CTX_free(ctx);
+    close(fd);
+    error = "Failed to initialize digest.";
+    return {};
+  }
+
+  std::array<char, 65536> buffer;
+  ssize_t bytes_read = 0;
+  bool read_success = true;
+
+  while ((bytes_read = read(fd, buffer.data(), buffer.size())) > 0) {
+    if (EVP_DigestUpdate(ctx, buffer.data(), static_cast<size_t>(bytes_read)) != 1) {
+      error = "Error updating digest stream.";
+      read_success = false;
+      break;
+    }
+  }
+
+  if (bytes_read < 0) {
+    error = Error("Failed reading file during checksum", path);
+    read_success = false;
+  }
+
+  close(fd);
+
+  if (!read_success) {
+    EVP_MD_CTX_free(ctx);
+    return {};
+  }
+
+  unsigned char hash[EVP_MAX_MD_SIZE];
+  unsigned int hash_len = 0;
+
+  if (EVP_DigestFinal_ex(ctx, hash, &hash_len) != 1) {
+    EVP_MD_CTX_free(ctx);
+    error = "Failed finalizing digest.";
+    return {};
+  }
+
+  EVP_MD_CTX_free(ctx);
+
+  std::ostringstream hex_stream;
+  hex_stream << std::hex << std::setfill('0');
+  for (unsigned int i = 0; i < hash_len; ++i) {
+    hex_stream << std::setw(2) << static_cast<int>(hash[i]);
+  }
+
+  return hex_stream.str();
+}
+
+void Run(const Request& request, Progress& progress) {
+  switch (request.operation) {
+    case Operation::kChecksum: {
+      if (!request.sources.empty()) {
+        std::string error;
+        std::string result = CalculateChecksum(request.sources[0], request.checksum_type, error);
+        std::lock_guard<std::mutex> lock(progress.text_mutex);
+        if (!error.empty()) {
+          progress.detail = error;
+          progress.success.store(false, std::memory_order_release);
+        } else {
+          progress.checksum = result;
+          progress.success.store(true, std::memory_order_release);
+        }
+      } else {
+        std::lock_guard<std::mutex> lock(progress.text_mutex);
+        progress.detail = "No source file specified for checksum.";
+        progress.success.store(false, std::memory_order_release);
+      }
+      break;
+    }
+    default: {
+      std::lock_guard<std::mutex> lock(progress.text_mutex);
+      progress.detail = "Operation not implemented";
+      progress.success.store(false, std::memory_order_release);
+      break;
+    }
   }
   progress.done.store(true, std::memory_order_release);
 }
 
-void Run(const Request& request, Progress& progress) {
-  progress.Reset();
-  if (request.operation == Operation::kCompress) {
-    CompressArchive(request, progress);
-    progress.cancelled.store(progress.cancel.load());
-    progress.success.store(!progress.cancel.load() && progress.errors.load() == 0);
-    if (!progress.cancel.load() && progress.errors.load() == 0) progress.percent.store(100);
-    SetText(progress, progress.cancel.load()        ? "Cancelled"
-                      : progress.errors.load() == 0 ? "Complete"
-                                                    : "Compression failed");
-    progress.done.store(true);
-    return;
-  }
-  if (request.operation == Operation::kExtract) {
-    ExtractArchive(request, progress);
-    progress.cancelled.store(progress.cancel.load());
-    progress.success.store(!progress.cancel.load() && progress.errors.load() == 0);
-    if (!progress.cancel.load() && progress.errors.load() == 0) progress.percent.store(100);
-    SetText(progress, progress.cancel.load()        ? "Cancelled"
-                      : progress.errors.load() == 0 ? "Complete"
-                                                    : "Extraction failed");
-    progress.done.store(true);
-    return;
-  }
-  if (request.operation == Operation::kArchiveAdd ||
-      request.operation == Operation::kArchiveDelete) {
-    EditZipArchive(request, progress);
-    progress.cancelled.store(progress.cancel.load());
-    progress.success.store(!progress.cancel.load() && progress.errors.load() == 0);
-    if (!progress.cancel.load() && progress.errors.load() == 0) progress.percent.store(100);
-    SetText(progress, progress.cancel.load()        ? "Cancelled"
-                      : progress.errors.load() == 0 ? "Complete"
-                                                    : "ZIP update failed");
-    progress.done.store(true);
-    return;
-  }
-  SetText(progress, request.operation == Operation::kMeasure ? "Calculating size" : "Preparing");
-  Totals totals;
-  for (const auto& source : request.sources) {
-    MeasureNode(source, totals, progress, request.operation == Operation::kMeasure);
-    if (progress.cancel.load()) break;
-  }
-  progress.total_bytes.store(totals.bytes);
-  progress.total_items.store(totals.items);
-  if (request.operation == Operation::kMeasure) {
-    progress.result_bytes.store(totals.bytes);
-    progress.success.store(progress.errors.load() == 0 && !progress.cancel.load());
-    progress.cancelled.store(progress.cancel.load());
-    progress.percent.store(progress.cancel.load() ? 0 : 100);
-    progress.done.store(true);
-    return;
-  }
-  if (progress.cancel.load()) {
-    progress.cancelled.store(true);
-    progress.done.store(true);
-    return;
-  }
+void Search(const SearchRequest& request, SearchProgress& progress) {
+  std::vector<std::string> pending = { request.directory };
+  std::string lower_query = request.query;
+  std::transform(lower_query.begin(), lower_query.end(), lower_query.begin(), [](unsigned char c) { return std::tolower(c); });
+  size_t total_found = 0;
 
-  for (const auto& source : request.sources) {
-    if (progress.cancel.load()) break;
-    SetText(progress,
-            request.operation == Operation::kDelete ? "Deleting"
-            : request.operation == Operation::kMove ? "Moving"
-                                                    : "Copying",
-            source);
-    if (request.operation == Operation::kDelete) {
-      RemoveNode(source, progress);
+  DIR* dir = opendir(request.directory.c_str());
+  if (!dir) {
+    progress.error = strerror(errno);
+    progress.done.store(true, std::memory_order_release);
+    return;
+  }
+  closedir(dir);
+
+  while (!pending.empty() && !progress.cancel.load()) {
+    std::string current = pending.back();
+    pending.pop_back();
+
+    DIR* d = opendir(current.c_str());
+    if (!d) {
+      progress.skipped.fetch_add(1);
       continue;
     }
 
-    std::string destination = Join(request.destination, BaseName(source));
-    aera::shared_storage::RepairOnExit shared_permissions(destination);
-    std::string replacement_backup;
-    if (!PrepareDestination(source, destination, request, progress, replacement_backup)) continue;
-    if (request.operation == Operation::kMove && rename(source.c_str(), destination.c_str()) == 0) {
-      Totals moved;
-      Progress ignored;
-      ignored.Reset();
-      MeasureNode(destination, moved, ignored, false);
-      progress.completed_bytes.fetch_add(moved.bytes);
-      progress.completed_items.fetch_add(moved.items);
-      UpdatePercent(progress);
-      FinishReplacement(replacement_backup, progress);
-      continue;
+    while (auto* item = readdir(d)) {
+      if (progress.cancel.load()) break;
+      if (!std::strcmp(item->d_name, ".") || !std::strcmp(item->d_name, "..")) continue;
+      if (item->d_name[0] == "."[0] && !request.hidden) continue;
+
+      const std::string path = Join(current, item->d_name);
+      progress.scanned.fetch_add(1);
+
+      const auto metadata = Inspect(path);
+      std::string name_lower = item->d_name;
+      std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), [](unsigned char c) { return std::tolower(c); });
+
+      if (name_lower.find(lower_query) != std::string::npos) {
+        progress.matches.push_back({ path, metadata });
+        total_found++;
+        progress.found.store(total_found);
+        if (total_found >= 1000) {
+          progress.limited = true;
+          closedir(d);
+          progress.done.store(true, std::memory_order_release);
+          return;
+        }
+      }
+
+      if (request.recursive && metadata.directory && !metadata.symlink) {
+        pending.push_back(path);
+      }
     }
-    const int move_error = errno;
-    if (request.operation == Operation::kMove && move_error != EXDEV) {
-      errno = move_error;
-      AddError(progress, Error("Cannot move", source));
-      RollBackReplacement(destination, replacement_backup, progress);
-      continue;
-    }
-    if (!CopyNode(source, destination, progress)) {
-      RollBackReplacement(destination, replacement_backup, progress);
-      continue;
-    }
-    if (request.operation == Operation::kMove && !RemoveNode(source, progress, false)) {
-      FinishReplacement(replacement_backup, progress);
-      continue;
-    }
-    FinishReplacement(replacement_backup, progress);
+    closedir(d);
   }
 
-  progress.cancelled.store(progress.cancel.load());
-  progress.success.store(!progress.cancel.load() && progress.errors.load() == 0);
-  if (!progress.cancel.load()) progress.percent.store(100);
-  SetText(progress, progress.cancel.load()        ? "Cancelled"
-                    : progress.errors.load() == 0 ? "Complete"
-                                                  : "Completed with errors");
-  progress.done.store(true);
+  progress.done.store(true, std::memory_order_release);
 }
 
 }  // namespace aeraui::file_manager
