@@ -1143,6 +1143,20 @@ SideloadStatus RecoverySideloadStatus() {
   return status;
 }
 
+bool RecoveryPrepareSideload() {
+  if (gSideloadActive.load(std::memory_order_acquire) ||
+      !PrepareAdbSideload()) return false;
+  gSideloadReceivedBytes.store(0, std::memory_order_release);
+  gSideloadTotalBytes.store(0, std::memory_order_release);
+  gSideloadCancelRequested.store(false, std::memory_order_release);
+  gSideloadActive.store(true, std::memory_order_release);
+  return true;
+}
+
+void RecoveryFinishSideload() {
+  gSideloadActive.store(false, std::memory_order_release);
+}
+
 bool RecoveryCancelSideload() {
   if (!gSideloadActive.load(std::memory_order_acquire)) return false;
   gSideloadCancelRequested.store(true, std::memory_order_release);
@@ -1150,10 +1164,8 @@ bool RecoveryCancelSideload() {
 }
 
 int RecoveryRunSideload() {
-  gSideloadReceivedBytes.store(0, std::memory_order_release);
-  gSideloadTotalBytes.store(0, std::memory_order_release);
-  gSideloadCancelRequested.store(false, std::memory_order_release);
-  gSideloadActive.store(true, std::memory_order_release);
+  if (!gSideloadActive.load(std::memory_order_acquire) &&
+      !RecoveryPrepareSideload()) return 1;
 
   const bool mtp_was_enabled = TWFunc::Toggle_MTP(false);
   TWFunc::SetPerformanceMode(true);
@@ -1167,7 +1179,7 @@ int RecoveryRunSideload() {
   TWFunc::Toggle_MTP(mtp_was_enabled);
   PartitionManager.Update_System_Details();
   TWFunc::SetPerformanceMode(false);
-  gSideloadActive.store(false, std::memory_order_release);
+  RecoveryFinishSideload();
   return result == 0 ? 0 : 1;
 }
 

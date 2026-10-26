@@ -244,6 +244,8 @@ struct SideloadStatus {
   uint64_t total_bytes = 0;
 };
 SideloadStatus RecoverySideloadStatus();
+bool RecoveryPrepareSideload();
+void RecoveryFinishSideload();
 bool RecoveryCancelSideload();
 int RecoveryProgress();
 struct NasTransferProgress {
