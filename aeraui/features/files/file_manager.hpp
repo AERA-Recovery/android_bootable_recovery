@@ -17,15 +17,18 @@ enum class Operation {
   kMove,
   kDelete,
   kMeasure,
+  kChecksum,
   kExtract,
   kCompress,
   kArchiveAdd,
   kArchiveDelete,
 };
+enum class ChecksumType { kSHA256, kMD5 };
 enum class Conflict { kReplace, kKeepBoth, kSkip };
 
 struct Request {
   Operation operation = Operation::kCopy;
+  ChecksumType checksum_type = ChecksumType::kSHA256;
   Conflict conflict = Conflict::kKeepBoth;
   std::vector<std::string> sources;
   std::string destination;
@@ -101,6 +104,7 @@ struct Snapshot {
   size_t skipped = 0;
   std::string status;
   std::string detail;
+  std::string checksum;
 };
 
 struct Progress {
@@ -119,6 +123,7 @@ struct Progress {
   mutable std::mutex text_mutex;
   std::string status;
   std::string detail;
+  std::string checksum;
 
   void Reset();
   Snapshot Get() const;
