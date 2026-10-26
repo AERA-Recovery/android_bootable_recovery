@@ -1254,27 +1254,40 @@ void PreferenceColumn(lv_obj_t *object, int gap = 12) {
 lv_obj_t *PreferenceEntry(Tools *state, const char *symbol,
                           const char *title, const std::string &description,
                           Handler action, bool toggle = false) {
+  const bool card = state != nullptr && state->tool == Action::kPreferences;
   auto *row = lv_button_create(state->list);
   Clear(row);
-  lv_obj_set_style_bg_color(row, kMainSelected, LV_STATE_PRESSED);
+  if (card) {
+    Panel(row, 28, kMainPanel);
+    Interactive(row, kMainSelected);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, kMainLine, 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
+  } else {
+    lv_obj_set_style_bg_color(row, kMainSelected, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(row, kMainLine, 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
+    lv_obj_set_style_radius(row, 0, 0);
+  }
   if (action) OnClick(row, std::move(action));
   lv_obj_set_width(row, LV_PCT(100));
   lv_obj_set_height(row, LV_SIZE_CONTENT);
-  lv_obj_set_style_min_height(row, 154, 0);
-  lv_obj_set_style_pad_all(row, 24, 0);
+  lv_obj_set_style_min_height(row, card ? 170 : 154, 0);
+  lv_obj_set_style_pad_all(row, card ? 28 : 24, 0);
   lv_obj_set_style_pad_column(row, 28, 0);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row, 1, 0);
-  lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
-  lv_obj_set_style_border_color(row, kMainLine, 0);
-  lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
-  lv_obj_set_style_radius(row, 0, 0);
   lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                        LV_FLEX_ALIGN_CENTER);
-  auto *icon = Label(row, symbol, &lv_font_montserrat_32, kAccent);
-  lv_obj_set_width(icon, 56);
+  if (card) {
+    IconPlate(row, symbol, kAccent, kAccentSoft, 78);
+  } else {
+    auto *icon = Label(row, symbol, &lv_font_montserrat_32, kAccent);
+    lv_obj_set_width(icon, 56);
+  }
   auto *text = lv_obj_create(row);
   Clear(text);
   lv_obj_remove_flag(text, LV_OBJ_FLAG_CLICKABLE);
@@ -2665,8 +2678,9 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_width(state->list, 1400);
   }
   lv_obj_set_flex_flow(state->list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(state->list, 8, 0);
-  lv_obj_set_style_pad_bottom(state->list, 32, 0);
+  lv_obj_set_style_pad_all(state->list, 12, 0);
+  lv_obj_set_style_pad_row(state->list, 18, 0);
+  lv_obj_set_style_pad_bottom(state->list, 40, 0);
   lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_ACTIVE);
 
   PreferenceSection(state, "Display & regional");
@@ -2713,8 +2727,12 @@ void BuildPreferences(Tools *state) {
 
   auto *brightness = lv_obj_create(state->list);
   Clear(brightness);
+  Panel(brightness, 28, kMainPanel);
+  lv_obj_set_style_border_width(brightness, 1, 0);
+  lv_obj_set_style_border_color(brightness, kMainLine, 0);
+  lv_obj_set_style_border_opa(brightness, LV_OPA_30, 0);
   PreferenceColumn(brightness, 12);
-  lv_obj_set_style_pad_all(brightness, 24, 0);
+  lv_obj_set_style_pad_all(brightness, 28, 0);
   auto *brightness_heading = lv_obj_create(brightness);
   Clear(brightness_heading);
   lv_obj_set_width(brightness_heading, LV_PCT(100));
@@ -2760,8 +2778,12 @@ void BuildPreferences(Tools *state) {
   if (RecoveryScreenTimeoutSupported()) {
     auto *timeout = lv_obj_create(state->list);
     Clear(timeout);
+    Panel(timeout, 28, kMainPanel);
+    lv_obj_set_style_border_width(timeout, 1, 0);
+    lv_obj_set_style_border_color(timeout, kMainLine, 0);
+    lv_obj_set_style_border_opa(timeout, LV_OPA_30, 0);
     PreferenceColumn(timeout, 12);
-    lv_obj_set_style_pad_all(timeout, 24, 0);
+    lv_obj_set_style_pad_all(timeout, 28, 0);
     auto *heading = lv_obj_create(timeout);
     Clear(heading);
     lv_obj_set_size(heading, LV_PCT(100), LV_SIZE_CONTENT);
@@ -2931,8 +2953,7 @@ void BuildPreferences(Tools *state) {
             if (AutoSaveSettings(state)) Open(state, Action::kPreferences);
           }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
   });
-  lv_obj_set_width(reset, LV_PCT(100));
-  lv_obj_set_height(reset, 124);
+  StyleThemeReset(reset);
 }
 
 void RefreshBatterySettings(Tools *state) {
