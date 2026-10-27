@@ -409,6 +409,51 @@ TEST(PayloadTargets, LogicalTargetsRequireExactManifestCapacity) {
   EXPECT_FALSE(TargetCapacityMatches(2048, 4096, false));
   EXPECT_FALSE(TargetCapacityMatches(4096, 0, false));
 }
+TEST(PayloadTargets, PhysicalAndMappedNodesUseKernelCapacityPolicy) {
+  TemporaryDir directory;
+  const std::string node = directory.path;
+  bool exact = true;
+  EXPECT_FALSE(BlockRequiresExactCapacity(node, exact)); // Whole disk/unknown.
+  ASSERT_TRUE(android::base::WriteStringToFile("15\n", node + "/partition"));
+  ASSERT_TRUE(BlockRequiresExactCapacity(node, exact));
+  EXPECT_FALSE(exact);
+  EXPECT_TRUE(TargetCapacityMatches(65536, 12288, exact)); // vbmeta through fstab.
+  EXPECT_FALSE(TargetCapacityMatches(65536, 131072, exact));
+  ASSERT_EQ(unlink((node + "/partition").c_str()), 0);
+  ASSERT_EQ(mkdir((node + "/dm").c_str(), 0700), 0);
+  ASSERT_TRUE(android::base::WriteStringToFile("vendor_a\n", node + "/dm/name"));
+  ASSERT_TRUE(BlockRequiresExactCapacity(node, exact));
+  EXPECT_TRUE(exact);
+  EXPECT_TRUE(TargetCapacityMatches(4096, 4096, exact));
+  EXPECT_FALSE(TargetCapacityMatches(8192, 4096, exact));
+  EXPECT_FALSE(TargetCapacityMatches(2048, 4096, exact));
+  ASSERT_TRUE(android::base::WriteStringToFile("15\n", node + "/partition"));
+  EXPECT_FALSE(BlockRequiresExactCapacity(node, exact)); // Conflicting identity.
+  ASSERT_EQ(unlink((node + "/dm/name").c_str()), 0);
+  ASSERT_TRUE(android::base::WriteStringToFile("0\n", node + "/partition"));
+  EXPECT_FALSE(BlockRequiresExactCapacity(node, exact));
+}
+TEST(PayloadFlashBatch, PreparationRollbackRunsBeforeMountRestoreAndNeverAfterWrites) {
+  for (bool writes_started : {false, true}) {
+    bool active = false, handles_closed = false;
+    std::string events;
+    EXPECT_FALSE(aera::RunPreparedImageFlashBatch(active,
+        [&] { events += 'P'; return true; },
+        [&] { events += 'O'; handles_closed = true; return false; },
+        [&] { EXPECT_FALSE(active); events += 'R'; },
+        [&] { return writes_started; },
+        [&] { EXPECT_TRUE(active); EXPECT_TRUE(handles_closed); events += 'B'; }));
+    EXPECT_EQ(events, writes_started ? "POR" : "POBR");
+  }
+  bool active = false;
+  int rollback = 0;
+  EXPECT_FALSE(aera::RunPreparedImageFlashBatch(active, [] { return false; },
+      [] { ADD_FAILURE(); return false; }, [] {}, [] { return false; }, [&] { ++rollback; }));
+  EXPECT_EQ(rollback, 0);
+  EXPECT_TRUE(aera::RunPreparedImageFlashBatch(active, [] { return true; },
+      [] { return true; }, [] {}, [] { return true; }, [&] { ++rollback; }));
+  EXPECT_EQ(rollback, 0);
+}
 namespace {
 void Put(std::vector<uint8_t> &v, size_t offset, uint64_t value, unsigned bytes) {
   for (unsigned i = 0; i < bytes; ++i) v.at(offset + i) = value >> (8 * i);

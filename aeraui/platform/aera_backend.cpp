@@ -1364,6 +1364,9 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
               (t.raw && t.bytes != fresh[i].bytes)) { error = "Flash target changed"; return false; }
           if (t.raw) {
             if (!devices.insert(t.device).second) { error = "Duplicate block target"; return false; }
+          } else if (!PartitionManager.Validate_Image_Flash_Target(t.path, image_sizes[i])) {
+            error = "Invalid, read-only or undersized target: " + t.name;
+            return false;
           }
         }
         auto run_images = [&]() -> bool {
@@ -1433,8 +1436,7 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
           const auto start = std::chrono::steady_clock::now();
           gPayloadProgress.Set(i, PayloadPhase::Verifying);
           const bool verified = payload::VerifyWrittenFd(held[i].get(), image_sizes[i], image_hashes[i], errors[i],
-              [&](uint64_t done, uint64_t) { gPayloadProgress.Set(i, PayloadPhase::Verifying, done); },
-              !targets[i].raw);
+              [&](uint64_t done, uint64_t) { gPayloadProgress.Set(i, PayloadPhase::Verifying, done); });
           if (verified) {
             ++verified_count;
             gPayloadProgress.Set(i, PayloadPhase::Verified, image_sizes[i]);
@@ -1459,7 +1461,8 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
         if (!joined) error += " Could not start readback workers";
         return written && joined && verified_count.load() == targets.size();
         };
-        return PartitionManager.Run_Image_Flash_Batch(batch_targets, run_images);
+        return PartitionManager.Run_Image_Flash_Batch(batch_targets, run_images,
+            [&] { return writer_started; }, &error);
       });
       gPayloadProgress.Finish();
       if (!ok) {

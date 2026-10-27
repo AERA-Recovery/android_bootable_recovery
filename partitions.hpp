@@ -468,7 +468,9 @@ public:
 	void Unlock_Block_Partitions();                                           // Unlock all block devices after update_engine runs
 	bool Unmap_Super_Devices(bool preserve_partitions = false);              // Unmap super devices in TWRP
 	void Restart_Quiesced_Dynamic_Services();                                // Restore services stopped for live fastbootd
-	bool Run_Image_Flash_Batch(const std::vector<std::string>& targets, const std::function<bool()>& operation); // Release selected physical and logical dependencies once
+	bool Run_Image_Flash_Batch(const std::vector<std::string>& targets, const std::function<bool()>& operation,
+		const std::function<bool()>& writer_started = {}, std::string* error = nullptr); // Release dependencies once; roll back preparation before any writes
+	bool Validate_Image_Flash_Target(const std::string& target, uint64_t bytes, uint64_t* current_bytes = nullptr); // Read-only preflight before any logical resize
 	bool Prepare_Image_Flash_Target(const std::string& target, uint64_t bytes, std::string* block); // Serial preparation only, inside a batch; never writes image data
 	bool Is_Image_Flash_Batch() const { return image_flash_batch_; }
 	bool Check_Pending_Merges();                                              // Check and run pending merges on data for VAB devices
@@ -505,6 +507,7 @@ private:
 private:
 	std::vector<TWPartition*> Partitions;                                     // Vector list of all partitions
 	bool image_flash_batch_ = false;
+	std::vector<TWPartition*> image_flash_resized_;
 	string Active_Slot_Display;                                               // Current Active Slot (A or B) for display purposes
 	std::vector<users_struct> Users_List;                                     // List of FBE users
 	std::vector<std::string> Super_Partition_List;                            // Display value for super partitions

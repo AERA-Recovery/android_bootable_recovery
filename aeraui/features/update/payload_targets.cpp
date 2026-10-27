@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "payload_targets.hpp"
+#include "../../../aera_image_flash_geometry.hpp"
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -136,6 +137,15 @@ bool VerifyImageBytes(int fd, uint64_t image_bytes, const std::string &expected_
 bool TargetCapacityMatches(uint64_t capacity, uint64_t image_bytes, bool exact) {
   return image_bytes && (exact ? capacity == image_bytes : capacity >= image_bytes);
 }
+bool BlockRequiresExactCapacity(const std::string &sysfs_node, bool &exact) {
+  return aera::BlockRequiresExactCapacity(sysfs_node, exact);
+}
+namespace {
+bool DeviceCapacityPolicy(uint64_t device, bool &exact) {
+  return BlockRequiresExactCapacity("/sys/dev/block/" +
+      std::to_string(major(device)) + ":" + std::to_string(minor(device)), exact);
+}
+}
 int OpenDirectBlock(const std::string &path, uint64_t image_bytes, std::string &error) {
   char resolved[PATH_MAX];
   if (!realpath(path.c_str(), resolved) || strncmp(resolved, "/dev/block/", 11)) {
@@ -144,8 +154,15 @@ int OpenDirectBlock(const std::string &path, uint64_t image_bytes, std::string &
   const int fd = open(resolved, O_RDWR | O_EXCL | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
   if (fd < 0) { error = "Cannot exclusively claim " + path + ": " + strerror(errno); return -1; }
   uint64_t device = 0, bytes = 0;
-  if (!Geometry(fd, device, bytes) || !TargetCapacityMatches(bytes, image_bytes, true)) {
-    close(fd); error = "Direct logical target does not exactly match the manifest image size"; return -1;
+  bool exact = false;
+  if (!Geometry(fd, device, bytes) || !DeviceCapacityPolicy(device, exact)) {
+    close(fd); error = "Cannot identify direct target as a physical partition or logical mapping"; return -1;
+  }
+  if (!TargetCapacityMatches(bytes, image_bytes, exact)) {
+    close(fd);
+    error = exact ? "Direct logical target does not exactly match the manifest image size" :
+                    "Image exceeds physical partition capacity";
+    return -1;
   }
   return fd;
 }
@@ -155,8 +172,10 @@ bool VerifyWrittenFd(int fd, uint64_t image_bytes, const std::string &expected_s
                      bool exact_capacity) {
   struct stat st{};
   uint64_t capacity = 0;
+  bool logical = false;
   if (fstat(fd, &st) || !S_ISBLK(st.st_mode) || ioctl(fd, BLKGETSIZE64, &capacity) ||
-      !TargetCapacityMatches(capacity, image_bytes, exact_capacity) ||
+      !DeviceCapacityPolicy(st.st_rdev, logical) ||
+      !TargetCapacityMatches(capacity, image_bytes, logical || exact_capacity) ||
       expected_sha256.size() != SHA256_DIGEST_LENGTH) {
     error = "Written partition has invalid type or capacity"; return false;
   }
@@ -177,8 +196,10 @@ bool VerifyWrittenBlock(const std::string &path, uint64_t image_bytes,
   struct stat st{};
   uint64_t capacity = 0;
   bool ok = false;
+  bool exact = false;
   if (fstat(fd, &st) || !S_ISBLK(st.st_mode) || ioctl(fd, BLKGETSIZE64, &capacity) ||
-      !image_bytes || image_bytes > capacity || expected_sha256.size() != SHA256_DIGEST_LENGTH) {
+      !DeviceCapacityPolicy(st.st_rdev, exact) || !TargetCapacityMatches(capacity, image_bytes, exact) ||
+      expected_sha256.size() != SHA256_DIGEST_LENGTH) {
     error = "Written partition has invalid type or capacity";
   } else if (fsync(fd) || ioctl(fd, BLKFLSBUF)) {
     error = "Cannot flush written partition for verification: " + std::string(strerror(errno));
