@@ -4,6 +4,7 @@
 #include <functional>
 
 namespace aeraui::payload {
+bool IsPartitionImageName(const std::string& name);
 struct RawNode {
   std::string path;
   std::string name;

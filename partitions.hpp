@@ -36,6 +36,8 @@
 #endif
 #include "twrpApex.hpp"
 
+namespace aera { struct RomImageLayout; }
+
 #define MAX_FSTAB_LINE_LENGTH 2048
 
 #define REPACK_ORIG_DIR "/tmp/repackorig/"
@@ -473,7 +475,7 @@ public:
 	bool Validate_Image_Flash_Target(const std::string& target, uint64_t bytes, uint64_t* current_bytes = nullptr); // Read-only preflight before any logical resize
 	bool Prepare_Image_Flash_Target(const std::string& target, uint64_t bytes, std::string* block); // Serial preparation only, inside a batch; never writes image data
 	bool Prepare_Image_Flash_Targets(const std::vector<std::string>& targets, const std::vector<uint64_t>& bytes,
-		std::vector<std::string>* blocks, std::string* error); // Plan all logical allocations before committing once
+		std::vector<std::string>* blocks, std::string* error, const aera::RomImageLayout* layout = nullptr); // Plan all logical allocations before committing once
 	bool Is_Image_Flash_Batch() const { return image_flash_batch_; }
 	bool Check_Pending_Merges();                                              // Check and run pending merges on data for VAB devices
 	bool Disable_AVB2(bool Display_Info);                                     // Disable AVB2.0 in vbmeta/vbmeta_system
@@ -511,6 +513,8 @@ private:
 	bool image_flash_batch_ = false;
 	std::vector<TWPartition*> image_flash_resized_;
 	bool image_flash_metadata_changed_ = false;
+	std::vector<std::string> image_flash_layout_mappings_;
+	std::vector<std::string> image_flash_original_mappings_;
 	std::vector<std::string> image_flash_unmapped_cows_;
 	string Active_Slot_Display;                                               // Current Active Slot (A or B) for display purposes
 	std::vector<users_struct> Users_List;                                     // List of FBE users

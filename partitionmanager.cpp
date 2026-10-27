@@ -23,6 +23,7 @@
 #include "aera_image_flash_batch.hpp"
 #include "aera_image_flash_geometry.hpp"
 #include "aera_image_flash_layout.hpp"
+#include <libdm/dm.h>
 #include "aera_frp_wipe.hpp"
 #include "aera_remote/backup_cancel.hpp"
 #include "aera_image_flash_mounts.hpp"
@@ -4035,6 +4036,7 @@ bool TWPartitionManager::Run_Image_Flash_Batch(const std::vector<std::string>& t
 	std::set<dev_t> physical_devices;
 	bool has_logical_targets = false;
 	for (const auto& target : targets) {
+		if (target.rfind("/logical/", 0) == 0) { has_logical_targets = true; continue; }
 		std::string block = target;
 		if (target.compare(0, 11, "/dev/block/") != 0) {
 			auto* part = Find_Partition_By_Path(target);
@@ -4058,9 +4060,11 @@ bool TWPartitionManager::Run_Image_Flash_Batch(const std::vector<std::string>& t
 	image_flash_resized_.clear();
 	image_flash_metadata_changed_ = false;
 	image_flash_unmapped_cows_.clear();
+	image_flash_layout_mappings_.clear();
+	image_flash_original_mappings_.clear();
 	auto rollback = [&] {
 		if (!original_metadata || (image_flash_resized_.empty() && !image_flash_metadata_changed_ &&
-			image_flash_unmapped_cows_.empty())) return;
+			image_flash_unmapped_cows_.empty() && image_flash_layout_mappings_.empty())) return;
 		std::vector<std::pair<TWPartition*, std::string>> mappings;
 		for (auto* part : image_flash_resized_) {
 			const auto bare = Get_Bare_Partition_Name(part->Get_Mount_Point());
@@ -4078,6 +4082,10 @@ bool TWPartitionManager::Run_Image_Flash_Batch(const std::vector<std::string>& t
 			mappings.emplace_back(part, name);
 		}
 		bool released = true;
+		for (const auto& name : image_flash_layout_mappings_) {
+			std::string block;
+			if (android::dm::DeviceMapper::Instance().GetDmDevicePathByName(name, &block) && !DestroyLogicalPartition(name)) released = false;
+		}
 		for (const auto& entry : mappings)
 			if (!DestroyLogicalPartition(entry.second)) released = false;
 		const bool restored = released &&
@@ -4091,6 +4099,13 @@ bool TWPartitionManager::Run_Image_Flash_Batch(const std::vector<std::string>& t
 			}
 			entry.first->Set_Block_Device(block);
 			entry.first->Update_Size(true);
+		}
+		for (const auto& name : image_flash_original_mappings_) {
+			const bool existed = std::any_of(original_metadata->partitions.begin(), original_metadata->partitions.end(),
+				[&](const auto& entry) { return android::fs_mgr::GetPartitionName(entry) == name; });
+			if (!existed) continue;
+			std::string block;
+			if (!AeraMapLogicalPartition(super_device, metadata_slot, name, &block)) remapped = false;
 		}
 		for (const auto& name : image_flash_unmapped_cows_) {
 			std::string block;
@@ -4140,6 +4155,8 @@ bool TWPartitionManager::Run_Image_Flash_Batch(const std::vector<std::string>& t
 		image_flash_resized_.clear();
 		image_flash_metadata_changed_ = false;
 		image_flash_unmapped_cows_.clear();
+		image_flash_layout_mappings_.clear();
+		image_flash_original_mappings_.clear();
 	}, [&] { return !writer_started || writer_started(); }, rollback);
 }
 
@@ -4177,7 +4194,7 @@ bool TWPartitionManager::Validate_Image_Flash_Target(const std::string& target, 
 }
 
 bool TWPartitionManager::Prepare_Image_Flash_Targets(const std::vector<std::string>& targets,
-        const std::vector<uint64_t>& bytes, std::vector<std::string>* blocks, std::string* error) {
+        const std::vector<uint64_t>& bytes, std::vector<std::string>* blocks, std::string* error, const aera::RomImageLayout* layout) {
 	if (!image_flash_batch_ || !blocks || targets.empty() || targets.size() != bytes.size()) return false;
 	auto fail = [&](const std::string& message) {
 		LOGERR("%s\n", message.c_str());
@@ -4194,6 +4211,16 @@ bool TWPartitionManager::Prepare_Image_Flash_Targets(const std::vector<std::stri
 	for (size_t i = 0; i < targets.size(); ++i) {
 		if (targets[i].compare(0, 11, "/dev/block/") == 0) {
 			(*blocks)[i] = targets[i]; // Exclusively claimed and checked by caller before writing.
+			continue;
+		}
+		if (targets[i].rfind("/logical/", 0) == 0) {
+			const auto bare = targets[i].substr(9);
+			if (bare.empty() || bare.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos ||
+				!bytes[i] || bytes[i] % 512) return fail("Invalid package logical target");
+			if (!builder) builder = MetadataBuilder::New(super, slot);
+			if (!builder) return fail("Cannot read Super metadata");
+			if (!layout && !builder->FindPartition(bare + suffix)) return fail("Missing logical partition; applying ROM layout is required: " + bare);
+			images.push_back({bare + suffix, bytes[i]});
 			continue;
 		}
 		if (!Validate_Image_Flash_Target(targets[i], bytes[i]))
@@ -4216,14 +4243,30 @@ bool TWPartitionManager::Prepare_Image_Flash_Targets(const std::vector<std::stri
 		}
 		if (!AeraSnapshotStateIdle(this, !cows.empty()))
 			return fail("OTA snapshots are active or their state cannot be verified; no images written");
+		if (layout) {
+			std::set<std::string> affected;
+			for (const auto& group : builder->ListGroups()) for (const auto* part : builder->ListPartitionsInGroup(group)) {
+				const auto& name = part->name();
+				if (name.size() > suffix.size() && name.compare(name.size()-suffix.size(), suffix.size(), suffix) == 0) affected.insert(name);
+			}
+			for (const auto& image : images) affected.insert(image.name);
+			std::string planning_error;
+			if (!aera::PlanRomImageLayout(*builder, *layout, suffix, images, planning_error)) return fail(planning_error);
+			image_flash_layout_mappings_.assign(affected.begin(), affected.end());
+		}
 		std::vector<std::string> changed;
 		for (const auto& image : images)
 			if (builder->FindPartition(image.name)->size() != image.bytes) changed.push_back(image.name);
+		if (!layout) for (size_t i = 0; i < targets.size(); ++i) {
+			if (targets[i].rfind("/logical/", 0) != 0) continue;
+			const auto name = targets[i].substr(9) + suffix;
+			if (std::find(changed.begin(), changed.end(), name) != changed.end()) image_flash_layout_mappings_.push_back(name);
+		}
 		std::string planning_error;
 		if (!aera::PlanImageFlashLayout(*builder, images, cows, planning_error)) return fail(planning_error);
 		auto updated = builder->Export();
 		if (!updated) return fail("The complete image layout exceeds Super metadata/group limits");
-		if (!changed.empty() || !cows.empty()) {
+		if (layout || !changed.empty() || !cows.empty()) {
 			// Record every changed mapping before touching any of them. The outer
 			// batch restores the original complete table/extents if preparation fails.
 			for (auto* part : parts) {
@@ -4233,8 +4276,16 @@ bool TWPartitionManager::Prepare_Image_Flash_Targets(const std::vector<std::stri
 					std::find(changed.begin(), changed.end(), bare) != changed.end())
 					image_flash_resized_.push_back(part);
 			}
+			for (const auto& name : image_flash_layout_mappings_) {
+				std::string mapped;
+				if (android::dm::DeviceMapper::Instance().GetDmDevicePathByName(name, &mapped)) {
+					image_flash_original_mappings_.push_back(name);
+					if (!DestroyLogicalPartition(name)) return fail("Cannot release ROM layout target: " + name);
+				}
+			}
 			for (const auto& name : changed)
-				if (!DestroyLogicalPartition(name)) return fail("Cannot release logical target: " + name);
+				if (std::find(image_flash_layout_mappings_.begin(), image_flash_layout_mappings_.end(), name) == image_flash_layout_mappings_.end() &&
+					!DestroyLogicalPartition(name)) return fail("Cannot release logical target: " + name);
 			for (const auto& name : cows) {
 				struct stat st{};
 				if (!lstat(("/dev/block/mapper/" + name).c_str(), &st)) {
@@ -4248,7 +4299,12 @@ bool TWPartitionManager::Prepare_Image_Flash_Targets(const std::vector<std::stri
 			image_flash_metadata_changed_ = true;
 			if (!android::fs_mgr::UpdatePartitionTable(super, *updated, slot))
 				return fail("Cannot commit the prepared Super layout");
-			for (const auto& name : changed) {
+			std::vector<std::string> remap = changed;
+			if (layout) {
+				remap.clear();
+				for (const auto& image : images) remap.push_back(image.name);
+			}
+			for (const auto& name : remap) {
 				std::string block;
 				if (!AeraMapLogicalPartition(super, slot, name, &block)) return fail("Cannot map prepared target: " + name);
 				for (auto* part : image_flash_resized_) {
@@ -4262,6 +4318,13 @@ bool TWPartitionManager::Prepare_Image_Flash_Targets(const std::vector<std::stri
 		}
 	}
 	for (size_t i = 0; i < parts.size(); ++i) {
+		if (targets[i].rfind("/logical/", 0) == 0) {
+			const auto name = targets[i].substr(9) + suffix;
+			if (!android::dm::DeviceMapper::Instance().GetDmDevicePathByName(name, &(*blocks)[i]) &&
+				!AeraMapLogicalPartition(super, slot, name, &(*blocks)[i]))
+				return fail("Cannot map ROM image target");
+			continue;
+		}
 		if (!parts[i]) continue;
 		parts[i]->Find_Actual_Block_Device();
 		parts[i]->Update_Size(true);

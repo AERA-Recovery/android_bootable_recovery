@@ -18,8 +18,7 @@
 #include <unistd.h>
 
 namespace aeraui::payload {
-namespace {
-bool ValidName(const std::string &name) {
+bool IsPartitionImageName(const std::string &name) {
   if (name.empty() || name.size() > 128 || name == "super" || name == "userdata" ||
       name == "metadata" || name == "misc" || name == "persist" || name == "cache" ||
       name == "frp" || name == "devinfo" || name == "modemst1" || name == "modemst2" ||
@@ -31,6 +30,7 @@ bool ValidName(const std::string &name) {
            (c >= '0' && c <= '9') || c == '_' || c == '-';
   });
 }
+namespace {
 bool Geometry(int fd, uint64_t &device, uint64_t &bytes) {
   struct stat st{};
   int readonly = 1;
@@ -66,7 +66,7 @@ PayloadFlashTarget DiscoverRawTarget(const std::string &name, const std::string 
   PayloadFlashTarget target;
   target.name = name;
   target.reason = "No verified A/B firmware target on this device";
-  if (!ValidName(name)) { target.reason = "Protected or invalid partition name"; return target; }
+  if (!IsPartitionImageName(name)) { target.reason = "Protected or invalid partition name"; return target; }
   if (slot != "A" && slot != "B") { target.reason = "Current slot is unknown"; return target; }
   for (const char *root : {"/dev/block/by-name/", "/dev/block/bootdevice/by-name/"}) {
     RawNode a, b;
