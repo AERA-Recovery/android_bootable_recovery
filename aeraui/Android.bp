@@ -13,7 +13,7 @@ cc_test_host {
     ],
     local_include_dirs: [".", "include"],
     include_dirs: ["system"],
-    static_libs: ["update_metadata-protos", "ota_metadata_proto_cc", "libbz", "libxz", "libzstd"],
+    static_libs: ["update_metadata-protos", "ota_metadata_proto_cc", "libbz", "libxz", "libzstd", "liblp", "libext4_utils"],
     shared_libs: ["libziparchive", "libprotobuf-cpp-lite", "libbase", "libcrypto"],
     cpp_std: "c++17",
     cflags: ["-Wall", "-Wextra", "-Werror"],

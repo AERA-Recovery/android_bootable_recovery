@@ -1376,15 +1376,9 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
         std::vector<std::string> blocks(targets.size());
         // Metadata, mapper changes and mount handling are strictly serial.
         // Complete every target's preparation before acquiring any writer fd.
+        if (!PartitionManager.Prepare_Image_Flash_Targets(batch_targets, image_sizes, &blocks, &error))
+          return false;
         for (size_t i = 0; i < targets.size(); ++i) {
-          gPayloadProgress.Set(i, PayloadPhase::Preparing);
-          if (targets[i].raw) blocks[i] = targets[i].path;
-          else if (!PartitionManager.Prepare_Image_Flash_Target(targets[i].path, image_sizes[i], &blocks[i])) {
-            current_partition = request.partitions[i];
-            error = "Cannot prepare target " + current_partition;
-            gPayloadProgress.Set(i, PayloadPhase::Failed);
-            return false;
-          }
           gPayloadProgress.Set(i, PayloadPhase::Queued);
         }
         // All claims precede the first write and outlive all joined workers,

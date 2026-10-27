@@ -12,6 +12,7 @@
 #include <chrono>
 #include "../../aera_image_flash_batch.hpp"
 #include "../../aera_image_flash_mounts.hpp"
+#include "../../aera_image_flash_layout.hpp"
 #include <fcntl.h>
 #include <unistd.h>
 #include <openssl/sha.h>
@@ -29,6 +30,59 @@
 
 using namespace aeraui::payload;
 using chromeos_update_engine::DeltaArchiveManifest;
+TEST(PayloadLayout, ShrinksBeforeGrowingWithinAFullGroup) {
+  auto builder = android::fs_mgr::MetadataBuilder::New(64 * 1024 * 1024, 65536, 2);
+  ASSERT_NE(builder, nullptr);
+  constexpr uint64_t mb = 1024 * 1024;
+  ASSERT_TRUE(builder->AddGroup("main_b", 16 * mb));
+  auto* odm = builder->AddPartition("odm_b", "main_b", 0);
+  auto* system = builder->AddPartition("system_b", "main_b", 0);
+  auto* untouched = builder->AddPartition("vendor_b", "main_b", 0);
+  ASSERT_TRUE(builder->ResizePartition(odm, 4 * mb));
+  ASSERT_TRUE(builder->ResizePartition(system, 8 * mb));
+  ASSERT_TRUE(builder->ResizePartition(untouched, 4 * mb));
+  EXPECT_FALSE(builder->ResizePartition(odm, 6 * mb)); // Original alphabetical order fails.
+  std::string error;
+  ASSERT_TRUE(aera::PlanImageFlashLayout(*builder, {{"odm_b", 6 * mb}, {"system_b", 6 * mb}}, {}, error)) << error;
+  EXPECT_EQ(odm->size(), 6 * mb);
+  EXPECT_EQ(system->size(), 6 * mb);
+  EXPECT_EQ(untouched->size(), 4 * mb);
+  EXPECT_NE(builder->Export(), nullptr);
+}
+TEST(PayloadLayout, StaleCowCleanupOnlyAffectsRecognizedCowPartitions) {
+  auto builder = android::fs_mgr::MetadataBuilder::New(64 * 1024 * 1024, 65536, 2);
+  ASSERT_NE(builder, nullptr);
+  ASSERT_TRUE(builder->AddGroup("cow", 0));
+  auto* stale = builder->AddPartition("system_b-cow", "cow", 0);
+  auto* image = builder->AddPartition("system_b", 0);
+  auto* other = builder->AddPartition("system_a", 0);
+  ASSERT_TRUE(builder->ResizePartition(stale, 8 * 1024 * 1024));
+  ASSERT_TRUE(builder->ResizePartition(image, 8 * 1024 * 1024));
+  const auto other_bytes = builder->AllocatableSpace() - 16 * 1024 * 1024;
+  ASSERT_TRUE(builder->ResizePartition(other, other_bytes));
+  EXPECT_FALSE(builder->ResizePartition(image, 16 * 1024 * 1024)); // COW extents occupy the only free space.
+  std::string error;
+  EXPECT_FALSE(aera::PlanImageFlashLayout(*builder, {{"system_b", 8 * 1024 * 1024}}, {"system_a"}, error));
+  ASSERT_TRUE(aera::PlanImageFlashLayout(*builder, {{"system_b", 16 * 1024 * 1024}}, {"system_b-cow"}, error)) << error;
+  EXPECT_EQ(builder->FindPartition("system_b-cow"), nullptr);
+  EXPECT_EQ(other->size(), other_bytes);
+  EXPECT_NE(builder->Export(), nullptr);
+}
+TEST(PayloadLayout, RejectsOversizedFinalLayoutWithoutMutatingOriginalMetadata) {
+  constexpr uint64_t mb = 1024 * 1024;
+  auto original = android::fs_mgr::MetadataBuilder::New(64 * mb, 65536, 2);
+  ASSERT_NE(original, nullptr);
+  ASSERT_TRUE(original->AddGroup("main_b", 12 * mb));
+  ASSERT_TRUE(original->ResizePartition(original->AddPartition("odm_b", "main_b", 0), 4 * mb));
+  ASSERT_TRUE(original->ResizePartition(original->AddPartition("system_b", "main_b", 0), 8 * mb));
+  auto metadata = original->Export();
+  ASSERT_NE(metadata, nullptr);
+  auto plan = android::fs_mgr::MetadataBuilder::New(*metadata);
+  std::string error;
+  EXPECT_FALSE(aera::PlanImageFlashLayout(*plan, {{"odm_b", 12 * mb}, {"system_b", 4 * mb}}, {}, error));
+  EXPECT_EQ(original->FindPartition("odm_b")->size(), 4 * mb);
+  EXPECT_EQ(original->FindPartition("system_b")->size(), 8 * mb);
+}
 TEST(PayloadSharedPool, ProgressIsBoundToTargetsAndMonotonic) {
   std::vector<DirectTarget> targets = {{"system", 3, 100}, {"vendor", 4, 200}};
   std::vector<uint64_t> previous(2);
