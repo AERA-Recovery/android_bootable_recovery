@@ -369,36 +369,6 @@ bool QuiesceDynamicPartitionUsers(bool stop_bootstrap = false,
 	return true;
 }
 
-bool RestoreFlashMount(const aera::FlashMount& saved) {
-	const auto flags = aera::FlashMountFlags(saved.options + "," + saved.super_options);
-	const auto options = aera::FlashFilesystemOptions(saved.super_options);
-	if (saved.root == "/") {
-		if (mount(saved.source.c_str(), saved.target.c_str(), saved.type.c_str(), flags, options.c_str())) return false;
-	} else {
-		// A mountinfo root other than / represents a directory/file bind. Mount
-		// the filesystem privately, recreate the bind, then remove the staging
-		// mount. No descriptors are retained while the partition is flashed.
-		char temporary[] = "/tmp/aera-flash-mount-XXXXXX";
-		if (!mkdtemp(temporary)) return false;
-		if (mount(saved.source.c_str(), temporary, saved.type.c_str(), flags, options.c_str())) {
-			const int error = errno; rmdir(temporary); errno = error; return false;
-		}
-		bool ok = mount(nullptr, temporary, nullptr, MS_PRIVATE, nullptr) == 0;
-		const std::string source = std::string(temporary) + saved.root;
-		if (ok) ok = mount(source.c_str(), saved.target.c_str(), nullptr, MS_BIND, nullptr) == 0;
-		if (ok && mount(nullptr, saved.target.c_str(), nullptr, MS_BIND | MS_REMOUNT | flags, nullptr)) {
-			const int error = errno; umount2(saved.target.c_str(), 0); errno = error; ok = false;
-		}
-		const int error = errno;
-		if (umount2(temporary, 0)) {
-			LOGERR("Unable to remove staging mount %s: %s\n", temporary, strerror(errno));
-			return false;
-		}
-		rmdir(temporary);
-		if (!ok) { errno = error; return false; }
-	}
-	return mount(nullptr, saved.target.c_str(), nullptr, saved.propagation, nullptr) == 0;
-}
 
 }  // namespace
 
@@ -4115,7 +4085,7 @@ bool TWPartitionManager::Run_Image_Flash_Batch(const std::vector<std::string>& t
 		// Restore parents before children, including on a partial preparation failure.
 		for (auto it = physical_mounts.rbegin(); it != physical_mounts.rend(); ++it) {
 			if (!it->removed) continue;
-			if (!RestoreFlashMount(*it)) {
+			if (!aera::RestoreFlashMount(*it)) {
 				LOGERR("Could not restore %s after payload batch: %s\n", it->target.c_str(), strerror(errno));
 				gui_msg(Msg(msg::kError, "Could not restore {1}; reboot recovery before using its services.")(it->target));
 			} else LOGINFO("Restored image-flash mount: %s\n", it->target.c_str());
