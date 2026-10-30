@@ -482,6 +482,9 @@ add_executable(shared_storage_test shared_storage_test.cpp)
 target_compile_options(shared_storage_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME shared_storage_android_access COMMAND shared_storage_test)
 
+add_test(NAME native_buffer_library COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native_buffer_library_test.py")
+
 add_executable(public_ip_test public_ip_test.cpp)
 target_compile_options(public_ip_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(public_ip_test PRIVATE resolv Threads::Threads)
