@@ -702,12 +702,12 @@ bool RecoveryDataLocked() {
 }
 
 bool RecoveryEnterFastbootd() {
-  aera::mobile::StorageLease mobile_lease;
-  if (!mobile_lease) return false;
-  if (!android::base::GetBoolProperty("ro.boot.dynamic_partitions", false)) {
-    LOGERR("AERA live fastbootd: dynamic partitions are unavailable.\n");
+  if (!RecoverySupportsFastbootd()) {
+    LOGERR("AERA live fastbootd: disabled or unavailable.\n");
     return false;
   }
+  aera::mobile::StorageLease mobile_lease;
+  if (!mobile_lease) return false;
 
   // Remember whether device-specific post-decryption resources were active.
   // Unmapping Super necessarily tears down stock vendor/odm bind mounts, so

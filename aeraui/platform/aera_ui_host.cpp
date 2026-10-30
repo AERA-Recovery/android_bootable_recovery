@@ -63,7 +63,7 @@ extern "C" int gui_init() {
 #endif
   ev_init();
 
-  const bool fastboot =
+  const bool fastboot = aeraui::RecoverySupportsFastbootd() &&
       android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
   const bool soft_switch =
       android::base::GetProperty(AERA_SOFT_SWITCH_PROP, "0") == "1";
@@ -98,9 +98,9 @@ extern "C" int gui_startPage(const char* page_name, int allow_commands,
     aera::rpc::Channel::Shutdown();
 #endif
 
-  const bool fastboot =
-      (page_name != nullptr && std::strcmp(page_name, "fastboot") == 0) ||
-      android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1";
+  const bool fastboot = aeraui::RecoverySupportsFastbootd() &&
+      ((page_name != nullptr && std::strcmp(page_name, "fastboot") == 0) ||
+       android::base::GetProperty(TW_FASTBOOT_MODE_PROP, "0") == "1");
   const bool resume = !fastboot &&
       android::base::GetProperty(AERA_SOFT_SWITCH_PROP, "0") == "1";
   if (!fastboot) aeraui::RecoveryWifiInitialize();
