@@ -3726,6 +3726,9 @@ void OpenFontPreview(lv_obj_t *screen, const std::string &path, std::function<vo
 }
 
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback, void *context) {
+  if (tool == Action::kAndroidAdbRescue) {
+    BuildAndroidAdbRescueScene(screen, callback, context); return;
+  }
   if (tool == Action::kDeveloperSettings) {
     BuildDeveloperScene(screen, callback, context);
     return;

@@ -2628,6 +2628,42 @@ bool RecoverySetPcAutoEnable(bool enabled) {
 bool RecoveryResetThemeSettings() { return ResetAeraSettings(true); }
 bool RecoveryResetThemeSection(ThemeSection section) { return ResetAeraThemeSection(section); }
 bool RecoveryResetPreferences() { return ResetAeraSettings(false); }
+namespace {
+std::atomic<bool> gAndroidAdbRescueBusy{false};
+bool AndroidAdbRescueReady(std::string *error) {
+  auto *data = PartitionManager.Find_Partition_By_Path("/data");
+  if (!data || !data->Is_Mounted() || RecoveryDataLocked()) {
+    if (error) *error = "Unlock Android data before using Android ADB Rescue.";
+    return false;
+  }
+  return true;
+}
+}
+bool RecoveryAndroidAdbRescueBusy() { return gAndroidAdbRescueBusy.load(); }
+adb_rescue::Status RecoveryAndroidAdbRescueStatus() {
+  adb_rescue::Status status;
+  if (!AndroidAdbRescueReady(&status.message)) return status;
+  return adb_rescue::Inspect();
+}
+bool RecoveryAndroidAdbRescueApply(const std::string &public_key, bool restore, std::string *error) {
+  if (gAndroidAdbRescueBusy.exchange(true)) {
+    if (error) *error = "Android ADB Rescue is already running.";
+    return false;
+  }
+  struct Release { ~Release() { gAndroidAdbRescueBusy = false; } } release;
+  if (!AndroidAdbRescueReady(error)) return false;
+  return restore ? adb_rescue::Restore(error) : adb_rescue::Enable(public_key, error);
+}
+bool RecoveryReadAdbPublicKey(const std::string &path, adb_rescue::PublicKey *key, std::string *error) {
+  struct stat info{};
+  if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_size <= 0 || info.st_size > 8192) {
+    if (error) *error = "Select the public adbkey.pub file, not a private key.";
+    return false;
+  }
+  std::ifstream input(path, std::ios::binary);
+  std::string bytes((std::istreambuf_iterator<char>(input)), {});
+  return input.eof() || input.good() ? adb_rescue::ParsePublicKey(bytes, key, error) : false;
+}
 std::vector<kernel::Setting> RecoveryDeveloperSettings() {
   LoadAeraPreferencesIfAvailable();
   kernel::Overrides values;

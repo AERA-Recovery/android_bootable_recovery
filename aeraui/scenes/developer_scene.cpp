@@ -202,6 +202,8 @@ void BuildDeveloperScene(lv_obj_t *screen, ActionCallback callback, void *contex
   lv_obj_set_style_pad_bottom(list, 30, 0);
   auto *back = Button(list, LV_SYMBOL_LEFT "  About AERA", [=] { callback(Action::kBack, context); });
   lv_obj_set_size(back, LV_PCT(100), 104);
+  auto *kernel_title = Label(list, "Kernel", &lv_font_montserrat_32, kText);
+  lv_obj_set_width(kernel_title, LV_PCT(100));
   auto *note = Label(list, "Experimental. Changes affect this recovery session, not Android. Hold Volume Down during startup to skip saved tuning.",
                      &lv_font_montserrat_28, kAmber);
   lv_obj_set_width(note, LV_PCT(100)); lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
@@ -294,6 +296,17 @@ void BuildDeveloperScene(lv_obj_t *screen, ActionCallback callback, void *contex
     });
   });
   lv_obj_set_size(reset, LV_PCT(100), 112);
+  auto *rescue = lv_button_create(list);
+  Panel(rescue, 28, kMainSheet); Interactive(rescue, kMainSelected);
+  lv_obj_set_size(rescue, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(rescue, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_all(rescue, 28, 0); lv_obj_set_style_pad_row(rescue, 12, 0);
+  auto *rescue_title = Label(rescue, "Android Rescue", &lv_font_montserrat_32, kAccent);
+  lv_obj_set_width(rescue_title, LV_PCT(100));
+  auto *rescue_detail = Label(rescue, "Enable USB debugging in the installed Android.",
+                              &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_width(rescue_detail, LV_PCT(100)); lv_label_set_long_mode(rescue_detail, LV_LABEL_LONG_WRAP);
+  OnClick(rescue, [=] { callback(Action::kAndroidAdbRescue, context); });
   lv_obj_update_layout(list);
   lv_obj_scroll_to_y(list, scroll_positions[selected_group], LV_ANIM_OFF);
   Navigation(screen, Action::kSettings, callback, context);

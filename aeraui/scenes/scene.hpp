@@ -122,6 +122,7 @@ void BuildBootScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void CompleteBootScene(lv_obj_t *screen);
 void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildHomeAppearancePreview(lv_obj_t *parent);
+void BuildAndroidAdbRescueScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildDeveloperScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void BuildMobileDataScene(lv_obj_t *screen, ActionCallback callback, void *context);
 void PollMobilePinPrompt(lv_obj_t *screen,bool allow_prompt);

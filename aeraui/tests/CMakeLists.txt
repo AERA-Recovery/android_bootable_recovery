@@ -19,6 +19,7 @@ target_link_libraries(lvgl PUBLIC Freetype::Freetype)
 add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp telegram_session_ui_test.cpp
   ../components/plugin_desktop.cpp
   ../features/plugin_api/session.cpp ../features/plugin_api/activity.cpp
+  ../scenes/android_adb_rescue_scene.cpp
   ../scenes/developer_scene.cpp
   ../scenes/mobile_data_scene.cpp
   ../scenes/update_scene.cpp
@@ -499,3 +500,19 @@ add_executable(telegram_session_storage_test telegram_session_storage_test.cpp)
 target_include_directories(telegram_session_storage_test PRIVATE ../features)
 target_compile_options(telegram_session_storage_test PRIVATE -UNDEBUG)
 add_test(NAME telegram_session_storage_reset COMMAND telegram_session_storage_test)
+
+add_library(android_adb_rescue_test_support STATIC ../features/developer/android_adb_rescue.cpp
+  ../features/backup/android_packages_xml.cpp "${AERA_TINYXML2_DIR}/tinyxml2.cpp")
+target_include_directories(android_adb_rescue_test_support PUBLIC ../include "${AERA_TINYXML2_DIR}")
+target_link_libraries(android_adb_rescue_test_support PUBLIC jsoncpp_static OpenSSL::Crypto)
+target_compile_options(android_adb_rescue_test_support PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(ui_check PRIVATE android_adb_rescue_test_support)
+target_link_libraries(pc_connection_host PRIVATE android_adb_rescue_test_support)
+add_executable(android_adb_rescue_test android_adb_rescue_test.cpp)
+target_link_libraries(android_adb_rescue_test PRIVATE android_adb_rescue_test_support)
+target_compile_options(android_adb_rescue_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME android_adb_rescue_transactions COMMAND android_adb_rescue_test)
+
+add_test(NAME android_adb_rescue_ui COMMAND ui_check --android-adb-rescue)
+
+set_tests_properties(android_adb_rescue_transactions PROPERTIES SKIP_RETURN_CODE 77)

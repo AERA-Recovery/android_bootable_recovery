@@ -2546,6 +2546,7 @@ private:
     if (self == nullptr)
       return;
     if (action == Action::kMobileData && !MobileDataEnabled()) return;
+    if (RecoveryAndroidAdbRescueBusy()) return;
 
     if (action == Action::kPluginDesktopOpen || action == Action::kPluginDesktopClose) {
       if (action == Action::kPluginDesktopOpen) {
@@ -3021,7 +3022,7 @@ private:
         action == Action::kThemeWallpaper || action == Action::kThemeHome ||
         action == Action::kThemeTypography || action == Action::kThemeNavigation ||
         action == Action::kThemeLock ||
-        action == Action::kDeveloperSettings ||
+        action == Action::kDeveloperSettings || action == Action::kAndroidAdbRescue ||
         action == Action::kWifi || action == Action::kMobileData || action == Action::kUsers ||
         action == Action::kPcConnection;
     if (action == Action::kOpenReboot || action == Action::kBackHome ||

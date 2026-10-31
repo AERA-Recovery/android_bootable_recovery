@@ -9,6 +9,7 @@
 #include "aeraui/home_layout.hpp"
 #include "aeraui/kernel_settings.hpp"
 #include "aeraui/fonts.hpp"
+#include "aeraui/android_adb_rescue.hpp"
 
 namespace aeraui {
 inline constexpr bool MobileDataEnabled() {
@@ -59,6 +60,10 @@ bool RecoveryResetDeveloperSettings(std::string *error);
 void RecoveryPollDeveloperSettings();
 void RecoverySkipDeveloperSettings();
 bool RecoveryExportDeveloperSettings(std::string *path, std::string *error);
+adb_rescue::Status RecoveryAndroidAdbRescueStatus();
+bool RecoveryAndroidAdbRescueApply(const std::string &public_key, bool restore, std::string *error);
+bool RecoveryAndroidAdbRescueBusy();
+bool RecoveryReadAdbPublicKey(const std::string &path, adb_rescue::PublicKey *key, std::string *error);
 enum class Job {
   kInstall,
   kSideload,

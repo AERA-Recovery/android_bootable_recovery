@@ -906,3 +906,59 @@ async function loadReports(manual=false) {
 async function loadFlashReports(){await Promise.all([loadReports(),loadReports(true)]);}
 $('deviceRefresh').onclick=async()=>{try{await refresh();await loadFlashReports()}catch(error){notice(error.message)}};
 showTab('install');if(state.info)updateInfo(state.info);controls();
+
+// Android rescue shares the native backend; only the public ADB key crosses HTTPS.
+(() => {
+  let key='', pending=false, keyPending=false, checked=null, serial=0;
+  function buttons() {
+    const blocked=!state.connected||activeJob()||state.info?.busy||pending||keyPending;
+    $('androidAdbInspect').disabled=blocked;
+    $('androidAdbKey').disabled=blocked;
+    $('androidAdbChoose').disabled=blocked;
+    $('androidAdbEnable').disabled=blocked||!checked?.available;
+    $('androidAdbRestore').disabled=blocked||!checked?.can_restore;
+  }
+  function render(info) {
+    checked=info;
+    $('androidAdbStatus').textContent=info.message||(!info.available?'Android data is unavailable.':info.enabled?'USB debugging is enabled in Android settings.':'USB debugging is disabled in Android settings.');
+    const details=$('androidAdbDetails');details.replaceChildren();details.hidden=!info.available;
+    for(const [name,value] of [['Authorized computers',info.authorized_keys],['Settings',info.settings_format],['Database',info.settings_path],['USB functions',info.usb_functions||'None']]) {
+      const row=document.createElement('div'),term=document.createElement('dt'),detail=document.createElement('dd');term.textContent=name;detail.textContent=value??'--';row.append(term,detail);details.append(row);
+    }
+    buttons();
+  }
+  async function inspect() {
+    if(pending||!state.connected||activeJob())return;
+    pending=true;buttons();$('androidAdbStatus').textContent='Checking installed Android...';
+    try{render(await api('android-adb'))}catch(error){$('androidAdbStatus').textContent=error.message}
+    finally{pending=false;buttons()}
+  }
+  $('androidAdbChoose').onclick=()=>$('androidAdbKey').click();
+  $('androidAdbKey').onchange=async()=>{
+    const file=$('androidAdbKey').files[0],selection=++serial;key='';keyPending=!!file;buttons();
+    $('androidAdbFileName').textContent=file?.name||'No public key selected';
+    try {
+      if(!file){$('androidAdbKeyInfo').textContent='No public key selected. Existing authorizations will be kept.';return}
+      if(file.size>8192||file.size===0)throw new Error('Select the public adbkey.pub file, not a private key.');
+      const text=await file.text(),preview=await api('android-adb',{action:'preview',public_key:text});
+      if(selection!==serial)return;key=text;
+      $('androidAdbKeyInfo').textContent=(preview.label||'Selected computer')+' / '+preview.fingerprint;
+    }catch(error){if(selection===serial){$('androidAdbKey').value='';$('androidAdbFileName').textContent='No public key selected';$('androidAdbKeyInfo').textContent=error.message}}
+    finally{if(selection===serial){keyPending=false;buttons()}}
+  };
+  async function apply(action) {
+    if(pending||keyPending||activeJob()||!checked)return;
+    const question=action==='restore'?'Restore the previous Android ADB settings? Newer Android changes will not be overwritten.':
+      'Enable USB debugging in the installed Android'+(key?' and authorize the selected computer':' using its existing computer authorizations')+'? Original files and permissions will be backed up.';
+    if(!window.confirm(question))return;
+    pending=true;buttons();$('androidAdbStatus').textContent='Updating Android ADB settings...';
+    try{
+      render(await api('android-adb',{action,public_key:action==='enable'?key:'',confirm:true}));
+      $('androidAdbStatus').textContent=action==='restore'?'Previous Android ADB settings restored.':'Android ADB configured. Reboot Android, then run adb devices on the authorized computer.';
+    }catch(error){$('androidAdbStatus').textContent=error.message}
+    finally{pending=false;buttons()}
+  }
+  $('androidAdbInspect').onclick=inspect;$('androidAdbEnable').onclick=()=>apply('enable');$('androidAdbRestore').onclick=()=>apply('restore');
+  const priorTab=showTab;showTab=function(tab){priorTab(tab);if(tab==='device')inspect()};
+  const priorControls=controls;controls=function(){priorControls();buttons()};
+})();

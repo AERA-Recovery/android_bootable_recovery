@@ -348,3 +348,11 @@ int main(int argc, char **argv) {
   }
   aera::pc::SetEnabled(false, port);
 }
+
+aeraui::adb_rescue::Status aeraui::RecoveryAndroidAdbRescueStatus() {
+  adb_rescue::Status status; status.available = true; status.settings_format = "ABX";
+  status.settings_path = "/data/system/users/0/settings_global.xml"; return status;
+}
+bool aeraui::RecoveryAndroidAdbRescueApply(const std::string &, bool, std::string *) { return true; }
+bool aeraui::RecoveryAndroidAdbRescueBusy() { return false; }
+bool aeraui::RecoveryReadAdbPublicKey(const std::string &, adb_rescue::PublicKey *, std::string *) { return false; }

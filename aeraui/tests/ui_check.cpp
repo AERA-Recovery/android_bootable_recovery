@@ -2819,6 +2819,27 @@ int main(int argc,char **argv) {
     puts("Developer entry, categories, session-only choice and numeric editor layouts passed.");
     return 0;
   }
+  if (!strcmp(argv[1], "--android-adb-rescue")) {
+    for (bool landscape : {false, true}) for (int size : {0, 1, 3}) {
+      design::ApplyInterfaceSize(size); interface_size = static_cast<InterfaceSize>(size);
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *page = lv_obj_create(nullptr);
+      BuildToolScene(page, Action::kAndroidAdbRescue, RecordAction, nullptr); lv_screen_load(page); Tick();
+      assert(FindLabel(page, "Android ADB Rescue"));
+      assert(FindLabelContaining(page, "%USERPROFILE%"));
+      assert(FindLabelContaining(page, "~/.android/adbkey.pub"));
+      assert(Find(page, "Choose adbkey.pub"));
+      auto *button = Find(page, "Enable Android ADB"); assert(button);
+      lv_obj_send_event(button, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(FindLabelContaining(page, "Enable Android ADB and authorize the selected key?"));
+      auto *cancel = Find(page, "Cancel"); assert(cancel);
+      lv_obj_send_event(cancel, LV_EVENT_CLICKED, nullptr); Tick();
+      if (size == 1) save(landscape ? "/tmp/aera-android-rescue-landscape.png" : "/tmp/aera-android-rescue-portrait.png");
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+    }
+    lv_deinit(); std::filesystem::remove_all(backup_root);
+    puts("Android ADB Rescue navigation, public-key instructions and confirmation passed."); return 0;
+  }
   if (!strcmp(argv[1], "--slot-warning")) {
     const char *ack_text = "I understand the risks and have checked the target slot.";
     for (const char *language : {"en", "de_DE"})
@@ -4107,3 +4128,12 @@ int main(int argc,char **argv) {
   lv_deinit();
   std::filesystem::remove_all(backup_root);
 }
+
+aeraui::adb_rescue::Status aeraui::RecoveryAndroidAdbRescueStatus() {
+  adb_rescue::Status status; status.available = true; status.settings_format = "ABX";
+  status.settings_path = "/data/system/users/0/settings_global.xml"; return status;
+}
+bool aeraui::RecoveryAndroidAdbRescueApply(const std::string &, bool, std::string *) { return true; }
+bool aeraui::RecoveryAndroidAdbRescueBusy() { return false; }
+bool aeraui::RecoveryReadAdbPublicKey(const std::string &, adb_rescue::PublicKey *, std::string *) { return false; }
+std::string aeraui::RecoveryInternalStorage() { return "/data/media/0"; }

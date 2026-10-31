@@ -52,6 +52,18 @@ cc_binary {
 }
 
 cc_library_static {
+    name: "libaera_android_adb_rescue",
+    recovery_available: true,
+    srcs: ["features/developer/android_adb_rescue.cpp", "features/backup/android_packages_xml.cpp"],
+    local_include_dirs: ["include"],
+    cpp_std: "c++17",
+    cppflags: ["-fexceptions"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    static_libs: ["libjsoncpp"],
+    shared_libs: ["libtinyxml2", "libcrypto"],
+}
+
+cc_library_static {
     name: "libaeraui",
     defaults: ["aeraui_defaults"],
     recovery_available: true,
@@ -75,7 +87,6 @@ cc_library_static {
         "core/status_bar.cpp",
         "scenes/mobile_data_scene.cpp",
         "features/artillery/game.cpp",
-        "features/backup/android_packages_xml.cpp",
         "features/backup/app_registration.cpp",
         "features/backup/app_registration_io.cpp",
         "features/backup/incremental_apks.cpp",
@@ -124,6 +135,7 @@ cc_library_static {
         "scenes/browser_scene.cpp",
         "scenes/decrypt_scene.cpp",
         "scenes/developer_scene.cpp",
+        "scenes/android_adb_rescue_scene.cpp",
         "scenes/doom_scene.cpp",
         "scenes/fastboot_scene.cpp",
         "scenes/font_browser.cpp",
@@ -149,6 +161,7 @@ cc_library_static {
         "scenes/update_scene.cpp",
         "scenes/wifi_scene.cpp",
     ],
+    whole_static_libs: ["libaera_android_adb_rescue"],
     export_include_dirs: ["include"],
     local_include_dirs: [
         ".",

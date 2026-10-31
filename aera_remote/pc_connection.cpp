@@ -1968,6 +1968,42 @@ void Handle(SSL *tls, unsigned generation) {
     else SendDownload(tls, fd, bytes, name);
     return;
   }
+  if (request.path == "/api/android-adb") {
+    Json::Value command;
+    if (request.method != "GET" && (request.method != "POST" || !ReadJsonBody(tls, request, &command, 16384))) {
+      Error(tls, 400, "Invalid Android ADB Rescue request."); return;
+    }
+    if ((!command.isNull() && !command.isObject()) || (command.isMember("action") && !command["action"].isString()) ||
+        (command.isMember("public_key") && !command["public_key"].isString())) { Error(tls, 400, "Invalid Android ADB Rescue fields."); return; }
+    const std::string action = request.method == "GET" ? "inspect" : command.get("action", "inspect").asString();
+    const std::string key_text = command.get("public_key", "").asString();
+    if (action == "preview") {
+      aeraui::adb_rescue::PublicKey key; std::string error;
+      if (!aeraui::adb_rescue::ParsePublicKey(key_text, &key, &error)) { Error(tls, 400, error); return; }
+      Json::Value result; result["fingerprint"] = key.fingerprint; result["label"] = key.label;
+      Reply(tls, 200, JsonText(result)); return;
+    }
+    if (action != "inspect" && action != "enable" && action != "restore") { Error(tls, 400, "Unknown Android ADB Rescue action."); return; }
+    {
+      std::lock_guard<std::mutex> guard(g_lock);
+      if (g_recovery_busy || g_file_busy || !TerminalPhase(g_transfer.phase) || !g_reboot_target.empty()) {
+        Error(tls, 409, "Finish the current recovery operation or discard its transfer first."); return;
+      }
+      g_file_busy = true;
+    }
+    struct Release { ~Release() { std::lock_guard<std::mutex> guard(g_lock); g_file_busy = false; } } release;
+    if (action != "inspect") {
+      if (command.get("confirm", false) != true) { Error(tls, 400, "Confirm changes to the installed Android."); return; }
+      std::string error;
+      if (!aeraui::RecoveryAndroidAdbRescueApply(key_text, action == "restore", &error)) { Error(tls, 409, error); return; }
+    }
+    const auto status = aeraui::RecoveryAndroidAdbRescueStatus();
+    Json::Value result; result["available"] = status.available; result["enabled"] = status.enabled;
+    result["can_restore"] = status.can_restore; result["authorized_keys"] = status.authorized_keys;
+    result["message"] = status.message; result["settings_path"] = status.settings_path;
+    result["settings_format"] = status.settings_format; result["usb_functions"] = status.usb_functions;
+    Reply(tls, 200, JsonText(result)); return;
+  }
   if (request.method == "GET" && request.path == "/api/status") {
     keep_connection = request.length == 0;
     Json::Value state;

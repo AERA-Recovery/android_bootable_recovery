@@ -278,6 +278,22 @@ class PcConnectionTest(unittest.TestCase):
             self.command("idle")
             self.assertEqual(self.request("/api/terminal/close", {})[0], 200)
 
+    def test_01y_android_adb_rescue_requires_authorization_and_consent(self):
+        self.assertEqual(self.request("/api/android-adb", token="")[0], 401)
+        status, info = self.request("/api/android-adb")
+        self.assertEqual(status, 200)
+        self.assertTrue(info["available"])
+        self.assertEqual(info["settings_format"], "ABX")
+        self.assertEqual(self.request("/api/android-adb", {"action":"enable"})[0], 400)
+        self.assertEqual(self.request("/api/android-adb", {"action":"restore"})[0], 400)
+        self.assertEqual(self.request("/api/android-adb", {"action":"preview", "public_key":"PRIVATE KEY"})[0], 400)
+        self.assertEqual(self.request("/api/android-adb", {"action":[]})[0], 400)
+        self.assertEqual(self.request("/api/android-adb", {"action":"enable", "confirm":True})[0], 200)
+        status, job = self.prepare(b"rescue-busy-check")
+        self.assertEqual(status, 200)
+        self.assertEqual(self.request("/api/android-adb", {"action":"enable", "confirm":True})[0], 409)
+        self.request("/api/cancel", {"id":job["id"]})
+
     def test_02_partial_or_bad_upload_cannot_install(self):
         data = b"fixture-data" * 8192
         status, job = self.prepare(data, sha256="0" * 64)
