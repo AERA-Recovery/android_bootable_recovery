@@ -37,6 +37,7 @@
 #include <pwd.h>
 #include <zlib.h>
 #include <sstream>
+#include "aera_userdata_mapping.hpp"
 #include <android-base/properties.h>
 #include <libsnapshot/snapshot.h>
 
@@ -2266,6 +2267,28 @@ bool TWPartition::Decrypt(string Password) {
 	return 1;
 }
 
+// Encryption removal formats the original block device. Ordinary filesystem
+// changes can intentionally format the decrypted mapping, which must survive.
+static bool Release_Userdata_Mapping(const string& mount_point,
+                                    bool preserve_decrypted_mapping) {
+	if (mount_point != "/data" || preserve_decrypted_mapping)
+		return true;
+	struct Operations {
+		aera::userdata_mapping::State GetState() const {
+			return aera::userdata_mapping::Probe("/dev/block/mapper/userdata");
+		}
+		int Remove(const char* command) const { return TWFunc::Exec_Cmd(command, false); }
+		void LogResult(const char* command, int result) const {
+			LOGINFO("AERA: %s returned %d before formatting.\n", command, result);
+		}
+		void Sleep(unsigned usec) const { usleep(usec); }
+	} operations;
+	if (aera::userdata_mapping::Release(operations))
+		return true;
+	LOGERR("AERA: userdata mapping removal failed or was not confirmed; refusing to format.\n");
+	return false;
+}
+
 bool TWPartition::Wipe_Encryption() {
 	bool Save_Data_Media = Has_Data_Media;
 	bool ret = false;
@@ -2293,15 +2316,12 @@ bool TWPartition::Wipe_Encryption() {
 		return false;
 	}
 
-#ifdef TW_INCLUDE_CRYPTO
 	if (!UnMount(true))
-		return false;
-	if (Is_Decrypted && !Decrypted_Block_Device.empty()) {
-//		if (delete_crypto_blk_dev((char*)("userdata")) != 0) {
-//			LOGERR("Error deleting crypto block device, continuing anyway.\n");
-//		}
+		goto exit;
+	if (!Release_Userdata_Mapping(Mount_Point, false)) {
+		gui_msg(Msg(msg::kError, "unable_to_wipe=Unable to wipe {1}.")(Display_Name));
+		goto exit;
 	}
-#endif
 	Has_Data_Media = false;
 	Decrypted_Block_Device = "";
 	Is_Decrypted = false;
@@ -2415,6 +2435,10 @@ bool TWPartition::Wipe_EXTFS(string File_System) {
 		return false;
 	}
 
+	if (!Release_Userdata_Mapping(Mount_Point,
+			Is_Decrypted && !Decrypted_Block_Device.empty()))
+		return false;
+
 	/**
 	 * On decrypted devices, IOCTL_Get_Block_Size calculates size on device mapper,
 	 * so there's no need to preserve footer.
@@ -2509,6 +2533,10 @@ bool TWPartition::Wipe_EXT4() {
 		gui_msg(Msg(msg::kError, "unable_to_wipe=Unable to wipe {1}.")(Display_Name));
 		return false;
 	}
+
+	if (!Release_Userdata_Mapping(Mount_Point,
+			Is_Decrypted && !Decrypted_Block_Device.empty()))
+		return false;
 
 	/**
 	 * On decrypted devices, IOCTL_Get_Block_Size calculates size on device mapper,
@@ -2677,6 +2705,10 @@ bool TWPartition::Wipe_F2FS() {
 		return false;
 	}
 
+	if (!Release_Userdata_Mapping(Mount_Point,
+			Is_Decrypted && !Decrypted_Block_Device.empty()))
+		return false;
+
     	if (!Needs_Fs_Compress) {
     		Needs_Fs_Compress = android::base::GetBoolProperty("vold.has_compress", false);
     		if (Needs_Fs_Compress)
@@ -2734,20 +2766,6 @@ bool TWPartition::Wipe_F2FS() {
 			TWFunc::Exec_Cmd("umount -f /sdcard /data", nul);
 			usleep(32768);
 		}
-	#endif
-
-	#if defined(OF_USE_DMCTL) || defined(TW_USE_DMCTL)
-	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
-		LOGINFO("AERA: running dmctl before formatting...\n");
-		TWFunc::Exec_Cmd("dmctl delete userdata", false);
-		usleep(32768);
-	}
-	#elif defined(AERA_USE_DMSETUP)
-	if (TWFunc::Path_Exists("/dev/block/mapper/userdata")) {
-		LOGINFO("AERA: running dmsetup before formatting...\n");
-		TWFunc::Exec_Cmd("dmsetup remove -f userdata", false);
-		usleep(32768);
-	}
 	#endif
 
 	if (TWFunc::Exec_Cmd(f2fs_command) == 0) {
