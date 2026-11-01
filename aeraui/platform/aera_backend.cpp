@@ -545,9 +545,12 @@ std::vector<Volume> RecoveryImageVolumes() {
           represented.insert(images::BaseName(name));
       }
     }
-    result.push_back(std::move(volume));
+    if (volume.path != "/efisp") result.push_back(std::move(volume));
   }
   auto physical = images::PhysicalTargets(blocks, represented);
+  physical.erase(std::remove_if(physical.begin(), physical.end(), [](const Volume& volume) {
+    return volume.path == "/block/efisp";
+  }), physical.end());
   result.insert(result.end(), physical.begin(), physical.end());
   std::stable_sort(result.begin(), result.end(),
                    [](const Volume &left, const Volume &right) {
@@ -638,6 +641,15 @@ bool RecoveryBackupCanUpload(const std::string &folder) {
   return false;
 #endif
 }
+
+void RecoveryCaptureEfispAblBaseline() {
+  const auto summary = aera_efisp::CaptureAblBaseline();
+  if (!summary.empty()) LOGINFO("%s", summary.c_str());
+}
+std::vector<aera_efisp::AblSample> RecoveryEfispAblStatus() { return aera_efisp::CurrentAblSamples(); }
+aera_efisp::AblWarning RecoveryEfispAblWarning() { return aera_efisp::AblExitWarning(); }
+void RecoveryAcknowledgeEfispAbl(const std::string& token) { aera_efisp::AcknowledgeAblExit(token); }
+void RecoveryClearEfispAblAcknowledgement() { aera_efisp::ClearAblExitAcknowledgement(); }
 
 std::string RecoverySlot() { return PartitionManager.Get_Active_Slot_Display(); }
 std::string RecoveryBootSlot() {
@@ -1229,6 +1241,11 @@ payload::FlashProgressStore gPayloadProgress;
 PayloadFlashProgress RecoveryPayloadFlashProgress() { return gPayloadProgress.Read(); }
 static int RecoveryRunJobImpl(const JobRequest &request);
 int RecoveryRunJob(const JobRequest &request) {
+  // Check the whole request before wiping any partition in a mixed selection.
+  if (!EfispWipeAuthorized(request)) {
+    gui_err("Acknowledge the EFISP Format Data warning before wiping.\n");
+    return 1;
+  }
   const bool needs_mobile_stop = request.job == Job::kInstall ||
       request.job == Job::kFlashImage || request.job == Job::kFlashPayload ||
       request.job == Job::kRestore || request.job == Job::kWipe || request.job == Job::kFormatData;
@@ -1898,6 +1915,25 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
                    [](unsigned char value) {
                      return static_cast<char>(std::tolower(value));
                    });
+    const bool efi = lower_path.size() >= 4 && lower_path.compare(lower_path.size() - 4, 4, ".efi") == 0;
+    if (efi) {
+      aera_efisp::Target target;
+      if (request.partitions.front() != "/efisp" || request.both_slots ||
+          !aera_efisp::Discover(&target) || !aera_efisp::ValidImage(request.path, target.bytes)) {
+        gui_err("EFISP flashing is disabled, unavailable, or the EFI application is invalid/too large.\n");
+        return 1;
+      }
+      DataManager::SetValue("tw_partition", "efisp");
+      DataManager::SetProgress(0.0);
+      gui_print("Flashing EFI application to EFISP...\n");
+      const bool verified = aera_efisp::Flash(request.path, target);
+      if (!verified) gui_err("EFISP write/readback verification failed.\n");
+      else {
+        DataManager::SetProgress(1.0);
+        gui_print("EFISP flash and readback verification complete.\n");
+      }
+      return verified ? 0 : 1;
+    }
     if (lower_path.size() < 4 ||
         lower_path.compare(lower_path.size() - 4, 4, ".img") != 0) return 1;
 
@@ -2080,6 +2116,7 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
       if (path == "DALVIK") ok = PartitionManager.Wipe_Dalvik_Cache();
       else if (path == "INTERNAL") ok = PartitionManager.Wipe_Media_From_Data();
       else if (path == "/and-sec") ok = PartitionManager.Wipe_Android_Secure();
+      else if (path == "/efisp") ok = PartitionManager.Wipe_Efisp_Partition(request.confirmation);
       else ok = PartitionManager.Wipe_By_Path(path);
       if (!ok) { result = 1; break; }
     }

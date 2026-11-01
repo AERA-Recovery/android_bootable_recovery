@@ -219,6 +219,17 @@ bool RecoverySetTintedIconBackgrounds(bool enabled) {
 }
 static std::string test_ui_font;
 static bool test_font_import = false;
+static bool test_efisp = false;
+static aera_efisp::AblWarning test_abl_warning;
+static std::string test_abl_ack;
+static std::vector<aera_efisp::AblSample> test_abl_samples;
+std::vector<aera_efisp::AblSample> RecoveryEfispAblStatus() { return test_abl_samples; }
+void RecoveryCaptureEfispAblBaseline() {}
+aera_efisp::AblWarning RecoveryEfispAblWarning() {
+  return test_abl_ack == test_abl_warning.token ? aera_efisp::AblWarning{} : test_abl_warning;
+}
+void RecoveryAcknowledgeEfispAbl(const std::string& token) { test_abl_ack = token; }
+void RecoveryClearEfispAblAcknowledgement() { test_abl_ack.clear(); }
 std::string RecoveryUiFont() { return test_ui_font; }
 bool RecoverySetUiFont(const std::string &id) { test_ui_font = id; return true; }
 std::string RecoveryUiFontPath(const std::string &id) {
@@ -393,6 +404,8 @@ int32_t StatusBarHeight() { return 165; }
 bool StatusBarShadeOpen() { return false; }
 void RefreshStatusBars() {}
 std::vector<Volume> RecoveryVolumes(const std::string &kind) {
+  if (test_efisp && (kind == "wipe" || kind == "backup"))
+    return {{"EFISP", "/efisp", 3145728}, {"Data", "/data", 23000000000}};
   if (kind == "storage" && test_font_import)
     return {{"Internal storage", file_root, 0}};
   if (kind == "wipe") return {{"FRP","/frp",524288},{"Dalvik / ART cache","DALVIK",0},{"Data","/data",23000000000},
@@ -1877,6 +1890,104 @@ int main(int argc,char **argv) {
     lv_display_delete(display); lv_deinit();
     std::filesystem::remove_all(backup_root);
     puts("USB format: sole-selection gating, review-only choices, cancellation and disconnect passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--efisp-abl-status")) {
+    abl_preservation_supported = true;
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      for (int size = 0; size < 4; ++size) {
+        interface_size = static_cast<InterfaceSize>(size); design::ApplyInterfaceSize(size);
+        test_abl_samples = {{"abl_a", "a", aera_efisp::AblStatus::EfispLoader},
+                            {"abl_b", "b", aera_efisp::AblStatus::NoEfispLoader}};
+        auto* prefs = lv_obj_create(nullptr);
+        BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
+        lv_screen_load(prefs); Tick();
+        auto* row = FindPreferenceEntry(prefs, "Keep current ABL"); assert(row);
+        auto* detail = FindLabelContaining(row, "Slot A: Vulnerable"); assert(detail);
+        assert(strstr(lv_label_get_text(detail), "Slot B: Non-vulnerable"));
+        AssertContained(detail, lv_obj_get_parent(detail));
+        if (!landscape && size == 1) {
+          lv_obj_scroll_to_view(row, LV_ANIM_OFF); Tick();
+          save("/tmp/aera-efisp-abl-preferences.png");
+        }
+        lv_screen_load(screen); lv_obj_delete(prefs);
+      }
+    }
+    test_abl_samples = {{"abl_a", "", aera_efisp::AblStatus::Unknown}};
+    auto* prefs = lv_obj_create(nullptr);
+    BuildToolScene(prefs, Action::kPreferences, RecordAction, nullptr);
+    lv_screen_load(prefs); Tick();
+    assert(FindLabelContaining(prefs, "Slot A: Unknown"));
+    std::filesystem::remove_all(backup_root);
+    puts("Keep current ABL per-slot detection and unknown status fit all interface sizes.");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--efisp-abl-warning")) {
+    callback_count = 0;
+    test_abl_warning = {"abl_a: the vulnerable ABL has been overwritten.\n\nAn installed EFISP mod may no longer boot.", "changed-image-1"};
+    assert(!widgets::ConfirmEfispAblExit(screen, [] { ++callback_count; })); Tick();
+    assert(FindLabel(screen, "EFISP boot warning"));
+    assert(FindLabelContaining(screen, "vulnerable ABL has been overwritten"));
+    assert(FindLabel(screen, "Swipe to continue anyway"));
+    assert(callback_count == 0 && test_abl_ack.empty());
+    save("/tmp/aera-efisp-abl-warning.png");
+    assert(widgets::DismissModal(screen)); Tick();
+    assert(callback_count == 0 && test_abl_ack.empty());
+    assert(!widgets::ConfirmEfispAblExit(screen, [] { ++callback_count; })); Tick();
+    ConfirmSettingsModal(screen); Tick();
+    assert(callback_count == 1 && test_abl_ack == "changed-image-1");
+    assert(widgets::ConfirmEfispAblExit(screen, [] { ++callback_count; }));
+    test_abl_warning.token = "changed-image-2";
+    assert(!widgets::ConfirmEfispAblExit(screen, [] { ++callback_count; })); Tick();
+    assert(widgets::DismissModal(screen)); Tick();
+    assert(callback_count == 1);
+    std::filesystem::remove_all(backup_root);
+    puts("ABL exit warning cancellation, explicit consent and new-image recheck passed.");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--efisp-review")) {
+    test_efisp = true;
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *backup = lv_obj_create(nullptr);
+      BuildToolScene(backup, Action::kBackup, RecordAction, nullptr);
+      lv_screen_load(backup); Tick();
+      assert(FindLabel(backup, "EFISP"));
+      lv_screen_load(screen); lv_obj_delete(backup);
+      auto *wipe = lv_obj_create(nullptr);
+      BuildToolScene(wipe, Action::kWipe, RecordAction, nullptr);
+      lv_screen_load(wipe); Tick();
+      auto *efisp = Find(wipe, "EFISP"); assert(efisp);
+      lv_obj_send_event(efisp, LV_EVENT_CLICKED, nullptr); Tick();
+      auto *data = Find(wipe, "Data"); assert(data);
+      lv_obj_send_event(data, LV_EVENT_CLICKED, nullptr); Tick();
+      auto *review = Find(wipe, "Review wipe"); assert(review);
+      callback_count = 0;
+      lv_obj_send_event(review, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(FindLabel(wipe, "EFISP wipe warning"));
+      assert(FindLabelContaining(wipe, aera_efisp::WipeWarning()));
+      assert(FindLabel(wipe, "Swipe to wipe EFISP"));
+      assert(callback_count == 0);
+      if (!landscape) save("/tmp/aera-efisp-wipe-review.png");
+      assert(widgets::DismissModal(wipe)); Tick();
+      assert(callback_count == 0);
+      lv_obj_send_event(review, LV_EVENT_CLICKED, nullptr); Tick();
+      ConfirmSettingsModal(wipe); Tick();
+      assert(callback_count == 1 && last_action == Action::kRunOperation);
+      const auto request = GetJobRequest();
+      assert(request.job == Job::kWipe && request.confirmation == "wipe-efisp");
+      assert(request.partitions.size() == 2 && EfispWipeAuthorized(request));
+      // No wipe runs: the host callback only records the requested operation.
+      lv_obj_send_event(efisp, LV_EVENT_CLICKED, nullptr); Tick();
+      lv_obj_send_event(review, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(!FindLabel(wipe, "EFISP wipe warning"));
+      assert(FindLabel(wipe, "Review Wipe"));
+      assert(widgets::DismissModal(wipe)); Tick();
+      lv_screen_load(screen); lv_obj_delete(wipe);
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("EFISP backup visibility, mixed wipe warning, cancellation and explicit acknowledgement passed.");
     return 0;
   }
   if (!strcmp(argv[1], "--wipe-layout")) {

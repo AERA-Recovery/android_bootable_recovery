@@ -18,6 +18,9 @@ namespace aeraui::widgets {
 void PowerTransition(lv_obj_t *screen, const std::string &title,
                      std::function<void()> complete);
 
+// Restore the current scene if a last-moment ABL check blocks the handoff.
+void CancelPowerTransitions();
+
 // Live recovery <-> Fastbootd switches keep the process and renderer alive.
 // Give that handoff a spatial transition instead of presenting it as a reboot.
 void ModeTransition(lv_obj_t *screen, bool toward_fastbootd,

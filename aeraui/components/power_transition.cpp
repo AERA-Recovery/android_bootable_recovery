@@ -39,6 +39,9 @@ struct ModeTransitionState {
   bool dispatched = false;
 };
 
+TransitionState* active_power_transition = nullptr;
+ModeTransitionState* active_mode_transition = nullptr;
+
 void SetOverlayOpacity(void *object, int32_t value) {
   lv_obj_set_style_bg_opa(static_cast<lv_obj_t *>(object),
                           static_cast<lv_opa_t>(value), 0);
@@ -190,12 +193,16 @@ lv_obj_t *LogoLayer(lv_obj_t *parent, const lv_image_dsc_t *source,
 void PowerTransition(lv_obj_t *screen, const std::string &title,
                      std::function<void()> complete) {
   if (screen == nullptr || !complete) return;
+  if (!ConfirmEfispAblExit(screen, [screen, title, complete] {
+        PowerTransition(screen, title, complete);
+      })) return;
   const bool landscape = Landscape(screen);
   const int screen_width = lv_obj_get_width(screen);
   const int base_scale = landscape ? 138 :
       std::clamp(screen_width * 164 / 1440, 112, 178);
 
   auto *state = new TransitionState;
+  active_power_transition = state;
   state->complete = std::move(complete);
 
   auto *overlay = lv_obj_create(screen);
@@ -251,6 +258,7 @@ void PowerTransition(lv_obj_t *screen, const std::string &title,
   lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
     auto *state = static_cast<TransitionState *>(lv_event_get_user_data(event));
     lv_anim_delete(state, SetLogoScale);
+    if (active_power_transition == state) active_power_transition = nullptr;
     delete state;
   }, LV_EVENT_DELETE, state);
 
@@ -278,7 +286,11 @@ void PowerTransition(lv_obj_t *screen, const std::string &title,
 void ModeTransition(lv_obj_t *screen, bool toward_fastbootd,
                     std::function<void()> complete, uint32_t duration_ms) {
   if (screen == nullptr || !complete) return;
+  if (!ConfirmEfispAblExit(screen, [screen, toward_fastbootd, complete, duration_ms] {
+        ModeTransition(screen, toward_fastbootd, complete, duration_ms);
+      })) return;
   auto *state = new ModeTransitionState;
+  active_mode_transition = state;
   state->width = lv_obj_get_width(screen);
   state->height = lv_obj_get_height(screen);
   state->direction = toward_fastbootd ? -1 : 1;
@@ -308,6 +320,7 @@ void ModeTransition(lv_obj_t *screen, bool toward_fastbootd,
     auto *state = static_cast<ModeTransitionState *>(
         lv_event_get_user_data(event));
     lv_anim_delete(state, SetModeProgress);
+    if (active_mode_transition == state) active_mode_transition = nullptr;
     delete state;
   }, LV_EVENT_DELETE, state);
 
@@ -321,6 +334,21 @@ void ModeTransition(lv_obj_t *screen, bool toward_fastbootd,
   lv_anim_set_user_data(&throw_animation, state);
   lv_anim_set_completed_cb(&throw_animation, DispatchMode);
   lv_anim_start(&throw_animation);
+}
+
+void CancelPowerTransitions() {
+  if (active_power_transition && lv_obj_is_valid(active_power_transition->overlay))
+    lv_obj_delete(active_power_transition->overlay);
+  if (active_mode_transition) {
+    auto* state = active_mode_transition;
+    for (auto* child : state->content) {
+      if (!lv_obj_is_valid(child)) continue;
+      lv_obj_set_style_translate_x(child, 0, 0);
+      lv_obj_set_style_transform_scale(child, LV_SCALE_NONE, 0);
+      lv_obj_set_style_opa(child, LV_OPA_COVER, 0);
+    }
+    if (lv_obj_is_valid(state->overlay)) lv_obj_delete(state->overlay);
+  }
 }
 
 }  // namespace aeraui::widgets

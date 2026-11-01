@@ -52,7 +52,7 @@ target_include_directories(ui_check PRIVATE .. ../include ../components ../asset
   ../features ../features/files ../localization ../localization/fonts
   ../scenes)
 target_compile_definitions(ui_check PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES)
-target_compile_definitions(ui_check PRIVATE AERA_ENABLE_MOBILE_DATA=1 AERA_TELEGRAM_UI_TEST=1)
+target_compile_definitions(ui_check PRIVATE AERA_ENABLE_MOBILE_DATA=1 AERA_TELEGRAM_UI_TEST=1 AERA_ENABLE_EFISP=1)
 target_compile_definitions(ui_check PRIVATE
   AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets"
   AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets")
@@ -516,3 +516,36 @@ add_test(NAME android_adb_rescue_transactions COMMAND android_adb_rescue_test)
 add_test(NAME android_adb_rescue_ui COMMAND ui_check --android-adb-rescue)
 
 set_tests_properties(android_adb_rescue_transactions PROPERTIES SKIP_RETURN_CODE 77)
+
+foreach(mode unset disabled enabled)
+  add_executable(efisp_${mode}_test efisp_test.cpp)
+  target_include_directories(efisp_${mode}_test PRIVATE ../include)
+  target_compile_options(efisp_${mode}_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+  if(mode STREQUAL "enabled")
+    target_compile_definitions(efisp_${mode}_test PRIVATE AERA_ENABLE_EFISP=1)
+  elseif(mode STREQUAL "disabled")
+    target_compile_definitions(efisp_${mode}_test PRIVATE AERA_ENABLE_EFISP=0)
+  endif()
+  add_test(NAME efisp_${mode}_policy_and_image_validation COMMAND efisp_${mode}_test)
+endforeach()
+
+add_test(NAME efisp_wipe_review_ui COMMAND ui_check --efisp-review)
+
+find_package(OpenSSL REQUIRED)
+set(AERA_LZMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/lzma/C")
+add_executable(abl_guard_test abl_guard_test.cpp ../../aera_abl.cpp
+  "${AERA_LZMA_DIR}/LzmaDec.c" "${AERA_LZMA_DIR}/7zAlloc.c")
+target_include_directories(abl_guard_test PRIVATE "${AERA_LZMA_DIR}")
+target_compile_definitions(abl_guard_test PRIVATE AERA_ENABLE_EFISP=1 Z7_ST)
+target_compile_options(abl_guard_test PRIVATE -UNDEBUG)
+target_link_libraries(abl_guard_test PRIVATE OpenSSL::Crypto Threads::Threads)
+add_test(NAME efisp_abl_reader_and_session COMMAND abl_guard_test)
+
+add_test(NAME efisp_abl_warning_ui COMMAND ui_check --efisp-abl-warning)
+
+add_executable(abl_disabled_test abl_disabled_test.cpp ../../aera_abl.cpp)
+target_compile_definitions(abl_disabled_test PRIVATE AERA_ENABLE_EFISP=0)
+target_compile_options(abl_disabled_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(abl_disabled_test PRIVATE OpenSSL::Crypto Threads::Threads)
+add_test(NAME efisp_abl_disabled_without_decoder COMMAND abl_disabled_test)
+add_test(NAME efisp_abl_preferences_status COMMAND ui_check --efisp-abl-status)

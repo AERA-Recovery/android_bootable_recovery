@@ -496,6 +496,7 @@ std::string WipeDescription(const std::string &path) {
   if (path == "INTERNAL") return "Deletes photos, downloads and files";
   if (path == "/data") return "Erase apps and settings on the data partition";
   if (path == "/metadata") return "Encryption metadata; may make data inaccessible";
+  if (path == "/efisp") return "Requires Format Data before Android can boot again";
   if (path == "/frp") return "Erase Factory Reset Protection data and any OEM-unlock state stored here";
   return i18n::Format("Erase %s", path.c_str());
 }
@@ -658,7 +659,7 @@ void PartitionRows(Tools *state) {
       lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
       const auto detail = wipe ? WipeDescription(v.path) : v.path;
       auto *path = Label(row, detail.c_str(), &lv_font_montserrat_32,
-          wipe && (v.path == "/metadata" || v.path == "INTERNAL" || v.path == "/frp") ? kAmber : kMuted);
+          wipe && (v.path == "/metadata" || v.path == "INTERNAL" || v.path == "/frp" || v.path == "/efisp") ? kAmber : kMuted);
       lv_obj_set_pos(path, 112, 76);
       lv_obj_set_width(path, wipe ? row_width - 150 : row_width - 430);
       lv_label_set_long_mode(path, LV_LABEL_LONG_DOT);
@@ -752,6 +753,8 @@ void Review(Tools *state) {
   request.path = state->tool == Action::kRestore ? state->restore_folder : RecoveryStorage();
   request.compression = state->compression;
   request.partitions.assign(state->selected.begin(), state->selected.end());
+  const bool wipe_efisp = request.job == Job::kWipe && state->selected.count("/efisp");
+  if (wipe_efisp) request.confirmation = "wipe-efisp";
   std::string text;
   if (request.job == Job::kBackup) {
     uint64_t bytes = 0;
@@ -777,8 +780,11 @@ void Review(Tools *state) {
     text += i18n::Translate(state->compression ? "\nCompression on. Digests included." :
                                 "\nCompression off. Digests included.");
   if (request.job == Job::kRestore) text += i18n::Translate("\nDigest verification enabled.");
-  Sheet(state->screen, i18n::Format("Review %s", i18n::Translate(request.title.c_str())), text,
-        [state, request] { Run(state, request); });
+  if (wipe_efisp) text = std::string(i18n::Translate(aera_efisp::WipeWarning())) + "\n\n" + text;
+  Sheet(state->screen, wipe_efisp ? i18n::Translate("EFISP wipe warning") :
+        i18n::Format("Review %s", i18n::Translate(request.title.c_str())), text,
+        [state, request] { Run(state, request); }, 0, false,
+        SheetPresentation::kStandard, wipe_efisp ? "Swipe to wipe EFISP" : "Swipe to confirm");
 }
 
 void RestoreFolders(Tools *state) {
@@ -2913,10 +2919,20 @@ void BuildPreferences(Tools *state) {
   PreferenceToggle(state, LV_SYMBOL_REFRESH, "Keep AERA installed",
                    "Restore the running AERA recovery to both slots after ZIP installs",
                    Preference::kPreserveRecovery);
-  if (RecoveryAblPreservationSupported())
-    PreferenceToggle(state, LV_SYMBOL_SAVE, "Keep current ABL",
-                     "Restore the active-slot ABL to both slots after ZIP installs",
-                     Preference::kPreserveAbl);
+  if (RecoveryAblPreservationSupported()) {
+    std::string detail = i18n::Translate("Restore the active-slot ABL to both slots after ZIP installs");
+    if (aera_efisp::Enabled()) {
+      const auto samples = RecoveryEfispAblStatus();
+      if (samples.empty()) detail += "\n" + std::string(i18n::Translate("ABL status: Unknown"));
+      for (const auto& sample : samples) {
+        const char* label = sample.name == "abl_a" ? "Slot A" : sample.name == "abl_b" ? "Slot B" : "ABL";
+        const char* status = sample.status == aera_efisp::AblStatus::EfispLoader ? "Vulnerable" :
+            sample.status == aera_efisp::AblStatus::NoEfispLoader ? "Non-vulnerable" : "Unknown";
+        detail += "\n" + std::string(i18n::Translate(label)) + ": " + i18n::Translate(status);
+      }
+    }
+    PreferenceToggle(state, LV_SYMBOL_SAVE, "Keep current ABL", detail.c_str(), Preference::kPreserveAbl);
+  }
 
   PreferenceSection(state, "Backup & connection");
   PreferenceToggle(state, LV_SYMBOL_SAVE, "Compress backups by default",

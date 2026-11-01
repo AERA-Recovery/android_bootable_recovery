@@ -54,6 +54,8 @@
 
 #include "twrp-functions.hpp"
 #include "aera_shared_storage.hpp"
+#include "aera_abl.hpp"
+#include <aeraui/runner.hpp>
 #include "aera_log_history.hpp"
 #include "aera_core.hpp"
 #include "abx-functions.hpp"
@@ -1099,6 +1101,28 @@ void TWFunc::Update_Intent_File(string Intent)
 // reboot: Reboot the system. Return -1 on error, no return on success
 int TWFunc::tw_reboot(RebootCommand command)
 {
+#if defined(AERA_ENABLE_EFISP) && AERA_ENABLE_EFISP == 1 && !defined(BUILD_TWRPTAR_MAIN)
+    const auto abl_warning = aera_efisp::AblExitWarning();
+    if (!abl_warning.text.empty()) {
+        // Installer / ORS / RPC callers cannot bypass the on-device warning.
+        // Queue it until background work completes, before flushing/unmounting.
+        aeraui::RunResult result = aeraui::RunResult::kUnexpectedExit;
+        switch (command) {
+            case rb_current: case rb_system: result = aeraui::RunResult::kRebootSystem; break;
+            case rb_recovery: result = aeraui::RunResult::kRebootRecovery; break;
+            case rb_bootloader: result = aeraui::RunResult::kRebootBootloader; break;
+            case rb_fastboot: result = aeraui::RunResult::kRebootFastbootd; break;
+            case rb_poweroff: result = aeraui::RunResult::kPowerOff; break;
+            default: break;
+        }
+        const auto queued = aeraui::RequestPowerAction(result);
+        LOGERR("EFISP boot warning: %s\n", abl_warning.text.c_str());
+        if (queued == aeraui::ModeTransitionRequestResult::kAccepted)
+            gui_print("Reboot paused for EFISP boot warning confirmation.\n");
+        else gui_err("Reboot refused: restore a compatible ABL or review the EFISP warning in AERA.\n");
+        return -1;
+    }
+#endif
     aera::mobile::StorageLease mobile_lease;
     if (!mobile_lease) {
         LOGERR("Mobile modem could not stop. Reboot recovery manually before flashing.\n");

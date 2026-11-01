@@ -463,6 +463,8 @@ public:
 	void Add_Partition(TWPartition* Part);                                    // Adds a new partition to the Partitions vector
 	bool Storage_Is_Encrypted(void);				  	  // Returns whether the device is encrypted
 	void Add_NAS_Storage();                                                   // Adds the virtual FUSE NAS storage target
+	void Add_Efisp_Partition();
+	bool Wipe_Efisp_Partition(const std::string& confirmation);
 	void Add_PC_Storage();                                                    // Adds the temporary browser-backed storage target
 	bool Is_NAS_Path(const std::string& Path);                               // Checks whether a path belongs to the virtual NAS storage target
 	void Set_Crypto_State();                                                  // Sets encryption state for devices (ro.crypto.state)

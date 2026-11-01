@@ -33,6 +33,7 @@
 #include "../../aera_remote/pc_connection.hpp"
 #include "aeraui/status_bar.hpp"
 #include "../components/power_transition.hpp"
+#include "../components/ui_components.hpp"
 
 namespace aeraui {
 namespace {
@@ -189,6 +190,7 @@ std::atomic<bool> gFileBasedEncryption{false};
 std::atomic<int> gUiMode{0};
 std::atomic<int> gModeTransitionRequest{0};
 std::atomic<bool> gModeTransitionBusy{false};
+std::atomic<int> gPowerActionRequest{0};
 std::mutex gEarlyMutex;
 std::mutex gDecryptMutex;
 std::condition_variable gDecryptCondition;
@@ -412,6 +414,15 @@ RunResult ToRunResult(Action action) {
 
 }  // namespace
 
+ModeTransitionRequestResult RequestPowerAction(RunResult result) {
+    if (result < RunResult::kRebootSystem || result > RunResult::kPowerOff ||
+        gUiMode.load(std::memory_order_acquire) == 0)
+        return ModeTransitionRequestResult::kUnavailable;
+    int expected = 0;
+    return gPowerActionRequest.compare_exchange_strong(expected, static_cast<int>(result))
+        ? ModeTransitionRequestResult::kAccepted : ModeTransitionRequestResult::kBusy;
+}
+
 ModeTransitionRequestResult RequestModeTransition(bool toward_fastboot) {
     const int target = toward_fastboot ? 2 : 1;
     const int current = gUiMode.load(std::memory_order_acquire);
@@ -444,6 +455,7 @@ RunResult RunLoop(bool fastboot_mode = false,
     struct ModeStateGuard {
         ~ModeStateGuard() {
             gUiMode.store(0, std::memory_order_release);
+            gPowerActionRequest.store(0, std::memory_order_release);
             gModeTransitionRequest.store(0, std::memory_order_release);
             gModeTransitionBusy.store(false, std::memory_order_release);
         }
@@ -507,6 +519,8 @@ RunResult RunLoop(bool fastboot_mode = false,
                 const uint32_t duration =
                     toward_fastboot && RecoveryFastbootWifiStatus().enabled
                         ? 1080 : 720;
+                if (aera_efisp::Enabled() && !RecoveryEfispAblWarning().text.empty())
+                    gModeTransitionBusy.store(false, std::memory_order_release);
                 widgets::ModeTransition(
                     lv_screen_active(), toward_fastboot,
                     [&cli_transition_action, toward_fastboot] {
@@ -562,11 +576,40 @@ RunResult RunLoop(bool fastboot_mode = false,
             }
         }
         Action action = engine.TakeAction();
+        if (aera_efisp::Enabled() && engine.CanReboot()) {
+            const int requested = gPowerActionRequest.exchange(0, std::memory_order_acq_rel);
+            switch (static_cast<RunResult>(requested)) {
+                case RunResult::kRebootSystem: action = Action::kRebootSystem; break;
+                case RunResult::kRebootRecovery: action = Action::kRebootRecovery; break;
+                case RunResult::kRebootBootloader: action = Action::kRebootBootloader; break;
+                case RunResult::kRebootFastbootd: action = Action::kRebootFastbootd; break;
+                case RunResult::kPowerOff: action = Action::kPowerOff; break;
+                default: break;
+            }
+        }
         if (cli_transition_action != Action::kNone) {
             action = cli_transition_action;
             cli_transition_action = Action::kNone;
         }
         if (action != Action::kNone && !engine.CanReboot()) action = Action::kNone;
+        if (action != Action::kNone && aera_efisp::Enabled()) {
+            // Includes UI, hardware-key menu, PC requests and CLI transitions.
+            // Recheck after animations so a late ABL write cannot reuse consent.
+            const auto warning = RecoveryEfispAblWarning();
+            if (!warning.text.empty()) {
+                widgets::CancelPowerTransitions();
+                gModeTransitionBusy.store(false, std::memory_order_release);
+                widgets::ConfirmEfispAblExit(lv_screen_active(), [&cli_transition_action, action] {
+                    cli_transition_action = action;
+                });
+                continue;
+            }
+            // Terminal actions retain this exact-image consent for the final
+            // core reboot check. Live switches keep the process, so consume it.
+            if ((!fastboot_mode && action == Action::kRebootFastbootd) ||
+                (fastboot_mode && action == Action::kRebootRecovery))
+                RecoveryClearEfispAblAcknowledgement();
+        }
         if (action != Action::kNone) {
             __android_log_print(ANDROID_LOG_INFO, kLogTag, "scene requested action %d",
                                 static_cast<int>(action));

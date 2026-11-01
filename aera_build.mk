@@ -852,6 +852,13 @@ ifeq ($(OF_DISABLE_ORS_AUTO_REBOOT),1)
     LOCAL_CFLAGS += -DOF_DISABLE_ORS_AUTO_REBOOT
 endif
 
+# Opt-in EFISP backup, guarded wipe and raw EFI application flashing.
+ifeq ($(AERA_ENABLE_EFISP),1)
+    LOCAL_CFLAGS += -DAERA_ENABLE_EFISP=1
+else
+    LOCAL_CFLAGS += -DAERA_ENABLE_EFISP=0
+endif
+
 # Opt-in raw FRP wipe in the partition wipe list (no legacy add-on).
 ifeq ($(AERA_ENABLE_FRP_WIPE),1)
     LOCAL_CFLAGS += -DAERA_ENABLE_FRP_WIPE=1

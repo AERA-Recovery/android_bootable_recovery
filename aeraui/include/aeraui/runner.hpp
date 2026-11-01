@@ -82,5 +82,7 @@ RunResult RunAeraUiFastboot(const DisplayMetrics& metrics = {});
 // thread. RPC workers must use this entry point instead of touching LVGL or
 // the transition backend directly.
 ModeTransitionRequestResult RequestModeTransition(bool toward_fastboot);
+// Queue a core/installer reboot through the native UI, including its ABL guard.
+ModeTransitionRequestResult RequestPowerAction(RunResult result);
 
 }  // namespace aeraui

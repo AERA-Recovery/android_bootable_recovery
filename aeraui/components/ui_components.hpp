@@ -850,3 +850,18 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
   AnimateEnter(sheet, 0, 52);
 }
 }  // namespace aeraui::widgets
+
+namespace aeraui::widgets {
+// Returns true when no warning is needed. Otherwise the callback only runs
+// after a separate, explicit acknowledgement; Cancel leaves the scene intact.
+inline bool ConfirmEfispAblExit(lv_obj_t* screen, Handler proceed) {
+  if (!aera_efisp::Enabled()) return true;
+  const auto warning = RecoveryEfispAblWarning();
+  if (warning.text.empty()) return true;
+  Sheet(screen, "EFISP boot warning", warning.text, [warning, proceed] {
+    RecoveryAcknowledgeEfispAbl(warning.token);
+    proceed();
+  }, 0, false, SheetPresentation::kStandard, "Swipe to continue anyway");
+  return false;
+}
+} // namespace aeraui::widgets

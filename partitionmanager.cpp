@@ -25,6 +25,7 @@
 #include "aera_image_flash_layout.hpp"
 #include <libdm/dm.h>
 #include "aera_frp_wipe.hpp"
+#include "aera_efisp.hpp"
 #include "aera_remote/backup_cancel.hpp"
 #include "aera_image_flash_mounts.hpp"
 #include "aera_mobile/client.hpp"
@@ -774,6 +775,7 @@ clear:
 }
 
 void TWPartitionManager::Setup_Fstab_Partitions(bool Display_Error) {
+        Add_Efisp_Partition();
 		TWPartition* settings_partition = NULL;
 		TWPartition* andsec_partition = NULL;
 		std::vector<TWPartition*>::iterator iter;
@@ -907,6 +909,45 @@ bool TWPartitionManager::Is_NAS_Path(const std::string& Path) {
 	const std::string nas = TW_NAS_MOUNT_POINT;
 
 	return Path == nas || Path.compare(0, nas.size() + 1, nas + "/") == 0;
+}
+
+void TWPartitionManager::Add_Efisp_Partition() {
+    TWPartition* part = Find_Partition_By_Path("/efisp");
+    aera_efisp::Target target;
+    if (!aera_efisp::Discover(&target)) {
+        if (part) {
+            part->Can_Be_Backed_Up = part->Can_Be_Adv_Backed_Up = false;
+            part->Wipe_Available_in_GUI = part->Can_Flash_Img = false;
+        }
+        return;
+    }
+    if (!part) {
+        part = new TWPartition();
+        const std::string entry = "/efisp emmc " + target.path + " flags=backup=1";
+        if (!part->Process_Fstab_Line(entry.c_str(), false, nullptr)) { delete part; return; }
+        Add_Partition(part);
+    }
+    part->Mount_Point = part->Backup_Path = "/efisp";
+    part->Backup_Name = "efisp";
+    part->Display_Name = part->Backup_Display_Name = "EFISP";
+    part->Actual_Block_Device = part->Primary_Block_Device = target.path;
+    part->Alternate_Block_Device.clear();
+    part->Current_File_System = part->Fstab_File_System = "emmc";
+    part->Backup_Method = BM_DD;
+    part->Size = part->Used = part->Backup_Size = target.bytes;
+    part->Is_Present = part->Can_Be_Backed_Up = part->Wipe_Available_in_GUI = true;
+    part->Can_Be_Mounted = part->Is_Storage = part->Can_Flash_Img = false;
+    part->Can_Be_Wiped = part->Wipe_During_Factory_Reset = false;
+    part->SlotSelect = part->Is_SubPartition = part->Has_SubPartition = false;
+}
+
+bool TWPartitionManager::Wipe_Efisp_Partition(const std::string& confirmation) {
+    aera::mobile::StorageLease mobile_lease;
+    if (!mobile_lease) return false;
+    const bool ok = aera_efisp::Wipe(confirmation);
+    if (!ok) LOGERR("EFISP wipe refused or erase/readback failed.\n");
+    else gui_print("EFISP erased. Format Data is required before booting Android.\n");
+    return ok;
 }
 
 void TWPartitionManager::Add_PC_Storage() {
@@ -2166,6 +2207,11 @@ unsigned long long TWPartitionManager::Get_Restore_Size(
 }
 
 int TWPartitionManager::Wipe_By_Path(string Path) {
+    // This partition requires the dedicated, acknowledged operation.
+    if (TWFunc::Get_Root_Path(Path) == "/efisp") {
+        LOGERR("EFISP wipe requires acknowledgement of the Format Data warning.\n");
+        return false;
+    }
   aera::mobile::StorageLease mobile_lease;
   if (!mobile_lease) return false;
 	// FRP is never a filesystem wipe and is opt-in at build time.
@@ -2228,6 +2274,7 @@ int TWPartitionManager::Wipe_By_Path(string Path) {
 }
 
 int TWPartitionManager::Wipe_By_Path(string Path, string New_File_System) {
+    if (TWFunc::Get_Root_Path(Path) == "/efisp") return false;
   aera::mobile::StorageLease mobile_lease;
   if (!mobile_lease) return false;
 	if (TWFunc::Get_Root_Path(Path) == "/frp") {
@@ -3294,6 +3341,7 @@ void TWPartitionManager::Get_Partition_List(string ListType,
 					    std::vector < PartitionList >
 					    *Partition_List)
 {
+  Add_Efisp_Partition();
   std::vector < TWPartition * >::iterator iter;
   if (ListType == "mount")
     {
@@ -3397,7 +3445,7 @@ void TWPartitionManager::Get_Partition_List(string ListType,
 					break;
 				}
 				if ((restore_part = Find_Partition_By_Path(restore_path)) != NULL) {
-					if ((restore_part->Backup_Name == "recovery" && !restore_part->Can_Be_Backed_Up) || restore_part->Is_SubPartition) {
+					if ((restore_part->Backup_Name == "recovery" && !restore_part->Can_Be_Backed_Up) || (restore_path == "/efisp" && !restore_part->Can_Be_Backed_Up) || restore_part->Is_SubPartition) {
 						// Don't allow restore of recovery (causes problems on some devices)
 						// Don't add subpartitions to the list of items
 					} else {

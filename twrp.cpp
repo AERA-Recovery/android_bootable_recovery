@@ -63,6 +63,7 @@ extern "C" {
 #include "startupArgs.hpp"
 #include "twrpAdbBuFifo.hpp"
 #include <aeraui/runner.hpp>
+#include <aeraui/backend.hpp>
 #ifdef TW_USE_NEW_MINADBD
 // #include "minadbd/minadbd.h"
 #else
@@ -674,6 +675,8 @@ int main(int argc, char **argv) {
 
 	// start the UI
 	printf("Starting the UI...\n");
+    // Capture before native UI, installers or live fastbootd can write ABL.
+    aeraui::RecoveryCaptureEfispAblBaseline();
 	gui_init();
 
 	if (!startup.Get_Fastboot_Mode()) PartitionManager.Setup_Fstab_Partitions(true);

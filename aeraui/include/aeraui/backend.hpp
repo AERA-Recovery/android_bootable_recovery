@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 #include "../../../aera_wlan_ip.hpp"
+#include "../../../aera_efisp.hpp"
+#include "../../../aera_abl.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -12,6 +14,11 @@
 #include "aeraui/android_adb_rescue.hpp"
 
 namespace aeraui {
+void RecoveryCaptureEfispAblBaseline();
+aera_efisp::AblWarning RecoveryEfispAblWarning();
+std::vector<aera_efisp::AblSample> RecoveryEfispAblStatus();
+void RecoveryAcknowledgeEfispAbl(const std::string& token);
+void RecoveryClearEfispAblAcknowledgement();
 inline constexpr bool MobileDataEnabled() {
 #if defined(AERA_ENABLE_MOBILE_DATA) && AERA_ENABLE_MOBILE_DATA == 1
   return true;
@@ -146,6 +153,15 @@ struct JobRequest {
 };
 inline bool PayloadTargetMatches(const std::string &name, const std::string &path) {
   return path == "/" + name || (name == "system" && path == "/system_root");
+}
+inline bool EfispWipeAuthorized(const JobRequest &request) {
+  if (request.job != Job::kWipe) return true;
+  bool efisp = false;
+  for (const auto &path : request.partitions) {
+    if (path == "/efisp") efisp = true;
+    if (path.compare(0, 7, "/efisp/") == 0) return false;
+  }
+  return !efisp || (aera_efisp::Enabled() && request.confirmation == "wipe-efisp");
 }
 inline bool FormatDataAuthorized(const JobRequest &request) {
   return request.job == Job::kFormatData && request.path == "/data" &&

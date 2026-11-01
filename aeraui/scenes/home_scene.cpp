@@ -141,6 +141,12 @@ bool Image(const std::string &name) {
     c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
   return suffix == ".img";
 }
+bool Efi(const std::string &name) {
+  if (!aera_efisp::Enabled() || name.size() < 4) return false;
+  std::string suffix = name.substr(name.size() - 4);
+  for (char &c : suffix) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+  return suffix == ".efi";
+}
 std::string Lower(std::string value) {
   for (char &character : value)
     character = static_cast<char>(tolower(static_cast<unsigned char>(character)));
@@ -568,6 +574,29 @@ void StartWork(Files* state, const char* title, const file_manager::Request& req
   state->worker = std::thread([state, request] { file_manager::Run(request, state->work); });
   state->work_timer = lv_timer_create(WorkTick, 100, state);
   AnimateEnter(panel, 0, 30);
+}
+
+void OpenEfiFlash(Files *state, const Entry &entry) {
+  aera_efisp::Target target;
+  if (!aera_efisp::Discover(&target) || !aera_efisp::ValidImage(entry.path, target.bytes)) {
+    Sheet(state->screen, "Cannot flash EFI application",
+          "EFISP is unavailable, or this is not a valid ARM64 EFI application that fits the partition.");
+    return;
+  }
+  JobRequest request;
+  request.job = Job::kFlashImage;
+  request.title = "Flash EFISP";
+  request.path = entry.path;
+  request.partitions = {"/efisp"};
+  const std::string detail = entry.name + "\n\nTarget: EFISP\nSize: " + Size(entry.bytes) +
+      "\n\nThis replaces the EFI application in EFISP. "
+      "Only flash a file intended for this device. An incorrect file can prevent Android from booting."
+      "\n\nIf this device has not had an EFISP mod installed before, Format Data is REQUIRED "
+      "before Android can boot. Format Data erases apps and all files in internal storage.";
+  Sheet(state->screen, "Flash to EFISP?", detail, [state, request] {
+    SetJobRequest(request);
+    state->callback(Action::kRunOperation, state->context);
+  }, 0, false, SheetPresentation::kStandard, "Swipe to flash EFISP");
 }
 
 void OpenImageTargetPicker(Files *state, const Entry &entry) {
@@ -2066,6 +2095,8 @@ void OpenFile(Files *state, const Entry &entry) {
     ReviewPackage(state->screen, entry.path, state->callback, state->context);
   } else if (file_manager::IsArchiveFile(entry.name)) {
     OpenArchiveBrowser(state, entry);
+  } else if (Efi(entry.name)) {
+    OpenEfiFlash(state, entry);
   } else if (Image(entry.name)) {
     OpenImageTargetPicker(state, entry);
   } else if (entry.text || ((state->search_mode || DeferredTextProbe(entry.path)) &&
@@ -2082,6 +2113,7 @@ std::string EntryDetail(const Entry& entry) {
   const char* kind = plugins::IsPackageFile(entry.name) ? "AERA plugin package"
                      : Zip(entry.name)                  ? "ZIP package"
                      : file_manager::IsArchiveFile(entry.name) ? "Compressed archive"
+                     : Efi(entry.name)                  ? "EFI application"
                      : Image(entry.name)                ? "Flashable image"
                      : IsPicture(entry.name)            ? "Image preview"
                      : entry.text                       ? "Text file"
@@ -2105,7 +2137,7 @@ const char* EntryIcon(const Entry& entry) {
   if (entry.symlink) return LV_SYMBOL_RIGHT;
   if (IsPicture(entry.name)) return LV_SYMBOL_IMAGE;
   if (file_manager::IsArchiveFile(entry.name)) return LV_SYMBOL_DOWNLOAD;
-  if (Image(entry.name)) return LV_SYMBOL_UPLOAD;
+  if (Image(entry.name) || Efi(entry.name)) return LV_SYMBOL_UPLOAD;
   if (entry.text) return LV_SYMBOL_EDIT;
   return LV_SYMBOL_FILE;
 }
