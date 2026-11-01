@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Exercise actual packaging rules in temporary fixtures, never Android out/."""
 import os
+import hashlib
+import json
+import shutil
 import pathlib
 import re
 import subprocess
@@ -41,7 +44,7 @@ class RootPackagingTest(unittest.TestCase):
                 output = subprocess.check_output(command, env=environment, text=True)
                 self.assertIn('AERA_ENABLE_ROOT_MANAGER=' + ('1' if flag == '1' else '0'), output)
 
-    def test_incremental_provider_enable_disable_enable(self):
+    def test_incremental_provider_selection_and_disable(self):
         source = (RECOVERY / 'aera_build.mk').read_text()
         rules = source.split('# Root Manager is one optional feature;', 1)[1]
         rules = '# Root Manager is one optional feature;' + rules.split('# AERA Remote', 1)[0]
@@ -49,30 +52,65 @@ class RootPackagingTest(unittest.TestCase):
             root = pathlib.Path(tmp)
             assets = root / 'source/prebuilt/aera/root'
             assets.mkdir(parents=True)
-            for provider in ('kernelsu', 'next', 'sukisu'):
-                (assets / (provider + '.ko')).write_bytes(provider.encode())
+            tools = root / 'source/tools'
+            tools.mkdir(parents=True)
+            shutil.copy2(RECOVERY / 'tools/package_root_modules.py', tools)
+            catalog = {'schema': 1, 'providers': []}
+            providers = ('kernelsu', 'next', 'sukisu')
+            for provider in providers:
+                entries = []
+                (assets / provider).mkdir()
+                for version in ('6.1', '6.12'):
+                    name = 'android16-' + version + '_kernelsu.ko'
+                    data = (provider + version).encode()
+                    (assets / provider / name).write_bytes(data)
+                    entries.append({'name': name, 'kmi': 'android16-' + version,
+                                    'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+                catalog['providers'].append({'id': provider, 'assets': entries})
+            (assets / 'providers.json').write_text(json.dumps(catalog))
             makefile = root / 'fixture.mk'
             makefile.write_text('include ' + str(RECOVERY / 'aera_config.mk') + '\n' +
                                 rules + '\n.PHONY: all\nall: $(AERA_ROOT_ASSETS_STAMP)\n')
             environment = os.environ.copy()
             environment.pop('AERA_ENABLE_ROOT_MANAGER', None)
-            for flag in ('1', '0', '1', None):
-                command = ['make', '--no-print-directory', '-f', str(makefile), 'all',
-                           'TARGET_ARCH=arm64', 'commands_TWRP_local_path=' + str(root / 'source'),
-                           'TARGET_RECOVERY_ROOT_OUT=' + str(root / 'ramdisk')]
+            environment.pop('AERA_ROOT_MODULE_KERNELS', None)
+            cases = [('1', None, ['6.1', '6.12']), ('1', '6.12', ['6.12']),
+                     ('1', '6.1', ['6.1']), ('1', '6.1 6.12', ['6.1', '6.12']),
+                     ('1', 'all', ['6.1', '6.12']), ('0', '6.12', []),
+                     ('1', '6.12', ['6.12']), (None, None, [])]
+            base_command = ['make', '--no-print-directory', '-f', str(makefile), 'all',
+                            'TARGET_ARCH=arm64', 'commands_TWRP_local_path=' + str(root / 'source'),
+                            'TARGET_RECOVERY_ROOT_OUT=' + str(root / 'ramdisk')]
+            for flag, selection, versions in cases:
+                command = base_command.copy()
                 if flag is not None:
                     command.append('AERA_ENABLE_ROOT_MANAGER=' + flag)
-                subprocess.run(command, env=environment, check=True, stdout=subprocess.PIPE)
+                if selection is not None:
+                    command.append('AERA_ROOT_MODULE_KERNELS=' + selection)
+                subprocess.run(command, env=environment, check=True, capture_output=True)
                 output = root / 'ramdisk/system/etc/aera'
-                providers = output / 'root-providers'
-                self.assertEqual(providers.is_dir(), flag == '1')
+                staged = output / 'root-providers'
+                self.assertEqual(staged.is_dir(), flag == '1')
                 if flag == '1':
-                    self.assertEqual(sorted(p.name for p in providers.iterdir()),
-                                     ['kernelsu.ko', 'next.ko', 'sukisu.ko'])
+                    metadata = json.loads((staged / 'providers.json').read_text())
+                    self.assertEqual(len(list(staged.rglob('*.ko'))), 3 * len(versions))
+                    for provider in metadata['providers']:
+                        self.assertEqual(sorted(asset['kmi'].rsplit('-', 1)[-1]
+                                                for asset in provider['assets']), versions)
+                        for asset in provider['assets']:
+                            data = (staged / provider['id'] / asset['name']).read_bytes()
+                            self.assertEqual(hashlib.sha256(data).hexdigest(), asset['sha256'])
                 stamps = list(output.glob('.root-providers*.stamp'))
                 self.assertEqual(len(stamps), 1)
+                suffix = '-' + '_'.join(sorted(selection.split())) if flag == '1' and selection else ''
                 self.assertEqual(stamps[0].name, '.root-providers-' +
-                                 ('enabled' if flag == '1' else 'disabled') + '.stamp')
+                                 ('enabled' if flag == '1' else 'disabled') + suffix + '.stamp')
+            for selection in ('6.99', '6.12.1', 'all 6.12'):
+                result = subprocess.run(base_command + ['AERA_ENABLE_ROOT_MANAGER=1',
+                                        'AERA_ROOT_MODULE_KERNELS=' + selection],
+                                        env=environment, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, selection)
+                self.assertIn('Root module packaging failed', result.stderr)
 
     def test_ksud_and_obsolete_addons(self):
         source = (VENDOR / 'AERA_A16.sh').read_text()

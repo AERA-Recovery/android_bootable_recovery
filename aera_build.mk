@@ -920,6 +920,8 @@ endif
 endif
 
 # Root Manager is one optional feature; all three providers travel together.
+# AERA_ROOT_MODULE_KERNELS selects major.minor versions (unset or all = every version).
+AERA_ROOT_ASSETS_PACKER := $(commands_TWRP_local_path)/tools/package_root_modules.py
 AERA_ROOT_ASSETS_MODE := disabled
 ifeq ($(AERA_ENABLE_ROOT_MANAGER),1)
   ifeq ($(TARGET_ARCH),arm64)
@@ -932,17 +934,22 @@ ifeq ($(AERA_ENABLE_ROOT_MANAGER),1)
   endif
 endif
 AERA_ROOT_ASSETS_OUT := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/root-providers
-AERA_ROOT_ASSETS_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/.root-providers-$(AERA_ROOT_ASSETS_MODE).stamp
+AERA_ROOT_ASSETS_EMPTY :=
+AERA_ROOT_ASSETS_SPACE := $(AERA_ROOT_ASSETS_EMPTY) $(AERA_ROOT_ASSETS_EMPTY)
+AERA_ROOT_ASSETS_KERNELS := $(sort $(strip $(AERA_ROOT_MODULE_KERNELS)))
+AERA_ROOT_ASSETS_SELECTION := $(if $(and $(filter enabled,$(AERA_ROOT_ASSETS_MODE)),$(AERA_ROOT_ASSETS_KERNELS)),-$(subst $(AERA_ROOT_ASSETS_SPACE),_,$(AERA_ROOT_ASSETS_KERNELS)))
+AERA_ROOT_ASSETS_STAMP := $(TARGET_RECOVERY_ROOT_OUT)/system/etc/aera/.root-providers-$(AERA_ROOT_ASSETS_MODE)$(AERA_ROOT_ASSETS_SELECTION).stamp
 
 ifndef AERA_ROOT_ASSETS_RULE_DEFINED
 AERA_ROOT_ASSETS_RULE_DEFINED := true
 
-$(AERA_ROOT_ASSETS_STAMP): $(AERA_ROOT_ASSET_FILES)
+$(AERA_ROOT_ASSETS_STAMP): $(AERA_ROOT_ASSET_FILES) $(AERA_ROOT_ASSETS_PACKER)
 	@echo "AERA offline root providers: $(AERA_ROOT_ASSETS_MODE)"
-	@rm -rf $(AERA_ROOT_ASSETS_OUT)
 	@mkdir -p $(dir $@)
 ifeq ($(AERA_ROOT_ASSETS_MODE),enabled)
-	@mkdir -p $(AERA_ROOT_ASSETS_OUT) && cp -a $(AERA_ROOT_ASSETS_DIR)/. $(AERA_ROOT_ASSETS_OUT)/
+	@python3 $(AERA_ROOT_ASSETS_PACKER) --source $(AERA_ROOT_ASSETS_DIR) --output $(AERA_ROOT_ASSETS_OUT) --kernels $(AERA_ROOT_ASSETS_KERNELS)
+else
+	@rm -rf $(AERA_ROOT_ASSETS_OUT)
 endif
 	@rm -f $(dir $@).root-providers*.stamp
 	@touch $@
