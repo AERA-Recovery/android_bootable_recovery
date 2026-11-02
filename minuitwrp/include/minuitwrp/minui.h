@@ -52,6 +52,9 @@ int gr_fb_width(void);
 int gr_fb_height(void);
 gr_pixel *gr_fb_data(void);
 void gr_flip(void);
+// Optical fingerprint frontends mark only frames containing the lit sensor.
+void gr_set_fingerprint_pressed(bool pressed);
+bool gr_fingerprint_pressed(void);
 void gr_fb_blank(bool blank);
 
 int gr_drm_get_scanout_buffers(gr_surface* buffer1, gr_surface* buffer2);

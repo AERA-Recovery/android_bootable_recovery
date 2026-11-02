@@ -41,6 +41,7 @@
 #include "graphics.h"
 // For std::min and std::max
 #include <algorithm>
+#include <atomic>
 #include "minuitwrp/truetype.hpp"
 
 // for fox_16.0
@@ -53,6 +54,9 @@ struct GRFont {
 };
 
 static minui_backend* gr_backend = NULL;
+static std::atomic<bool> fingerprint_pressed{false};
+void gr_set_fingerprint_pressed(bool pressed) { fingerprint_pressed.store(pressed); }
+bool gr_fingerprint_pressed(void) { return fingerprint_pressed.load(); }
 
 static int overscan_percent = OVERSCAN_PERCENT;
 static int overscan_offset_x = 0;

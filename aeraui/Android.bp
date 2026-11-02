@@ -232,6 +232,21 @@ cc_library_static {
 // AIDL fingerprint has no recovery variant. Link its stable NDK interfaces
 // into a platform helper; only opted-in recovery builds copy this executable.
 cc_binary {
+    name: "aera-fingerprint-hidl",
+    srcs: ["features/security/fingerprint_hidl_client.cpp"],
+    cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    header_libs: ["libhardware_headers"],
+    static_libs: ["libjsoncpp"],
+    shared_libs: [
+        "android.hardware.biometrics.fingerprint@2.1",
+        "android.hardware.biometrics.fingerprint@2.2",
+        "android.hardware.biometrics.fingerprint@2.3",
+        "libhidlbase", "libutils", "libbase", "libcrypto", "liblog",
+    ],
+}
+
+cc_binary {
     name: "aera-fingerprint",
     srcs: ["features/security/fingerprint_client.cpp"],
     cpp_std: "c++17",

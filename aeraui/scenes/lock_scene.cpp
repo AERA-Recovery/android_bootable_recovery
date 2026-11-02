@@ -29,6 +29,7 @@ struct LockState {
   lv_obj_t *credential_prompt{}, *fingerprint_icon{}, *fingerprint_art{};
   uint64_t security_generation=0;
   bool credential_required=false, authenticated=false, fingerprint_pulsing=false, fingerprint_enabled=false;
+  bool fingerprint_pressed=false;
   ActionCallback callback{}; void *context{};
   LockTheme theme;
   int w{}, h{}, travel{}, offset{}, origin{}, origin_y{};
@@ -244,7 +245,8 @@ void RefreshFingerprint(LockState* state) {
   const auto fp=RecoveryPollScreenFingerprint(state->security_generation);
   if(fp.radius>0&&fp.display_width>0&&fp.display_height>0) {
     const int x=fp.x*state->w/std::max(1,fp.display_width),y=fp.y*state->h/std::max(1,fp.display_height);
-    const int diameter=std::max(Px(state,320),2*fp.radius*state->w/std::max(1,fp.display_width));
+    const int sensor_diameter=2*fp.radius*state->w/std::max(1,fp.display_width);
+    const int diameter=fp.illumination?sensor_diameter:std::max(Px(state,320),sensor_diameter);
     lv_obj_set_size(state->fingerprint_icon,diameter,diameter);lv_obj_set_pos(state->fingerprint_icon,x-diameter/2,y-diameter/2);
     lv_image_set_scale(state->fingerprint_art,diameter*256/kFingerprintResolution);lv_obj_center(state->fingerprint_art);
     const auto clock_color=state->theme.colour==0?kAccent:
@@ -252,8 +254,12 @@ void RefreshFingerprint(LockState* state) {
     lv_obj_set_style_image_recolor(state->fingerprint_art,
         state->ambient?clock_color:fp.ready?kAccent:kMuted,0);
     lv_obj_remove_flag(state->fingerprint_icon,LV_OBJ_FLAG_HIDDEN);
-    FingerprintPulse(state,fp.ready&&!state->ambient);
-    if(state->ambient)FingerprintOpacity(state->fingerprint_art,LV_OPA_40);
+    const bool illuminate=fp.illumination&&fp.ready&&state->fingerprint_pressed;
+    lv_obj_set_style_bg_color(state->fingerprint_icon,lv_color_white(),0);
+    lv_obj_set_style_bg_opa(state->fingerprint_icon,illuminate?LV_OPA_COVER:LV_OPA_TRANSP,0);
+    FingerprintPulse(state,fp.ready&&!state->ambient&&!illuminate);
+    if(illuminate)FingerprintOpacity(state->fingerprint_art,LV_OPA_TRANSP);
+    else if(state->ambient)FingerprintOpacity(state->fingerprint_art,LV_OPA_40);
   }else {FingerprintPulse(state,false);lv_obj_add_flag(state->fingerprint_icon,LV_OBJ_FLAG_HIDDEN);}
   if(fp.authenticated){state->authenticated=true;Unlock(state);}
 }
@@ -453,8 +459,8 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent,ActionCallback callback,void *context,
     lv_obj_remove_flag(s->fingerprint_art,LV_OBJ_FLAG_CLICKABLE);lv_obj_center(s->fingerprint_art);
     lv_obj_add_event_cb(s->fingerprint_icon,[](lv_event_t* event){
       auto* state=static_cast<LockState*>(lv_event_get_user_data(event));const auto code=lv_event_get_code(event);
-      if(code==LV_EVENT_PRESSED){const auto fp=RecoveryPollScreenFingerprint(state->security_generation);RecoveryScreenFingerprintTouch(state->security_generation,true,fp.x,fp.y);}
-      else if(code==LV_EVENT_RELEASED||code==LV_EVENT_PRESS_LOST)RecoveryScreenFingerprintTouch(state->security_generation,false,0,0);
+      if(code==LV_EVENT_PRESSED){const auto fp=RecoveryPollScreenFingerprint(state->security_generation);state->fingerprint_pressed=fp.ready;RefreshFingerprint(state);RecoveryScreenFingerprintTouch(state->security_generation,true,fp.x,fp.y);}
+      else if(code==LV_EVENT_RELEASED||code==LV_EVENT_PRESS_LOST){state->fingerprint_pressed=false;RefreshFingerprint(state);RecoveryScreenFingerprintTouch(state->security_generation,false,0,0);}
     },LV_EVENT_ALL,s);
     s->fingerprint_timer=lv_timer_create([](lv_timer_t* timer){
       RefreshFingerprint(static_cast<LockState*>(lv_timer_get_user_data(timer)));

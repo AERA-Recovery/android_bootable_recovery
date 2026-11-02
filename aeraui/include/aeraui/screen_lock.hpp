@@ -22,7 +22,7 @@ void RecoveryShutdownScreenFingerprint();
 lock_security::Result RecoveryVerifyScreenLock(uint64_t generation, const std::string& secret);
 bool RecoveryConsumeScreenUnlock(uint64_t generation);
 struct ScreenFingerprint {
- bool ready=false, authenticated=false;
+ bool ready=false, authenticated=false, illumination=false;
  int x=0,y=0,radius=0,display_width=0,display_height=0;
  std::string message;
 };

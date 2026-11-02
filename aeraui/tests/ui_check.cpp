@@ -1705,6 +1705,18 @@ int main(int argc,char **argv) {
     assert(!lv_anim_get(fingerprint_art,nullptr));
     screen_fingerprint.ready=true;Tick(8);assert(lv_anim_get(fingerprint_art,nullptr));
     save("/tmp/aera-fingerprint-sensor-symbol.png");
+    // Optical illumination is confined to the physical sensor and the contact.
+    screen_fingerprint.illumination=true;Tick(8);
+    auto* optical_target=lv_obj_get_parent(fingerprint_art);
+    assert(lv_obj_get_width(optical_target)==220);
+    assert(lv_obj_get_style_bg_opa(optical_target,LV_PART_MAIN)==LV_OPA_TRANSP);
+    lv_obj_send_event(optical_target,LV_EVENT_PRESSED,nullptr);Tick(2);
+    assert(lv_obj_get_style_bg_opa(optical_target,LV_PART_MAIN)==LV_OPA_COVER);
+    assert(lv_color_to_u32(lv_obj_get_style_bg_color(optical_target,LV_PART_MAIN))==lv_color_to_u32(lv_color_white()));
+    assert(lv_obj_get_style_image_opa(fingerprint_art,LV_PART_MAIN)==LV_OPA_TRANSP);
+    lv_obj_send_event(optical_target,LV_EVENT_PRESS_LOST,nullptr);Tick(2);
+    assert(lv_obj_get_style_bg_opa(optical_target,LV_PART_MAIN)==LV_OPA_TRANSP);
+    screen_fingerprint.illumination=false;Tick(8);
     assert(!ConsumeLockSceneUnlock(lock));
     auto* use_pin=Find(lock,"Use PIN");assert(use_pin);lv_obj_send_event(use_pin,LV_EVENT_CLICKED,nullptr);Tick();
     assert(FindLabel(lock,"Unlock AERA"));

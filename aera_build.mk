@@ -826,14 +826,22 @@ endif
 # Authentication-only fingerprint support. PIN/password are always available.
 LOCAL_CFLAGS += -DAERA_SUPPORT_FINGERPRINT=$(if $(filter 1,$(AERA_SUPPORT_FINGERPRINT)),1,0)
 ifeq ($(AERA_SUPPORT_FINGERPRINT),1)
-    # These frozen AIDL interfaces have platform variants, not recovery variants.
+    # Fingerprint HAL interfaces have platform variants, not recovery variants.
     # Soong builds their shared-library dependencies; the vendor image hook
     # installs one source-built copy alongside the HAL libraries in vendor/lib64.
+    ifeq ($(AERA_FINGERPRINT_BACKEND),hidl)
+    TWRP_REQUIRED_MODULES += aera-fingerprint-hidl \
+        android.hardware.biometrics.fingerprint@2.1 \
+        android.hardware.biometrics.fingerprint@2.2 \
+        android.hardware.biometrics.fingerprint@2.3
+    RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/aera-fingerprint-hidl
+    else
     TWRP_REQUIRED_MODULES += aera-fingerprint \
         android.hardware.biometrics.fingerprint-V3-ndk \
         android.hardware.biometrics.common-V3-ndk \
         android.hardware.keymaster-V4-ndk
     RECOVERY_BINARY_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/aera-fingerprint
+    endif
 endif
 
 LOCAL_CFLAGS += -DAERA_ENABLE_ROOT_MANAGER=$(if $(filter 1,$(AERA_ENABLE_ROOT_MANAGER)),1,0)
@@ -852,6 +860,7 @@ ifneq ($(strip $(AERA_VENDOR)),)
 ifndef AERA_ROOT_MANAGER_VENDOR_CONFIGURED
 AERA_ROOT_MANAGER_VENDOR_CONFIGURED := true
 AERA_VENDOR += AERA_SUPPORT_FINGERPRINT="$(if $(filter 1,$(AERA_SUPPORT_FINGERPRINT)),1,0)"
+AERA_VENDOR += AERA_FINGERPRINT_BACKEND="$(if $(filter hidl,$(AERA_FINGERPRINT_BACKEND)),hidl,aidl)"
 AERA_VENDOR += AERA_ENABLE_ROOT_MANAGER="$(if $(filter 1,$(AERA_ENABLE_ROOT_MANAGER)),1,0)"
 endif
 endif

@@ -31,6 +31,7 @@ bool enabled=false,service_requested=false;
 uint64_t started=0,spawned=0,retry_at=0;
 uint64_t Now() {return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
 void CloseChild() {
+ gr_set_fingerprint_pressed(false);
  if(input>=0){close(input);input=-1;}if(output>=0){close(output);output=-1;}
  if(child>0) {
    const pid_t pid=child;child=-1;++closing_children;
@@ -163,7 +164,7 @@ ScreenFingerprint RecoveryPollScreenFingerprint(uint64_t token) {
      Json::CharReaderBuilder builder;std::unique_ptr<Json::CharReader> reader(builder.newCharReader());Json::Value value;std::string error;
      if(!reader->parse(line.data(),line.data()+line.size(),&value,&error))continue;
      const auto event=value["event"].asString();
-     if(event=="sensor"){fingerprint.display_width=gr_fb_width();fingerprint.display_height=gr_fb_height();fingerprint.x=value["x"].asInt();fingerprint.y=value["y"].asInt();fingerprint.radius=value["radius"].asInt();cached_sensor=fingerprint;cached_sensor.ready=false;cached_sensor.authenticated=false;cached_sensor.message.clear();}
+     if(event=="sensor"){fingerprint.display_width=value.get("displayWidth",gr_fb_width()).asInt();fingerprint.display_height=value.get("displayHeight",gr_fb_height()).asInt();fingerprint.x=value["x"].asInt();fingerprint.y=value["y"].asInt();fingerprint.radius=value["radius"].asInt();fingerprint.illumination=value.get("illumination",false).asBool();cached_sensor=fingerprint;cached_sensor.ready=false;cached_sensor.authenticated=false;cached_sensor.message.clear();}
      else if(event=="authenticated"&&fingerprint.ready){granted=true;fingerprint.authenticated=true;enabled=false;CloseChild();android::base::SetProperty("vendor.aera.fingerprint.start","0");break;}
      else if(event=="ready"){fingerprint.ready=true;fingerprint.message=value["message"].asString();}
      else if(event=="unavailable"&&!fingerprint.ready&&Now()-started<15000){CloseChild();retry_at=Now()+500;break;}
@@ -182,6 +183,7 @@ ScreenFingerprint RecoveryPollScreenFingerprint(uint64_t token) {
 void RecoveryScreenFingerprintTouch(uint64_t token,bool down,int x,int y) {
 #if defined(AERA_SUPPORT_FINGERPRINT) && AERA_SUPPORT_FINGERPRINT == 1
  std::lock_guard<std::mutex> lock(gate);if(!active||token!=generation||!enabled||!fingerprint.ready||input<0)return;
+ if(fingerprint.illumination)gr_set_fingerprint_pressed(down);
  const auto command=down?"down "+std::to_string(x)+" "+std::to_string(y)+"\n":"up\n";
  // The reader can exit asynchronously; block SIGPIPE only on this calling thread.
  sigset_t set,old;sigemptyset(&set);sigaddset(&set,SIGPIPE);pthread_sigmask(SIG_BLOCK,&set,&old);

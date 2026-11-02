@@ -466,6 +466,17 @@ static int SetupSprBlob(int fd, const std::string& prop_name, uint32_t* blob_id)
   return ret;
 }
 
+static void atomic_populate_fingerprint(int plane, drmModeAtomicReqPtr atomic_req) {
+  // Oplus optical panels acknowledge illumination only after a real scanout
+  // with PLANE_CUST=2. The UI marks only frames drawing the white sensor area.
+  static bool fingerprint_frames = false;
+  const bool pressed = gr_fingerprint_pressed();
+  if (pressed) fingerprint_frames = true;
+  const uint32_t id = plane_res[plane].plane->plane_id;
+  if (fingerprint_frames && find_plane_prop_id(id, "PLANE_CUST", plane_res))
+    atomic_add_prop_to_plane(plane_res, atomic_req, id, "PLANE_CUST", pressed ? 2 : 0);
+}
+
 static int atomic_populate_plane(int plane, drmModeAtomicReqPtr atomic_req) {
   uint32_t src_x, src_y, src_w, src_h;
   uint32_t crtc_x, crtc_y, crtc_w, crtc_h;
@@ -488,6 +499,8 @@ static int atomic_populate_plane(int plane, drmModeAtomicReqPtr atomic_req) {
 
   atomic_add_prop_to_plane(plane_res, atomic_req,
                            plane_res[plane].plane->plane_id, "zpos", zpos);
+
+  atomic_populate_fingerprint(plane, atomic_req);
 
   if (atomic_add_prop_to_plane(plane_res, atomic_req,
                                plane_res[plane].plane->plane_id, "FB_ID",
@@ -954,9 +967,11 @@ static int update_plane_fb(uint32_t fb_id) {
            "CRTC_ID", main_monitor_crtc->crtc_id);
 
   /* Add property */
-  for(i = 0; i < number_of_lms; i++)
+  for(i = 0; i < number_of_lms; i++) {
     drmModeAtomicAddProperty(atomic_req, plane_res[i].plane->plane_id,
                              fb_prop_id, fb_id);
+    atomic_populate_fingerprint(i, atomic_req);
+  }
 
   /* Commit changes */
   int32_t ret;
