@@ -145,6 +145,23 @@ int main(int argc, char **argv) {
   auto *input = MakeInput(500);
   auto *other = MakeInput(900);
 
+  // The keyboard must leave only its current field's caret visible.
+  auto *confirmation = MakeInput(1300);
+  auto *caret_keyboard = lv_keyboard_create(lv_screen_active());
+  auto caret_visible = [](lv_obj_t *field) {
+    return lv_obj_get_style_border_opa(field, LV_PART_CURSOR) == LV_OPA_COVER;
+  };
+  assert(!caret_visible(input) && !caret_visible(other) && !caret_visible(confirmation));
+  for (auto *target : {input, other, confirmation, input}) {
+    lv_keyboard_set_textarea(caret_keyboard, target);
+    for (auto *field : {input, other, confirmation})
+      assert(caret_visible(field) == (field == target));
+  }
+  lv_keyboard_set_textarea(caret_keyboard, nullptr);
+  assert(!caret_visible(input) && !caret_visible(other) && !caret_visible(confirmation));
+  lv_obj_delete(caret_keyboard);
+  lv_obj_delete(confirmation);
+
   Word(input, "hello world", 8, 6, 11);
   assert(text_edit::Copy(input));
   assert(!Root());

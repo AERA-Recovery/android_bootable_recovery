@@ -106,11 +106,13 @@ inline void OnPressOrHold(lv_obj_t *object, Handler click, Handler hold) {
 
 inline lv_obj_t *TextArea(lv_obj_t *parent) {
   auto *input = lv_textarea_create(parent);
-  // Touch keyboards do not consistently put their textarea into LV_STATE_FOCUSED.
-  // Keep the insertion caret visible regardless of how the field was activated.
+  // The keyboard transfers LV_STATE_FOCUSED when its target changes. Only the
+  // active field should show a caret, including forms with multiple inputs.
   lv_obj_set_style_bg_opa(input, LV_OPA_TRANSP, LV_PART_CURSOR);
   lv_obj_set_style_border_color(input, kAccent, LV_PART_CURSOR);
-  lv_obj_set_style_border_opa(input, LV_OPA_COVER, LV_PART_CURSOR);
+  lv_obj_set_style_border_opa(input, LV_OPA_TRANSP, LV_PART_CURSOR);
+  lv_obj_set_style_border_opa(input, LV_OPA_COVER,
+                            LV_PART_CURSOR | LV_STATE_FOCUSED);
   lv_obj_set_style_border_width(input, 4, LV_PART_CURSOR);
   lv_obj_set_style_border_side(input, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR);
   lv_obj_set_style_pad_left(input, -2, LV_PART_CURSOR);
