@@ -28,7 +28,7 @@ inline lv_obj_t *VisibleKeyboard() {
   auto *screen = lv_screen_active();
   for (auto it = gKeyboards.rbegin(); it != gKeyboards.rend(); ++it) {
     auto *keyboard = *it;
-    if (lv_obj_is_valid(keyboard) && lv_obj_get_screen(keyboard) == screen &&
+    if (lv_obj_is_valid(keyboard) && (lv_obj_get_screen(keyboard) == screen || lv_obj_get_screen(keyboard) == lv_layer_top()) &&
         lv_obj_is_visible(keyboard))
       return keyboard;
   }

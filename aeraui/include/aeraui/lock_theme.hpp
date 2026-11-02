@@ -13,6 +13,7 @@ struct LockTheme {
   int clock_size = 100; // Percent, independent of clock design.
   int date_style = 0, date_size = 100, date_colour = 0;
   bool aod = false;
+  bool aod_fingerprint = false; // Opt-in scanning on the dim always-on clock.
   int date_placement = 0; // Below clock, above clock, bottom.
   int aod_brightness = 2; // Percentage of panel brightness range.
   int placement = 0; // Top, centre, bottom.
@@ -49,7 +50,7 @@ inline std::string EncodeLockTheme(const LockTheme &t) {
     << ' ' << std::quoted(t.owner) << ' ' << std::quoted(t.wallpaper) << ' ' << t.clock_size
     << ' ' << t.date_style << ' ' << t.date_size << ' ' << t.date_colour << ' ' << t.aod
     << ' ' << t.date_placement << ' ' << t.aod_brightness
-    << ' ' << std::quoted(EncodeWallpaperLayout(t.wallpaper_layout));
+    << ' ' << std::quoted(EncodeWallpaperLayout(t.wallpaper_layout)) << ' ' << t.aod_fingerprint;
   return s.str();
 }
 inline LockTheme DecodeLockTheme(const std::string &value) {
@@ -65,7 +66,14 @@ inline LockTheme DecodeLockTheme(const std::string &value) {
   if (version >= 4) {
     // Optional tail keeps existing v4 themes and older readers compatible.
     std::string layout;
-    if (s >> std::quoted(layout)) t.wallpaper_layout = DecodeWallpaperLayout(layout);
+    if (s >> std::quoted(layout)) {
+      t.wallpaper_layout = DecodeWallpaperLayout(layout);
+      int fingerprint=0;
+      if(s >> fingerprint) {
+        if(fingerprint!=0&&fingerprint!=1)return {};
+        t.aod_fingerprint=fingerprint==1;
+      }
+    }
   }
   if(version<3 && t.clock>2)t.clock=0;
   if(t.animation>=2 && t.animation<=5)t.animation=1;

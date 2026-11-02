@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "scene.hpp"
+#include "lock_credential.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -15,10 +16,19 @@ namespace aeraui {
 namespace {
 using namespace design;
 using namespace widgets;
+#include "fingerprint_icon.inc"
+static_assert(sizeof(kFingerprintPixels)==kFingerprintResolution*kFingerprintResolution);
+const lv_image_dsc_t kFingerprintImage={
+  .header={.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_A8,.flags=0,.w=kFingerprintResolution,.h=kFingerprintResolution,.stride=kFingerprintResolution},
+  .data_size=sizeof(kFingerprintPixels),.data=kFingerprintPixels,
+};
 struct LockState {
   lv_obj_t *root{}, *background{}, *content{}, *group{}, *clock{}, *date{}, *owner{}, *info{};
   lv_obj_t *slider{}, *knob{}, *hint{}, *hold_progress{};
-  lv_timer_t *timer{};
+  lv_timer_t *timer{}, *fingerprint_timer{};
+  lv_obj_t *credential_prompt{}, *fingerprint_icon{}, *fingerprint_art{};
+  uint64_t security_generation=0;
+  bool credential_required=false, authenticated=false, fingerprint_pulsing=false, fingerprint_enabled=false;
   ActionCallback callback{}; void *context{};
   LockTheme theme;
   int w{}, h{}, travel{}, offset{}, origin{}, origin_y{};
@@ -31,6 +41,24 @@ struct LockState {
   std::array<Stroke,80> strokes{};
   lv_obj_t *hours{}, *minutes{};
 };
+// Animate only the small alpha mask, keeping the physical touch target fixed.
+void FingerprintOpacity(void* object,int32_t opacity) {
+  lv_obj_set_style_image_opa(static_cast<lv_obj_t*>(object),opacity,0);
+}
+void FingerprintPulse(LockState* state,bool ready) {
+  if(ready==state->fingerprint_pulsing)return;
+  state->fingerprint_pulsing=ready;
+  lv_anim_delete(state->fingerprint_art,FingerprintOpacity);
+  if(!ready){FingerprintOpacity(state->fingerprint_art,LV_OPA_COVER);return;}
+  lv_anim_t animation;lv_anim_init(&animation);
+  lv_anim_set_var(&animation,state->fingerprint_art);
+  lv_anim_set_exec_cb(&animation,FingerprintOpacity);
+  lv_anim_set_values(&animation,150,LV_OPA_COVER);
+  lv_anim_set_duration(&animation,1100);lv_anim_set_playback_duration(&animation,1100);
+  lv_anim_set_path_cb(&animation,lv_anim_path_ease_in_out);
+  lv_anim_set_repeat_count(&animation,LV_ANIM_REPEAT_INFINITE);
+  lv_anim_start(&animation);
+}
 int Px(LockState *s, int value) { return std::max(1, value * std::min(s->w, s->h) / 1440); }
 void Passive(lv_obj_t *object) {
   lv_obj_remove_flag(object, LV_OBJ_FLAG_CLICKABLE);
@@ -183,8 +211,18 @@ void HoldFeedback(LockState *s,int progress) {
 }
 void Unlock(LockState *s) {
   if(s->unlocking||s->preview) return;
+  const auto security=RecoveryScreenLockStatus();
+  if(security.available)s->credential_required=security.configured;
+  if(s->credential_required&&!s->authenticated) {
+    SetOffset(s,0);HoldFeedback(s,-1);if(s->theme.unlock==1&&!s->fingerprint_enabled)SwipeFeedback(s,0,true);
+    if(!s->credential_prompt) {
+      s->credential_prompt=OpenLockCredential(s->root,LockCredentialAction::Verify,[s]{s->authenticated=true;Unlock(s);},s->security_generation);
+      lv_obj_add_event_cb(s->credential_prompt,[](lv_event_t* event){static_cast<LockState*>(lv_event_get_user_data(event))->credential_prompt=nullptr;},LV_EVENT_DELETE,s);
+    }
+    return;
+  }
   s->unlocking=true;
-  const bool swipe=s->theme.unlock==1;
+  const bool swipe=s->theme.unlock==1&&!s->fingerprint_enabled;
   if(swipe) {
     lv_anim_t a;lv_anim_init(&a);lv_anim_set_var(&a,s->root);
     lv_anim_set_values(&a,0,-s->h);lv_anim_set_duration(&a,240);
@@ -201,9 +239,27 @@ void Unlock(LockState *s) {
   if(s->timer) lv_timer_delete(s->timer);
   s->timer=timer;
 }
+void RefreshFingerprint(LockState* state) {
+  if(state->unlocking)return;
+  const auto fp=RecoveryPollScreenFingerprint(state->security_generation);
+  if(fp.radius>0&&fp.display_width>0&&fp.display_height>0) {
+    const int x=fp.x*state->w/std::max(1,fp.display_width),y=fp.y*state->h/std::max(1,fp.display_height);
+    const int diameter=std::max(Px(state,320),2*fp.radius*state->w/std::max(1,fp.display_width));
+    lv_obj_set_size(state->fingerprint_icon,diameter,diameter);lv_obj_set_pos(state->fingerprint_icon,x-diameter/2,y-diameter/2);
+    lv_image_set_scale(state->fingerprint_art,diameter*256/kFingerprintResolution);lv_obj_center(state->fingerprint_art);
+    const auto clock_color=state->theme.colour==0?kAccent:
+        state->theme.colour==2?Color(state->theme.rgb):lv_color_white();
+    lv_obj_set_style_image_recolor(state->fingerprint_art,
+        state->ambient?clock_color:fp.ready?kAccent:kMuted,0);
+    lv_obj_remove_flag(state->fingerprint_icon,LV_OBJ_FLAG_HIDDEN);
+    FingerprintPulse(state,fp.ready&&!state->ambient);
+    if(state->ambient)FingerprintOpacity(state->fingerprint_art,LV_OPA_40);
+  }else {FingerprintPulse(state,false);lv_obj_add_flag(state->fingerprint_icon,LV_OBJ_FLAG_HIDDEN);}
+  if(fp.authenticated){state->authenticated=true;Unlock(state);}
+}
 void Touch(lv_event_t *event) {
   auto *s=static_cast<LockState *>(lv_event_get_user_data(event));
-  if(s->preview||s->unlocking) return;
+  if(s->preview||s->unlocking||s->fingerprint_enabled) return;
   auto *input=lv_indev_active(); if(!input) return;
   lv_point_t p;lv_indev_get_point(input,&p);
   const auto code=lv_event_get_code(event);
@@ -246,12 +302,24 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent,ActionCallback callback,void *context,
   s->w=lv_obj_get_width(parent);s->h=lv_obj_get_height(parent);s->landscape=s->w>s->h;
   auto *root=lv_obj_create(parent);s->root=root; Clear(root);
   lv_obj_set_size(root,s->w,s->h);lv_obj_set_pos(root,0,0);
+  lv_obj_set_user_data(root,s);
+  if(!preview) {
+    s->security_generation=RecoveryBeginScreenLock(ambient);
+    const auto security=RecoveryScreenLockStatus();
+    s->credential_required=security.configured;
+    s->fingerprint_enabled=kFingerprintSupported&&security.configured&&security.valid&&security.fingerprint;
+  }
   const int radius=preview?lv_obj_get_style_radius(parent,LV_PART_MAIN):0;
   lv_obj_set_style_radius(root,radius,0);
   lv_obj_set_style_clip_corner(root,true,0);
   lv_obj_add_event_cb(root,[](lv_event_t *e){
     auto *s=static_cast<LockState *>(lv_event_get_user_data(e));
-    if(s->timer)lv_timer_delete(s->timer);delete s;
+    if(s->timer)lv_timer_delete(s->timer);
+    if(s->fingerprint_timer)lv_timer_delete(s->fingerprint_timer);
+    if(!s->preview)RecoveryEndScreenLock(s->security_generation);
+    // Children (including a pending credential form) are deleted after this callback.
+    if(s->credential_prompt){lv_obj_delete(s->credential_prompt);s->credential_prompt=nullptr;}
+    delete s;
   },LV_EVENT_DELETE,s);
   auto *bg=lv_obj_create(root);s->background=bg;Clear(bg);lv_obj_set_size(bg,LV_PCT(100),LV_PCT(100));
   MainBackground(bg);
@@ -338,42 +406,65 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent,ActionCallback callback,void *context,
   const int top=std::max(Px(s,30),std::min(available-group_height,
       s->theme.placement==0?Px(s,110):s->theme.placement==1?(available-group_height)/2:available-group_height));
   lv_obj_align(group,LV_ALIGN_TOP_MID,0,top);
-  auto *slider=lv_obj_create(content);s->slider=slider;Clear(slider);
-  const int sw=std::min(s->w-Px(s,180),Px(s,1000)),sh=Px(s,136);
-  lv_obj_set_size(slider,sw,sh);lv_obj_align(slider,LV_ALIGN_BOTTOM_MID,0,-Px(s,s->landscape?90:210));
-  lv_obj_set_style_radius(slider,sh/2,0);lv_obj_set_style_bg_color(slider,Color(0x202328),0);
-  lv_obj_set_style_bg_opa(slider,s->theme.minimal?LV_OPA_TRANSP:LV_OPA_90,0);
-  const char *hint=s->theme.unlock==0?"Slide to unlock":s->theme.unlock==1?"Swipe up to unlock":"Hold to unlock";
-  s->hint=Text(s,slider,hint,32,lv_color_white());lv_obj_center(s->hint);
-  if(s->theme.unlock==2) {
-    s->hold_progress=lv_obj_create(slider);Clear(s->hold_progress);
-    lv_obj_set_size(s->hold_progress,1,Px(s,6));
-    lv_obj_set_pos(s->hold_progress,Px(s,40),sh-Px(s,22));
-    lv_obj_set_style_radius(s->hold_progress,LV_RADIUS_CIRCLE,0);
-    lv_obj_set_style_bg_color(s->hold_progress,kAccent,0);
-    lv_obj_set_style_bg_opa(s->hold_progress,LV_OPA_COVER,0);
-    lv_obj_remove_flag(s->hold_progress,LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s->hold_progress,LV_OBJ_FLAG_HIDDEN);
+  lv_obj_t* slider=nullptr;
+  if(!s->fingerprint_enabled) {
+    slider=lv_obj_create(content);s->slider=slider;Clear(slider);
+    const int sw=std::min(s->w-Px(s,180),Px(s,1000)),sh=Px(s,136);
+    lv_obj_set_size(slider,sw,sh);lv_obj_align(slider,LV_ALIGN_BOTTOM_MID,0,-Px(s,s->landscape?90:210));
+    lv_obj_set_style_radius(slider,sh/2,0);lv_obj_set_style_bg_color(slider,Color(0x202328),0);
+    lv_obj_set_style_bg_opa(slider,s->theme.minimal?LV_OPA_TRANSP:LV_OPA_90,0);
+    const char *hint=s->theme.unlock==0?"Slide to unlock":s->theme.unlock==1?"Swipe up to unlock":"Hold to unlock";
+    s->hint=Text(s,slider,hint,32,lv_color_white());lv_obj_center(s->hint);
+    if(s->theme.unlock==2) {
+      s->hold_progress=lv_obj_create(slider);Clear(s->hold_progress);
+      lv_obj_set_size(s->hold_progress,1,Px(s,6));
+      lv_obj_set_pos(s->hold_progress,Px(s,40),sh-Px(s,22));
+      lv_obj_set_style_radius(s->hold_progress,LV_RADIUS_CIRCLE,0);
+      lv_obj_set_style_bg_color(s->hold_progress,kAccent,0);
+      lv_obj_set_style_bg_opa(s->hold_progress,LV_OPA_COVER,0);
+      lv_obj_remove_flag(s->hold_progress,LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_flag(s->hold_progress,LV_OBJ_FLAG_HIDDEN);
+    }
+    if(s->theme.unlock==0) {
+      s->travel=sw-sh;
+      s->knob=lv_obj_create(slider);Clear(s->knob);lv_obj_set_size(s->knob,sh,sh);
+      lv_obj_set_style_radius(s->knob,sh/2,0);lv_obj_set_style_bg_color(s->knob,kAccent,0);
+      lv_obj_set_style_bg_opa(s->knob,s->theme.minimal?LV_OPA_TRANSP:LV_OPA_COVER,0);
+      auto *arrow=Label(s->knob,LV_SYMBOL_RIGHT,
+          UiFont(preview ? &lv_font_montserrat_16 : &lv_font_montserrat_32),kOnAccent);
+      lv_obj_center(arrow);lv_obj_remove_flag(s->knob,LV_OBJ_FLAG_CLICKABLE);
+    }
   }
-  if(s->theme.unlock==0) {
-    s->travel=sw-sh;
-    s->knob=lv_obj_create(slider);Clear(s->knob);lv_obj_set_size(s->knob,sh,sh);
-    lv_obj_set_style_radius(s->knob,sh/2,0);lv_obj_set_style_bg_color(s->knob,kAccent,0);
-    lv_obj_set_style_bg_opa(s->knob,s->theme.minimal?LV_OPA_TRANSP:LV_OPA_COVER,0);
-    auto *arrow=Label(s->knob,LV_SYMBOL_RIGHT,
-        UiFont(preview ? &lv_font_montserrat_16 : &lv_font_montserrat_32),kOnAccent);
-    lv_obj_center(arrow);lv_obj_remove_flag(s->knob,LV_OBJ_FLAG_CLICKABLE);
-  }
-  if(!preview && !ambient) {
+  if(!preview && !ambient && !s->fingerprint_enabled) {
     auto *touch=s->theme.unlock==1?content:slider;lv_obj_add_flag(touch,LV_OBJ_FLAG_CLICKABLE);
     if(s->theme.unlock==1) {Passive(group);Passive(slider);}
     for(auto event:{LV_EVENT_PRESSED,LV_EVENT_PRESSING,LV_EVENT_RELEASED,LV_EVENT_PRESS_LOST})
       lv_obj_add_event_cb(touch,Touch,event,s);
   }
+  if(!preview&&!ambient&&s->credential_required) {
+    auto* fallback=Button(content,RecoveryScreenLockStatus().kind==lock_security::Kind::Pin?"Use PIN":"Use password",[s]{Unlock(s);});
+    lv_obj_set_size(fallback,Px(s,600),Px(s,110));lv_obj_align(fallback,LV_ALIGN_BOTTOM_MID,0,-Px(s,50));
+  }
+  if(!preview&&s->fingerprint_enabled&&(!ambient||s->theme.aod_fingerprint)) {
+    s->fingerprint_icon=lv_obj_create(root);Clear(s->fingerprint_icon);lv_obj_add_flag(s->fingerprint_icon,LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_radius(s->fingerprint_icon,LV_RADIUS_CIRCLE,0);
+    s->fingerprint_art=lv_image_create(s->fingerprint_icon);lv_image_set_src(s->fingerprint_art,&kFingerprintImage);lv_image_set_antialias(s->fingerprint_art,true);
+    lv_obj_set_style_image_recolor(s->fingerprint_art,kAccent,0);lv_obj_set_style_image_recolor_opa(s->fingerprint_art,LV_OPA_COVER,0);
+    lv_obj_remove_flag(s->fingerprint_art,LV_OBJ_FLAG_CLICKABLE);lv_obj_center(s->fingerprint_art);
+    lv_obj_add_event_cb(s->fingerprint_icon,[](lv_event_t* event){
+      auto* state=static_cast<LockState*>(lv_event_get_user_data(event));const auto code=lv_event_get_code(event);
+      if(code==LV_EVENT_PRESSED){const auto fp=RecoveryPollScreenFingerprint(state->security_generation);RecoveryScreenFingerprintTouch(state->security_generation,true,fp.x,fp.y);}
+      else if(code==LV_EVENT_RELEASED||code==LV_EVENT_PRESS_LOST)RecoveryScreenFingerprintTouch(state->security_generation,false,0,0);
+    },LV_EVENT_ALL,s);
+    s->fingerprint_timer=lv_timer_create([](lv_timer_t* timer){
+      RefreshFingerprint(static_cast<LockState*>(lv_timer_get_user_data(timer)));
+    },50,s);
+    RefreshFingerprint(s);
+  }
   // Sweep smoothly while awake; ambient mode retains its aligned one-second ticks.
   s->timer=lv_timer_create([](lv_timer_t *timer){Refresh(static_cast<LockState *>(lv_timer_get_user_data(timer)));},s->theme.clock==1&&!ambient?33:1000,s);
   if(ambient)Refresh(s); // Align the very first tick to the next real second.
-  if(ambient){lv_obj_add_flag(slider,LV_OBJ_FLAG_HIDDEN);Passive(root);}
+  if(ambient){if(slider)lv_obj_add_flag(slider,LV_OBJ_FLAG_HIDDEN);Passive(root);}
   auto shortcut=[&](const char *name,bool right,Handler action) {
     auto *button=Button(content,name,preview?Handler{}:action);
     lv_obj_set_style_text_font(lv_obj_get_child(button,0),fonts::DisplayFont(Px(s,28)),0);
@@ -390,5 +481,20 @@ lv_obj_t *BuildLockScene(lv_obj_t *parent,ActionCallback callback,void *context,
   }
   lv_obj_move_foreground(root);
   return root;
+}
+bool LockSceneProtected(lv_obj_t* scene) {
+  if(!scene)return false;
+  auto* state=static_cast<LockState*>(lv_obj_get_user_data(scene));
+  return state&&!state->preview&&(state->credential_required||RecoveryScreenLockStatus().configured);
+}
+void SuspendLockScene(lv_obj_t* scene,bool keep_sensor_warm) {
+  if(!scene)return;
+  auto* state=static_cast<LockState*>(lv_obj_get_user_data(scene));
+  if(state&&!state->preview)RecoveryEndScreenLock(state->security_generation,keep_sensor_warm);
+}
+bool ConsumeLockSceneUnlock(lv_obj_t* scene) {
+  if(!scene)return false;
+  auto* state=static_cast<LockState*>(lv_obj_get_user_data(scene));
+  return state&&!state->preview&&RecoveryConsumeScreenUnlock(state->security_generation);
 }
 } // namespace aeraui

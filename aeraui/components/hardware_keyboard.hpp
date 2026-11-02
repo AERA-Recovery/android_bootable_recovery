@@ -17,7 +17,15 @@ inline bool Inside(lv_obj_t *obj, lv_obj_t *root) {
   for (;obj;obj=lv_obj_get_parent(obj)) if(obj==root)return true;
   return false;
 }
+inline lv_obj_t* VisibleModal(lv_obj_t* root) {
+  if(!lv_obj_is_visible(root))return nullptr;
+  for(int index=static_cast<int>(lv_obj_get_child_count(root))-1;index>=0;--index)
+    if(auto* modal=VisibleModal(lv_obj_get_child(root,index)))return modal;
+  auto* marker=lv_obj_get_user_data(root);
+  return marker==&widgets::kModalMarker||marker==&widgets::kPersistentModalMarker?root:nullptr;
+}
 inline lv_obj_t *Scope() {
+  if(auto* modal=VisibleModal(lv_layer_top()))return modal;
   auto *screen=lv_screen_active();
   lv_obj_update_layout(screen);
   for(int i=static_cast<int>(lv_obj_get_child_count(screen))-1;i>=0;--i) {
@@ -40,6 +48,7 @@ inline bool Handle(unsigned code,int value,const hardware_keys::State &keys) {
   if(value==0)return true;
   auto *scope=Scope();
   auto *keyboard=phone_keyboard::VisibleKeyboard();
+  if(keyboard&&!Inside(keyboard,scope))keyboard=nullptr;
   auto *input=text_edit::FocusedInput();
   if(keyboard)input=lv_keyboard_get_textarea(keyboard);
   if(input&&(!Inside(input,scope)||!lv_obj_is_visible(input)||lv_obj_has_state(input,LV_STATE_DISABLED)))input=nullptr;

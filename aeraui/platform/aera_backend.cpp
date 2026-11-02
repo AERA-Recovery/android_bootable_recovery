@@ -714,6 +714,7 @@ bool RecoveryDataLocked() {
 }
 
 bool RecoveryEnterFastbootd() {
+  RecoveryShutdownScreenFingerprint();
   aera::mobile::StorageLease mobile_lease;
   if (!mobile_lease) return false;
   if (!android::base::GetBoolProperty("ro.boot.dynamic_partitions", false)) {

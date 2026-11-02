@@ -488,6 +488,7 @@ public:
     current_scene_ = Action::kBackHome;
     navigating_back_ = false;
     lock_overlay_ = nullptr;
+    authenticated_wake_ = false;
     power_overlay_ = nullptr;
     volume_overlay_ = nullptr;
     notice_overlay_ = nullptr;
@@ -832,6 +833,7 @@ public:
     backend_ready_ = true;
     if (interactive_ready_) {
       ShowHome();
+      if(RecoveryScreenLockStatus().configured)ShowLockScreen();
       return;
     }
     interactive_ready_ = true;
@@ -844,6 +846,7 @@ public:
     BuildHomeScene(home, HandleSceneAction, this);
     on_home_ = true;
     lv_screen_load_anim(home, LV_SCR_LOAD_ANIM_FADE_IN, 820, 0, true);
+    if(RecoveryScreenLockStatus().configured)ShowLockScreen();
   }
 
   void SetFastbootMode(bool enabled, bool show_recovery_home) {
@@ -885,7 +888,13 @@ public:
   }
   bool KeyboardKey(unsigned code, int value) {
     if (!physical_keys_.Update(code, value)) return false;
-    if (suspended_ || lock_overlay_ || power_overlay_) { ResetKeyboard(); return true; }
+    auto* lock_keyboard=phone_keyboard::VisibleKeyboard();
+    auto* lock_input=text_edit::FocusedInput();
+    const bool own_keyboard=lock_keyboard&&hardware_keyboard::Inside(lock_keyboard,lock_overlay_);
+    const bool own_input=lock_input&&hardware_keyboard::Inside(lock_input,lock_overlay_);
+    if (suspended_ || (lock_overlay_ && !own_keyboard && !own_input) || power_overlay_) {
+      ResetKeyboard();return true;
+    }
     if (DesktopInputAllowed() && PluginDesktopHandleKey(hardware_keys::Symbol(code), value)) return true;
     if (!hardware_keyboard::Handle(code, value, physical_keys_) &&
         code == KEY_ESC && value == 1) NavigateBack();
@@ -1168,7 +1177,7 @@ public:
   bool IsInitialized() const { return initialized_; }
 
   void SetSuspended(bool suspended) {
-    if (suspended) ResetKeyboard();
+    if (suspended) { ResetKeyboard(); SuspendLockScene(lock_overlay_,true); RecoveryPrepareScreenFingerprint(); }
     suspended_ = suspended;
     if (!suspended) wake_requested_ = false;
     SetMouseConnected(mouse_connected_);
@@ -1185,8 +1194,8 @@ public:
   void ShowLockScreen(bool ambient = false) {
     ResetKeyboard();
     if (!initialized_) return;
-    if(lock_overlay_ && lock_ambient_==ambient)return;
-    if(lock_overlay_){lv_obj_delete(lock_overlay_);lock_overlay_=nullptr;}
+    if(lock_overlay_ && lock_ambient_==ambient && !suspended_)return;
+    if(lock_overlay_){SuspendLockScene(lock_overlay_,true);lv_obj_delete(lock_overlay_);lock_overlay_=nullptr;}
     lock_ambient_=ambient;
     CancelEdgeSwipe();
     CancelRecentsSwipe();
@@ -1204,12 +1213,22 @@ public:
         !aera::backup::Operations().Active() && !plugin_api::PluginStorageBusy();
   }
   bool NeedsWake() const {
-    return wake_requested_ || (operation_visible_ && (operation_complete_.load(std::memory_order_acquire) ||
+    return authenticated_wake_ || wake_requested_ || (operation_visible_ && (operation_complete_.load(std::memory_order_acquire) ||
         (operation_running_ && RecoveryInstallerPrompt().active)));
   }
   bool WakeForOperation() {
+    if(authenticated_wake_) {
+      authenticated_wake_=false;
+      SetSuspended(false);
+      return true;
+    }
     if (!backend_ready_ || !interactive_ready_ || decryption_active_ || decrypt_running_ ||
         !NeedsWake()) return false;
+    if (LockSceneProtected(lock_overlay_) || RecoveryScreenLockStatus().configured) {
+      ShowLockScreen(false);
+      SetSuspended(false);
+      return true;
+    }
     if (lock_overlay_) {
       auto *lock = lock_overlay_;
       lock_overlay_ = nullptr;
@@ -2574,14 +2593,27 @@ private:
       return;
     }
     if (action == Action::kUnlock) {
-      if (self->lock_overlay_ != nullptr) {
+      if (self->lock_overlay_ != nullptr && ConsumeLockSceneUnlock(self->lock_overlay_)) {
+        // The scanning finger can still be down when the next page appears.
+        // Reset LVGL's pressed target and swallow that contact through release.
+        self->pointer_.pressed=false;
+        self->pointer_release_on_read_=false;
+        self->slot0_down_=false;
+        self->CancelEdgeSwipe();self->CancelRecentsSwipe();
+        if(self->pointer_device_)lv_indev_reset(self->pointer_device_,nullptr);
         lv_obj_t *lock = self->lock_overlay_;
         self->lock_overlay_ = nullptr;
+        if(self->lock_ambient_)self->authenticated_wake_=true;
+        self->lock_ambient_=false;
         // The lock scene completes its gesture-specific exit before notifying us.
         lv_obj_delete_async(lock);
       }
       return;
     }
+
+    if (LockSceneProtected(self->lock_overlay_) &&
+        action != Action::kPowerOff && action != Action::kRebootSystem &&
+        action != Action::kRebootRecovery && action != Action::kRebootBootloader) return;
 
     if (self->decryption_active_) {
       if (action == Action::kDecryptSubmit) {
@@ -3238,7 +3270,7 @@ private:
     }
     aera::pc::InstallRequest install;
     std::string reboot;
-    if (!pc_overlay_ && !PcBlockedByModal() && aera::pc::TakeRebootRequest(&reboot)) {
+    if (!pc_overlay_ && !LockSceneProtected(lock_overlay_) && !PcBlockedByModal() && aera::pc::TakeRebootRequest(&reboot)) {
       const Action action = reboot == "system" ? Action::kRebootSystem :
           reboot == "recovery" ? Action::kRebootRecovery :
           reboot == "bootloader" ? Action::kRebootBootloader :
@@ -3246,7 +3278,7 @@ private:
       HandleSceneAction(action, this);
       return;
     }
-    if (!pc_overlay_ && !PcBlockedByModal() && !plugin_api::PluginStorageBusy() &&
+    if (!pc_overlay_ && !LockSceneProtected(lock_overlay_) && !PcBlockedByModal() && !plugin_api::PluginStorageBusy() &&
         aera::pc::TakeInstallRequest(&install) && aera::pc::BeginInstall(install.id)) {
       // A browser-confirmed job replaces the idle swipe lock, never decryption.
       if (lock_overlay_ && install.job.show_on_device) {
@@ -4072,6 +4104,7 @@ private:
   RecentApp recent_launch_app_;
   lv_obj_t *lock_overlay_ = nullptr;
   bool lock_ambient_ = false;
+  bool authenticated_wake_ = false;
   lv_obj_t *power_overlay_ = nullptr;
   lv_obj_t *volume_overlay_ = nullptr;
   lv_obj_t *volume_icon_ = nullptr;

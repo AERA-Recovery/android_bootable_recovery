@@ -4,6 +4,7 @@
 #include "ui_components.hpp"
 #include "pc_transfer_banner.hpp"
 #include "hardware_keyboard.hpp"
+#include "phone_keyboard.hpp"
 #include "themed_app_art.hpp"
 #include "package_review.hpp"
 #include "../core/usb_attachment.hpp"
@@ -35,6 +36,11 @@
 #include <sys/socket.h>
 #include <unistd.h>
 using namespace aeraui;
+static lock_security::Status screen_lock_status;
+static uint64_t screen_generation=0;
+static bool screen_grant=false;
+static ScreenFingerprint screen_fingerprint;
+
 namespace aeraui::update {
 static Snapshot test_snapshot;
 static Channel test_channel = Channel::kStable;
@@ -1620,7 +1626,7 @@ int main(int argc,char **argv) {
         auto *page = lv_obj_create(nullptr);
         BuildToolScene(page, action, RecordAction, nullptr);
         lv_screen_load(page); Tick(2);
-        auto *back = FindLabel(page, i18n::Translate("Theme Engine")); assert(back);
+        auto *back = FindLabel(page, i18n::Translate(LV_SYMBOL_LEFT "  Theme Engine")); assert(back);
         while (back && !lv_obj_check_type(back, &lv_button_class)) back = lv_obj_get_parent(back);
         assert(back);
         assert(lv_obj_is_visible(back));
@@ -1658,11 +1664,170 @@ int main(int argc,char **argv) {
     puts("Theme categories, editor pages, lock tabs and responsive layouts passed");
     return 0;
   }
+  if (!strcmp(argv[1], "--screen-lock")) {
+    const std::string pin_wallpaper="/tmp/aera-pin-wallpaper-test.png";
+    png_image pin_image{};pin_image.version=PNG_IMAGE_VERSION;pin_image.width=pin_image.height=2;pin_image.format=PNG_FORMAT_RGBA;
+    const unsigned char pin_pixels[]={20,35,45,255,20,35,45,255,20,35,45,255,20,35,45,255};
+    assert(png_image_write_to_file(&pin_image,pin_wallpaper.c_str(),0,pin_pixels,0,nullptr));
+    assert(wallpaper::Load(pin_wallpaper));
+    screen_lock_status.configured=true;screen_lock_status.valid=true;screen_lock_status.kind=lock_security::Kind::Pin;
+    screen_lock_status.fingerprint=true;
+    screen_fingerprint.ready=true;screen_fingerprint.x=720;screen_fingerprint.y=2361;screen_fingerprint.radius=110;
+    screen_fingerprint.display_width=1440;screen_fingerprint.display_height=3168;
+    screen_fingerprint.message="Touch the fingerprint sensor, or use PIN/password.";
+    LockTheme theme;theme.animation=0;
+    auto* lock=BuildLockScene(screen,RecordAction,nullptr,false,&theme);Tick(15);
+    assert(!FindLabel(lock,"Slide to unlock"));
+    assert(!FindLabel(lock,"Swipe up to unlock"));
+    assert(!FindLabel(lock,"Hold to unlock"));
+    assert(!FindLabel(lock,"Touch the fingerprint sensor, or use PIN/password."));
+    auto find_fingerprint_art=[&](auto&& self,lv_obj_t* object)->lv_obj_t* {
+      if(lv_obj_check_type(object,&lv_image_class)) {
+        const auto* source=lv_image_get_src(object);
+        if(source&&lv_image_src_get_type(source)==LV_IMAGE_SRC_VARIABLE) {
+          const auto* image=static_cast<const lv_image_dsc_t*>(source);
+          if(image->header.cf==LV_COLOR_FORMAT_A8&&image->header.w==512&&image->header.h==512)return object;
+        }
+      }
+      for(uint32_t i=0;i<lv_obj_get_child_count(object);++i)
+        if(auto* found=self(self,lv_obj_get_child(object,i)))return found;
+      return nullptr;
+    };
+    auto* fingerprint_art=find_fingerprint_art(find_fingerprint_art,lock);assert(fingerprint_art);
+    const auto sensor_bounds=Bounds(lv_obj_get_parent(fingerprint_art));
+    assert(sensor_bounds.x2-sensor_bounds.x1>=300);
+    assert(std::abs((sensor_bounds.x1+sensor_bounds.x2)/2-720)<=1);
+    assert(std::abs((sensor_bounds.y1+sensor_bounds.y2)/2-2361)<=1);
+    assert(lv_anim_get(fingerprint_art,nullptr));
+    const auto opacity=lv_obj_get_style_image_opa(fingerprint_art,LV_PART_MAIN);
+    Tick(20);assert(lv_obj_get_style_image_opa(fingerprint_art,LV_PART_MAIN)!=opacity);
+    screen_fingerprint.ready=false;Tick(8);
+    assert(!lv_anim_get(fingerprint_art,nullptr));
+    screen_fingerprint.ready=true;Tick(8);assert(lv_anim_get(fingerprint_art,nullptr));
+    save("/tmp/aera-fingerprint-sensor-symbol.png");
+    assert(!ConsumeLockSceneUnlock(lock));
+    auto* use_pin=Find(lock,"Use PIN");assert(use_pin);lv_obj_send_event(use_pin,LV_EVENT_CLICKED,nullptr);Tick();
+    assert(FindLabel(lock,"Unlock AERA"));
+    auto* prompt=FindLabel(lock,"Unlock AERA");
+    while(prompt&&lv_obj_get_user_data(prompt)!=&widgets::kModalMarker)prompt=lv_obj_get_parent(prompt);
+    assert(prompt);
+    auto* background=FindType(prompt,&lv_image_class);assert(background);
+    const auto page_bounds=Bounds(prompt),wall_bounds=Bounds(background);
+    assert(wall_bounds.x1<=page_bounds.x1&&wall_bounds.y1<=page_bounds.y1&&wall_bounds.x2>=page_bounds.x2&&wall_bounds.y2>=page_bounds.y2);
+    assert(Find(lock,"Clear"));
+    auto* number=Find(lock,"5");assert(number);
+    assert(lv_obj_get_style_radius(number,LV_PART_MAIN)==LV_RADIUS_CIRCLE);
+    for(const char* caption:{"1","2","3","4","5","6","7","8","9","0","Clear",LV_SYMBOL_BACKSPACE,"Unlock","Cancel"}) {
+      auto* key=Find(lock,caption);assert(key);
+      const auto bounds=Bounds(key);
+      lv_obj_add_state(key,LV_STATE_PRESSED);Tick(8);
+      assert(lv_obj_get_style_transform_scale_x(key,LV_PART_MAIN)==LV_SCALE_NONE);
+      assert(lv_obj_get_style_transform_scale_y(key,LV_PART_MAIN)==LV_SCALE_NONE);
+      auto* label=FindLabel(key,caption);assert(label);
+      assert(lv_obj_get_style_transform_scale_x(label,LV_PART_MAIN)==LV_SCALE_NONE);
+      assert(lv_obj_get_style_transform_scale_y(label,LV_PART_MAIN)==LV_SCALE_NONE);
+      assert(Bounds(key).x1==bounds.x1&&Bounds(key).y1==bounds.y1&&Bounds(key).x2==bounds.x2&&Bounds(key).y2==bounds.y2);
+      if(!strcmp(caption,"2"))save("/tmp/aera-screen-lock-pin-pressed.png");
+      lv_obj_remove_state(key,LV_STATE_PRESSED);Tick(8);
+    }
+    save("/tmp/aera-screen-lock-pin.png");
+    auto* field=FindType(lock,&lv_textarea_class);assert(field&&lv_textarea_get_password_mode(field));
+    assert(!ConsumeLockSceneUnlock(lock));
+    lv_textarea_set_text(field,"000000");auto* submit=Find(lock,"Unlock");assert(submit);
+    last_action=Action::kNone;lv_obj_send_event(submit,LV_EVENT_CLICKED,nullptr);
+    for(int i=0;i<30;++i){std::this_thread::sleep_for(std::chrono::milliseconds(3));Tick(2);}
+    assert(FindLabel(lock,"Incorrect credential"));assert(last_action!=Action::kUnlock);
+    lv_textarea_set_text(field,"583921");lv_obj_send_event(submit,LV_EVENT_CLICKED,nullptr);
+    for(int i=0;i<30;++i){std::this_thread::sleep_for(std::chrono::milliseconds(3));Tick(2);}
+    assert(last_action==Action::kUnlock);assert(ConsumeLockSceneUnlock(lock));assert(!ConsumeLockSceneUnlock(lock));
+    lv_obj_delete(lock);Tick();
+    // Deleting a scene with a worker in flight must discard its completion safely.
+    lock=BuildLockScene(screen,RecordAction,nullptr,false,&theme);Tick();
+    use_pin=Find(lock,"Use PIN");lv_obj_send_event(use_pin,LV_EVENT_CLICKED,nullptr);Tick();
+    field=FindType(lock,&lv_textarea_class);lv_textarea_set_text(field,"583921");
+    lv_obj_send_event(Find(lock,"Unlock"),LV_EVENT_CLICKED,nullptr);lv_obj_delete(lock);Tick(30);
+    // Fingerprint opt-in replaces every gesture choice without changing the saved theme.
+    for(bool fingerprint_enabled:{true,false})for(int gesture=0;gesture<3;++gesture) {
+      screen_lock_status.fingerprint=fingerprint_enabled;theme.unlock=gesture;
+      lock=BuildLockScene(screen,RecordAction,nullptr,false,&theme);Tick(8);
+      for(int choice=0;choice<3;++choice) {
+        const char* captions[]={"Slide to unlock","Swipe up to unlock","Hold to unlock"};
+        auto* hint=FindLabel(lock,captions[choice]);
+        if(!fingerprint_enabled&&gesture==choice)assert(hint&&lv_obj_is_visible(hint));
+        else assert(!hint);
+      }
+      assert(lv_obj_is_visible(Find(lock,"Use PIN")));
+      // AOD must also work when no gesture slider is constructed.
+      lv_obj_delete(lock);
+      lock=BuildLockScene(screen,RecordAction,nullptr,false,&theme,true);Tick(8);lv_obj_delete(lock);
+    }
+    screen_lock_status.fingerprint=true;theme.aod=true;theme.colour=2;theme.rgb=0x95cfa8;
+    for(bool aod_fingerprint:{false,true}) {
+      theme.aod_fingerprint=aod_fingerprint;
+      lock=BuildLockScene(screen,RecordAction,nullptr,false,&theme,true);Tick(8);
+      auto* art=find_fingerprint_art(find_fingerprint_art,lock);
+      if(aod_fingerprint) {
+        assert(art&&lv_obj_is_visible(art));
+        assert(lv_color_eq(lv_obj_get_style_image_recolor(art,LV_PART_MAIN),lv_color_hex(theme.rgb)));
+        assert(lv_obj_get_style_image_opa(art,LV_PART_MAIN)==LV_OPA_40);
+        assert(!lv_anim_get(art,nullptr));
+        save("/tmp/aera-fingerprint-aod.png");
+        last_action=Action::kNone;screen_fingerprint.authenticated=true;screen_grant=true;Tick(20);
+        assert(last_action==Action::kUnlock);assert(ConsumeLockSceneUnlock(lock));
+        assert(!ConsumeLockSceneUnlock(lock));screen_fingerprint.authenticated=false;
+      }else assert(!art);
+      lv_obj_delete(lock);
+    }
+    screen_lock_status={};
+    wallpaper::Clear();std::filesystem::remove(pin_wallpaper);
+    puts("AERA credential fallback, rejected attempts, one-use unlock and form lifetime passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--lock-behavior")) {
+    screen_lock_status.configured=screen_lock_status.valid=screen_lock_status.fingerprint=true;
+    screen_lock_status.kind=lock_security::Kind::Pin;
+    lock_theme.aod=lock_theme.aod_fingerprint=true;
+    auto* initial=lv_obj_create(nullptr);BuildToolScene(initial,Action::kThemeLock,RecordAction,nullptr);
+    auto* behavior=Find(initial,"Behavior");assert(behavior);
+    lv_obj_send_event(behavior,LV_EVENT_CLICKED,nullptr);lv_obj_delete(initial);
+    for(bool landscape:{false,true})for(int surface=0;surface<4;++surface) {
+      design::ApplySurfaceStyle(surface);
+      lv_display_set_resolution(display,landscape?3168:1440,landscape?1440:3168);
+      auto* page=lv_obj_create(nullptr);BuildToolScene(page,Action::kThemeLock,RecordAction,nullptr);
+      lv_screen_load(page);Tick(8);
+      auto* selected=Find(page,"Behavior");assert(selected);
+      assert(lv_obj_get_style_radius(selected,LV_PART_MAIN)==24);
+      assert(lv_color_eq(lv_obj_get_style_border_color(selected,LV_PART_MAIN),design::kAccent));
+      assert(!lv_color_eq(lv_obj_get_style_bg_color(selected,LV_PART_MAIN),design::kAccent));
+      for(const char* title:{"Always-on display","Screen lock","Fingerprint","Unlock animation","Owner text"}) {
+        auto* label=FindLabel(page,title);assert(label);auto* card=lv_obj_get_parent(label);
+        assert(lv_obj_get_style_radius(card,LV_PART_MAIN)==28);
+        assert(lv_obj_get_width(card)<=lv_obj_get_width(lv_obj_get_parent(card)));
+        assert(lv_obj_get_style_blur_backdrop(card,LV_PART_MAIN)==(surface==1));
+      }
+      for(const char* caption:{"Change to PIN","Change to password","Remove screen lock","Edit owner text"}) {
+        auto* button=Find(page,caption);assert(button);
+        assert(lv_obj_get_style_radius(button,LV_PART_MAIN)==24);
+        assert(!lv_color_eq(lv_obj_get_style_bg_color(button,LV_PART_MAIN),design::kAccent));
+      }
+      assert(!FindLabel(page,"Unlock gesture"));
+      assert(FindLabel(page,"AOD brightness"));assert(FindLabel(page,"Fingerprint on AOD"));
+      if(surface==0)save(landscape?"/tmp/aera-behavior-landscape.png":"/tmp/aera-behavior-portrait.png");
+      lv_screen_load(screen);lv_obj_delete(page);
+    }
+    design::ApplySurfaceStyle(0);screen_lock_status={};lock_theme={};
+    lv_deinit();std::filesystem::remove_all(backup_root);return 0;
+  }
   if (!strcmp(argv[1], "--lock-theme")) {
     LockTheme settings; settings.owner="AERA user's phone";settings.blur=45;
     settings.wallpaper="/sdcard/My wallpaper.png";
     assert(EncodeLockTheme(DecodeLockTheme(EncodeLockTheme(settings))) == EncodeLockTheme(settings));
     assert(DecodeLockTheme("broken").clock == 0);
+    settings.aod_fingerprint=true;
+    assert(DecodeLockTheme(EncodeLockTheme(settings)).aod_fingerprint);
+    auto old_aod_theme=EncodeLockTheme(settings);
+    old_aod_theme.erase(old_aod_theme.rfind(' '));
+    assert(!DecodeLockTheme(old_aod_theme).aod_fingerprint);
     settings.clock_size=140;
     assert(DecodeLockTheme(EncodeLockTheme(settings)).clock_size==140);
     assert(DecodeLockTheme("1 0 0 1 16777215 25 0 0 1 1 0 0 0 0 0 0 \"\" \"\"").clock_size==100);
@@ -4248,3 +4413,18 @@ bool aeraui::RecoveryAndroidAdbRescueApply(const std::string &, bool, std::strin
 bool aeraui::RecoveryAndroidAdbRescueBusy() { return false; }
 bool aeraui::RecoveryReadAdbPublicKey(const std::string &, adb_rescue::PublicKey *, std::string *) { return false; }
 std::string aeraui::RecoveryInternalStorage() { return "/data/media/0"; }
+
+namespace aeraui {
+lock_security::Status RecoveryScreenLockStatus(){auto status=screen_lock_status;status.available=true;return status;}
+lock_security::Result RecoverySetScreenLock(const std::string&,lock_security::Kind,const std::string&,const std::string&){return {true,{}};}
+lock_security::Result RecoveryRemoveScreenLock(const std::string&){return {true,{}};}
+lock_security::Result RecoverySetScreenFingerprint(const std::string&,bool){return {false,"Unavailable"};}
+uint64_t RecoveryBeginScreenLock(bool){screen_grant=false;return ++screen_generation;}
+void RecoveryEndScreenLock(uint64_t token,bool){if(token==screen_generation){++screen_generation;screen_grant=false;}}
+lock_security::Result RecoveryVerifyScreenLock(uint64_t token,const std::string& secret){if(token==screen_generation && secret=="583921"){screen_grant=true;return {true,{}};}return {false,"Incorrect credential"};}
+bool RecoveryConsumeScreenUnlock(uint64_t token){if(token!=screen_generation||(screen_lock_status.configured&&!screen_grant))return false;screen_grant=false;++screen_generation;return true;}
+void RecoveryPrepareScreenFingerprint(){}
+void RecoveryShutdownScreenFingerprint(){}
+ScreenFingerprint RecoveryPollScreenFingerprint(uint64_t token){return token==screen_generation?screen_fingerprint:ScreenFingerprint{};}
+void RecoveryScreenFingerprintTouch(uint64_t,bool,int,int){}
+}

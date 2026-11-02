@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include "aeraui/lock_theme.hpp"
+#include "aeraui/screen_lock.hpp"
 #include "aeraui/home_layout.hpp"
 #include "aeraui/kernel_settings.hpp"
 #include "aeraui/fonts.hpp"

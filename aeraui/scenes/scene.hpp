@@ -16,6 +16,9 @@
 namespace aeraui {
 
 using ActionCallback = void (*)(Action action, void *context);
+bool ConsumeLockSceneUnlock(lv_obj_t* scene);
+bool LockSceneProtected(lv_obj_t* scene);
+void SuspendLockScene(lv_obj_t* scene, bool keep_sensor_warm = false);
 
 struct OperationScene {
   lv_obj_t *status = nullptr;
@@ -189,7 +192,7 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
                                bool file_based, int user_id,
                                int pattern_grid_size,
                                ActionCallback callback, void *context,
-                               const std::string &user_name = {});
+                               const std::string &user_name = {}, bool screen_lock = false);
 std::string GetDecryptCredential(const DecryptScene &scene);
 void SetDecryptBusy(const DecryptScene &scene);
 void CompleteDecryptAttempt(const DecryptScene &scene, bool success);

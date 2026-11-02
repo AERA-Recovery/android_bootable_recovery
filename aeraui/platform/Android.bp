@@ -36,6 +36,7 @@ cc_library_static {
     ],
     srcs: [
         "aera_backend.cpp",
+        "screen_lock.cpp",
         "aera_log.cpp",
         "aera_message.cpp",
         "aera_screen_timer.cpp",

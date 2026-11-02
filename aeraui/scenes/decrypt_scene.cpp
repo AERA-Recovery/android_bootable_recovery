@@ -30,6 +30,7 @@ struct DecryptState {
   ActionCallback callback = nullptr;
   void *context = nullptr;
   int credential_type = 0;
+  bool screen_lock = false;
   int grid_size = 3;
   lv_obj_t *input = nullptr;
   lv_obj_t *status = nullptr;
@@ -216,7 +217,9 @@ lv_obj_t *MakeButton(lv_obj_t *parent, const char *text, lv_color_t fill,
   lv_obj_set_style_bg_color(button, fill, 0);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(button, 0, 0);
-  lv_obj_set_style_transform_scale(button, 252, LV_STATE_PRESSED);
+  // Fixed geometry avoids transformed off-screen layers clipping rounded keys.
+  lv_obj_set_style_transform_scale(button, LV_SCALE_NONE, LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(button, lv_color_mix(fill, kAccent, 192), LV_STATE_PRESSED);
   lv_obj_t *label = Label(button, text, &lv_font_montserrat_32, foreground);
   lv_obj_center(label);
   return button;
@@ -378,8 +381,7 @@ void MakePinPad(DecryptState *state, lv_obj_t *panel) {
       LV_SYMBOL_BACKSPACE};
   constexpr std::array<uintptr_t, 12> keys{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 11};
   static const lv_style_prop_t press_properties[] = {
-      LV_STYLE_BG_COLOR, LV_STYLE_TRANSFORM_SCALE_X,
-      LV_STYLE_TRANSFORM_SCALE_Y, LV_STYLE_PROP_INV};
+      LV_STYLE_BG_COLOR, LV_STYLE_PROP_INV};
   static lv_style_transition_dsc_t press_transition;
   lv_style_transition_dsc_init(&press_transition, press_properties,
                                lv_anim_path_ease_out, 110, 0, nullptr);
@@ -394,14 +396,17 @@ void MakePinPad(DecryptState *state, lv_obj_t *panel) {
     lv_obj_set_size(key, 224, 224);
     lv_obj_set_style_radius(key, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(key, kAccentSoft, LV_STATE_PRESSED);
-    lv_obj_set_style_transform_scale(key, 238, LV_STATE_PRESSED);
     lv_obj_set_style_transition(key, &press_transition, 0);
     lv_obj_set_style_border_width(key, 0, 0);
     lv_obj_set_style_text_font(lv_obj_get_child(key, 0),
                                UiFont(i == 9 ? &lv_font_montserrat_32
                                              : &lv_font_montserrat_48), 0);
-    if (!utility)
-      lv_obj_set_style_transform_scale(lv_obj_get_child(key, 0), 352, 0);
+    if (!utility) {
+      // Render digits at their displayed size instead of scaling a label layer.
+      lv_obj_set_style_text_font(lv_obj_get_child(key, 0),
+                                 fonts::DisplayFont(kInterfaceSize == 0 ? 55 : 66), 0);
+      lv_obj_center(lv_obj_get_child(key, 0));
+    }
     lv_obj_set_user_data(key, reinterpret_cast<void *>(keys[i]));
     lv_obj_add_event_cb(key, PinKeyPressed, LV_EVENT_CLICKED, state);
   }
@@ -417,7 +422,7 @@ void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
   lv_textarea_set_text(state->input, "");
   lv_textarea_set_placeholder_text(state->input,
                                    i18n::Translate(pin ? "Enter PIN" : "Enter password"));
-  lv_textarea_set_max_length(state->input, 128);
+  lv_textarea_set_max_length(state->input, state->screen_lock && pin ? 16 : 128);
   if (pin) lv_textarea_set_accepted_chars(state->input, "0123456789");
   lv_obj_set_style_text_font(state->input, UiFont(&lv_font_montserrat_32), 0);
   lv_obj_set_style_text_color(state->input, kText, 0);
@@ -458,7 +463,7 @@ void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
 void RefreshDecryptLanguage(DecryptState *state) {
   const std::string target = state->user_name.empty()
       ? i18n::Format("Android user %d", state->user_id) : state->user_name;
-  const std::string title = state->secondary
+  const std::string title = state->screen_lock ? i18n::Translate("Unlock AERA") : state->secondary
       ? i18n::Format("Unlock %s", target.c_str())
       : i18n::Translate("Unlock your storage");
   lv_label_set_text(state->title, title.c_str());
@@ -535,8 +540,9 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
                                bool file_based, int user_id,
                                int pattern_grid_size,
                                ActionCallback callback, void *context,
-                               const std::string &user_name) {
+                               const std::string &user_name, bool screen_lock) {
   auto *state = new DecryptState;
+  state->screen_lock = screen_lock;
   state->callback = callback;
   state->context = context;
   state->credential_type = credential_type;
@@ -554,6 +560,7 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   lv_obj_set_size(state->language_button, 420, 100);
   lv_obj_align(state->language_button, LV_ALIGN_TOP_RIGHT, -80, 172);
 
+  if(screen_lock)lv_obj_add_flag(state->language_button,LV_OBJ_FLAG_HIDDEN);
   (void)file_based;
   const bool pin = credential_type == 3;
 
@@ -600,7 +607,7 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   const std::string target = user_name.empty()
       ? i18n::Format("Android user %d", user_id)
       : user_name;
-  const std::string title_text = state->secondary
+  const std::string title_text = state->screen_lock ? i18n::Translate("Unlock AERA") : state->secondary
       ? i18n::Format("Unlock %s", target.c_str())
       : i18n::Translate("Unlock your storage");
   lv_obj_t *title =
@@ -611,6 +618,7 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 584);
   lv_obj_t *subtitle = Label(
       screen,
+      state->screen_lock ? "Use your AERA PIN to continue." :
       pin ? "Use your phone's PIN to continue." :
       (credential_type == 2 ? "Draw your phone's unlock pattern." :
                               "Use your phone's password to continue."),
@@ -637,7 +645,7 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
     MakeKeyboard(state, panel, credential_type == 3);
 
   state->submit =
-      MakeButton(panel, state->secondary ? "Unlock user" : "Unlock storage", kAccent, kCanvas);
+      MakeButton(panel, state->screen_lock ? "Unlock" : state->secondary ? "Unlock user" : "Unlock storage", kAccent, kCanvas);
   lv_obj_set_pos(state->submit, 86, pin ? 1510 : 1818);
   lv_obj_set_size(state->submit, 1012, 142);
   lv_obj_set_style_radius(state->submit, 71, 0);
@@ -650,7 +658,7 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
                i18n::IsRightToLeft() ? 44 : -44, 0);
   Bind(state->submit, Action::kDecryptSubmit, state);
 
-  lv_obj_t *skip = MakeButton(panel, "Skip for now", kCanvas,
+  lv_obj_t *skip = MakeButton(panel, state->screen_lock ? "Cancel" : "Skip for now", kCanvas,
                               kMutedStrong);
   lv_obj_set_style_bg_opa(skip, LV_OPA_TRANSP, 0);
   lv_obj_set_pos(skip, 86, pin ? 1690 : 1990);
@@ -659,6 +667,7 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
 
   lv_obj_t *hint = Label(
       screen,
+      state->screen_lock ? "Your recovery session stays locked until you unlock it." :
       state->secondary ? "This user remains locked until you unlock it."
                        : "Skipping keeps internal storage locked.",
       &lv_font_montserrat_24, kDim);
@@ -690,10 +699,10 @@ void SetDecryptBusy(const DecryptScene &scene) {
   state->busy = true;
   if (state->language_button) lv_obj_add_state(state->language_button, LV_STATE_DISABLED);
   if (state->language_picker) lv_obj_delete_async(state->language_picker);
-  i18n::BindLabel(state->status, state->secondary
+  i18n::BindLabel(state->status, state->screen_lock ? "Checking PIN..." : state->secondary
                                        ? "Unlocking Android user..."
                                        : "Unlocking and preparing /data...");
-  i18n::BindLabel(state->submit_label, "Unlocking...");
+  i18n::BindLabel(state->submit_label, state->screen_lock ? "Checking..." : "Unlocking...");
   lv_obj_add_state(state->submit, LV_STATE_DISABLED);
   if (state->keyboard != nullptr) lv_obj_add_state(state->keyboard, LV_STATE_DISABLED);
   for (auto *button : state->grid_buttons)
@@ -704,7 +713,7 @@ void CompleteDecryptAttempt(const DecryptScene &scene, bool success) {
   auto *state = static_cast<DecryptState *>(scene.state);
   if (state == nullptr) return;
   if (success) {
-    i18n::BindLabel(state->status, state->secondary
+    i18n::BindLabel(state->status, state->screen_lock ? "AERA unlocked" : state->secondary
                                          ? "Android user unlocked"
                                          : "Data unlocked successfully");
     lv_obj_set_style_text_color(state->status, kGreen, 0);
@@ -714,7 +723,7 @@ void CompleteDecryptAttempt(const DecryptScene &scene, bool success) {
   state->submit_pending = false;
   if (state->language_button) lv_obj_remove_state(state->language_button, LV_STATE_DISABLED);
   i18n::BindLabel(state->status,
-                    state->secondary
+                    state->screen_lock ? "Incorrect AERA PIN. Try again." : state->secondary
                         ? "That credential did not unlock this user. Please try again."
                         : "That credential did not unlock data. Please try again.");
   lv_obj_set_style_text_color(state->status, kRed, 0);

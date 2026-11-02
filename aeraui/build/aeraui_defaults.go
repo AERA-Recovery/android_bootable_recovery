@@ -54,10 +54,19 @@ func aeraEfispFlags(ctx android.BaseContext) []string {
 	return []string{"-DAERA_ENABLE_EFISP=" + value}
 }
 
+func aeraFingerprintFlags(ctx android.BaseContext) []string {
+	value := "0"
+	if getMakeVars(ctx, "AERA_SUPPORT_FINGERPRINT") == "1" {
+		value = "1"
+	}
+	return []string{"-DAERA_SUPPORT_FINGERPRINT=" + value}
+}
+
 func globalFlags(ctx android.BaseContext) []string {
 	cflags := aeraRootManagerFlags(ctx)
 	cflags = append(cflags, aeraMobileDataFlags(ctx)...)
 	cflags = append(cflags, aeraEfispFlags(ctx)...)
+	cflags = append(cflags, aeraFingerprintFlags(ctx)...)
 	if getMakeVars(ctx, "AB_OTA_UPDATER") == "true" {
 		cflags = append(cflags, "-DAB_OTA_UPDATER=1")
 	}
@@ -137,7 +146,8 @@ func aeraHostDefaultsFactory() android.Module {
 func aeraUiDefaults(ctx android.BaseContext) []string {
 	flags := append(aeraUiLanguageFlags(ctx), aeraRootManagerFlags(ctx)...)
 	flags = append(flags, aeraMobileDataFlags(ctx)...)
-	return append(flags, aeraEfispFlags(ctx)...)
+	flags = append(flags, aeraEfispFlags(ctx)...)
+	return append(flags, aeraFingerprintFlags(ctx)...)
 }
 
 func aeraUiDefaultsFactory() android.Module {

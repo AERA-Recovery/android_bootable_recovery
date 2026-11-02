@@ -34,7 +34,7 @@ add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp telegram_session
   ../features/artillery/game.cpp ../components/aera_logo.cpp
   ../components/matrix_engraving.cpp
   ../scenes/home_scene.cpp ../features/files/file_manager.cpp
-  ../components/text_edit.cpp
+  ../components/text_edit.cpp ../components/lock_credential.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
   ../localization/catalog/catalog.cpp
   ../localization/catalog/catalog_generated.cpp
@@ -555,3 +555,10 @@ target_include_directories(lock_security_test PRIVATE ../include)
 target_compile_options(lock_security_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(lock_security_test PRIVATE OpenSSL::Crypto Threads::Threads)
 add_test(NAME own_screen_lock_credentials COMMAND lock_security_test)
+
+add_test(NAME screen_lock_credential_ui COMMAND ui_check --screen-lock)
+
+target_compile_definitions(ui_check PRIVATE AERA_SUPPORT_FINGERPRINT=1)
+
+
+add_test(NAME lock_behavior_cards COMMAND ui_check --lock-behavior)

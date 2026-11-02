@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 AERA Recovery Project contributors
  * SPDX-License-Identifier: Apache-2.0 */
 #include "scene.hpp"
+#include "lock_credential.hpp"
 #include "aeraui/screen_timeout.hpp"
 #include "phone_keyboard.hpp"
 #include "picture_decode.hpp"
@@ -1824,15 +1825,19 @@ lv_obj_t *ThemeColorChoice(lv_obj_t *parent, const char *name, bool selected,
 
 void ThemeRange(Tools *state, lv_obj_t *parent, const char *title, int value,
                  int minimum, int maximum,
-                 std::function<void(int, bool)> change) {
+                 std::function<void(int, bool)> change, bool framed = true) {
   auto *section = lv_obj_create(parent);
   Clear(section);
-  Panel(section, 28, kMainSheet);
-  lv_obj_set_style_border_width(section, 1, 0);
-  lv_obj_set_style_border_color(section, kMainLine, 0);
-  lv_obj_set_style_border_opa(section, LV_OPA_30, 0);
+  if (framed) {
+    Panel(section, 28, kMainSheet);
+    lv_obj_set_style_border_width(section, 1, 0);
+    lv_obj_set_style_border_color(section, kMainLine, 0);
+    lv_obj_set_style_border_opa(section, LV_OPA_30, 0);
+  }
   PreferenceColumn(section, 34);
-  lv_obj_set_style_pad_all(section, 28, 0);
+  // Keep the knob's drawing extents inside its container, including when
+  // embedded without a separate surface in the always-on display card.
+  lv_obj_set_style_pad_all(section,28,0);
   auto *heading = lv_obj_create(section);
   Clear(heading);
   lv_obj_set_size(heading, LV_PCT(100), LV_SIZE_CONTENT);
@@ -2554,7 +2559,13 @@ void BuildThemeLock(Tools *state) {
       selected_lock_tab = i;
       theme_scroll_positions[Action::kThemeLock] = 0;
       Open(state, Action::kThemeLock);
-    }, i == state->lock_tab);
+    });
+    ThemeSurfaceCard(tab);
+    lv_obj_set_style_transform_scale(tab,LV_SCALE_NONE,LV_STATE_PRESSED);
+    lv_obj_set_style_radius(tab,24,0);
+    lv_obj_set_style_border_color(tab,i==state->lock_tab?kAccent:kMainLine,0);
+    lv_obj_set_style_border_width(tab,i==state->lock_tab?3:1,0);
+    lv_obj_set_style_border_opa(tab,i==state->lock_tab?LV_OPA_COVER:LV_OPA_30,0);
     lv_obj_set_size(tab, 0, 104);
     lv_obj_set_flex_grow(tab, 1);
     lv_obj_update_layout(tab);
@@ -2572,6 +2583,11 @@ void BuildThemeLock(Tools *state) {
   auto choices = [state, editor](const char *title, int LockTheme::*member,
                                   std::initializer_list<const char *> names) {
     auto *group = ThemeGroup(state->list, title);
+    if(state->lock_tab==3) {
+      auto* card=lv_obj_get_parent(group);
+      ThemeSurfaceCard(card,false);
+      lv_obj_set_style_pad_all(card,28,0);
+    }
     int index = 0;
     for (const auto *name : names) {
       const int value = index++;
@@ -2652,21 +2668,106 @@ void BuildThemeLock(Tools *state) {
     range("Wallpaper dimming", &LockTheme::dim, 0, 90);
     range("Wallpaper blur", &LockTheme::blur, 0, 100);
   } else {
-    auto *row = PreferenceEntry(state, LV_SYMBOL_EYE_OPEN, "Always-on clock",
-        i18n::Translate("Dim clock on black. Uses more power than screen off. Wake with Power."), {}, true);
-    auto *toggle = lv_switch_create(row);
-    StyleSwitch(toggle, editor->theme.aod);
-    OnClick(row, [editor, state] {
-      editor->theme.aod = !editor->theme.aod;
-      editor->Save();
-      RefreshTheme(state);
+    const auto status=RecoveryScreenLockStatus();
+    auto card=[state](const char* title) {
+      auto* panel=lv_obj_create(state->list);
+      ThemeSurfaceCard(panel,false);
+      PreferenceColumn(panel,24);
+      lv_obj_set_style_pad_all(panel,28,0);
+      auto* heading=Label(panel,title,&lv_font_montserrat_32,kAccent);
+      lv_obj_set_width(heading,LV_PCT(100));lv_label_set_long_mode(heading,LV_LABEL_LONG_WRAP);
+      return panel;
+    };
+    auto copy=[](lv_obj_t* parent,const char* text) {
+      auto* label=Label(parent,text,&lv_font_montserrat_24,kMuted);
+      lv_obj_set_width(label,LV_PCT(100));lv_label_set_long_mode(label,LV_LABEL_LONG_WRAP);
+    };
+    auto toggle_row=[](lv_obj_t* parent,const char* title,const char* description,
+                       bool checked,bool available,Handler action) {
+      auto* row=lv_button_create(parent);Clear(row);
+      lv_obj_set_width(row,LV_PCT(100));lv_obj_set_height(row,LV_SIZE_CONTENT);
+      lv_obj_set_style_min_height(row,112,0);lv_obj_set_style_radius(row,20,0);
+      lv_obj_set_style_pad_all(row,8,0);lv_obj_set_style_pad_column(row,28,0);
+      lv_obj_set_style_transform_scale(row,LV_SCALE_NONE,LV_STATE_PRESSED);
+      lv_obj_set_flex_flow(row,LV_FLEX_FLOW_ROW);
+      lv_obj_set_flex_align(row,LV_FLEX_ALIGN_START,LV_FLEX_ALIGN_CENTER,LV_FLEX_ALIGN_CENTER);
+      auto* text=lv_obj_create(row);Clear(text);lv_obj_remove_flag(text,LV_OBJ_FLAG_CLICKABLE);
+      PreferenceColumn(text,10);lv_obj_set_width(text,0);lv_obj_set_flex_grow(text,1);
+      auto* heading=Label(text,title,&lv_font_montserrat_32,kText);
+      lv_obj_set_width(heading,LV_PCT(100));lv_label_set_long_mode(heading,LV_LABEL_LONG_WRAP);
+      auto* detail=Label(text,description,&lv_font_montserrat_24,kMuted);
+      lv_obj_set_width(detail,LV_PCT(100));lv_label_set_long_mode(detail,LV_LABEL_LONG_WRAP);
+      StyleSwitch(lv_switch_create(row),checked);
+      if(available)OnClick(row,std::move(action));else lv_obj_add_state(row,LV_STATE_DISABLED);
+    };
+    auto action_button=[](lv_obj_t* parent,const char* label,Handler action,bool available=true) {
+      auto* button=Button(parent,label,std::move(action));
+      ThemeSurfaceCard(button);lv_obj_set_style_radius(button,24,0);
+      lv_obj_set_style_transform_scale(button,LV_SCALE_NONE,LV_STATE_PRESSED);
+      lv_obj_set_size(button,LV_PCT(100),112);
+      if(!available)lv_obj_add_state(button,LV_STATE_DISABLED);
+      return button;
+    };
+
+    auto* ambient=card("Always-on display");
+    toggle_row(ambient,"Always-on clock","Dim clock on black when the screen is off.",
+        editor->theme.aod,true,[editor,state]{
+      editor->theme.aod=!editor->theme.aod;editor->Save();RefreshTheme(state);
     });
-    if (editor->theme.aod) range("AOD brightness", &LockTheme::aod_brightness, 1, 100);
-    choices("Unlock gesture", &LockTheme::unlock, {"Slider", "Swipe up", "Hold"});
-    choices("Slide / hold unlock animation", &LockTheme::animation, {"None", "Fade"});
-    auto *owner = Button(state->list, "Edit owner text", [editor] { EditLockText(editor, false); });
-    lv_obj_set_size(owner, LV_PCT(100), 124);
+    if(editor->theme.aod) {
+      ThemeRange(state,ambient,"AOD brightness",editor->theme.aod_brightness,1,100,
+          [editor](int value,bool save){
+        editor->theme.aod_brightness=value;editor->Refresh();
+        if(save)RecoverySetLockTheme(editor->theme);
+      },false);
+      if(kFingerprintSupported) {
+        toggle_row(ambient,"Fingerprint on AOD","Unlock directly from the always-on clock.",
+            editor->theme.aod_fingerprint,status.valid&&status.fingerprint,[editor,state]{
+          editor->theme.aod_fingerprint=!editor->theme.aod_fingerprint;
+          editor->Save();RefreshTheme(state);
+        });
+      }
+    }
+
+    auto* security=card("Screen lock");
+    copy(security,status.available?(status.configured?
+        (status.kind==lock_security::Kind::Pin?"AERA PIN enabled":"AERA password enabled"):
+        "No PIN or password configured"):status.error.c_str());
+    auto* actions=lv_obj_create(security);Clear(actions);
+    lv_obj_set_size(actions,LV_PCT(100),LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(actions,LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_column(actions,18,0);lv_obj_set_style_pad_row(actions,18,0);
+    auto security_action=[state,actions,&status,&action_button](const char* label,LockCredentialAction action) {
+      auto* button=action_button(actions,label,[state,action]{
+        OpenLockCredential(state->screen,action,[state]{RefreshTheme(state);});
+      },status.available);
+      lv_obj_set_width(button,LV_PCT(49));
+    };
+    security_action(status.configured?"Change to PIN":"Set PIN",LockCredentialAction::SetPin);
+    security_action(status.configured?"Change to password":"Set password",LockCredentialAction::SetPassword);
+    if(status.configured) {
+      auto* remove=action_button(security,"Remove screen lock",[state]{
+        OpenLockCredential(state->screen,LockCredentialAction::Remove,[state]{RefreshTheme(state);});
+      },status.available);
+      lv_obj_set_style_text_color(lv_obj_get_child(remove,0),kRed,0);
+    }
+    if(kFingerprintSupported) {
+      auto* fingerprint=card("Fingerprint");
+      toggle_row(fingerprint,"Fingerprint unlock","Use a fingerprint already enrolled in Android.",
+          status.fingerprint,status.available&&status.valid,[state,status]{
+        OpenLockCredential(state->screen,status.fingerprint?LockCredentialAction::DisableFingerprint:
+            LockCredentialAction::EnableFingerprint,[state]{RefreshTheme(state);});
+      });
+      if(!status.valid)copy(fingerprint,"Set an AERA PIN or password to enable fingerprint unlock.");
+    }
+    if(!kFingerprintSupported||!status.fingerprint)
+      choices("Unlock gesture",&LockTheme::unlock,{"Slider","Swipe up","Hold"});
+    choices("Unlock animation",&LockTheme::animation,{"None","Fade"});
+    auto* owner=card("Owner text");
+    copy(owner,editor->theme.owner.empty()?"Add a name or message to your lock screen.":editor->theme.owner.c_str());
+    action_button(owner,"Edit owner text",[editor]{EditLockText(editor,false);});
   }
+
   ThemeReset(state, ThemeSection::kLock);
   RestoreThemeScroll(state);
 }
