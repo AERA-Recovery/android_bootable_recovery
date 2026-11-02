@@ -293,6 +293,12 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
     if (event.type == EV_ABS) {
         if (hardware.screen_off) {
             engine.TrackPointerContact(event.code>=2?1:0,event.code==1||event.code==3);
+            PointerEvent pointer;
+            pointer.x=event.value>>16;
+            pointer.y=event.value&0xffff;
+            pointer.slot=event.code>=2?1:0;
+            pointer.pressed=event.code==1||event.code==3;
+            engine.SetAmbientFingerprintPointer(pointer);
             return false;
         }
         performance.Boost();

@@ -30,6 +30,7 @@ struct LockState {
   uint64_t security_generation=0;
   bool credential_required=false, authenticated=false, fingerprint_pulsing=false, fingerprint_enabled=false;
   bool fingerprint_pressed=false;
+  bool optical_fingerprint=false;
   ActionCallback callback{}; void *context{};
   LockTheme theme;
   int w{}, h{}, travel{}, offset{}, origin{}, origin_y{};
@@ -243,6 +244,7 @@ void Unlock(LockState *s) {
 void RefreshFingerprint(LockState* state) {
   if(state->unlocking)return;
   const auto fp=RecoveryPollScreenFingerprint(state->security_generation);
+  state->optical_fingerprint=fp.illumination;
   if(fp.radius>0&&fp.display_width>0&&fp.display_height>0) {
     const int x=fp.x*state->w/std::max(1,fp.display_width),y=fp.y*state->h/std::max(1,fp.display_height);
     const int sensor_diameter=2*fp.radius*state->w/std::max(1,fp.display_width);
@@ -492,6 +494,26 @@ bool LockSceneProtected(lv_obj_t* scene) {
   if(!scene)return false;
   auto* state=static_cast<LockState*>(lv_obj_get_user_data(scene));
   return state&&!state->preview&&(state->credential_required||RecoveryScreenLockStatus().configured);
+}
+bool LockSceneAmbientFingerprintTouch(lv_obj_t* scene,int x,int y,bool down) {
+  if(!scene)return false;
+  auto* state=static_cast<LockState*>(lv_obj_get_user_data(scene));
+  if(!state||state->preview||!state->ambient||!state->fingerprint_enabled||
+      !state->theme.aod_fingerprint||!state->optical_fingerprint||state->unlocking||!state->fingerprint_icon)return false;
+  const auto fp=RecoveryPollScreenFingerprint(state->security_generation);
+  if(!fp.illumination)return false;
+  lv_obj_update_layout(state->fingerprint_icon);
+  lv_area_t area{};lv_obj_get_coords(state->fingerprint_icon,&area);
+  const int64_t dx=x-(area.x1+area.x2)/2,dy=y-(area.y1+area.y2)/2;
+  const int64_t radius=std::min(lv_area_get_width(&area),lv_area_get_height(&area))/2;
+  const bool inside=radius>0&&dx*dx+dy*dy<=radius*radius;
+  const bool pressed=down&&inside&&fp.ready;
+  if(!pressed&&!state->fingerprint_pressed)return false;
+  if(pressed==state->fingerprint_pressed)return true;
+  state->fingerprint_pressed=pressed;
+  RefreshFingerprint(state);
+  RecoveryScreenFingerprintTouch(state->security_generation,pressed,fp.x,fp.y);
+  return true;
 }
 void SuspendLockScene(lv_obj_t* scene,bool keep_sensor_warm) {
   if(!scene)return;

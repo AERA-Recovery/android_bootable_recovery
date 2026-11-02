@@ -958,6 +958,16 @@ public:
   void TrackPointerContact(int slot,bool pressed) {
     unlock_touch_gate_.Observe(slot,pressed);
   }
+  void SetAmbientFingerprintPointer(const PointerEvent& event) {
+    if(event.slot!=0||suspended_||!lock_overlay_||!lock_ambient_||unlock_touch_gate_.Blocked())return;
+    const int32_t x=transform_.ToLogicalX(event.x),y=transform_.ToLogicalY(event.y);
+    int32_t visible_x=x,visible_y=y;
+    if(landscape_) {
+      visible_x=gpu_accelerated_?y:height_-y-1;
+      visible_y=gpu_accelerated_?width_-x-1:x;
+    }
+    LockSceneAmbientFingerprintTouch(lock_overlay_,visible_x,visible_y,event.pressed);
+  }
   void SetPointer(const PointerEvent &event) {
     if(unlock_touch_gate_.Filter(event.slot,event.pressed)) {
       pointer_.pressed=false;
@@ -4296,6 +4306,7 @@ DecryptionCompletion Engine::TakeDecryptionCompletion() {
 }
 void Engine::SetPointer(const PointerEvent &event) { impl_->SetPointer(event); }
 void Engine::TrackPointerContact(int slot,bool pressed) { impl_->TrackPointerContact(slot,pressed); }
+void Engine::SetAmbientFingerprintPointer(const PointerEvent& event) { impl_->SetAmbientFingerprintPointer(event); }
 void Engine::SetMouseConnected(bool connected) { impl_->SetMouseConnected(connected); }
 void Engine::MouseMove(int dx, int dy) { impl_->MouseMove(dx, dy); }
 void Engine::MouseButton(bool pressed, int button) { impl_->MouseButton(pressed, button); }

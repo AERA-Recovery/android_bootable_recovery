@@ -19,6 +19,8 @@ using ActionCallback = void (*)(Action action, void *context);
 bool ConsumeLockSceneUnlock(lv_obj_t* scene);
 bool LockSceneProtected(lv_obj_t* scene);
 void SuspendLockScene(lv_obj_t* scene, bool keep_sensor_warm = false);
+// AOD forwards only optical-sensor contacts, never ordinary UI input.
+bool LockSceneAmbientFingerprintTouch(lv_obj_t* scene, int x, int y, bool down);
 
 struct OperationScene {
   lv_obj_t *status = nullptr;

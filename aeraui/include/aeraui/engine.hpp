@@ -159,6 +159,7 @@ class Engine final {
     void SetPointer(const PointerEvent& event);
     // Observe contacts even when AOD suppresses ordinary UI input.
     void TrackPointerContact(int slot, bool pressed);
+    void SetAmbientFingerprintPointer(const PointerEvent& event);
     void SetMouseConnected(bool connected);
     void MouseMove(int dx, int dy);
     void MouseButton(bool pressed, int button = 1);

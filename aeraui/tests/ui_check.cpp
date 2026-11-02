@@ -1783,6 +1783,7 @@ int main(int argc,char **argv) {
         assert(lv_color_eq(lv_obj_get_style_image_recolor(art,LV_PART_MAIN),lv_color_hex(theme.rgb)));
         assert(lv_obj_get_style_image_opa(art,LV_PART_MAIN)==LV_OPA_40);
         assert(!lv_anim_get(art,nullptr));
+        assert(!LockSceneAmbientFingerprintTouch(lock,720,2361,true));
         save("/tmp/aera-fingerprint-aod.png");
         last_action=Action::kNone;screen_fingerprint.authenticated=true;screen_grant=true;Tick(20);
         assert(last_action==Action::kUnlock);assert(ConsumeLockSceneUnlock(lock));
@@ -1790,6 +1791,28 @@ int main(int argc,char **argv) {
       }else assert(!art);
       lv_obj_delete(lock);
     }
+    // AOD accepts only an opted-in optical sensor, without enabling other UI.
+    screen_fingerprint.illumination=true;
+    for(int width:{1440,1080}) {
+      lv_display_set_resolution(display,width,width*3168/1440);
+      lock=BuildLockScene(screen,RecordAction,nullptr,false,&theme,true);Tick(8);
+      auto* art=find_fingerprint_art(find_fingerprint_art,lock);assert(art);
+      auto* sensor=lv_obj_get_parent(art);
+      assert(!lv_obj_has_flag(sensor,LV_OBJ_FLAG_CLICKABLE));
+      const auto bounds=Bounds(sensor);
+      const int x=(bounds.x1+bounds.x2)/2,y=(bounds.y1+bounds.y2)/2;
+      assert(!LockSceneAmbientFingerprintTouch(lock,0,0,true));
+      assert(lv_obj_get_style_bg_opa(sensor,LV_PART_MAIN)==LV_OPA_TRANSP);
+      assert(LockSceneAmbientFingerprintTouch(lock,x,y,true));
+      assert(lv_obj_get_style_bg_opa(sensor,LV_PART_MAIN)==LV_OPA_COVER);
+      assert(lv_obj_get_style_image_opa(art,LV_PART_MAIN)==LV_OPA_TRANSP);
+      assert(LockSceneAmbientFingerprintTouch(lock,0,0,false));
+      assert(lv_obj_get_style_bg_opa(sensor,LV_PART_MAIN)==LV_OPA_TRANSP);
+      assert(!LockSceneAmbientFingerprintTouch(lock,0,0,true));
+      lv_obj_delete(lock);
+    }
+    lv_display_set_resolution(display,1440,3168);
+    screen_fingerprint.illumination=false;
     screen_lock_status={};
     wallpaper::Clear();std::filesystem::remove(pin_wallpaper);
     puts("AERA credential fallback, rejected attempts, one-use unlock and form lifetime passed");
