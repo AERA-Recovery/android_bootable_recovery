@@ -11,6 +11,7 @@
 #include "plugin_desktop.hpp"
 #include "usb_attachment.hpp"
 #include "screenshot_flash.hpp"
+#include "unlock_touch_gate.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
 
 #include <algorithm>
@@ -489,6 +490,7 @@ public:
     navigating_back_ = false;
     lock_overlay_ = nullptr;
     authenticated_wake_ = false;
+    unlock_touch_gate_={};
     power_overlay_ = nullptr;
     volume_overlay_ = nullptr;
     notice_overlay_ = nullptr;
@@ -953,7 +955,15 @@ public:
     }
   }
 
+  void TrackPointerContact(int slot,bool pressed) {
+    unlock_touch_gate_.Observe(slot,pressed);
+  }
   void SetPointer(const PointerEvent &event) {
+    if(unlock_touch_gate_.Filter(event.slot,event.pressed)) {
+      pointer_.pressed=false;
+      if(!unlock_touch_gate_.Blocked()&&pointer_device_)lv_indev_read(pointer_device_);
+      return;
+    }
     if (event.pressed) hardware_keyboard::ClearFocus();
     const int32_t logical_x = transform_.ToLogicalX(event.x);
     const int32_t logical_y = transform_.ToLogicalY(event.y);
@@ -2596,6 +2606,7 @@ private:
       if (self->lock_overlay_ != nullptr && ConsumeLockSceneUnlock(self->lock_overlay_)) {
         // The scanning finger can still be down when the next page appears.
         // Reset LVGL's pressed target and swallow that contact through release.
+        self->unlock_touch_gate_.Arm();
         self->pointer_.pressed=false;
         self->pointer_release_on_read_=false;
         self->slot0_down_=false;
@@ -4057,7 +4068,7 @@ private:
       data->point.x = self->pointer_.x;
       data->point.y = self->pointer_.y;
     }
-    data->state = self->pointer_.pressed && !self->edge_contact_captured_
+    data->state = self->pointer_.pressed && !self->edge_contact_captured_ && !self->unlock_touch_gate_.Blocked()
         ? LV_INDEV_STATE_PRESSED
         : LV_INDEV_STATE_RELEASED;
     if (self->pointer_release_on_read_) {
@@ -4123,6 +4134,7 @@ private:
   uint32_t last_pc_poll_ = 0, last_pc_platform_refresh_ = 0, last_pc_cleanup_ = 0;
   uint32_t last_pc_start_attempt_ = 0;
   PointerEvent pointer_{};
+  UnlockTouchGate unlock_touch_gate_;
   OperationScene operation_scene_{};
   DecryptScene decrypt_scene_{};
   WifiScene wifi_scene_{};
@@ -4283,6 +4295,7 @@ DecryptionCompletion Engine::TakeDecryptionCompletion() {
   return impl_->TakeDecryptionCompletion();
 }
 void Engine::SetPointer(const PointerEvent &event) { impl_->SetPointer(event); }
+void Engine::TrackPointerContact(int slot,bool pressed) { impl_->TrackPointerContact(slot,pressed); }
 void Engine::SetMouseConnected(bool connected) { impl_->SetMouseConnected(connected); }
 void Engine::MouseMove(int dx, int dy) { impl_->MouseMove(dx, dy); }
 void Engine::MouseButton(bool pressed, int button) { impl_->MouseButton(pressed, button); }

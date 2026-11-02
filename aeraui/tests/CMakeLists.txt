@@ -560,5 +560,10 @@ add_test(NAME screen_lock_credential_ui COMMAND ui_check --screen-lock)
 
 target_compile_definitions(ui_check PRIVATE AERA_SUPPORT_FINGERPRINT=1)
 
+add_executable(unlock_touch_gate_test unlock_touch_gate_test.cpp)
+target_include_directories(unlock_touch_gate_test PRIVATE ../core)
+target_compile_options(unlock_touch_gate_test PRIVATE -UNDEBUG)
+target_link_libraries(unlock_touch_gate_test PRIVATE lvgl)
+add_test(NAME unlock_requires_fresh_touch COMMAND unlock_touch_gate_test)
 
 add_test(NAME lock_behavior_cards COMMAND ui_check --lock-behavior)

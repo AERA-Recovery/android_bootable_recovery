@@ -291,7 +291,10 @@ bool HandleEvent(Engine& engine, InteractionBoost& performance,
         return false;
     }
     if (event.type == EV_ABS) {
-        if (hardware.screen_off) return false;
+        if (hardware.screen_off) {
+            engine.TrackPointerContact(event.code>=2?1:0,event.code==1||event.code==3);
+            return false;
+        }
         performance.Boost();
         aeraScreenTimer.Wake();
         PointerEvent pointer;
