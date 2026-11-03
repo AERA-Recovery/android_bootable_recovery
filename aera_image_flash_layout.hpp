@@ -2,11 +2,26 @@
 #pragma once
 #include <liblp/builder.h>
 #include "aera_image_flash_layout_types.hpp"
+#include <cstring>
 #include <set>
 #include <string>
 #include <vector>
 
 namespace aera {
+// Never restore saved mount sources after a legacy updater rewrites Super's
+// extents or geometry. The device mapper may still describe the old layout.
+inline bool SameFlashMetadata(const android::fs_mgr::LpMetadata& left,
+                              const android::fs_mgr::LpMetadata& right) {
+  auto same = [](const auto& a, const auto& b) {
+    return a.size() == b.size() && (a.empty() ||
+        std::memcmp(a.data(), b.data(), a.size() * sizeof(a.front())) == 0);
+  };
+  return std::memcmp(&left.geometry, &right.geometry, sizeof(left.geometry)) == 0 &&
+      std::memcmp(&left.header, &right.header, sizeof(left.header)) == 0 &&
+      same(left.partitions, right.partitions) && same(left.extents, right.extents) &&
+      same(left.groups, right.groups) && same(left.block_devices, right.block_devices);
+}
+
 struct LogicalImageSize {
   std::string name;
   uint64_t bytes;

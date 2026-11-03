@@ -306,6 +306,40 @@ TEST(PayloadFullFlash, SkipsOnlyExplicitlyProtectedImages) {
   EXPECT_FALSE(PlanFullFlash(info, targets, names, error, {"abl", "recovery"}));
   EXPECT_TRUE(names.empty());
 }
+TEST(PayloadLayout, DetectsChangedSuperMetadataBeforeRestoringZipDependencies) {
+  auto builder = android::fs_mgr::MetadataBuilder::New(64 * 1024 * 1024, 65536, 2);
+  ASSERT_NE(builder, nullptr);
+  auto* part = builder->AddPartition("vendor_a", "default", 0);
+  ASSERT_NE(part, nullptr);
+  ASSERT_TRUE(builder->ResizePartition(part, 4 * 1024 * 1024));
+  auto before = builder->Export();
+  ASSERT_NE(before, nullptr);
+  auto after = *before;
+  EXPECT_TRUE(aera::SameFlashMetadata(*before, after));
+  ASSERT_FALSE(after.extents.empty());
+  ++after.extents[0].target_data;
+  EXPECT_FALSE(aera::SameFlashMetadata(*before, after));
+  after = *before;
+  ++after.geometry.metadata_slot_count;
+  EXPECT_FALSE(aera::SameFlashMetadata(*before, after));
+  after = *before;
+  ++after.header.flags;
+  EXPECT_FALSE(aera::SameFlashMetadata(*before, after));
+}
+
+TEST(PayloadMounts, DetectsBackingDevicesWithoutMistakingRamdiskVendorPaths) {
+  const std::set<dev_t> devices = {makedev(254, 2), makedev(254, 5)};
+  EXPECT_FALSE(aera::MapsUseFlashDevices(
+      "1000-2000 r-xp 0000 00:02 123 /vendor/lib64/libgpu.so\n", devices));
+  EXPECT_TRUE(aera::MapsUseFlashDevices(
+      "1000-2000 r-xp 0000 fe:02 456 /vendor/lib64/libaudio.so\n", devices));
+  EXPECT_TRUE(aera::MapsUseFlashDevices(
+      "1000-2000 r-xp 0000 fe:05 456 /some/alias/libpanel.so (deleted)\n", devices));
+  EXPECT_FALSE(aera::MapsUseFlashDevices(
+      "1000-2000 r-xp 0000 fe:11 456 /vendor/lib64/other-slot.so\n", devices));
+  EXPECT_FALSE(aera::MapsUseFlashDevices("malformed\n1000-2000 r-xp 0000 fe:02x 123 x\n", devices));
+}
+
 TEST(PayloadMounts, FindsPhysicalAliasesAndChildrenWithoutTouchingOtherSlots) {
   std::vector<aera::FlashMount> all, selected;
   ASSERT_TRUE(aera::ParseFlashMounts(

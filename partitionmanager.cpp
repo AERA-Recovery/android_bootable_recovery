@@ -176,54 +176,30 @@ void VisitInitServicePid(const prop_info* property, void* cookie) {
 	__system_property_read_callback(property, CollectInitServicePid, cookie);
 }
 
-std::string ReadLink(const std::string& path) {
-	std::vector<char> target(PATH_MAX + 1, '\0');
-	ssize_t length = readlink(path.c_str(), target.data(), PATH_MAX);
-	if (length <= 0)
-		return {};
-	target[length] = '\0';
-	return target.data();
-}
-
-bool PathUsesMount(const std::string& path, const std::vector<std::string>& mounts) {
-	for (const auto& mount : mounts) {
-		if (path == mount ||
-			(path.size() > mount.size() && path.compare(0, mount.size(), mount) == 0 &&
-			 path[mount.size()] == '/'))
-			return true;
-	}
-	return false;
-}
-
-bool ProcessUsesMount(pid_t pid, const std::vector<std::string>& mounts) {
+bool ProcessUsesFlashDevices(pid_t pid, const std::set<dev_t>& devices) {
 	const std::string proc = "/proc/" + std::to_string(pid);
-	for (const auto& link : {"exe", "cwd", "root"}) {
-		if (PathUsesMount(ReadLink(proc + "/" + link), mounts))
-			return true;
-	}
+	auto references_device = [&](const std::string& path) {
+		struct stat st = {};
+		return stat(path.c_str(), &st) == 0 && devices.count(st.st_dev) != 0;
+	};
+	for (const auto& link : {"exe", "cwd", "root"})
+		if (references_device(proc + "/" + link)) return true;
 
 	std::string maps;
-	if (android::base::ReadFileToString(proc + "/maps", &maps)) {
-		for (const auto& mount : mounts) {
-			if (maps.find(mount) != std::string::npos)
-				return true;
-		}
-	}
+	if (android::base::ReadFileToString(proc + "/maps", &maps) &&
+			aera::MapsUseFlashDevices(maps, devices)) return true;
 
 	DIR* descriptors = opendir((proc + "/fd").c_str());
-	if (descriptors == nullptr)
-		return false;
-	bool uses_mount = false;
+	if (descriptors == nullptr) return false;
+	bool uses_device = false;
 	while (dirent* entry = readdir(descriptors)) {
-		if (entry->d_name[0] == '.')
-			continue;
-		if (PathUsesMount(ReadLink(proc + "/fd/" + entry->d_name), mounts)) {
-			uses_mount = true;
+		if (entry->d_name[0] != '.' && references_device(proc + "/fd/" + entry->d_name)) {
+			uses_device = true;
 			break;
 		}
 	}
 	closedir(descriptors);
-	return uses_mount;
+	return uses_device;
 }
 
 std::set<std::string> DynamicMapperDevices() {
@@ -351,10 +327,22 @@ bool QuiesceDynamicPartitionUsers(bool stop_bootstrap = false,
 	if (mounts.empty())
 		return true;
 
+	std::string mount_text;
+	std::vector<aera::FlashMount> identities;
+	if (!android::base::ReadFileToString("/proc/self/mountinfo", &mount_text) ||
+			!aera::ParseFlashMounts(mount_text, identities)) {
+		DataManager::SetValue("tw_size_progress", "Cannot identify mounted partition devices");
+		return false;
+	}
+	std::set<dev_t> backing_devices;
+	for (const auto& mount : identities)
+		if (std::find(mounts.begin(), mounts.end(), mount.target) != mounts.end())
+			backing_devices.insert(mount.device);
+
 	std::vector<InitServiceProcess> services;
 	__system_property_foreach(VisitInitServicePid, &services);
 	for (const auto& service : services) {
-		if (service.name == "recovery" || !ProcessUsesMount(service.pid, mounts))
+		if (service.name == "recovery" || !ProcessUsesFlashDevices(service.pid, backing_devices))
 			continue;
 		if (!StopDynamicService(service.name)) return false;
 	}
@@ -370,6 +358,14 @@ bool QuiesceDynamicPartitionUsers(bool stop_bootstrap = false,
 			if (saved.target == mount) saved.removed = true;
 	}
 	return true;
+}
+
+void RestartDynamicServices(const std::vector<std::string>& services) {
+	for (const auto& service : services) {
+		if (android::base::GetProperty("init.svc." + service, "") == "running") continue;
+		LOGINFO("Restarting init service %s after restoring partition dependencies\n", service.c_str());
+		property_set("ctl.start", service.c_str());
+	}
 }
 
 }  // namespace
@@ -4077,6 +4073,63 @@ bool TWPartitionManager::Flash_Image_To_Block(const std::string& path,
     return flashed;
 }
 
+// Legacy update-binary and update_engine ZIPs need the same mount/service
+// release as image flashing. Keep the outer service journal local: an updater
+// may invoke nested partition operations that have their own saved service set.
+int TWPartitionManager::Run_Zip_Install(const std::function<int()>& operation) {
+	if (image_flash_batch_ || zip_install_active_ || !gQuiescedDynamicServices.empty()) {
+		LOGERR("Another partition operation is still active; refusing ZIP install\n");
+		return -1;
+	}
+	std::vector<aera::FlashMount> mounts;
+	std::vector<std::string> services;
+	const bool replay = android::base::GetBoolProperty("post.decrypt.modules", false);
+	const auto super = Get_Super_Status() ? Get_Super_Partition() : std::string{};
+	const auto suffix = Get_Active_Slot_Suffix();
+	const auto slot = suffix.empty() ? 0 : android::fs_mgr::SlotNumberForSlotSuffix(suffix);
+	std::unique_ptr<android::fs_mgr::LpMetadata> before;
+	if (!super.empty()) before = android::fs_mgr::ReadMetadata(super, slot);
+	int result = -1;
+	aera::RunImageFlashBatch(zip_install_active_, [&] {
+		LOGINFO("ZIP install: releasing mounted partition dependencies\n");
+		const bool ready = QuiesceDynamicPartitionUsers(true, {}, &mounts);
+		services = std::move(gQuiescedDynamicServices);
+		gQuiescedDynamicServices.clear();
+		return ready;
+	}, [&] {
+		result = operation();
+		return true;
+	}, [&] {
+		if (!mounts.empty() && !super.empty()) {
+			auto after = android::fs_mgr::ReadMetadata(super, slot);
+			if (!before || !after || !aera::SameFlashMetadata(*before, *after)) {
+				LOGINFO("ZIP install changed or invalidated Super metadata; leaving dependencies stopped\n");
+				gui_warn("Super layout changed; reboot recovery before using hardware services.");
+				return;
+			}
+		}
+		bool restored = true;
+		for (auto it = mounts.rbegin(); it != mounts.rend(); ++it) {
+			if (!it->removed) continue;
+			if (!aera::RestoreFlashMount(*it)) {
+				restored = false;
+				LOGERR("Cannot restore ZIP dependency %s: %s\n", it->target.c_str(), strerror(errno));
+			} else LOGINFO("Restored ZIP dependency: %s\n", it->target.c_str());
+		}
+		if (!restored) {
+			gui_warn("Partition dependencies changed; reboot recovery before using hardware services.");
+			return; // Never restart consumers against missing or incompatible mounts.
+		}
+		if (replay && (!mounts.empty() || !services.empty())) {
+			property_set("post.decrypt.modules", "false");
+			usleep(100000);
+			property_set("post.decrypt.modules", "true");
+		}
+		RestartDynamicServices(services);
+	});
+	return result;
+}
+
 bool TWPartitionManager::Run_Image_Flash_Batch(const std::vector<std::string>& targets,
         const std::function<bool()>& operation, const std::function<bool()>& writer_started,
         std::string* error) {
@@ -6138,13 +6191,7 @@ void TWPartitionManager::Restart_Quiesced_Dynamic_Services() {
 	// oneshot service, it must not be replayed again by an unrelated transition.
 	const auto services = std::move(gQuiescedDynamicServices);
 	gQuiescedDynamicServices.clear();
-	for (const auto& service : services) {
-		if (android::base::GetProperty("init.svc." + service, "") == "running")
-			continue;
-		LOGINFO("Restarting init service %s after restoring dynamic partitions\n",
-			service.c_str());
-		property_set("ctl.start", service.c_str());
-	}
+	RestartDynamicServices(services);
 }
 
 bool TWPartitionManager::Check_Pending_Merges() {

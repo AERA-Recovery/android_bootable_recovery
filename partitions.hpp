@@ -472,6 +472,7 @@ public:
 	void Unlock_Block_Partitions();                                           // Unlock all block devices after update_engine runs
 	bool Unmap_Super_Devices(bool preserve_partitions = false);              // Unmap super devices in TWRP
 	void Restart_Quiesced_Dynamic_Services();                                // Restore services stopped for live fastbootd
+	int Run_Zip_Install(const std::function<int()>& operation);                // Release and restore mounted dependencies around a legacy ZIP installer
 	bool Run_Image_Flash_Batch(const std::vector<std::string>& targets, const std::function<bool()>& operation,
 		const std::function<bool()>& writer_started = {}, std::string* error = nullptr); // Release dependencies once; roll back preparation before any writes
 	bool Validate_Image_Flash_Target(const std::string& target, uint64_t bytes, uint64_t* current_bytes = nullptr); // Read-only preflight before any logical resize
@@ -513,6 +514,7 @@ private:
 private:
 	std::vector<TWPartition*> Partitions;                                     // Vector list of all partitions
 	bool image_flash_batch_ = false;
+	bool zip_install_active_ = false;
 	std::vector<TWPartition*> image_flash_resized_;
 	bool image_flash_metadata_changed_ = false;
 	std::vector<std::string> image_flash_layout_mappings_;

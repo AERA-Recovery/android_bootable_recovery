@@ -828,6 +828,7 @@ static int InstallZipImpl(const char *path, int *wipe_cache, bool check_for_dige
 	if (aera_recovery_package)
 		PreservationStatus("AERA recovery package detected; allowing recovery update");
 
+  auto install = [&]() -> int {
     if (unmount_system) {
 	if (PartitionManager.Is_Mounted_By_Path(PartitionManager.Get_Android_Root_Path())) {
 		gui_msg("unmount_system=Unmounting System...");
@@ -1026,6 +1027,13 @@ static int InstallZipImpl(const char *path, int *wipe_cache, bool check_for_dige
    }
 
   return ret_val;
+  };
+  ZipEntry64 flash_entry;
+  const bool flashable = FindEntry(Zip, UPDATE_BINARY_NAME, &flash_entry) == 0 ||
+      FindEntry(Zip, AB_OTA, &flash_entry) == 0;
+  if (flashable && (unmount_system || unmount_vendor))
+    return PartitionManager.Run_Zip_Install(install);
+  return install();
 }
 
 int TWinstall_zip(const char *path, int *wipe_cache, bool check_for_digest) {
