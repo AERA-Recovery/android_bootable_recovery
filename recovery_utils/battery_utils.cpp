@@ -34,11 +34,9 @@ BatteryInfo GetBatteryInfo() {
   using std::string_literals::operator""s;
 
   auto service_name = IHealth::descriptor + "/default"s;
-  std::shared_ptr<IHealth> health;
-  if (AServiceManager_isDeclared(service_name.c_str())) {
-    ndk::SpAIBinder binder(AServiceManager_waitForService(service_name.c_str()));
-    health = IHealth::fromBinder(binder);
-  }
+  // AIDL is optional in recovery; probe without waiting or querying VINTF.
+  ndk::SpAIBinder binder(AServiceManager_checkService(service_name.c_str()));
+  std::shared_ptr<IHealth> health = IHealth::fromBinder(binder);
   if (health == nullptr) {
     LOG(INFO) << "Unable to get AIDL health service, trying HIDL...";
     android::sp<HidlHealth> hidl_health = get_health_service();
