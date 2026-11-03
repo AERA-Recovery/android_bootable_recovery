@@ -76,6 +76,23 @@ inline bool ParseFlashMounts(const std::string& text, std::vector<FlashMount>& m
   return true;
 }
 
+// /vendor paths may name ramdisk files hidden by a later partition mount.
+// Compare backing device identities, not path prefixes, before stopping a HAL.
+inline bool MapsUseFlashDevices(const std::string& text, const std::set<dev_t>& devices) {
+  std::istringstream input(text);
+  std::string line;
+  while (std::getline(input, line)) {
+    std::istringstream row(line);
+    std::string address, permissions, offset, device, inode;
+    if (!(row >> address >> permissions >> offset >> device >> inode)) continue;
+    unsigned int major_id, minor_id;
+    char extra;
+    if (sscanf(device.c_str(), "%x:%x%c", &major_id, &minor_id, &extra) == 2 &&
+        devices.count(makedev(major_id, minor_id))) return true;
+  }
+  return false;
+}
+
 inline bool BelowMount(const std::string& path, const std::string& parent) {
   return path == parent || (path.size() > parent.size() &&
       path.compare(0, parent.size(), parent) == 0 && path[parent.size()] == '/');
