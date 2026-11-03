@@ -1,0 +1,7 @@
+# Copyright (C) 2026 AERA Recovery Project contributors
+# SPDX-License-Identifier: Apache-2.0
+# Added to the packed CPIO only when AERA_USE_EXTREME_COMPRESSION := 1.
+on early-init
+    chmod 0755 /sbin/busybox
+    exec u:r:recovery:s0 root root -- /sbin/busybox sh /aera-runtime-unpack.sh
+    restorecon_recursive /system /vendor /twres

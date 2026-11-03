@@ -18,6 +18,8 @@
 LOCAL_PATH := $(call my-dir)
 commands_TWRP_local_path := $(LOCAL_PATH)
 
+include $(LOCAL_PATH)/runtime_compression/compression.mk
+
 ifeq ($(CM_PLATFORM_SDK_VERSION),)
     CM_PLATFORM_SDK_VERSION := 0
 endif
