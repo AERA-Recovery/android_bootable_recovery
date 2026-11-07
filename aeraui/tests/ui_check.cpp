@@ -782,6 +782,50 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--file-picker")) {
+    std::filesystem::create_directories(file_root+"/nested");
+    std::ofstream(file_root+"/nested/second.ZIP") << "selection only";
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      for (auto size : {InterfaceSize::kSmall, InterfaceSize::kNormal, InterfaceSize::kLarge, InterfaceSize::kSpacious}) {
+        interface_size = size;
+        FilePickerOptions options; options.directory=file_root; options.extensions={".zip"};
+        int calls=0; FilePickerResult result;
+        auto* picker=OpenFilePicker(screen,options,[&](const FilePickerResult& r){++calls;result=r;});
+        assert(picker); Tick();
+        assert(Find(picker,"Files") && Find(picker,"package.zip") && Find(picker,"nested"));
+        assert(!Find(picker,"alpha.txt"));
+        auto* cancel=Find(picker,"Cancel");assert(cancel);
+        AssertInside(cancel,landscape?3168:1440,landscape?1440:3168);
+        assert(lv_obj_has_flag(Find(picker,LV_SYMBOL_PLUS),LV_OBJ_FLAG_HIDDEN));
+        assert(lv_obj_has_flag(Find(picker,LV_SYMBOL_OK),LV_OBJ_FLAG_HIDDEN));
+        const int actions=callback_count;
+        lv_obj_send_event(Find(picker,"package.zip"),LV_EVENT_CLICKED,nullptr);
+        assert(calls==1 && result.status==FilePickerStatus::kSelected && result.path==file_root+"/package.zip");
+        assert(callback_count==actions);Tick();assert(calls==1);
+
+        options.folders=true; options.extensions.clear();
+        picker=OpenFilePicker(screen,options,[&](const FilePickerResult& r){++calls;result=r;});assert(picker);Tick();
+        assert(!Find(picker,"package.zip"));
+        lv_obj_send_event(Find(picker,"nested"),LV_EVENT_CLICKED,nullptr);Tick();
+        auto* choose=Find(picker,"Use this folder");assert(choose);
+        AssertInside(choose,landscape?3168:1440,landscape?1440:3168);
+        lv_obj_send_event(choose,LV_EVENT_CLICKED,nullptr);
+        assert(calls==2 && result.path==file_root+"/nested");Tick();
+
+        options.folders=false;options.extensions={".zip"};
+        picker=OpenFilePicker(screen,options,[&](const FilePickerResult& r){++calls;result=r;});assert(picker);Tick();
+        lv_obj_send_event(Find(picker,"nested"),LV_EVENT_CLICKED,nullptr);Tick();
+        assert(Find(picker,"second.ZIP"));
+        assert(widgets::DismissModal(screen));Tick();assert(Find(picker,"package.zip"));
+        save(landscape?"/tmp/aera-native-picker-landscape.png":"/tmp/aera-native-picker-portrait.png",2);
+        lv_obj_send_event(Find(picker,"Cancel"),LV_EVENT_CLICKED,nullptr);
+        assert(calls==3 && result.status==FilePickerStatus::kCancelled && result.path.empty());Tick();
+      }
+    }
+    puts("Native regular Files selection: files/folders, filtering, no install dispatch, cancellation, back and eight layout combinations passed");
+    lv_deinit();std::filesystem::remove_all(backup_root);return 0;
+  }
   if (!strcmp(argv[1], "--russian-corrections")) {
     assert(i18n::SetLanguage("ru"));
     auto *page = lv_obj_create(nullptr);

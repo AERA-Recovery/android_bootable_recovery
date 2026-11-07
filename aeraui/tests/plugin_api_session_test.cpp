@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "plugin_api/session.hpp"
+#include "plugin_api/file_picker.hpp"
 
 #include <cassert>
 #include <sys/socket.h>
@@ -27,6 +28,22 @@ static Message ReceiveHost(int fd) {
 }
 
 int main() {
+  {
+    Message request; request.kind = Kind::kPickFile; request.request_id = 17;
+    strcpy(request.title, ".ZIP,.img"); strcpy(request.text, "/usb_otg/ROMs");
+    aeraui::FilePickerOptions options; std::string error;
+    assert(ParseFilePickerRequest(request, options, error));
+    assert(aeraui::FilePickerMatches(options, "/usb_otg/rom.ZIP"));
+    assert(!aeraui::FilePickerMatches(options, "/usb_otg/rom.zip.bak"));
+    request.flags = 1; assert(!ParseFilePickerRequest(request, options, error)); request.flags = 0;
+    strcpy(request.title, ".zip,"); assert(!ParseFilePickerRequest(request, options, error));
+    strcpy(request.title, "../*"); assert(!ParseFilePickerRequest(request, options, error));
+    request.title[0] = 0; request.value = 1;
+    assert(ParseFilePickerRequest(request, options, error) && options.folders);
+    strcpy(request.text, "relative"); assert(!ParseFilePickerRequest(request, options, error));
+    request.text[0] = 0; request.request_id = 0;
+    assert(!ParseFilePickerRequest(request, options, error));
+  }
   int pair[2];
   assert(socketpair(AF_UNIX, SOCK_SEQPACKET, 0, pair) == 0);
   Session session;
@@ -44,6 +61,7 @@ int main() {
   assert(!session.Supports(kFeatureDesktop));
   assert(!session.Supports(kFeatureClipboard));
   assert(!session.Supports(kFeatureTextInput));
+  assert(!session.Supports(kFeatureFilePicker));
   const Message resume = ReceiveHost(pair[1]);
   assert(resume.kind == Kind::kLifecycle);
   assert(resume.value == static_cast<uint32_t>(Lifecycle::kResume));
@@ -72,6 +90,9 @@ int main() {
   static_assert(static_cast<uint32_t>(Kind::kBackgroundResult) == 68);
   static_assert(static_cast<uint32_t>(Kind::kOpenDesktop) == 21);
   static_assert(static_cast<uint32_t>(Kind::kDesktopReady) == 72);
+  static_assert(static_cast<uint32_t>(Kind::kTextInputResult) == 74);
+  static_assert(static_cast<uint32_t>(Kind::kPickFile) == 28);
+  static_assert(static_cast<uint32_t>(Kind::kFilePickerResult) == 75);
   SendWorker(pair[1], Kind::kOpenDesktop, 100);
   const auto desktop = session.Poll();
   assert(desktop.size() == 1 && desktop[0].kind == Kind::kOpenDesktop);

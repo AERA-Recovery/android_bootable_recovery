@@ -10,6 +10,7 @@
 #include "plugin_api/session.hpp"
 #include "plugin_api/clipboard.hpp"
 #include "plugin_api/text_input.hpp"
+#include "plugin_api/file_picker.hpp"
 #include "phone_keyboard.hpp"
 #include "text_edit.hpp"
 #include "plugin_api/activity.hpp"
@@ -23,6 +24,7 @@
 #include <cstdio>
 #include <mutex>
 #include <map>
+#include <memory>
 #include <string>
 #include <thread>
 #include <time.h>
@@ -37,7 +39,9 @@ std::mutex gSelectionMutex;
 std::string gSelectedPlugin;
 struct GenericScene;
 void CloseTextInput(GenericScene *scene, bool submit, bool notify = true);
+void CloseNativeFilePicker(GenericScene* scene, bool notify = true);
 struct ViewBinding { GenericScene *scene = nullptr; };
+struct PickerBinding { GenericScene* scene = nullptr; uint32_t id = 0; };
 std::map<std::string, GenericScene *> gPluginRuntimes;
 
 uint64_t NowMs() {
@@ -71,6 +75,8 @@ struct RowModel {
 };
 
 struct GenericScene {
+  lv_obj_t* file_picker = nullptr;
+  std::shared_ptr<PickerBinding> picker_binding;
   bool desktop_open = false;
   lv_obj_t *input_overlay = nullptr, *input_editor = nullptr, *input_keyboard = nullptr;
   ViewBinding *input_binding = nullptr;
@@ -113,6 +119,7 @@ struct GenericScene {
   void *context = nullptr;
 
   ~GenericScene() {
+    CloseNativeFilePicker(this, false);
     CloseTextInput(this, false, false);
     if (binding) binding->scene = nullptr;
     auto found = gPluginRuntimes.find(plugin.id);
@@ -333,6 +340,19 @@ void CloseTextInput(GenericScene *scene, bool submit, bool notify) {
         nullptr, submit ? value.c_str() : nullptr);
   lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
   lv_obj_delete_async(overlay);
+}
+
+void CloseNativeFilePicker(GenericScene* scene, bool notify) {
+  if (!scene->file_picker) return;
+  auto* picker = scene->file_picker;
+  auto binding = scene->picker_binding;
+  scene->file_picker = nullptr;
+  scene->picker_binding.reset();
+  if (binding) binding->scene = nullptr;
+  if (notify && binding && scene->session.Connected())
+    scene->session.Send(plugin_api::Kind::kFilePickerResult, binding->id, 0,
+                        plugin_api::kFileCancelled);
+  CancelFilePicker(picker);
 }
 
 void OpenTextInput(GenericScene *scene, uint32_t id) {
@@ -739,6 +759,39 @@ void RequestOperation(GenericScene *scene,
 
 void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
   switch (message.kind) {
+    case plugin_api::Kind::kPickFile: {
+      FilePickerOptions options;
+      std::string error;
+      const bool allowed = scene->session.Supports(plugin_api::kFeatureFilePicker) &&
+          scene->screen && scene->screen == lv_screen_active() &&
+          !scene->file_picker && !scene->input_overlay && !scene->desktop_open &&
+          !scene->page_pending && !scene->operation_pending && !ModalVisible(scene->screen);
+      if (!allowed || !plugin_api::ParseFilePickerRequest(message, options, error)) {
+        scene->session.Send(plugin_api::Kind::kFilePickerResult, message.request_id, 0,
+            plugin_api::kFileError, nullptr, error.empty() ? "File selection is not available now." : error.c_str());
+        break;
+      }
+      auto binding = std::make_shared<PickerBinding>();
+      binding->scene = scene; binding->id = message.request_id;
+      scene->picker_binding = binding;
+      scene->file_picker = OpenFilePicker(scene->screen, options, [binding](const FilePickerResult& result) {
+        auto* scene = binding->scene;
+        if (!scene) return;
+        binding->scene = nullptr;
+        scene->file_picker = nullptr;
+        scene->picker_binding.reset();
+        if (scene->session.Connected()) scene->session.Send(plugin_api::Kind::kFilePickerResult,
+            binding->id, 0, result.status == FilePickerStatus::kSelected
+                ? plugin_api::kFileSelected : plugin_api::kFileCancelled,
+            nullptr, result.path.c_str());
+      });
+      if (!scene->file_picker) {
+        binding->scene = nullptr; scene->picker_binding.reset();
+        scene->session.Send(plugin_api::Kind::kFilePickerResult, message.request_id, 0,
+            plugin_api::kFileError, nullptr, "Could not open the Files selection view.");
+      }
+      break;
+    }
     case plugin_api::Kind::kGetClipboard:
     case plugin_api::Kind::kSetClipboard:
     case plugin_api::Kind::kClipboardChunk: {
@@ -818,6 +871,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
       RefreshTextInput(*row); break;
     }
     case plugin_api::Kind::kBeginPage:
+      CloseNativeFilePicker(scene);
       CloseTextInput(scene, false);
       scene->page_title = message.title;
       scene->page_body = message.text;
@@ -1051,6 +1105,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
       RequestOperation(scene, message);
       break;
     case plugin_api::Kind::kClose:
+      CloseNativeFilePicker(scene, false);
       CloseTextInput(scene, false, false);
       scene->session.Close();
       scene->process.Stop();
@@ -1065,6 +1120,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
 }
 
 void DetachGenericScene(GenericScene *scene) {
+  CloseNativeFilePicker(scene);
   CloseTextInput(scene, false);
   scene->clipboard.Reset();
   if (scene->desktop_open) {
@@ -1102,6 +1158,7 @@ void StopGenericPluginRuntime(const std::string &plugin) {
   auto found = gPluginRuntimes.find(plugin);
   if (found == gPluginRuntimes.end()) return;
   auto *scene = found->second;
+  CloseNativeFilePicker(scene, false);
   CloseTextInput(scene, false, false);
   if (scene->session.Connected()) scene->session.Send(plugin_api::Kind::kClose);
   scene->session.Close(); scene->process.Stop(); scene->stopped = true;
@@ -1165,6 +1222,7 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
     scene->plugin = std::move(plugin);
     gPluginRuntimes[id] = scene;
   }
+  CloseNativeFilePicker(scene);
   if (scene->binding) scene->binding->scene = nullptr;
   scene->binding = new ViewBinding{scene};
   scene->screen = screen;
@@ -1262,6 +1320,7 @@ static void PollRuntime(GenericScene *scene) {
     for (const auto &message : scene->session.Poll())
       HandleMessage(scene, message);
     if (!scene->session.Connected()) {
+      CloseNativeFilePicker(scene, false);
       CloseTextInput(scene, false, false);
       scene->clipboard.Reset();
       scene->process.Stop(); scene->stopped = true;
@@ -1297,6 +1356,7 @@ static void PollRuntime(GenericScene *scene) {
       SetStatus(scene, "Operation cancelled");
     }
     if (!scene->stopped && !scene->process.Running()) {
+      CloseNativeFilePicker(scene, false);
       CloseTextInput(scene, false, false);
       scene->stopped = true;
       scene->session.Close();

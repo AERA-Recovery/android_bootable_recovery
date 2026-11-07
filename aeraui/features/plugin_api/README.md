@@ -37,6 +37,41 @@ API 1 manifests and their built-in scene routing remain compatible.
 
 ## Protocol and limits
 
+### Native Files selection (optional)
+
+Workers request `kFeatureFilePicker` (bit 11) through the existing HELLO feature
+marker and must wait for that bit in HELLO_ACK. Protocol version 2, the 1144-byte
+packet layout, all old command IDs and API 1 routing are unchanged. Old workers
+still receive only the features they requested; an unmarked legacy HELLO still
+receives flags `3`. Workers must retain a fallback on older recoveries.
+
+`kPickFile` (worker kind 28) opens the **regular AERA Files explorer** in a
+selection-only overlay. `request_id` must be nonzero; `value` is 0 for a file or
+1 for a folder; `flags` must be zero. `text` is an optional absolute starting
+folder (a file path starts in its parent). Missing/unavailable starts fall back
+to recovery storage, then `/`. For file selection, `title` is an optional
+comma-separated extension list such as `.zip,.img`; matching is case-insensitive.
+Folder selection requires an empty `title`. File filters leave folders visible.
+The normal scrolling, storage switching, sorting and recursive search are reused.
+Long press cannot expose management actions; create/multiselect/paste/install/
+flash actions are unavailable. Tapping an allowed regular file completes the
+selection immediately. Folder mode uses **Use this folder**.
+
+`kFilePickerResult` (host kind 75) echoes the request ID. Exactly one of
+`kFileSelected=1`, `kFileCancelled=2` or `kFileError=4` is set in `flags`; `value`
+is reserved and zero. `text` is the selected absolute path, empty on cancellation,
+or an error description. Paths longer than 1023 bytes or with control characters
+are rejected visibly, never silently truncated. The type/filter is rechecked at
+selection time. Selection grants no new filesystem privilege and performs no
+file installation or mutation; the worker must still validate content, mount
+availability and operation-specific storage policy before using the path.
+
+Only one picker can be open. Concurrent, malformed, background/detached or modal-
+conflicting requests receive an error. Closing the view, changing the plugin page
+or detaching it cancels its pending selection; stopping the worker closes the
+overlay without callbacks into destroyed state. Cancel/selection results are
+emitted at most once per accepted request.
+
 `protocol.hpp` is the canonical wire definition. Every packet is exactly 1144
 bytes, includes the `A2PI` magic and contains only fixed-size strings. The
 worker starts with `HELLO`, placing its minimum protocol version in `value` and

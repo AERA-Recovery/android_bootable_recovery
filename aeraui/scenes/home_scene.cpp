@@ -13,6 +13,7 @@
 #include <ctime>
 #include <functional>
 #include <memory>
+#include <map>
 #include <set>
 #include <thread>
 #include <vector>
@@ -71,6 +72,10 @@ struct Files {
   std::vector<Entry> entries;
   size_t visible = 100;
   bool selecting = false;
+  std::string directory;
+  bool picking = false, picker_finished = false;
+  FilePickerOptions picker_options;
+  FilePickerCallback chosen;
   std::set<std::string> selected;
   file_manager::Progress work;
   std::thread worker;
@@ -88,7 +93,8 @@ struct Files {
   }
 };
 Files *gFiles = nullptr;
-std::string gDirectory;
+std::string gRememberedDirectory;
+std::map<lv_obj_t*, Files*> gFilePickers;
 SortMode gSortMode = SortMode::kName;
 bool gSortAscending = true;
 Clipboard gClipboard;
@@ -231,6 +237,41 @@ void UpdateActionBar(Files* state);
 void OpenFile(Files* state, const Entry& entry);
 void SortEntries(Files* state);
 void StartFileSearch(Files* state);
+
+bool PickerEntryAllowed(Files* state, const Entry& entry) {
+  if (!state->picking) return true;
+  struct stat st{};
+  if (stat(entry.path.c_str(), &st) != 0) return false;
+  return S_ISDIR(st.st_mode) ||
+      (S_ISREG(st.st_mode) && FilePickerMatches(state->picker_options, entry.path));
+}
+
+void CompleteFilePicker(Files* state, const std::string& path = {}) {
+  if (!state->picking || state->picker_finished) return;
+  if (!path.empty()) {
+    struct stat st{};
+    const bool valid = path.front() == '/' && path.size() <= 1023 &&
+        std::none_of(path.begin(), path.end(), [](unsigned char c) { return c < 32 || c == 127; }) &&
+        stat(path.c_str(), &st) == 0 &&
+        (state->picker_options.folders ? S_ISDIR(st.st_mode) :
+         S_ISREG(st.st_mode) && FilePickerMatches(state->picker_options, path));
+    if (!valid) {
+      Sheet(state->screen, "Cannot select", "The selected path is unavailable, too long or not an allowed type.");
+      return;
+    }
+  }
+  state->picker_finished = true;
+  if (state->search) state->search->cancel.store(true);
+  auto chosen = std::move(state->chosen);
+  const FilePickerResult result{path.empty() ? FilePickerStatus::kCancelled : FilePickerStatus::kSelected, path};
+  lv_obj_add_flag(state->screen, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_delete_async(state->screen);
+  if (chosen) chosen(result);
+}
+
+void FilePickerNavigation(Action, void* context) {
+  CompleteFilePicker(static_cast<Files*>(context));
+}
 
 void StopFileSearch(Files* state) {
   if (state->search) state->search->cancel.store(true);
@@ -1150,7 +1191,7 @@ void StartPaste(Files* state, file_manager::Conflict conflict) {
                                                              : file_manager::Operation::kCopy;
   request.conflict = conflict;
   request.sources = gClipboard.paths;
-  request.destination = gDirectory;
+  request.destination = state->directory;
   StartWork(state,
             request.operation == file_manager::Operation::kMove ? "Moving files" : "Copying files",
             request, true, true);
@@ -1159,7 +1200,7 @@ void StartPaste(Files* state, file_manager::Conflict conflict) {
 void Paste(Files* state) {
   bool conflict = false;
   for (const auto& source : gClipboard.paths) {
-    if (file_manager::Exists(file_manager::Join(gDirectory, file_manager::BaseName(source)))) {
+    if (file_manager::Exists(file_manager::Join(state->directory, file_manager::BaseName(source)))) {
       conflict = true;
       break;
     }
@@ -1168,7 +1209,7 @@ void Paste(Files* state) {
     StartPaste(state, file_manager::Conflict::kKeepBoth);
     return;
   }
-  ActionSheet(state, "Items already exist", gDirectory,
+  ActionSheet(state, "Items already exist", state->directory,
               {
                   { "Replace", LV_SYMBOL_REFRESH,
                     [state] { StartPaste(state, file_manager::Conflict::kReplace); }, true },
@@ -1942,7 +1983,7 @@ void ChooseCompressionName(Files* state, std::vector<std::string> paths,
     if (lower.size() < extension.size() ||
         lower.compare(lower.size() - extension.size(), extension.size(), extension) != 0)
       name += extension;
-    const std::string destination = file_manager::Join(gDirectory, name);
+    const std::string destination = file_manager::Join(state->directory, name);
     if (file_manager::Exists(destination)) {
       error = "An item with this archive name already exists.";
       return false;
@@ -1970,6 +2011,7 @@ void OpenCompressionMenu(Files* state, std::vector<std::string> paths) {
 }
 
 void OpenEntryMenu(Files* state, const Entry& entry) {
+  if (state->picking) { OpenFile(state, entry); return; }
   std::vector<MenuAction> actions = {
           { "Open", entry.directory ? LV_SYMBOL_DIRECTORY : LV_SYMBOL_FILE,
             [state, entry] { OpenFile(state, entry); } },
@@ -2017,6 +2059,13 @@ bool DeferredTextProbe(const std::string &path) {
 }
 
 void OpenFile(Files *state, const Entry &entry) {
+  if (state->picking) {
+    struct stat st{};
+    if (stat(entry.path.c_str(), &st) != 0) { Sheet(state->screen, "Cannot open", "This path is no longer available."); return; }
+    if (S_ISDIR(st.st_mode)) { state->directory = entry.path; state->visible = 100; Populate(state); }
+    else if (S_ISREG(st.st_mode)) CompleteFilePicker(state, entry.path);
+    return;
+  }
   if (entry.symlink) {
     struct stat target{};
     if (stat(entry.path.c_str(), &target) != 0) {
@@ -2024,7 +2073,7 @@ void OpenFile(Files *state, const Entry &entry) {
       return;
     }
     if (S_ISDIR(target.st_mode)) {
-      gDirectory = entry.path;
+      state->directory = entry.path;
       state->visible = 100;
       Populate(state);
       return;
@@ -2037,7 +2086,7 @@ void OpenFile(Files *state, const Entry &entry) {
     return;
   }
   if (entry.directory) {
-    gDirectory = entry.path;
+    state->directory = entry.path;
     state->visible = 100;
     Populate(state);
     return;
@@ -2270,10 +2319,10 @@ void RenderEntries(Files *state) {
   lv_obj_clean(state->list);
   int y = 0;
   const FileListMetrics metrics = FileListLayout();
-  if (!state->search_mode && gDirectory != "/") {
-    FileUtilityRow(state, y, LV_SYMBOL_UP, "Parent folder", Parent(gDirectory),
+  if (!state->search_mode && state->directory != "/") {
+    FileUtilityRow(state, y, LV_SYMBOL_UP, "Parent folder", Parent(state->directory),
                    [state] {
-      gDirectory = Parent(gDirectory);
+      state->directory = Parent(state->directory);
       state->visible = 100;
       Populate(state);
     });
@@ -2296,6 +2345,26 @@ void RenderEntries(Files *state) {
 }
 
 void UpdateActionBar(Files* state) {
+  if (state->picking) {
+    if (!state->action_bar) {
+      state->action_bar = lv_obj_create(state->screen);
+      Panel(state->action_bar, 30, kMainSheet);
+      const int width = lv_obj_get_width(state->screen) - 128;
+      lv_obj_set_pos(state->action_bar, 64, lv_obj_get_height(state->screen) - NavigationHeight(state->screen) - 160);
+      lv_obj_set_size(state->action_bar, width, 140);
+      auto* cancel = Button(state->action_bar, "Cancel", [state] { CompleteFilePicker(state); });
+      lv_obj_set_pos(cancel, 12, 10);
+      lv_obj_set_size(cancel, state->picker_options.folders ? (width-44)/2 : width-24, 116);
+      if (state->picker_options.folders) {
+        auto* choose = Button(state->action_bar, "Use this folder", [state] { CompleteFilePicker(state, state->directory); }, true);
+        lv_obj_set_pos(choose, 32+(width-44)/2, 10);
+        lv_obj_set_size(choose, (width-44)/2, 116);
+      }
+    }
+    lv_obj_move_foreground(state->action_bar);
+    lv_obj_set_style_pad_bottom(state->list, NavigationHeight(state->screen)+220, 0);
+    return;
+  }
   const bool visible = state->selecting || gClipboard.mode != ClipboardMode::kNone;
   if (!visible) {
     if (state->action_bar != nullptr) lv_obj_add_flag(state->action_bar, LV_OBJ_FLAG_HIDDEN);
@@ -2568,21 +2637,22 @@ void OpenSortMenu(Files* state) {
 }
 
 void OpenCreateMenu(Files* state) {
-  ActionSheet(state, "Create", gDirectory,
+  if (state->picking) return;
+  ActionSheet(state, "Create", state->directory,
               {
                   { "New folder", LV_SYMBOL_DIRECTORY,
                     [state] {
                       NameDialog(state, "New folder", "Folder name", "", "Create",
-                                 [](const std::string& name, std::string& error) {
+                                 [state](const std::string& name, std::string& error) {
                                    return file_manager::CreateDirectory(
-                                       file_manager::Join(gDirectory, name), error);
+                                       file_manager::Join(state->directory, name), error);
                                  });
                     } },
                   { "New text file", LV_SYMBOL_EDIT,
                     [state] {
                       NameDialog(state, "New text file", "File name", "new-file.txt", "Create",
                                  [state](const std::string& name, std::string& error) {
-                                   const std::string path = file_manager::Join(gDirectory, name);
+                                   const std::string path = file_manager::Join(state->directory, name);
                                    if (file_manager::Exists(path)) {
                                      error = "An item with this name already exists.";
                                      return false;
@@ -2612,6 +2682,8 @@ void FileSearchTick(lv_timer_t* timer) {
         metadata.directory, metadata.symlink, false, metadata.size,
         metadata.mode, metadata.uid, metadata.gid, metadata.modified});
   }
+  state->entries.erase(std::remove_if(state->entries.begin(), state->entries.end(),
+      [state](const Entry& entry) { return !PickerEntryAllowed(state, entry); }), state->entries.end());
   SortEntries(state);
   std::string summary = i18n::Format("%zu results for \"%s\"",
       state->entries.size(), state->search_query.c_str());
@@ -2635,7 +2707,7 @@ void StartFileSearch(Files* state) {
   state->visible = 100;
   state->search = std::make_unique<file_manager::SearchProgress>();
   file_manager::SearchRequest request;
-  request.directory = gDirectory;
+  request.directory = state->directory;
   request.query = state->search_query;
   request.recursive = state->search_recursive;
   request.hidden = RecoveryPreference(Preference::kHiddenFiles);
@@ -2667,7 +2739,7 @@ void OpenFileSearch(Files* state) {
   const int top = StatusBarHeight() + 28;
   auto* heading = Label(overlay, "Search files", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(heading, left, top);
-  auto* scope = Label(overlay, gDirectory.c_str(), &lv_font_montserrat_28, kMuted);
+  auto* scope = Label(overlay, state->directory.c_str(), &lv_font_montserrat_28, kMuted);
   lv_obj_set_pos(scope, left, top + 70);
   SingleLineLabel(scope, width, &lv_font_montserrat_28);
   auto* input = TextArea(overlay);
@@ -2737,19 +2809,20 @@ void OpenFileSearch(Files* state) {
 }
 
 void Populate(Files *state) {
+  if (!state->picking) gRememberedDirectory = state->directory;
   StopFileSearch(state);
   state->search_mode = false;
   if (state->search_clear) lv_obj_add_flag(state->search_clear, LV_OBJ_FLAG_HIDDEN);
   if (state->search_button) lv_obj_remove_state(state->search_button, LV_STATE_CHECKED);
   state->entries.clear();
-  i18n::BindLabel(state->path_label, gDirectory.c_str());
-  DIR *directory = opendir(gDirectory.c_str());
+  i18n::BindLabel(state->path_label, state->directory.c_str());
+  DIR *directory = opendir(state->directory.c_str());
   const int error = errno;
   if (directory) {
     while (auto *item = readdir(directory)) {
       if (!strcmp(item->d_name, ".") || !strcmp(item->d_name, "..")) continue;
       if (item->d_name[0] == '.' && !RecoveryPreference(Preference::kHiddenFiles)) continue;
-      const std::string path = (gDirectory == "/" ? "" : gDirectory) + "/" + item->d_name;
+      const std::string path = (state->directory == "/" ? "" : state->directory) + "/" + item->d_name;
       struct stat info{};
       if (lstat(path.c_str(), &info) != 0) continue;
       const bool folder = S_ISDIR(info.st_mode);
@@ -2764,6 +2837,8 @@ void Populate(Files *state) {
     }
     closedir(directory);
   }
+  state->entries.erase(std::remove_if(state->entries.begin(), state->entries.end(),
+      [state](const Entry& entry) { return !PickerEntryAllowed(state, entry); }), state->entries.end());
   SortEntries(state);
   for (auto iterator = state->selected.begin(); iterator != state->selected.end();) {
     const bool present = std::any_of(state->entries.begin(), state->entries.end(),
@@ -2775,7 +2850,7 @@ void Populate(Files *state) {
   }
   struct statvfs storage{};
   std::string capacity;
-  if (statvfs(gDirectory.c_str(), &storage) == 0)
+  if (statvfs(state->directory.c_str(), &storage) == 0)
     capacity = i18n::Format("%s available",
         Size(static_cast<uint64_t>(storage.f_bavail) * storage.f_frsize).c_str());
   if (RecoveryDataLocked()) capacity = "Internal storage is locked";
@@ -2826,14 +2901,15 @@ void SortEntries(Files* state) {
 
 bool NavigateFileBack() {
   if (gFiles && gFiles->search_mode) { Populate(gFiles); return true; }
-  if (!gFiles || gDirectory == "/") return false;
-  gDirectory = Parent(gDirectory);
+  if (!gFiles || gFiles->directory == "/") return false;
+  gFiles->directory = Parent(gFiles->directory);
   gFiles->visible = 100;
   Populate(gFiles);
   return true;
 }
 
-void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
+static void BuildFilesSurface(lv_obj_t *screen, ActionCallback callback, void *context,
+                              const FilePickerOptions* options, FilePickerCallback chosen) {
   const auto saved_sort = RecoveryFileSortSettings();
   gSortMode = saved_sort.mode;
   gSortAscending = saved_sort.ascending;
@@ -2841,19 +2917,41 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   ApplyInterfaceSize(static_cast<int>(interface_size));
   const bool large = interface_size == InterfaceSize::kLarge ||
                      interface_size == InterfaceSize::kSpacious;
-  if (gDirectory.empty()) gDirectory = RecoveryStorage();
-  if (gDirectory.empty()) gDirectory = "/sdcard";
   auto* state = new Files;
+  state->picking = options != nullptr;
+  if (options) state->picker_options = *options;
+  state->chosen = std::move(chosen);
+  state->directory = options ? options->directory : gRememberedDirectory;
+  struct stat initial{};
+  if (!state->directory.empty() && stat(state->directory.c_str(), &initial) == 0 && S_ISREG(initial.st_mode))
+    state->directory = Parent(state->directory);
+  if (state->directory.empty() || stat(state->directory.c_str(), &initial) || !S_ISDIR(initial.st_mode)) state->directory = RecoveryStorage();
+  if (state->directory.empty() || stat(state->directory.c_str(), &initial) || !S_ISDIR(initial.st_mode)) state->directory = "/";
+  if (state->picking) { callback = FilePickerNavigation; context = state; }
   state->screen = screen;
   state->callback = callback;
   state->context = context;
-  gFiles = state;
+  if (state->picking) gFilePickers[screen] = state;
+  else gFiles = state;
   lv_obj_add_event_cb(screen, [](lv_event_t *event) {
     auto *s = static_cast<Files *>(lv_event_get_user_data(event));
     if (gFiles == s) gFiles = nullptr;
+    gFilePickers.erase(s->screen);
+    auto chosen = std::move(s->chosen);
+    const bool cancelled = s->picking && !s->picker_finished;
     delete s;
+    if (cancelled && chosen) chosen({FilePickerStatus::kCancelled, {}});
   }, LV_EVENT_DELETE, state);
-  Header(screen, "Files", "Manage files, folders and recovery packages.", callback, context);
+  if (state->picking) lv_obj_add_event_cb(screen, [](lv_event_t* event) {
+    auto* state = static_cast<Files*>(lv_event_get_user_data(event));
+    if (DismissModal(state->screen)) return;
+    if (state->search_mode) Populate(state);
+    else if (state->directory != "/") { state->directory = Parent(state->directory); state->visible = 100; Populate(state); }
+    else CompleteFilePicker(state);
+  }, LV_EVENT_CANCEL, state);
+  Header(screen, "Files", state->picking
+      ? (state->picker_options.folders ? "Choose a folder, then use this folder." : "Tap a file to select it and return to the app.")
+      : "Manage files, folders and recovery packages.", callback, context);
   const bool landscape = Landscape(screen);
   const lv_font_t* storage_font = large ? &lv_font_montserrat_32
                                         : &lv_font_montserrat_24;
@@ -2872,14 +2970,14 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     }
     size_t next = 0;
     for (size_t i = 0; i < volumes.size(); ++i)
-      if (volumes[i].path == gDirectory) next = (i + 1) % volumes.size();
-    gDirectory = volumes[next].path;
+      if (volumes[i].path == state->directory) next = (i + 1) % volumes.size();
+    state->directory = volumes[next].path;
     Populate(state);
   });
   lv_obj_set_pos(storage, 64, landscape ? 350 : 496);
   const int toolbar_height = large ? 140 : 120;
   lv_obj_set_size(storage, 260, toolbar_height);
-  auto *root = Button(screen, "Root", [state] { gDirectory = "/"; Populate(state); });
+  auto *root = Button(screen, "Root", [state] { state->directory = "/"; Populate(state); });
   lv_obj_set_pos(root, 348, landscape ? 350 : 496);
   lv_obj_set_size(root, 140, toolbar_height);
   auto* sort = Button(screen, LV_SYMBOL_LIST, [state] { OpenSortMenu(state); });
@@ -2891,6 +2989,7 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   lv_obj_set_size(create, 140, toolbar_height);
   CenterButtonContent(create);
   auto* select = Button(screen, LV_SYMBOL_OK, [state] {
+    if (state->picking) return;
     state->selecting = !state->selecting;
     if (!state->selecting) state->selected.clear();
     RenderEntries(state);
@@ -2899,6 +2998,10 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   lv_obj_set_pos(select, 840, landscape ? 350 : 496);
   lv_obj_set_size(select, 140, toolbar_height);
   CenterButtonContent(select);
+  if (state->picking) {
+    lv_obj_add_flag(create, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(select, LV_OBJ_FLAG_HIDDEN);
+  }
   state->search_button = Button(screen, "Search", [state] { OpenFileSearch(state); });
   lv_obj_set_pos(state->search_button, 1004, landscape ? 350 : 496);
   lv_obj_set_size(state->search_button, 140, toolbar_height);
@@ -2957,7 +3060,31 @@ void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   state->list = Scroll(screen, landscape ? 500 : 826,
                        landscape ? 940 : 2342);
   lv_obj_set_style_pad_bottom(state->list, landscape ? 190 : 242, 0);
-  Navigation(screen, Action::kNone, callback, context);
+  if (!state->picking) Navigation(screen, Action::kNone, callback, context);
   Populate(state);
+}
+
+void BuildFilesScene(lv_obj_t* screen, ActionCallback callback, void* context) {
+  BuildFilesSurface(screen, callback, context, nullptr, {});
+}
+
+lv_obj_t* OpenFilePicker(lv_obj_t* parent, const FilePickerOptions& options,
+                         FilePickerCallback chosen) {
+  if (!parent || !gFilePickers.empty()) return nullptr;
+  auto* overlay = lv_obj_create(parent);
+  Clear(overlay);
+  lv_obj_set_user_data(overlay, &kPersistentModalMarker);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, kCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  lv_obj_update_layout(overlay);
+  BuildFilesSurface(overlay, nullptr, nullptr, &options, std::move(chosen));
+  lv_obj_move_foreground(overlay);
+  return overlay;
+}
+
+void CancelFilePicker(lv_obj_t* picker) {
+  auto found = gFilePickers.find(picker);
+  if (found != gFilePickers.end()) CompleteFilePicker(found->second);
 }
 }  // namespace aeraui

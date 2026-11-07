@@ -12,6 +12,7 @@
 #include "aeraui/engine.hpp"
 #include "aeraui/backend.hpp"
 #include "plugins/plugin_manager.hpp"
+#include "files/selection.hpp"
 
 namespace aeraui {
 
@@ -133,6 +134,11 @@ void BuildMobileDataScene(lv_obj_t *screen, ActionCallback callback, void *conte
 void PollMobilePinPrompt(lv_obj_t *screen,bool allow_prompt);
 void ArmDeveloperEntryGuard();
 void BuildFilesScene(lv_obj_t *screen, ActionCallback callback, void *context);
+// The regular Files scene in a read-only selection mode, retaining its full
+// navigation/search/sort UI. It never dispatches file installation or writes.
+lv_obj_t* OpenFilePicker(lv_obj_t* parent, const FilePickerOptions& options,
+                         FilePickerCallback chosen);
+void CancelFilePicker(lv_obj_t* picker);
 void OpenFontPreview(lv_obj_t *screen, const std::string &path,
                      std::function<void()> applied = {});
 void BuildToolScene(lv_obj_t *screen, Action tool, ActionCallback callback,

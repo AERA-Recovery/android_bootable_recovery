@@ -207,6 +207,7 @@ target_include_directories(plugin_api_session_test PRIVATE ..
   ../features)
 target_compile_options(plugin_api_session_test PRIVATE -UNDEBUG)
 add_test(NAME plugin_api_negotiation_and_limits COMMAND plugin_api_session_test)
+add_test(NAME native_files_selection_ui COMMAND ui_check --file-picker)
 add_executable(plugin_clipboard_test plugin_clipboard_test.cpp)
 target_compile_options(plugin_clipboard_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME plugin_clipboard_transfers COMMAND plugin_clipboard_test)

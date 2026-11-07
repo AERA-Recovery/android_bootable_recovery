@@ -156,6 +156,29 @@ void TestPluginRuntime(lv_obj_t *host_screen) {
   auto *page = attach(true, peer);
   lv_screen_load(page);
   auto *scene = gPluginRuntimes.at("test-ota");
+  {
+    char directory[]="/tmp/aera-plugin-picker-XXXXXX";assert(mkdtemp(directory));
+    Message pick;pick.kind=Kind::kPickFile;pick.request_id=901;
+    snprintf(pick.title,sizeof(pick.title),".zip");snprintf(pick.text,sizeof(pick.text),"%s",directory);
+    HandleMessage(scene,pick);assert(scene->file_picker);
+    pick.request_id=902;HandleMessage(scene,pick);
+    auto denied=receive(peer);assert(denied.kind==Kind::kFilePickerResult && denied.request_id==902 && denied.flags==kFileError);
+    auto* native=scene->file_picker;CancelFilePicker(native);
+    auto cancelled=receive(peer);assert(cancelled.kind==Kind::kFilePickerResult && cancelled.request_id==901 && cancelled.flags==kFileCancelled);
+    assert(!scene->file_picker);lv_tick_inc(20);lv_timer_handler();
+    pick.request_id=903;HandleMessage(scene,pick);assert(scene->file_picker);
+    // Destroying a native view returns cancellation exactly once.
+    lv_obj_delete(scene->file_picker);
+    cancelled=receive(peer);assert(cancelled.request_id==903 && cancelled.flags==kFileCancelled);
+    assert(!scene->file_picker);
+    pick.request_id=904;HandleMessage(scene,pick);assert(scene->file_picker);
+    CloseNativeFilePicker(scene);cancelled=receive(peer);
+    assert(cancelled.request_id==904 && cancelled.flags==kFileCancelled);
+    lv_tick_inc(20);lv_timer_handler();
+    Message extra;assert(recv(peer,&extra,sizeof(extra),MSG_DONTWAIT)<0);
+    pick.value=7;HandleMessage(scene,pick);assert(receive(peer).flags==kFileError);
+    assert(!scene->file_picker);assert(rmdir(directory)==0);
+  }
   auto *editor = lv_textarea_create(page);
   text_edit::Attach(editor);
   lv_textarea_set_text(editor, "Native editor to plugin");

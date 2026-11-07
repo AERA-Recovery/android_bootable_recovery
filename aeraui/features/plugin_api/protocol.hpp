@@ -24,10 +24,12 @@ enum Features : uint32_t {
   kFeatureDesktopResolution = 1U << 8,
   kFeatureClipboard = 1U << 9,
   kFeatureTextInput = 1U << 10,
+  kFeatureFilePicker = 1U << 11,
 };
 constexpr uint32_t kOptionalFeatures = kFeatureBackground | kFeatureActivities |
     kFeatureRichPresentation | kFeaturePackageReview | kFeatureReadablePresentation |
-    kFeatureDesktop | kFeatureDesktopResolution | kFeatureClipboard | kFeatureTextInput;
+    kFeatureDesktop | kFeatureDesktopResolution | kFeatureClipboard | kFeatureTextInput |
+    kFeatureFilePicker;
 constexpr uint32_t kFeatureRequestMagic = 0xA2E20000U;
 
 enum class Kind : uint32_t {
@@ -58,6 +60,7 @@ enum class Kind : uint32_t {
   kAddTextInput = 25,
   kUpdateTextInput = 26,
   kTextInputPlaceholder = 27,
+  kPickFile = 28,
   kHelloAck = 64,
   kAction,
   kLifecycle,
@@ -69,6 +72,13 @@ enum class Kind : uint32_t {
   kDesktopReady = 72,
   kClipboardResult = 73,
   kTextInputResult = 74,
+  kFilePickerResult = 75,
+};
+
+enum FilePickerResultFlags : uint32_t {
+  kFileSelected = 1U << 0,
+  kFileCancelled = 1U << 1,
+  kFileError = 1U << 2,
 };
 
 constexpr uint32_t kMaxTextInputs = 16;
@@ -153,10 +163,10 @@ inline bool StringsValid(const Message &message) {
          memchr(message.text, '\0', sizeof(message.text)) != nullptr;
 }
 inline bool WorkerKind(Kind kind) {
-  return kind >= Kind::kHello && kind <= Kind::kTextInputPlaceholder;
+  return kind >= Kind::kHello && kind <= Kind::kPickFile;
 }
 inline bool HostKind(Kind kind) {
-  return kind >= Kind::kHelloAck && kind <= Kind::kTextInputResult;
+  return kind >= Kind::kHelloAck && kind <= Kind::kFilePickerResult;
 }
 inline bool Valid(const Message &message, bool from_worker) {
   return message.magic == kMagic && message.version == kProtocolVersion &&
