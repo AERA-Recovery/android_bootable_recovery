@@ -744,6 +744,15 @@ ifeq ($(BOARD_CACHEIMAGE_PARTITION_SIZE),)
     TWRP_REQUIRED_MODULES += recovery-persist recovery-refresh
 endif
 
+# Device opt-in: installed runtime files are copied to RAM by DT-controlled phases.
+ifeq ($(AERA_COPY_RUNTIME_TO_RAM),1)
+LOCAL_REQUIRED_MODULES += aera-runtime-stage
+else
+# A flag-off incremental rebuild must not retain a previously installed helper.
+aera_runtime_ram_cleanup := rm -f $(TARGET_RECOVERY_ROOT_OUT)/system/bin/aera-runtime-stage
+BOARD_RECOVERY_IMAGE_PREPARE := $(if $(strip $(BOARD_RECOVERY_IMAGE_PREPARE)),$(BOARD_RECOVERY_IMAGE_PREPARE);) $(aera_runtime_ram_cleanup)
+endif
+
 LOCAL_REQUIRED_MODULES += $(TWRP_REQUIRED_MODULES) aera-browser-jail aera_htop aera-artillery-audio
 
 include $(BUILD_EXECUTABLE)

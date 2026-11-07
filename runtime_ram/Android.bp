@@ -1,0 +1,12 @@
+// Copyright (C) 2026 AERA Recovery Project contributors
+// SPDX-License-Identifier: Apache-2.0
+cc_binary {
+    name: "aera-runtime-stage",
+    recovery: true,
+    srcs: ["runtime_stage.cpp"],
+    cpp_std: "c++17",
+    cppflags: ["-fexceptions"],
+    static_libs: ["libjsoncpp"],
+    shared_libs: ["libbase"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}

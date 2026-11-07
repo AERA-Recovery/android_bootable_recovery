@@ -80,6 +80,7 @@ extern "C" {
 #endif
 #include <sparse_format.h>
 #include "progresstracking.hpp"
+#include "runtime_ram/partition_size.hpp"
 
 #define CRYPT_FOOTER_OFFSET 0x4000
 
@@ -3343,6 +3344,27 @@ bool TWPartition::Update_Size(bool Display_Error) {
 
 	if (Actual_Block_Device.empty())
 		return false;
+
+	// A normal /vendor size-probe mount can cover RAM runtime bindings while
+	// the post-decrypt helper publishes them. Inspect the actual logical image
+	// through a private read-only path instead; explicit mounts stay unchanged.
+	if (Is_Super && Can_Be_Mounted && !Is_Storage && !Has_Data_Media &&
+			!Is_Encrypted && access("/system/bin/aera-runtime-stage", X_OK) == 0) {
+		Check_FS_Type();
+		struct statfs stats{};
+		std::string error;
+		if (!aera::ReadOnlyPartitionStats(Actual_Block_Device.c_str(),
+				Current_File_System.c_str(), &stats, &error)) {
+			LOGINFO("RAM runtime: isolated size probe for %s failed: %s\n",
+				Mount_Point.c_str(), error.c_str());
+			return false;
+		}
+		Size = stats.f_blocks * stats.f_bsize;
+		Used = (stats.f_blocks - stats.f_bfree) * stats.f_bsize;
+		Free = stats.f_bfree * stats.f_bsize;
+		Backup_Size = Used;
+		return true;
+	}
 
 	ro = Mount_Read_Only;
 	Mount_Read_Only = true;
