@@ -411,6 +411,7 @@ bool Wlan::Connect() {
         return false;
     }
 
+    SuppCmd("SET_NETWORK 0 scan_ssid 1");  // probe for the SSID so hidden networks are found (harmless for visible ones)
     gui_print("Add encryption to new config...\n");
     if (!SuppCmd("SET_NETWORK 0 key_mgmt " + key_mgmt)) {
         gui_print("WLAN: failed setting key_mgmt\n");
@@ -721,6 +722,7 @@ bool Wlan::ConnectSaved() {
         return false;
     }
 
+    SuppCmd("SET_NETWORK 0 scan_ssid 1");  // probe for the SSID so hidden networks are found (harmless for visible ones)
     gui_print("Add saved encryption to config...\n");
     if (!SuppCmd("SET_NETWORK 0 key_mgmt " + key_mgmt)) {
         gui_print("WLAN: failed setting saved key_mgmt\n");
