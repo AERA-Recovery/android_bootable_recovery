@@ -121,6 +121,7 @@ bool ArbAllowsInstall(ArbDecision decision, bool acknowledged) {
 }
 }
 static WifiRequest wifi_request;
+static bool wifi_empty_networks = false;
 static SideloadStatus sideload_status;
 static int callback_count = 0;
 static Action last_action = Action::kNone;
@@ -510,6 +511,7 @@ WifiStatus RecoveryWifiStatus() {
   status.networks = {{"AERA Lab", "WPA2", false, false},
                      {"Saved network", "WPA3", true, false},
                      {"Guest", "OPEN", false, false}};
+  if (wifi_empty_networks) status.networks.clear();
   return status;
 }
 int RecoveryRunWifi(const WifiRequest &request) { wifi_request = request; return 0; }
@@ -1285,6 +1287,98 @@ int main(int argc,char **argv) {
       assert(!snapshot.CanDownload());
     }
     std::filesystem::remove_all(backup_root);
+    return 0;
+  }
+  if (!strcmp(argv[1], "--wifi-add")) {
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      auto *wifi = lv_obj_create(nullptr);
+      BuildWifiScene(wifi, RecordAction, nullptr);
+      lv_screen_load(wifi); Tick(2);
+      auto *add_button = Find(wifi, LV_SYMBOL_PLUS "  Add network"); assert(add_button);
+      for (const char *ssid : {"AERA Lab", "Saved network", "Guest"}) {
+        auto *network = Find(wifi, ssid); assert(network);
+        assert(!Overlaps(add_button, network));
+        assert(Bounds(add_button).y2 < Bounds(network).y1);
+      }
+      save(landscape ? "/tmp/aera-wifi-list-landscape.png" : "/tmp/aera-wifi-list-portrait.png", 2);
+      auto open_add = [&] {
+        auto *add = Find(wifi, LV_SYMBOL_PLUS "  Add network"); assert(add);
+        lv_obj_send_event(add, LV_EVENT_CLICKED, nullptr); Tick(2);
+        auto *heading = FindLabel(wifi, "Add network"); assert(heading);
+        return lv_obj_get_parent(heading);
+      };
+      auto *page = open_add();
+      auto *connect = Find(page, "Connect"); assert(connect);
+      const int before = callback_count;
+      lv_obj_send_event(connect, LV_EVENT_CLICKED, nullptr); Tick(2);
+      assert(callback_count == before);
+      assert(FindLabel(page, "Enter a network name of 1 to 32 bytes."));
+      auto enter = [&](const char *caption, const char *value, bool secret) {
+        auto *label = FindLabel(page, caption); assert(label);
+        auto *card = lv_obj_get_parent(label);
+        auto *edit = Find(card, "Not set"); assert(edit);
+        lv_obj_send_event(edit, LV_EVENT_CLICKED, nullptr); Tick(2);
+        auto *input = FindType(page, &lv_textarea_class); assert(input);
+        auto *keyboard = FindType(page, &lv_keyboard_class); assert(keyboard);
+        assert(lv_keyboard_get_textarea(keyboard) == input);
+        assert(lv_textarea_get_password_mode(input) == secret);
+        AssertVisibleCaret(input);
+        AssertInside(keyboard, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+        lv_textarea_set_text(input, value);
+        if (secret) {
+          auto *show = Find(page, "Show password"); assert(show);
+          lv_obj_send_event(show, LV_EVENT_CLICKED, nullptr);
+          assert(!lv_textarea_get_password_mode(input));
+          lv_obj_send_event(show, LV_EVENT_CLICKED, nullptr);
+          assert(lv_textarea_get_password_mode(input));
+        }
+        lv_obj_send_event(Find(page, "Done"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      };
+      enter("Network name (SSID)", " Hidden Lab ", false);
+      enter("Password", "test password", true);
+      auto *password_card = lv_obj_get_parent(FindLabel(page, "Password"));
+      lv_obj_send_event(Find(page, "Open network"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      assert(!lv_obj_is_visible(password_card));
+      lv_obj_send_event(Find(page, "WPA3"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      assert(lv_obj_is_visible(password_card));
+      lv_obj_send_event(Find(page, "WPA2"), LV_EVENT_CLICKED, nullptr);
+      lv_obj_send_event(Find(page, "Hidden network"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      AssertInside(connect, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      save(landscape ? "/tmp/aera-wifi-add-landscape.png" : "/tmp/aera-wifi-add-portrait.png", 2);
+      lv_obj_send_event(connect, LV_EVENT_CLICKED, nullptr); Tick(2);
+      assert(last_action == Action::kRunWifiOperation);
+      assert(GetWifiRequest().ssid == " Hidden Lab ");
+      assert(GetWifiRequest().security == "WPA2" && GetWifiRequest().hidden);
+      assert(GetWifiRequest().password == "test password");
+      assert(!GetWifiRequest().use_saved_credentials);
+
+      page = open_add();
+      enter("Network name (SSID)", "Guest manually added", false);
+      lv_obj_send_event(Find(page, "Open network"), LV_EVENT_CLICKED, nullptr);
+      lv_obj_send_event(Find(page, "Connect"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      assert(GetWifiRequest().security == "OPEN" && !GetWifiRequest().hidden);
+      assert(GetWifiRequest().password.empty());
+      lv_obj_send_event(Find(wifi, "Saved network"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      lv_obj_send_event(Find(wifi, "Connect"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      assert(GetWifiRequest().ssid == "Saved network" && GetWifiRequest().use_saved_credentials);
+      lv_screen_load(screen); lv_obj_delete(wifi); Tick(2);
+
+      wifi_empty_networks = true;
+      wifi = lv_obj_create(nullptr); BuildWifiScene(wifi, RecordAction, nullptr);
+      lv_screen_load(wifi); Tick(2);
+      add_button = Find(wifi, LV_SYMBOL_PLUS "  Add network"); assert(add_button);
+      auto *empty = Find(wifi, "Looking for networks"); assert(empty);
+      assert(!Overlaps(add_button, empty));
+      assert(Bounds(add_button).y2 < Bounds(empty).y1);
+      lv_obj_send_event(add_button, LV_EVENT_CLICKED, nullptr); Tick(2);
+      assert(FindLabel(wifi, "Network name (SSID)"));
+      lv_screen_load(screen); lv_obj_delete(wifi); Tick(2);
+      wifi_empty_networks = false;
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("Manual Wi-Fi: hidden/open requests, keyboard, validation and both orientations passed");
     return 0;
   }
   if (!strcmp(argv[1], "--wifi-ip")) {

@@ -12,6 +12,7 @@
 #include "ui_components.hpp"
 #include "phone_keyboard.hpp"
 #include "network_tabs.hpp"
+#include "../../aera_wlan_network.hpp"
 
 namespace aeraui {
 namespace {
@@ -114,6 +115,7 @@ void SelectNetwork(WifiUi *state, WifiNetwork network);
 void RefreshWifiSettings(WifiUi *state);
 void RefreshPairedComputers(WifiUi *state, bool force = false);
 void IpConfigDialog(WifiUi *state, const WifiNetwork &network);
+void AddNetworkDialog(WifiUi *state);
 
 
 lv_obj_t *SectionCaption(lv_obj_t *parent, int y, const char *text) {
@@ -661,10 +663,10 @@ std::string BusyTitle(const WifiUi *state) {
 }
 
 void EmptyNetworkCard(WifiUi *state, const char *icon, const char *title,
-                      const char *detail) {
+                      const char *detail, int y = 0) {
   auto *card = lv_obj_create(state->scene.list);
   Panel(card, 34, kMainSheet);
-  lv_obj_set_pos(card, 0, 0);
+  lv_obj_set_pos(card, 0, y);
   const int width = state->list_width;
   lv_obj_set_size(card, width, 230);
   lv_obj_set_style_border_width(card, 1, 0);
@@ -975,6 +977,197 @@ void IpConfigDialog(WifiUi *state, const WifiNetwork &network) {
   if (RecoveryDataLocked()) lv_obj_add_state(save, LV_STATE_DISABLED);
 }
 
+// Edit one value at a time so the keyboard never covers the rest of the form.
+void EditNetworkField(lv_obj_t *parent, const char *name,
+                      const std::string &value, bool password,
+                      std::function<void(std::string)> save) {
+  auto *overlay = lv_obj_create(parent);
+  Clear(overlay);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+  lv_obj_update_layout(overlay);
+  const int width = std::min(1312, lv_obj_get_width(overlay) - 96);
+  const int height = std::min(1280, lv_obj_get_height(overlay) - 96);
+  auto *sheet = lv_obj_create(overlay);
+  Panel(sheet, 32, kMainSheet);
+  lv_obj_set_size(sheet, width, height);
+  lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -32);
+  auto *title = Label(sheet, name, &lv_font_montserrat_40, kText);
+  lv_obj_set_pos(title, 32, 28);
+  SingleLineLabel(title, width - 64, &lv_font_montserrat_40);
+  auto *input = TextArea(sheet);
+  lv_obj_set_pos(input, 32, 112);
+  lv_obj_set_size(input, width - 64, 124);
+  lv_obj_set_style_text_font(input, UiFont(&lv_font_montserrat_40), 0);
+  lv_obj_set_style_text_color(input, kText, 0);
+  lv_obj_set_style_bg_color(input, kMainPanel, 0);
+  lv_obj_set_style_bg_opa(input, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(input, 24, 0);
+  lv_obj_set_style_radius(input, 24, 0);
+  lv_textarea_set_one_line(input, true);
+  // LVGL counts code points; byte limits are checked before connecting.
+  lv_textarea_set_max_length(input, password ? 64 : 32);
+  lv_textarea_set_password_mode(input, password);
+  lv_textarea_set_text(input, value.c_str());
+  if (password) {
+    auto *show = Button(sheet, "Show password", [input] {
+      lv_textarea_set_password_mode(input, !lv_textarea_get_password_mode(input));
+    });
+    lv_obj_set_pos(show, 32, 256);
+    lv_obj_set_size(show, width - 64, 88);
+  }
+  const int keyboard_top = password ? 368 : 272;
+  auto *keyboard = lv_keyboard_create(sheet);
+  phone_keyboard::Apply(keyboard);
+  lv_obj_set_align(keyboard, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_pos(keyboard, 32, keyboard_top);
+  lv_obj_set_size(keyboard, width - 64, height - keyboard_top - 164);
+  lv_keyboard_set_textarea(keyboard, input);
+  auto *cancel = Button(sheet, "Cancel", [overlay] { CloseOverlay(overlay); });
+  lv_obj_set_pos(cancel, 32, height - 132);
+  lv_obj_set_size(cancel, (width - 88) / 2, 100);
+  auto *done = Button(sheet, "Done", [overlay, input, save] {
+    save(lv_textarea_get_text(input));
+    CloseOverlay(overlay);
+  }, true);
+  lv_obj_set_pos(done, width / 2 + 12, height - 132);
+  lv_obj_set_size(done, (width - 88) / 2, 100);
+  lv_obj_send_event(input, LV_EVENT_CLICKED, nullptr);
+}
+
+void AddNetworkDialog(WifiUi *state) {
+  if (!state || state->busy || state->snapshot.busy) return;
+  struct Draft {
+    std::string ssid, password, security = "WPA2";
+    bool hidden = false;
+    lv_obj_t *password_card = nullptr;
+    lv_obj_t *message = nullptr;
+    lv_obj_t *choices[3] = {};
+  };
+  auto draft = std::make_shared<Draft>();
+  auto *page = lv_obj_create(state->screen);
+  Clear(page);
+  lv_obj_set_user_data(page, &kModalMarker);
+  lv_obj_set_size(page, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(page, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(page, LV_OPA_COVER, 0);
+  lv_obj_update_layout(page);
+  const int page_width = lv_obj_get_width(page);
+  const int height = lv_obj_get_height(page);
+  const int width = std::min(1312, page_width - 96);
+  const int left = (page_width - width) / 2;
+  auto *back = Button(page, LV_SYMBOL_LEFT, [page] { CloseOverlay(page); });
+  lv_obj_set_pos(back, left, 48);
+  lv_obj_set_size(back, 96, 96);
+  auto *title = Label(page, "Add network", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, left + 128, 68);
+  SingleLineLabel(title, width - 128, &lv_font_montserrat_48);
+
+  auto *list = lv_obj_create(page);
+  Clear(list);
+  lv_obj_set_pos(list, left, 188);
+  lv_obj_set_size(list, width, height - 510);
+  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(list, 24, 0);
+  auto field = [page, draft, list, width](const char *name,
+                                         std::string *value, bool secret) {
+    auto *card = lv_obj_create(list);
+    Panel(card, 30, kMainSheet);
+    lv_obj_set_size(card, width, 194);
+    auto *caption = Label(card, name, &lv_font_montserrat_28, kMutedStrong);
+    lv_obj_set_pos(caption, 32, 24);
+    SingleLineLabel(caption, width - 64, &lv_font_montserrat_28);
+    auto *button = Button(card, "Not set", [] {});
+    lv_obj_set_pos(button, 24, 74);
+    lv_obj_set_size(button, width - 48, 96);
+    auto *label = lv_obj_get_child(button, 0);
+    SingleLineLabel(label, width - 112, &lv_font_montserrat_32);
+    OnClick(button, [page, draft, name, value, secret, label] {
+      EditNetworkField(page, name, *value, secret,
+          [draft, value, secret, label](std::string text) {
+        *value = std::move(text);
+        if (value->empty()) i18n::BindLabel(label, "Not set");
+        else lv_label_set_text(label, secret ? "********" : value->c_str());
+        i18n::BindLabel(draft->message, "");
+      });
+    });
+    return card;
+  };
+  field("Network name (SSID)", &draft->ssid, false);
+  auto *security = lv_obj_create(list);
+  Panel(security, 30, kMainSheet);
+  lv_obj_set_size(security, width, 194);
+  auto *caption = Label(security, "Security", &lv_font_montserrat_28, kMutedStrong);
+  lv_obj_set_pos(caption, 32, 24);
+  const char *labels[] = {"Open network", "WPA2", "WPA3"};
+  const char *values[] = {"OPEN", "WPA2", "WPA3"};
+  const auto choose = [draft](const std::string &value) {
+    draft->security = value;
+    for (int index = 0; index < 3; ++index) {
+      const bool selected = (index == 0 ? "OPEN" : index == 1 ? "WPA2" : "WPA3") == value;
+      lv_obj_set_style_bg_color(draft->choices[index], selected ? kAccentSoft : kMainPanel, 0);
+      lv_obj_set_style_border_color(draft->choices[index], selected ? kAccent : kMainLine, 0);
+      lv_obj_set_style_border_width(draft->choices[index], selected ? 2 : 1, 0);
+    }
+    lv_obj_set_flag(draft->password_card, LV_OBJ_FLAG_HIDDEN, value == "OPEN");
+    i18n::BindLabel(draft->message, "");
+  };
+  for (int index = 0; index < 3; ++index) {
+    auto *choice = Button(security, labels[index],
+        [choose, value = std::string(values[index])] { choose(value); });
+    draft->choices[index] = choice;
+    lv_obj_set_pos(choice, 24 + index * ((width - 80) / 3 + 16), 74);
+    lv_obj_set_size(choice, (width - 80) / 3, 96);
+    FitLabelToLines(lv_obj_get_child(choice, 0), (width - 80) / 3 - 32, 2,
+                   {&lv_font_montserrat_28, &lv_font_montserrat_24});
+  }
+  draft->password_card = field("Password", &draft->password, true);
+  auto *hidden = lv_button_create(list);
+  Panel(hidden, 30, kMainSheet);
+  Interactive(hidden, kMainSelected);
+  lv_obj_set_size(hidden, width, 144);
+  auto *name = Label(hidden, "Hidden network", &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(name, 32, 52);
+  SingleLineLabel(name, width - 240, &lv_font_montserrat_32);
+  auto *toggle = lv_switch_create(hidden);
+  StyleSwitch(toggle, false);
+  lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -32, 0);
+  OnClick(hidden, [draft, toggle] {
+    draft->hidden = !draft->hidden;
+    if (draft->hidden) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+    else lv_obj_remove_state(toggle, LV_STATE_CHECKED);
+  });
+
+  draft->message = Label(page, "", &lv_font_montserrat_28, kRed);
+  lv_obj_set_pos(draft->message, left + 16, height - 290);
+  lv_obj_set_size(draft->message, width - 32, 100);
+  auto *cancel = Button(page, "Cancel", [page] { CloseOverlay(page); });
+  lv_obj_set_pos(cancel, left, height - 164);
+  lv_obj_set_size(cancel, (width - 24) / 2, 116);
+  auto *connect = Button(page, "Connect", [state, page, draft] {
+    const auto password = draft->security == "OPEN" ? std::string() : draft->password;
+    if (const char *error = aera::wifi::NetworkInputError(draft->ssid, draft->security, password)) {
+      i18n::BindLabel(draft->message, error);
+      return;
+    }
+    WifiRequest request;
+    request.operation = WifiOperation::kConnect;
+    request.ssid = draft->ssid;
+    request.password = password;
+    request.security = draft->security;
+    request.hidden = draft->hidden;
+    CloseOverlay(page);
+    Dispatch(state, std::move(request));
+  }, true);
+  lv_obj_set_pos(connect, left + (width + 24) / 2, height - 164);
+  lv_obj_set_size(connect, (width - 24) / 2, 116);
+  choose("WPA2");
+}
+
 void SelectNetwork(WifiUi *state, WifiNetwork network) {
   if (state->busy) return;
   if (network.saved || network.security == "OPEN") {
@@ -996,13 +1189,20 @@ void Populate(WifiUi *state) {
                      "Turn it on to discover nearby networks.");
     return;
   }
+  auto *add = Button(state->scene.list, LV_SYMBOL_PLUS "  Add network",
+                     [state] { AddNetworkDialog(state); });
+  Panel(add, 30, kMainSheet);
+  Interactive(add, kMainSelected);
+  lv_obj_set_pos(add, 0, 0);
+  lv_obj_set_size(add, state->list_width, 116);
+  if (state->busy || state->snapshot.busy) lv_obj_add_state(add, LV_STATE_DISABLED);
   if (state->snapshot.networks.empty()) {
     EmptyNetworkCard(state, LV_SYMBOL_REFRESH, "Looking for networks",
                      state->busy ? "Scanning nearby access points."
-                                 : "No networks found. Tap Scan again.");
+                                 : "No networks found. Tap Scan again.", 148);
     return;
   }
-  int y = 0;
+  int y = 148;
   for (const auto &network : state->snapshot.networks) {
     NetworkCard(state, y, network);
     y += 192;

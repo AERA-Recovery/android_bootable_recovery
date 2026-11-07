@@ -562,6 +562,8 @@ struct WifiRequest {
   std::string ssid;
   std::string password;
   bool use_saved_credentials = false;
+  std::string security;  // Empty uses the scan result; set for a manually added network.
+  bool hidden = false;
   WifiIpConfig ip_config;
 };
 WifiIpConfig RecoveryWifiIpConfig(const std::string &ssid);

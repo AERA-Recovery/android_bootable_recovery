@@ -32,6 +32,7 @@
 #include "twrp-functions.hpp"
 #include "aera_supplicant_link.hpp"
 #include "aera_wlan_dhcp.hpp"
+#include "aera_wlan_network.hpp"
 
 #ifndef LOGINFO
 #define LOGINFO(...) printf(__VA_ARGS__)
@@ -162,14 +163,14 @@ static void SetWlanTestResult(const std::string& title,
 }
 
 
-static bool OF_SaveEncryptedNetwork(const std::string& ssid, const std::string& password, const std::string& encryption)
+static bool OF_SaveEncryptedNetwork(const std::string& ssid, const std::string& password, const std::string& encryption, bool hidden)
 {
-    return AeraSecrets::SetWlanNetwork(ssid, password, encryption);
+    return AeraSecrets::SetWlanNetwork(ssid, password, encryption, hidden);
 }
 
-static bool OF_LoadEncryptedNetwork(const std::string& ssid, std::string& password, std::string& encryption)
+static bool OF_LoadEncryptedNetwork(const std::string& ssid, std::string& password, std::string& encryption, bool& hidden)
 {
-    return AeraSecrets::GetWlanNetwork(ssid, password, encryption);
+    return AeraSecrets::GetWlanNetwork(ssid, password, encryption, &hidden);
 }
 
 static bool OF_DeleteEncryptedNetwork(const std::string& ssid)
@@ -307,7 +308,7 @@ bool Wlan::Scan() {
     return false;
 }
 
-bool Wlan::Connect() {
+bool Wlan::Connect(const std::string& security, bool hidden) {
     std::lock_guard<std::recursive_mutex> op(g_wlan_op_mutex);
     DataManager::SetValue("wlan_connect_text", "Connecting");
     DataManager::SetValue("wlan_connect_done", 0);
@@ -330,8 +331,8 @@ bool Wlan::Connect() {
         return false;
     }
 
-    std::string enc;
-    if (!ReadFile(NetworkMetadataPath(ssid), enc)) {
+    std::string enc = security;
+    if (enc.empty() && !ReadFile(NetworkMetadataPath(ssid), enc)) {
         gui_print("WLAN: missing metadata for selected SSID\n");
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -339,6 +340,12 @@ bool Wlan::Connect() {
         return false;
     }
     enc = Trim(enc);
+    if (const char* error = aera::wifi::NetworkInputError(ssid, enc, pass)) {
+        gui_print("WLAN: %s\n", error);
+        DataManager::SetValue("wlan_connect_text", "Failed");
+        DataManager::SetValue("wlan_connect_done", 0);
+        return false;
+    }
 
     std::string key_mgmt = "NONE";
     if (enc == "WPA3") {
@@ -411,7 +418,13 @@ bool Wlan::Connect() {
         return false;
     }
 
-    SuppCmd("SET_NETWORK 0 scan_ssid 1");  // probe for the SSID so hidden networks are found (harmless for visible ones)
+    if (!SuppCmd(std::string("SET_NETWORK 0 scan_ssid ") + (hidden ? "1" : "0"))) {
+        gui_print("WLAN: failed setting hidden-network scan policy\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
+        DataManager::SetValue("wlan_connect_done", 0);
+        DataManager::SetValue("tw_wlan_connected", 0);
+        return false;
+    }
     gui_print("Add encryption to new config...\n");
     if (!SuppCmd("SET_NETWORK 0 key_mgmt " + key_mgmt)) {
         gui_print("WLAN: failed setting key_mgmt\n");
@@ -429,7 +442,8 @@ bool Wlan::Connect() {
         if (key_mgmt == "SAE") {
             pass_ok = SuppCmd("SET_NETWORK 0 sae_password \"" + esc_pass + "\"");
         } else {
-            pass_ok = SuppCmd("SET_NETWORK 0 psk \"" + esc_pass + "\"");
+            pass_ok = SuppCmd("SET_NETWORK 0 psk " + (aera::wifi::IsRawPsk(pass)
+                ? pass : "\"" + esc_pass + "\""));
         }
 
         if (!pass_ok) {
@@ -583,7 +597,7 @@ bool Wlan::Connect() {
         gui_print("WLAN: network already saved: %s\n", ssid.c_str());
     }
 
-    if (OF_SaveEncryptedNetwork(ssid, pass, enc)) {
+    if (OF_SaveEncryptedNetwork(ssid, pass, enc, hidden)) {
         gui_print("WLAN: encrypted credentials saved for: %s\n", ssid.c_str());
     } else {
         gui_print("WLAN: failed to save encrypted credentials for: %s\n", ssid.c_str());
@@ -639,8 +653,9 @@ bool Wlan::ConnectSaved() {
 
     std::string saved_pass;
     std::string saved_enc;
+    bool hidden = false;
 
-    if (!OF_LoadEncryptedNetwork(ssid, saved_pass, saved_enc)) {
+    if (!OF_LoadEncryptedNetwork(ssid, saved_pass, saved_enc, hidden)) {
         gui_print("WLAN: no encrypted saved credentials for: %s\n", ssid.c_str());
         DataManager::SetValue("wlan_connect_text", "Failed");
         DataManager::SetValue("wlan_connect_done", 0);
@@ -722,7 +737,13 @@ bool Wlan::ConnectSaved() {
         return false;
     }
 
-    SuppCmd("SET_NETWORK 0 scan_ssid 1");  // probe for the SSID so hidden networks are found (harmless for visible ones)
+    if (!SuppCmd(std::string("SET_NETWORK 0 scan_ssid ") + (hidden ? "1" : "0"))) {
+        gui_print("WLAN: failed restoring hidden-network scan policy\n");
+        DataManager::SetValue("wlan_connect_text", "Failed");
+        DataManager::SetValue("wlan_connect_done", 0);
+        DataManager::SetValue("tw_wlan_connected", 0);
+        return false;
+    }
     gui_print("Add saved encryption to config...\n");
     if (!SuppCmd("SET_NETWORK 0 key_mgmt " + key_mgmt)) {
         gui_print("WLAN: failed setting saved key_mgmt\n");
@@ -741,7 +762,8 @@ bool Wlan::ConnectSaved() {
         if (key_mgmt == "SAE") {
             pass_ok = SuppCmd("SET_NETWORK 0 sae_password \"" + esc_pass + "\"");
         } else {
-            pass_ok = SuppCmd("SET_NETWORK 0 psk \"" + esc_pass + "\"");
+            pass_ok = SuppCmd("SET_NETWORK 0 psk " + (aera::wifi::IsRawPsk(saved_pass)
+                ? saved_pass : "\"" + esc_pass + "\""));
         }
 
         if (!pass_ok) {

@@ -327,12 +327,13 @@ std::string Fingerprint(const std::string& key) {
 
 bool AeraSecrets::SetWlanNetwork(const std::string& ssid,
                                  const std::string& password,
-                                 const std::string& security) {
+                                 const std::string& security, bool hidden) {
   if (ssid.empty()) return false;
   std::lock_guard<std::mutex> guard(g_lock);
   Json::Value root = ReadDocument(kWifiPath);
   Json::Value network(Json::objectValue);
   network["security"] = security.empty() ? "WPA2" : security;
+  network["hidden"] = hidden;
   if (!Seal(password, &network["password"], true)) return false;
   root["networks"][ssid] = std::move(network);
   if (!WriteDocument(kWifiPath, root)) return false;
@@ -342,7 +343,8 @@ bool AeraSecrets::SetWlanNetwork(const std::string& ssid,
 
 bool AeraSecrets::GetWlanNetwork(const std::string& ssid,
                                  std::string& password,
-                                 std::string& security) {
+                                 std::string& security, bool* hidden) {
+  if (hidden) *hidden = false;
   password.clear();
   security.clear();
   if (ssid.empty()) return false;
@@ -350,8 +352,10 @@ bool AeraSecrets::GetWlanNetwork(const std::string& ssid,
   Json::Value root = g_early_wlan.isObject() ? g_early_wlan : ReadDocument(kWifiPath);
   Json::Value& network = root["networks"][ssid];
   if (!network.isObject() ||
-      (network.isMember("security") && !network["security"].isString())) return false;
+      (network.isMember("security") && !network["security"].isString()) ||
+      (network.isMember("hidden") && !network["hidden"].isBool())) return false;
   security = network.get("security", "WPA2").asString();
+  if (hidden) *hidden = network.get("hidden", false).asBool();
   bool used_legacy = false;
   if (!Open(network["password"], &password, &used_legacy, true)) return false;
   if (!g_early_wlan.isObject() && used_legacy && Seal(password, &network["password"], true))
@@ -401,7 +405,8 @@ bool AeraSecrets::LoadEarlyWlan(const std::string& path, WlanSession& session) {
   for (const auto& ssid : cache["networks"].getMemberNames()) {
     const auto& network = cache["networks"][ssid];
     if (ssid.empty() || ssid.size() > 32 || !network.isObject() ||
-        !network["security"].isString() || !network["password"].isObject()) return false;
+        !network["security"].isString() || !network["password"].isObject() ||
+        (network.isMember("hidden") && !network["hidden"].isBool())) return false;
   }
   g_early_wlan = cache;
   g_early_wlan_path = path;
@@ -440,6 +445,7 @@ bool AeraSecrets::UsePrimaryWlan(const std::string& connected_ssid) {
     std::string old_password, new_password;
     changed = !before.isObject() || !after.isObject() ||
         before["security"] != after["security"] ||
+        before.get("hidden", false) != after.get("hidden", false) ||
         before_ip != after_ip ||
         !Open(before["password"], &old_password, nullptr, true) ||
         !Open(after["password"], &new_password, nullptr, true) ||

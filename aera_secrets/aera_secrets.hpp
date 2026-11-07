@@ -22,10 +22,10 @@ class AeraSecrets {
 
   static bool SetWlanNetwork(const std::string& ssid,
                              const std::string& password,
-                             const std::string& security);
+                             const std::string& security, bool hidden = false);
   static bool GetWlanNetwork(const std::string& ssid,
                              std::string& password,
-                             std::string& security);
+                             std::string& security, bool* hidden = nullptr);
   static bool DeleteWlanNetwork(const std::string& ssid);
   static bool ListWlanNetworks(std::vector<std::string>& ssids);
   static bool GetWlanIpConfig(const std::string& ssid, aera::wifi::IpConfig& config);

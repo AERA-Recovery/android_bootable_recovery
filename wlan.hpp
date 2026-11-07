@@ -14,7 +14,7 @@ public:
     static bool IsEnabled();
 
     static bool Scan();
-    static bool Connect();
+    static bool Connect(const std::string& security = "", bool hidden = false);
     static bool ConnectSaved();
     static bool ApplyIpConfiguration(const std::string& ssid);
     static bool ForgetSaved();

@@ -4615,7 +4615,8 @@ int RecoveryRunWifi(const WifiRequest &request) {
       DataManager::SetValue("wlan_state", "connecting");
       DataManager::SetValue("wlanselectedid", request.ssid);
       DataManager::SetValue("wlan_password", request.password);
-      result = request.use_saved_credentials ? Wlan::ConnectSaved() : Wlan::Connect();
+      result = request.use_saved_credentials ? Wlan::ConnectSaved() :
+          Wlan::Connect(request.security, request.hidden);
       DataManager::SetValue("wlan_password", "");
       if (result) SaveAeraPreferences();
       break;
