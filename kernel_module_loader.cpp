@@ -41,13 +41,6 @@ const std::vector<std::string> post_decrypt_modules_requested;
 #endif
 
 static const std::string post_decrypt_stage_dir = "/tmp/post_decrypt_modules";
-static const std::string packaged_module_dir = "/aera-device-runtime/modules";
-
-// Opt-in device runtime: stay independent of installed DLKM partitions while
-// preserving the usual pre-/post-decryption split. Other devices are unchanged.
-static bool Use_Packaged_Modules() {
-	return android::base::GetBoolProperty("ro.aera.packaged_modules", false);
-}
 
 BOOT_MODE KernelModuleLoader::Get_Boot_Mode() {
 	std::string cmdline;
@@ -117,8 +110,6 @@ bool KernelModuleLoader::Stage_Post_Decrypt_Modules() {
 		SYSTEM_DLKM_MODULE_DIR,
 		VENDOR_DLKM_MODULE_DIR
 	};
-	if (Use_Packaged_Modules())
-		search_dirs = {packaged_module_dir};
 
 	std::string module_list;
 	int staged_count = 0;
@@ -197,7 +188,7 @@ bool KernelModuleLoader::Stage_Post_Decrypt_Modules() {
 		}
 
 		if (!found) {
-			LOGINFO("Post-decrypt module not found in staging sources: %s\n", mod.c_str());
+			LOGINFO("Post-decrypt module not found in system_dlkm/vendor_dlkm: %s\n", mod.c_str());
 		}
 	}
 
@@ -280,7 +271,6 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 		return true;
 
 	int modules_loaded = 0;
-	const bool packaged_modules = Use_Packaged_Modules();
 #ifdef TW_INCLUDE_CRYPTO
 	std::string vendor_patch;
 	std::string system_patch;
@@ -322,8 +312,6 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 	}
 
 	TWFunc::RunFoxScript("/system/bin/beforemodules.sh", "");
-	if (packaged_modules)
-		goto read_security_patch;
 
 	switch(Get_Boot_Mode()) {
 		case RECOVERY_FASTBOOT_MODE:
@@ -360,7 +348,6 @@ bool KernelModuleLoader::Load_Vendor_Modules() {
 	}
 #endif
 
-read_security_patch:
 	if (ven) {
 		LOGINFO("Checking mounted /vendor\n");
 		ven->Mount(true);
@@ -390,12 +377,6 @@ read_security_patch:
 
 	LOGINFO("Ending override security patch...\n");
 #endif
-	if (packaged_modules) {
-		LOGINFO("Using packaged recovery modules; installed DLKM partitions are not required\n");
-		Stage_Post_Decrypt_Modules();
-		modules_loaded += Try_And_Load_Modules(packaged_module_dir, true);
-		goto exit;
-	}
 
 	if (ven_dlkm) {
 		LOGINFO("Checking mounted /vendor_dlkm\n");
@@ -458,16 +439,6 @@ exit:
 
 int KernelModuleLoader::Try_And_Load_Modules(std::string module_dir, bool vendor_is_mounted) {
 	LOGINFO("Checking directory: %s\n", module_dir.c_str());
-	if (module_dir == packaged_module_dir) {
-		// Already in writable recovery RAM: no duplicate copy or partition bind
-		// mount is needed. Keep the normal requested-list/dependency handling.
-		if (!Write_Module_List(module_dir))
-			return kernel_modules_requested.size();
-		Modprobe m({module_dir}, "modules.load.twrp", false);
-		m.LoadListedModules(false);
-		LOGINFO("Loaded %d modules from packaged recovery runtime\n", m.GetModuleCount());
-		return m.GetModuleCount();
-	}
 	int modules_loaded = 0;
 	std::string dest_module_dir = "/tmp" + module_dir;
 	TWFunc::Recursive_Mkdir(dest_module_dir);
