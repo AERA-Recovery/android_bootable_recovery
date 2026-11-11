@@ -651,7 +651,13 @@ aera_efisp::AblWarning RecoveryEfispAblWarning() { return aera_efisp::AblExitWar
 void RecoveryAcknowledgeEfispAbl(const std::string& token) { aera_efisp::AcknowledgeAblExit(token); }
 void RecoveryClearEfispAblAcknowledgement() { aera_efisp::ClearAblExitAcknowledgement(); }
 
-std::string RecoverySlot() { return PartitionManager.Get_Active_Slot_Display(); }
+std::string RecoverySlot() {
+#ifdef AB_OTA_UPDATER
+  return PartitionManager.Get_Active_Slot_Display();
+#else
+  return {};
+#endif
+}
 std::string RecoveryBootSlot() {
   const auto suffix = android::base::GetProperty("ro.boot.slot_suffix", "");
   if (suffix == "_a" || suffix == "_b") return suffix.substr(1);
@@ -680,6 +686,7 @@ std::string RecoveryMaintainer() {
   return DataManager::GetStrValue(AERA_MAINTAINER_STR);
 }
 bool RecoverySetActiveSlot(const std::string &slot) {
+  if (RecoverySlot().empty()) return false;
   if (slot != "A" && slot != "B") return false;
   if (RecoverySlot() == slot) return true;
 
