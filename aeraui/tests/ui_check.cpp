@@ -764,7 +764,7 @@ int main(int argc,char **argv) {
     assert(lv_font_get_glyph_dsc(latin_font, &glyph, codepoint, 0));
     assert(glyph.adv_w > 0);
   }
-  std::vector<uint8_t> frame(1440*3168*4);
+  std::vector<uint8_t> frame(1440 * (!strcmp(argv[1], "--terminal-layout") ? 3520 : 3168) * 4);
   auto *display = gpu_test::enabled ? lv_opengles_texture_create(1440, 3168)
                                     : lv_display_create(1440,3168);
   if (gpu_test::enabled) lv_display_set_flush_cb(display, gpu_test::Flush);
@@ -782,6 +782,60 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--terminal-layout")) {
+    const int resolutions[][2] = {
+        {1080, 1920}, {1080, 2312}, {1440, 2560}, {1440, 2880},
+        {1440, 3082}, {1440, 3168}, {1440, 3520}, {1920, 1080}, {2312, 1080},
+        {2560, 1440}, {3082, 1440}, {3168, 1440}, {3520, 1440},
+    };
+    for (const auto& resolution : resolutions) {
+      const int width = resolution[0], height = resolution[1];
+      fprintf(stderr, "Terminal viewport %dx%d\n", width, height);
+      lv_display_set_resolution(display, width, height);
+      auto* terminal = lv_obj_create(nullptr);
+      BuildTerminalScene(terminal, RecordAction, nullptr);
+      lv_screen_load(terminal);
+      Tick();
+      auto* command = FindType(terminal, &lv_textarea_class);
+      auto* keyboard = FindType(terminal, &lv_keyboard_class);
+      assert(command && keyboard);
+      auto* viewport = lv_obj_get_parent(lv_obj_get_parent(command));
+      auto* controls = lv_obj_get_parent(Find(terminal, "Esc"));
+      assert(viewport && controls);
+      auto check_command = [&] {
+        AssertInside(viewport, width, height);
+        AssertInside(command, width, height);
+        AssertContained(command, viewport);
+        AssertInside(controls, width, height);
+        assert(!Overlaps(viewport, controls));
+        for (uint32_t i = 0; i < lv_obj_get_child_count(controls); ++i)
+          AssertContained(lv_obj_get_child(controls, i), controls);
+      };
+      check_command();
+      assert(lv_obj_has_flag(keyboard, LV_OBJ_FLAG_HIDDEN));
+      for (int attempt = 0; attempt < 2; ++attempt) {
+        lv_obj_send_event(command, LV_EVENT_CLICKED, nullptr);
+        Tick();
+        assert(!lv_obj_has_flag(keyboard, LV_OBJ_FLAG_HIDDEN));
+        AssertInside(keyboard, width, height);
+        check_command();
+        assert(!Overlaps(keyboard, viewport));
+        assert(!Overlaps(keyboard, controls));
+        lv_textarea_set_text(command, "echo terminal");
+        lv_obj_send_event(keyboard, attempt == 0 ? LV_EVENT_CANCEL : LV_EVENT_READY, nullptr);
+        Tick();
+        assert(lv_obj_has_flag(keyboard, LV_OBJ_FLAG_HIDDEN));
+        check_command();
+      }
+      lv_screen_load(screen);
+      lv_obj_delete(terminal);
+      Tick(1);
+    }
+    puts("Terminal command field, controls and keyboard fit all 13 viewports.");
+    lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    return 0;
+  }
   if (!strcmp(argv[1], "--file-picker")) {
     std::filesystem::create_directories(file_root+"/nested");
     std::ofstream(file_root+"/nested/second.ZIP") << "selection only";

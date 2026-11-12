@@ -4,6 +4,7 @@
  */
 #include "scene.hpp"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -32,9 +33,62 @@ struct TerminalUi {
   bool landscape = false;
 };
 
+void LayoutTerminal(TerminalUi *state) {
+  lv_obj_update_layout(state->screen);
+  const int width = lv_obj_get_width(state->screen);
+  const int height = lv_obj_get_height(state->screen);
+  const int top = state->landscape ? 350 : 430;
+  const int bottom = height - 64;
+  int viewport_width = width - 128;
+  int viewport_bottom;
+  int controls_x = 64;
+  int controls_y;
+  int controls_width = width - 128;
+  int controls_height = 112;
+  int columns = 6;
+
+  if (state->landscape) {
+    const int right_width = state->keyboard_visible
+        ? width * 55 / 100 : std::min(864, (width - 192) / 3);
+    controls_x = width - 64 - right_width;
+    controls_width = right_width;
+    controls_y = top;
+    controls_height = state->keyboard_visible ? 112 : 284;
+    columns = state->keyboard_visible ? 6 : 3;
+    viewport_width = controls_x - 108;
+    viewport_bottom = std::min(1250, bottom);
+    const int keyboard_y = top + 150;
+    lv_obj_set_pos(state->keyboard, controls_x, keyboard_y);
+    lv_obj_set_size(state->keyboard, width - controls_x,
+                    std::min(768, bottom - keyboard_y));
+  } else {
+    const int keyboard_height = std::min(1098, (bottom - top) * 55 / 100);
+    const int keyboard_y = std::min(2070, bottom - keyboard_height);
+    lv_obj_set_pos(state->keyboard, 0, keyboard_y);
+    lv_obj_set_size(state->keyboard, width, keyboard_height);
+    controls_y = state->keyboard_visible ? keyboard_y - 160
+                                        : std::min(2720, bottom - controls_height);
+    viewport_bottom = controls_y - 30;
+  }
+
+  lv_obj_set_pos(state->viewport, 64, top);
+  lv_obj_set_size(state->viewport, viewport_width, viewport_bottom - top);
+  lv_obj_set_pos(state->controls, controls_x, controls_y);
+  lv_obj_set_size(state->controls, controls_width, controls_height);
+  const int gap = state->landscape ? 20 : 16;
+  const int button_width = (controls_width - (columns - 1) * gap) / columns;
+  for (int index = 0; index < 6; ++index) {
+    auto *button = lv_obj_get_child(state->controls, index);
+    lv_obj_set_pos(button, (index % columns) * (button_width + gap),
+                    (index / columns) * 132);
+    lv_obj_set_size(button, button_width, 112);
+  }
+}
+
 void LayoutCommandLine(TerminalUi *state) {
   if (state == nullptr || state->viewport == nullptr ||
       state->output == nullptr || state->command_bar == nullptr) return;
+  lv_obj_update_layout(state->viewport);
   const int content_width = std::max(320,
       static_cast<int>(lv_obj_get_width(state->viewport)) - 68);
   lv_obj_set_width(state->output, content_width);
@@ -71,42 +125,13 @@ void RefreshOutput(TerminalUi *state, bool force = false) {
 void SetKeyboardVisible(TerminalUi *state, bool visible) {
   if (state == nullptr || state->keyboard_visible == visible) return;
   state->keyboard_visible = visible;
+  LayoutTerminal(state);
   if (visible) {
-    if (state->landscape) {
-      lv_obj_set_pos(state->controls, 1400, 350);
-      lv_obj_set_size(state->controls, 1704, 112);
-      for (int index = 0; index < 6; ++index) {
-        auto *button = lv_obj_get_child(state->controls, index);
-        lv_obj_set_pos(button, index * 284, 0);
-        lv_obj_set_size(button, 264, 112);
-      }
-      lv_obj_set_pos(state->viewport, 64, 350);
-      lv_obj_set_size(state->viewport, 1292, 900);
-    } else {
-      lv_obj_set_pos(state->controls, 64, 1910);
-      lv_obj_set_size(state->controls, 1312, 112);
-      lv_obj_set_height(state->viewport, 1450);
-    }
     lv_obj_remove_flag(state->keyboard, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(state->keyboard);
     lv_keyboard_set_textarea(state->keyboard, state->command);
   } else {
     lv_obj_add_flag(state->keyboard, LV_OBJ_FLAG_HIDDEN);
-    if (state->landscape) {
-      lv_obj_set_pos(state->viewport, 64, 350);
-      lv_obj_set_size(state->viewport, 2112, 900);
-      lv_obj_set_pos(state->controls, 2240, 350);
-      lv_obj_set_size(state->controls, 864, 284);
-      for (int index = 0; index < 6; ++index) {
-        auto *button = lv_obj_get_child(state->controls, index);
-        lv_obj_set_pos(button, (index % 3) * 296, (index / 3) * 132);
-        lv_obj_set_size(button, 272, 112);
-      }
-    } else {
-      lv_obj_set_pos(state->controls, 64, 2720);
-      lv_obj_set_size(state->controls, 1312, 112);
-      lv_obj_set_height(state->viewport, 2260);
-    }
     lv_obj_clear_state(state->command, LV_STATE_FOCUSED);
   }
   RefreshOutput(state, true);
@@ -132,13 +157,10 @@ void DeleteTerminalUi(lv_event_t *event) {
   delete state;
 }
 
-lv_obj_t *Control(TerminalUi *state, int x, int width, const char *label,
-                  TerminalKey key) {
+lv_obj_t *Control(TerminalUi *state, const char *label, TerminalKey key) {
   auto *button = Button(state->controls, label, [key] {
     RecoveryTerminalSendKey(key);
   });
-  lv_obj_set_pos(button, x, 0);
-  lv_obj_set_size(button, width, 112);
   lv_obj_set_style_radius(button, 30, 0);
   return button;
 }
@@ -166,9 +188,6 @@ void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
 
   state->viewport = lv_obj_create(screen);
   Panel(state->viewport, 34, Color(0x101216));
-  lv_obj_set_pos(state->viewport, 64, state->landscape ? 350 : 430);
-  lv_obj_set_size(state->viewport, state->landscape ? 2112 : 1312,
-                  state->landscape ? 900 : 2260);
   lv_obj_set_style_border_width(state->viewport, 1, 0);
   lv_obj_set_style_border_color(state->viewport, kMainLine, 0);
   lv_obj_set_style_border_opa(state->viewport, LV_OPA_60, 0);
@@ -181,37 +200,20 @@ void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
 
   state->output = Label(state->viewport, "Starting recovery shell…",
                         &lv_font_montserrat_24, Color(0xe9f0f4));
-  lv_obj_set_width(state->output, state->landscape ? 2024 : 1224);
   lv_obj_set_style_text_line_space(state->output, 8, 0);
 
   state->controls = lv_obj_create(screen);
   Clear(state->controls);
-  lv_obj_set_pos(state->controls, state->landscape ? 2240 : 64,
-                 state->landscape ? 350 : 2720);
-  lv_obj_set_size(state->controls, state->landscape ? 864 : 1312,
-                  state->landscape ? 284 : 112);
-  Control(state, 0, 196, "Esc", TerminalKey::kEscape);
-  Control(state, 212, 196, "Tab", TerminalKey::kTab);
-  Control(state, 424, 196, LV_SYMBOL_UP, TerminalKey::kUp);
-  Control(state, 636, 196, LV_SYMBOL_DOWN, TerminalKey::kDown);
-  Control(state, 848, 216, "Ctrl+C", TerminalKey::kInterrupt);
+  Control(state, "Esc", TerminalKey::kEscape);
+  Control(state, "Tab", TerminalKey::kTab);
+  Control(state, LV_SYMBOL_UP, TerminalKey::kUp);
+  Control(state, LV_SYMBOL_DOWN, TerminalKey::kDown);
+  Control(state, "Ctrl+C", TerminalKey::kInterrupt);
   auto *clear = Button(state->controls, "Clear", [state] {
     RecoveryTerminalClear();
     RefreshOutput(state, true);
   });
-  lv_obj_set_pos(clear, 1080, 0);
-  lv_obj_set_size(clear, 232, 112);
   lv_obj_set_style_radius(clear, 30, 0);
-  if (state->landscape) {
-    const int width = 272;
-    for (int index = 0; index < 5; ++index) {
-      auto *button = lv_obj_get_child(state->controls, index);
-      lv_obj_set_pos(button, (index % 3) * 296, (index / 3) * 132);
-      lv_obj_set_size(button, width, 112);
-    }
-    lv_obj_set_pos(clear, 592, 132);
-    lv_obj_set_size(clear, width, 112);
-  }
 
   state->command_bar = lv_obj_create(state->viewport);
   Clear(state->command_bar);
@@ -233,17 +235,13 @@ void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_style_bg_opa(state->command, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(state->command, 0, 0);
   lv_obj_set_style_pad_all(state->command, 22, 0);
-  LayoutCommandLine(state);
 
   state->keyboard = lv_keyboard_create(screen);
   phone_keyboard::Apply(state->keyboard);
   lv_obj_set_align(state->keyboard, LV_ALIGN_TOP_LEFT);
-  lv_obj_set_pos(state->keyboard, state->landscape ? 1400 : 0,
-                 state->landscape ? 500 : 2070);
-  lv_obj_set_size(state->keyboard, state->landscape ? 1768 : 1440,
-                  state->landscape ? 768 : 1098);
   lv_keyboard_set_textarea(state->keyboard, state->command);
   lv_obj_add_flag(state->keyboard, LV_OBJ_FLAG_HIDDEN);
+  LayoutTerminal(state);
 
   lv_obj_add_event_cb(state->command, [](lv_event_t *event) {
     SetKeyboardVisible(static_cast<TerminalUi *>(lv_event_get_user_data(event)),
