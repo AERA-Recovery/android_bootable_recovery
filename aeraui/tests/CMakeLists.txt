@@ -34,6 +34,7 @@ add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp telegram_session
   ../features/artillery/game.cpp ../components/aera_logo.cpp
   ../components/matrix_engraving.cpp
   ../scenes/home_scene.cpp ../features/files/file_manager.cpp
+  ../scenes/terminal_scene.cpp
   ../components/text_edit.cpp ../components/lock_credential.cpp
   ../localization/fonts/aera_fallback.cpp ../localization/i18n.cpp
   ../localization/catalog/catalog.cpp
@@ -59,6 +60,7 @@ target_compile_definitions(ui_check PRIVATE
 target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
+add_test(NAME terminal_responsive_layout COMMAND ui_check --terminal-layout)
 foreach(mode unset disabled enabled)
   add_executable(mobile_data_flag_${mode}_test mobile_data_flag_test.cpp)
   target_include_directories(mobile_data_flag_${mode}_test PRIVATE ../include)
