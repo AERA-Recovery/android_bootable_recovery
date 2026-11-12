@@ -318,15 +318,20 @@ public:
       // The OpenGL texture display supplies its own dummy LVGL draw buffer.
       // Its flush callback below composites directly into imported DRM
       // scanout images.
-    } else if (direct_scanout_ && !transform_.IsScaled()) {
-      lv_display_set_color_format(display_, LV_COLOR_FORMAT_XRGB8888);
-      lv_display_set_buffers_with_stride(
-          display_, scanout_surface1_->data, scanout_surface2_->data,
-          static_cast<uint32_t>(buffer_size_),
-          static_cast<uint32_t>(scanout_surface1_->row_bytes),
-          LV_DISPLAY_RENDER_MODE_DIRECT);
     } else {
-      // A full-frame compositor is retained only as a safe non-DRM fallback.
+      // Software rendering (non-Adreno GPUs, or no DRM): LVGL draws a full
+      // logical frame; PresentScaledSoftware() rotates/scales it into the
+      // scanout. Rendering straight into the scanout (DIRECT mode) cannot
+      // rotate, which garbled landscape on Mali devices.
+      if (draw_buffer_ == nullptr) {
+        buffer_size_ = logical_buffer_size;
+        if (posix_memalign(&draw_buffer_, kBufferAlignment, buffer_size_) != 0) {
+          draw_buffer_ = nullptr;
+          Shutdown();
+          return false;
+        }
+        std::memset(draw_buffer_, 0, buffer_size_);
+      }
       lv_display_set_color_format(
           display_, direct_scanout_ ? LV_COLOR_FORMAT_XRGB8888
                                     : LV_COLOR_FORMAT_ARGB8888);
@@ -3873,20 +3878,41 @@ private:
     if (surface == nullptr || target == nullptr || pixels == nullptr)
       return false;
 
-    // This path is only used when the device has direct DRM scanout but the
+    // This path is used when the device has direct DRM scanout but the
     // optional Adreno renderer cannot start. It deliberately favors a small,
     // dependency-free nearest-neighbour fallback over making recovery fail.
+    // LVGL's software renderer leaves rotation to the flush step: with
+    // ROTATION_90 `pixels` holds the landscape layout (height_ wide). Map it
+    // back to the panel's portrait layout with lv_draw_sw_rotate()'s 90-degree
+    // mapping, which SetPointer() already assumes for the non-GPU path.
+    // ponytail: per-pixel column reads in landscape (~tens of ms per frame);
+    // rotate in tiles if landscape animation ever needs to be smooth.
+    const bool rotated =
+        lv_display_get_rotation(display_) == LV_DISPLAY_ROTATION_90;
+    const bool scaled = transform_.IsScaled();
     const auto *source = reinterpret_cast<const uint32_t *>(pixels);
     for (int32_t y = 0; y < physical_height_; ++y) {
-      const int32_t source_y = static_cast<int32_t>(
-          static_cast<int64_t>(y) * height_ / physical_height_);
+      const int32_t source_y = scaled
+          ? static_cast<int32_t>(static_cast<int64_t>(y) * height_ /
+                                 physical_height_)
+          : y;
       auto *destination = reinterpret_cast<uint32_t *>(
           surface->data + static_cast<size_t>(y) * surface->row_bytes);
+      if (!rotated && !scaled) {
+        std::memcpy(destination, source + static_cast<size_t>(y) * width_,
+                    static_cast<size_t>(width_) * sizeof(uint32_t));
+        continue;
+      }
       for (int32_t x = 0; x < physical_width_; ++x) {
-        const int32_t source_x = static_cast<int32_t>(
-            static_cast<int64_t>(x) * width_ / physical_width_);
-        destination[x] = source[static_cast<size_t>(source_y) * width_ +
-                                source_x];
+        const int32_t source_x = scaled
+            ? static_cast<int32_t>(static_cast<int64_t>(x) * width_ /
+                                   physical_width_)
+            : x;
+        destination[x] =
+            rotated ? source[static_cast<size_t>(source_x) * height_ +
+                             (height_ - 1 - source_y)]
+                    : source[static_cast<size_t>(source_y) * width_ +
+                             source_x];
       }
     }
     if (gr_drm_present(target) != 0) return false;
@@ -3918,17 +3944,7 @@ private:
 
     if (self->direct_scanout_) {
       if (lv_display_flush_is_last(display)) {
-        bool presented = false;
-        if (self->transform_.IsScaled()) {
-          presented = self->PresentScaledSoftware(pixels);
-        } else {
-          gr_surface target = nullptr;
-          if (pixels == self->scanout_surface1_->data)
-            target = self->scanout1_;
-          else if (pixels == self->scanout_surface2_->data)
-            target = self->scanout2_;
-          presented = target != nullptr && gr_drm_present(target) == 0;
-        }
+        const bool presented = self->PresentScaledSoftware(pixels);
 
         if (!presented) {
           __android_log_print(ANDROID_LOG_ERROR, kLogTag,
