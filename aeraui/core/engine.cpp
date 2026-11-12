@@ -3956,7 +3956,13 @@ private:
       int32_t output_width = self->width_;
       int32_t output_height = self->height_;
       if (self->transform_.IsScaled()) {
-        if (res_scale_surface(output, &scaled,
+        // res_scale_surface() frees its input descriptor on success.
+        // Copy the descriptor; the pixel buffer still belongs to LVGL.
+        auto *scaling_source =
+            static_cast<GGLSurface *>(std::malloc(sizeof(GGLSurface)));
+        if (scaling_source != nullptr) *scaling_source = surface;
+        if (scaling_source != nullptr &&
+            res_scale_surface(static_cast<gr_surface>(scaling_source), &scaled,
                               static_cast<float>(self->physical_width_) /
                                   self->width_,
                               static_cast<float>(self->physical_height_) /
@@ -3965,6 +3971,7 @@ private:
           output_width = self->physical_width_;
           output_height = self->physical_height_;
         } else {
+          std::free(scaling_source);
           __android_log_print(ANDROID_LOG_ERROR, kLogTag,
                               "minui could not scale the adaptive frame");
         }

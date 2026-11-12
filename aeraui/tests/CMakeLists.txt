@@ -325,6 +325,9 @@ add_test(NAME boot_slot_capability
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/boot_slot_capability_test.py")
 add_test(NAME non_ab_slot_ui COMMAND ui_check --non-ab-slots)
 
+add_test(NAME framebuffer_surface_ownership
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/framebuffer_ownership_test.py")
+
 add_executable(pc_connection_host pc_connection_host.cpp ../../aera_remote/pc_connection.cpp ../../aera_remote/pc_storage.cpp ../../aera_remote/pc_terminal.cpp ../../aera_flash_log.cpp)
 target_include_directories(pc_connection_host PRIVATE ../include)
 set(AERA_TEST_ROOT_MANAGER "1" CACHE STRING "Root Manager feature flag for the PC host fixture")
