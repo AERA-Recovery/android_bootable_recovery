@@ -642,6 +642,7 @@ void OpenEfiFlash(Files *state, const Entry &entry) {
 
 void OpenImageTargetPicker(Files *state, const Entry &entry) {
   const auto targets = RecoveryImageVolumes();
+  const std::string active_slot = RecoverySlot();
   if (targets.empty()) {
     Sheet(state->screen, "No flashable partitions",
           "This device tree did not expose any partitions that safely accept raw images.");
@@ -683,9 +684,10 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
   lv_obj_set_pos(tag, 48, 58);
   auto *title = Label(sheet, "Flash image", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, 48, 118);
-  const std::string subtitle_text =
-      i18n::Format("Choose exactly where this raw image will be written. Active slot: %s",
-                   RecoverySlot().c_str());
+  const std::string subtitle_text = active_slot.empty()
+      ? i18n::Translate("Choose exactly where this raw image will be written.")
+      : i18n::Format("Choose exactly where this raw image will be written. Active slot: %s",
+                     active_slot.c_str());
   auto *subtitle = Label(sheet, subtitle_text.c_str(),
                          &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(subtitle, 48, 188);
@@ -704,12 +706,12 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
   lv_obj_set_pos(file_path, 112, 108);
   SingleLineLabel(file_path, sheet_width - 280, &lv_font_montserrat_24);
 
-  const std::string active_slot = RecoverySlot();
   auto both_slots = std::make_shared<bool>(false);
   auto *slot_mode = lv_obj_create(sheet);
   Panel(slot_mode, 28, kInset);
   lv_obj_set_pos(slot_mode, 48, 504);
   lv_obj_set_size(slot_mode, sheet_width - 96, 136);
+  if (active_slot.empty()) lv_obj_add_flag(slot_mode, LV_OBJ_FLAG_HIDDEN);
   const int mode_width = (sheet_width - 120) / 2;
   auto *current_slot = lv_button_create(slot_mode);
   Panel(current_slot, 22, kAccent);
@@ -748,8 +750,9 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
 
   auto *list = lv_obj_create(sheet);
   Clear(list);
-  lv_obj_set_pos(list, 48, 680);
-  lv_obj_set_size(list, sheet_width - 96, sheet_height - 920);
+  const int list_y = active_slot.empty() ? 504 : 680;
+  lv_obj_set_pos(list, 48, list_y);
+  lv_obj_set_size(list, sheet_width - 96, sheet_height - list_y - 240);
   lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
@@ -763,13 +766,15 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
       request.title = "Flash Image";
       request.path = entry.path;
       request.partitions = {target.path};
-      request.both_slots = *both_slots && target.slot_select && !target.logical;
-      const std::string slot_destination = request.both_slots
-          ? i18n::Translate("Both slots A + B")
-          : target.logical
-              ? i18n::Format("Logical partition  /  slot %s",
-                             RecoverySlot().c_str())
-              : i18n::Format("Current slot %s", RecoverySlot().c_str());
+      const std::string slot = RecoverySlot();
+      request.both_slots = !slot.empty() && *both_slots && target.slot_select && !target.logical;
+      const std::string slot_destination = slot.empty()
+          ? i18n::Translate("Selected partition")
+          : request.both_slots
+              ? i18n::Translate("Both slots A + B")
+              : target.logical
+                  ? i18n::Format("Logical partition  /  slot %s", slot.c_str())
+                  : i18n::Format("Current slot %s", slot.c_str());
       const std::string warning = i18n::Format(
           "Image\n%s\n\nTarget\n%s  /  %s\n\nDestination\n%s\n\n"
           "This writes directly to the selected partition. An incorrect image "

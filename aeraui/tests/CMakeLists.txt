@@ -324,6 +324,7 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME boot_slot_capability
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/boot_slot_capability_test.py")
 add_test(NAME non_ab_slot_ui COMMAND ui_check --non-ab-slots)
+add_test(NAME boot_slot_context_ui COMMAND ui_check --slot-context)
 
 add_test(NAME framebuffer_surface_ownership
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/framebuffer_ownership_test.py")

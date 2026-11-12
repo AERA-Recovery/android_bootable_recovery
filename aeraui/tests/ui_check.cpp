@@ -3289,6 +3289,62 @@ int main(int argc,char **argv) {
     lv_deinit(); std::filesystem::remove_all(backup_root);
     puts("Android ADB Rescue navigation, public-key instructions and confirmation passed."); return 0;
   }
+  if (!strcmp(argv[1], "--slot-context")) {
+    std::ofstream(file_root + "/test.img") << "Image selection only";
+    assert(i18n::SetLanguage("en"));
+    for (const char *slot : {"", "A", "B"})
+    for (bool landscape : {false, true}) for (int size : {0, 1, 2, 3}) {
+      active_slot = slot;
+      const bool has_slots = !active_slot.empty();
+      design::ApplyInterfaceSize(size);
+      interface_size = static_cast<InterfaceSize>(size);
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      callback_count = 0;
+
+      for (bool supported : {false, true}) {
+        preservation_supported = supported;
+        auto *page = lv_obj_create(nullptr);
+        BuildToolScene(page, Action::kPreferences, RecordAction, nullptr);
+        lv_screen_load(page); Tick();
+        assert((FindPreferenceEntry(page, "Keep AERA installed") != nullptr) == supported);
+        lv_screen_load(screen); lv_obj_delete(page); Tick();
+      }
+
+      auto *page = lv_obj_create(nullptr);
+      BuildFilesScene(page, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      auto *image = Find(page, "test.img"); assert(image);
+      lv_obj_send_event(image, LV_EVENT_CLICKED, nullptr); Tick();
+      auto *both = FindLabel(page, "Both slots A + B"); assert(both);
+      assert(lv_obj_is_visible(both) == has_slots);
+      assert((FindLabelContaining(page, "Active slot:") != nullptr) == has_slots);
+      if (!has_slots)
+        assert(FindLabel(page, "Choose exactly where this raw image will be written."));
+      auto *target = Find(page, "Recovery"); assert(target);
+      lv_obj_send_event(target, LV_EVENT_CLICKED, nullptr); Tick();
+      const std::string destination = has_slots ? "Current slot " + active_slot : "Selected partition";
+      assert(FindLabelContaining(page, destination.c_str()));
+      assert(callback_count == 0);
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+
+      for (Action action : {Action::kBackup, Action::kWipe}) {
+        page = lv_obj_create(nullptr);
+        BuildToolScene(page, action, RecordAction, nullptr);
+        lv_screen_load(page); Tick();
+        auto *data = Find(page, "Data"); assert(data);
+        lv_obj_send_event(data, LV_EVENT_CLICKED, nullptr); Tick();
+        auto *review = Find(page, action == Action::kBackup ? "Review backup" : "Review wipe");
+        assert(review);
+        lv_obj_send_event(review, LV_EVENT_CLICKED, nullptr); Tick();
+        assert((FindLabelContaining(page, "Active slot:") != nullptr) == has_slots);
+        assert(callback_count == 0);
+        lv_screen_load(screen); lv_obj_delete(page); Tick();
+      }
+    }
+    lv_deinit(); std::filesystem::remove_all(backup_root);
+    puts("Slot context and recovery-preservation availability passed for non-A/B, slot A and slot B.");
+    return 0;
+  }
   if (!strcmp(argv[1], "--non-ab-slots")) {
     active_slot.clear();
     assert(i18n::SetLanguage("en"));

@@ -548,10 +548,10 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   PollFastbootTelemetry();
 
   const std::string slot = RecoverySlot();
-  auto *slot_label = Kicker(
-      hero, ("ACTIVE SLOT  " + (slot.empty() ? std::string("—") : slot)).c_str(),
-      kMutedStrong);
-  lv_obj_align(slot_label, LV_ALIGN_BOTTOM_RIGHT, -58, -54);
+  if (!slot.empty()) {
+    auto *slot_label = Kicker(hero, ("ACTIVE SLOT  " + slot).c_str(), kMutedStrong);
+    lv_obj_align(slot_label, LV_ALIGN_BOTTOM_RIGHT, -58, -54);
+  }
 
   auto *actions = lv_obj_create(screen);
   Clear(actions);

@@ -776,7 +776,8 @@ void Review(Tools *state) {
     for (const auto &v : state->volumes)
       if (state->selected.count(v.path)) text += "\n" + std::string(i18n::Translate(v.name.c_str())) + ": " + i18n::Translate(WipeDescription(v.path).c_str());
   }
-  text += i18n::Format("\n\nActive slot: %s", RecoverySlot().c_str());
+  const std::string slot = RecoverySlot();
+  if (!slot.empty()) text += i18n::Format("\n\nActive slot: %s", slot.c_str());
   if (request.job == Job::kBackup)
     text += i18n::Translate(state->compression ? "\nCompression on. Digests included." :
                                 "\nCompression off. Digests included.");
@@ -3017,9 +3018,11 @@ void BuildPreferences(Tools *state) {
                    "Include dot-prefixed files and folders", Preference::kHiddenFiles);
   PreferenceToggle(state, LV_SYMBOL_OK, "Verify ZIP signatures",
                    "Only install packages signed by a trusted recovery key", Preference::kVerifyZip);
-  PreferenceToggle(state, LV_SYMBOL_REFRESH, "Keep AERA installed",
-                   "Restore the running AERA recovery to both slots after ZIP installs",
-                   Preference::kPreserveRecovery);
+  if (RecoveryPreservationSupported()) {
+    PreferenceToggle(state, LV_SYMBOL_REFRESH, "Keep AERA installed",
+                     "Restore the running AERA recovery to both slots after ZIP installs",
+                     Preference::kPreserveRecovery);
+  }
   if (RecoveryAblPreservationSupported()) {
     std::string detail = i18n::Translate("Restore the active-slot ABL to both slots after ZIP installs");
     if (aera_efisp::Enabled()) {
