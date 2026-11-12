@@ -42,7 +42,7 @@ struct WebScene {
   lv_image_dsc_t descriptor{};
   web::Session session;
   web::BrowserProcess process;
-  bool showing_web = false, web_keyboard = false;
+  bool showing_web = false, stopped = false, web_keyboard = false;
   std::string last_status;
   unsigned last_progress = 101;
   lv_timer_t *timer = nullptr;
@@ -75,6 +75,20 @@ struct WebScene {
     web::RemoveRuntime(state.directory);
   }
 };
+
+void ShowBrowserStopped(WebScene *s) {
+  if (!s->screen) return;
+  HideKeyboard(s);
+  lv_obj_add_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
+  s->showing_web = false;
+  lv_obj_add_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(s->area, LV_OBJ_FLAG_HIDDEN);
+  i18n::BindLabel(s->title, "Browser stopped");
+  i18n::BindLabel(s->detail,
+                 "The persistent WebKit session closed unexpectedly.");
+  for (auto *control : s->controls)
+    lv_obj_add_state(control, LV_STATE_DISABLED);
+}
 
 void DetachWebScene(WebScene *s) {
   if (gWebScene == s) gWebScene = nullptr;
@@ -749,7 +763,9 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   ResetBrowserTouches(s);
   lv_display_add_event_cb(
       s->display, BrowserRefreshReady, LV_EVENT_REFR_READY, s);
-  if (frame_fd >= 0 || control_fd >= 0) s->session.Adopt(frame_fd, control_fd);
+  if (frame_fd >= 0 || control_fd >= 0) {
+    if (s->session.Adopt(frame_fd, control_fd)) s->stopped = false;
+  }
   lv_obj_add_event_cb(screen, [](lv_event_t *e) {
     auto *s = static_cast<WebScene *>(lv_event_get_user_data(e));
     DetachWebScene(s);
@@ -947,7 +963,8 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
   if (!s->timer) s->timer = lv_timer_create([](lv_timer_t *timer) {
     auto *s = static_cast<WebScene *>(lv_timer_get_user_data(timer));
     const bool visible = s->screen != nullptr;
-    if (!s->process.Running() && s->session.Connected())
+    const bool was_connected = s->session.Connected();
+    if (s->auto_launch && !s->process.Running() && was_connected)
       s->session.Close();
     lv_timer_set_period(timer, s->session.Connected() ? 16 : 50);
     if (s->session.Connected()) {
@@ -1030,15 +1047,10 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
           lv_obj_remove_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
       }
-    } else if (visible && s->showing_web) {
-      HideKeyboard(s);
-      lv_obj_add_flag(s->web_progress, LV_OBJ_FLAG_HIDDEN);
-      s->showing_web = false;
-      lv_obj_add_flag(s->viewport, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_remove_flag(s->area, LV_OBJ_FLAG_HIDDEN);
-      i18n::BindLabel(s->title, "Browser stopped");
-      i18n::BindLabel(s->detail,
-                        "The persistent WebKit session closed unexpectedly.");
+    }
+    if (!s->session.Connected() && (was_connected || s->showing_web)) {
+      s->stopped = true;
+      ShowBrowserStopped(s);
     }
     if (!s->started || s->finished) return;
     if (visible)
@@ -1080,6 +1092,11 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
     const auto homepage = web::Address(RecoveryBrowserHomepage());
     if (!homepage.empty())
       s->session.Send(web::Kind::kOpen, 0, 0, 0, homepage.c_str());
+    s->stopped = !s->session.Connected();
+    if (s->stopped) {
+      ShowBrowserStopped(s);
+      return;
+    }
     if (visible) {
       i18n::BindLabel(s->title, "Starting private browser");
       i18n::BindLabel(s->detail, "Loading the built-in start page...");
@@ -1097,6 +1114,7 @@ void BuildWebScene(lv_obj_t *screen, ActionCallback callback, void *context,
     i18n::BindLabel(s->title, "Preparation failed");
     i18n::BindLabel(s->detail, s->state.error.c_str());
   }
+  if (s->stopped) ShowBrowserStopped(s);
   if (s->session.Connected() && s->session.HasFrame()) {
     s->descriptor.data = s->session.Pixels();
     lv_image_set_src(s->image, &s->descriptor);
