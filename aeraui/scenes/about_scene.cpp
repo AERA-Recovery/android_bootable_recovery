@@ -340,7 +340,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   const std::string build_status = OrUnknown(RecoveryBuildStatus());
   const std::string build_identity = build_type + " · " + build_status;
   const std::string device = OrUnknown(RecoveryDevice());
-  const std::string slot = OrUnknown(RecoverySlot());
+  const std::string slot = RecoverySlot();
   const std::string maintainer = OrUnknown(RecoveryMaintainer());
 
   if (landscape) {
@@ -363,8 +363,8 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     IdentityRow(identity, 38, 38, 520, "MAINTAINER", maintainer);
     IdentityRow(identity, 650, 38, 240, "VERSION", version);
     DeveloperEntrance(IdentityRow(identity, 982, 38, 300, "BUILD", build_identity), callback, context);
-    IdentityRow(identity, 1374, 38, 360, "DEVICE", device);
-    IdentityRow(identity, 1810, 38, 150, "SLOT", slot);
+    IdentityRow(identity, 1374, 38, slot.empty() ? 610 : 360, "DEVICE", device);
+    if (!slot.empty()) IdentityRow(identity, 1810, 38, 150, "SLOT", slot);
     auto *foundation = Label(identity,
         "Open-source foundations · Android Recovery · TWRP · OrangeFox · LVGL",
         &lv_font_montserrat_24, kMuted);
@@ -393,8 +393,8 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     IdentityRow(identity, 38, 98, 1236, "MAINTAINER", maintainer);
     IdentityRow(identity, 38, 224, 530, "VERSION", version);
     DeveloperEntrance(IdentityRow(identity, 696, 224, 520, "BUILD", build_identity), callback, context);
-    IdentityRow(identity, 38, 362, 530, "DEVICE", device);
-    IdentityRow(identity, 696, 362, 520, "ACTIVE SLOT", slot);
+    IdentityRow(identity, 38, 362, slot.empty() ? 1236 : 530, "DEVICE", device);
+    if (!slot.empty()) IdentityRow(identity, 696, 362, 520, "ACTIVE SLOT", slot);
     AnimateEnter(identity, 102, 10);
 
     auto *foundation = lv_obj_create(content);

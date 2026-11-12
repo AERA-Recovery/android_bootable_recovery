@@ -3289,6 +3289,42 @@ int main(int argc,char **argv) {
     lv_deinit(); std::filesystem::remove_all(backup_root);
     puts("Android ADB Rescue navigation, public-key instructions and confirmation passed."); return 0;
   }
+  if (!strcmp(argv[1], "--non-ab-slots")) {
+    active_slot.clear();
+    assert(i18n::SetLanguage("en"));
+    for (bool landscape : {false, true}) for (int size : {0, 1, 2, 3}) {
+      design::ApplyInterfaceSize(size);
+      interface_size = static_cast<InterfaceSize>(size);
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *page = lv_obj_create(nullptr);
+      BuildRebootScene(page, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      auto *slot = FindLabel(page, "ACTIVE BOOT SLOT"); assert(slot);
+      bool hidden = false;
+      for (auto *node = slot; node; node = lv_obj_get_parent(node))
+        hidden = hidden || lv_obj_has_flag(node, LV_OBJ_FLAG_HIDDEN);
+      assert(hidden);
+      assert(!FindLabelContaining(page, "manage the active boot slot"));
+      for (const char *name : {"Android", "Recovery", "Bootloader", "Fastbootd", "Power off"}) {
+        auto *button = Find(page, name); assert(button);
+        AssertInside(button, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      }
+      lv_obj_send_event(Find(page, "Android"), LV_EVENT_CLICKED, nullptr); Tick();
+      assert(!FindLabelContaining(page, "Active slot:"));
+      assert(widgets::DismissModal(page)); Tick();
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+
+      page = lv_obj_create(nullptr);
+      BuildAboutScene(page, RecordAction, nullptr);
+      lv_screen_load(page); Tick();
+      assert(!FindLabel(page, "ACTIVE SLOT"));
+      assert(!FindLabel(page, "SLOT"));
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+    }
+    lv_deinit(); std::filesystem::remove_all(backup_root);
+    puts("Non-A/B About and Reboot pages passed at four sizes in both orientations.");
+    return 0;
+  }
   if (!strcmp(argv[1], "--slot-warning")) {
     const char *ack_text = "I understand the risks and have checked the target slot.";
     for (const char *language : {"en", "de_DE"})

@@ -9,7 +9,9 @@ namespace aeraui {
 void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   using namespace widgets;
   using namespace design;
-  Header(screen, "Reboot", "Choose a destination or manage the active boot slot.",
+  const bool has_slots = !RecoverySlot().empty();
+  Header(screen, "Reboot", has_slots ? "Choose a destination or manage the active boot slot."
+                                    : "Choose a reboot destination.",
          callback, context);
   const bool landscape = Landscape(screen);
 
@@ -149,12 +151,13 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
       lv_obj_align(check, LV_ALIGN_RIGHT_MID, -34, 0);
     }
   }
-  AnimateEnter(slot_card, 20, 10);
+  if (has_slots) AnimateEnter(slot_card, 20, 10);
+  else lv_obj_add_flag(slot_card, LV_OBJ_FLAG_HIDDEN);
 
   auto *section = Label(screen, "REBOOT DESTINATION",
                         &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_pos(section, landscape ? 1450 : 80,
-                 landscape ? 340 : 888);
+  lv_obj_set_pos(section, landscape && has_slots ? 1450 : 80,
+                 landscape ? 340 : (has_slots ? 888 : 450));
   lv_obj_set_style_text_letter_space(section, 2, 0);
 
   struct Destination { const char *icon, *name, *detail; Action action; };
@@ -164,22 +167,24 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
     {LV_SYMBOL_SETTINGS, "Bootloader", "Restart in hardware fastboot mode", Action::kRebootBootloader},
     {LV_SYMBOL_USB, "Fastbootd", "Userspace fastboot for logical partitions", Action::kRebootFastbootd},
     {LV_SYMBOL_POWER, "Power off", "Turn off the device", Action::kPowerOff}}};
-  auto *list = Scroll(screen, landscape ? 392 : 948,
+  auto *list = Scroll(screen, landscape ? 392 : (has_slots ? 948 : 510),
                       landscape ? 820 : 1730);
   if (landscape) {
-    lv_obj_set_x(list, 1436);
-    lv_obj_set_width(list, 1668);
+    lv_obj_set_x(list, has_slots ? 1436 : 64);
+    lv_obj_set_width(list, has_slots ? 1668 : 3040);
   }
+  const int columns = landscape && !has_slots ? 3 : 2;
+  const int card_width = landscape ? (has_slots ? 818 : 996) : 640;
   for (size_t i = 0; i < destinations.size(); ++i) {
     const auto d = destinations[i];
-    const int column = static_cast<int>(i % 2);
-    const int row = static_cast<int>(i / 2);
+    const int column = static_cast<int>(i % columns);
+    const int row = static_cast<int>(i / columns);
     auto *card = lv_button_create(list);
     Panel(card, 34, kMainSheet);
     Interactive(card, kMainSelected);
-    lv_obj_set_pos(card, column * (landscape ? 842 : 672),
+    lv_obj_set_pos(card, column * (card_width + (landscape ? 24 : 32)),
                    row * (landscape ? 372 : 292));
-    lv_obj_set_size(card, landscape ? 818 : 640,
+    lv_obj_set_size(card, card_width,
                     landscape ? 344 : 260);
     lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
     lv_obj_set_style_border_width(card, 1, 0);
@@ -192,7 +197,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
       const std::string title = power_off
           ? i18n::Translate("Power off device?") : i18n::Format("Reboot to %s?", i18n::Translate(d.name));
       std::string detail = std::string(i18n::Translate(d.detail)) + ".\n\n";
-      if (active != "—" && !power_off)
+      if (has_slots && !power_off)
         detail += i18n::Format("Active slot: %s", active.c_str()) + "  •  ";
       detail += i18n::Translate("The current recovery session will end.");
       Sheet(screen, title, detail, [=] {
@@ -226,10 +231,10 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
     lv_obj_center(icon);
     auto *name = Label(card, d.name, &lv_font_montserrat_32, kText);
     lv_obj_set_pos(name, 148, 46);
-    lv_obj_set_width(name, landscape ? 590 : 420);
+    lv_obj_set_width(name, card_width - 220);
     auto *detail = Label(card, d.detail, &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(detail, 30, 154);
-    lv_obj_set_width(detail, landscape ? 738 : 560);
+    lv_obj_set_width(detail, card_width - 60);
     lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
     AnimateEnter(card, 60 + static_cast<uint32_t>(i) * 28, 10);
   }
