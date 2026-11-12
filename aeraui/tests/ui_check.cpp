@@ -1105,6 +1105,54 @@ int main(int argc,char **argv) {
     std::filesystem::remove_all(backup_root);
     return 0;
   }
+  if (!strcmp(argv[1], "--browser-startup-failure")) {
+    for (bool landscape : {false, true}) for (int scenario = 0; scenario < 4; ++scenario) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      int channels[2];
+      assert(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, channels) == 0);
+      int frame = memfd_create("browser-startup-test", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+      assert(frame >= 0 && ftruncate(frame, web::kSharedBytes) == 0);
+      assert(fcntl(frame, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW) == 0);
+      auto *page = lv_obj_create(nullptr);
+      BuildWebScene(page, RecordAction, nullptr, frame, channels[0], false);
+      lv_screen_load(page);
+      callback_count = 0;
+      if (scenario == 3) {
+        web::Message message;
+        message.kind = web::Kind::kFrame;
+        message.sequence = 1;
+        message.x = web::kWidth;
+        message.y = web::kHeight;
+        message.value = web::kFrameBytes;
+        assert(send(channels[1], &message, sizeof(message), MSG_NOSIGNAL) == sizeof(message));
+        Tick();
+        web::Message ack;
+        assert(recv(channels[1], &ack, sizeof(ack), MSG_DONTWAIT) == sizeof(ack));
+        assert(ack.kind == web::Kind::kAck && ack.sequence == 1);
+      }
+      if (scenario == 2)
+        assert(send(channels[1], "bad", 3, MSG_NOSIGNAL) == 3);
+      if (scenario == 1 || scenario == 3) close(channels[1]);
+      Tick();
+      if (scenario == 0) {
+        assert(!FindLabel(page, "Browser stopped"));
+      } else {
+        auto *title = FindLabel(page, "Browser stopped"); assert(title);
+        assert(lv_obj_is_visible(title));
+        auto *detail = FindLabel(page, "The persistent WebKit session closed unexpectedly.");
+        assert(detail && lv_obj_is_visible(detail));
+        Tick(4);
+        assert(lv_obj_is_visible(title));
+      }
+      assert(callback_count == 0);
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+      if (scenario == 0 || scenario == 2) close(channels[1]);
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("Browser disconnects before and after the first frame are shown; a pending connection stays open.");
+    return 0;
+  }
   if (!strcmp(argv[1], "--browser-settings")) {
     for (bool landscape : {false, true}) {
       lv_display_set_resolution(display, landscape ? 3168 : 1440,
