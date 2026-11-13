@@ -50,7 +50,8 @@ struct DecryptState {
   std::array<lv_obj_t *, 4> grid_buttons{};
   std::array<bool, kMaxPatternDots> selected{};
   std::array<int, kMaxPatternDots> sequence{};
-  std::array<lv_point_precise_t, kMaxPatternDots> points{};
+  std::array<lv_point_precise_t, kMaxPatternDots + 1> points{};
+  lv_point_precise_t cursor{};
   int sequence_length = 0;
   bool tracking = false;
   bool busy = false;
@@ -91,6 +92,15 @@ void Bind(lv_obj_t *object, Action action, DecryptState *state) {
   lv_obj_add_event_cb(object, Dispatch, LV_EVENT_CLICKED, state);
 }
 
+void RefreshPatternLine(DecryptState *state) {
+  uint32_t count = static_cast<uint32_t>(state->sequence_length);
+  if (state->tracking && count > 0) {
+    state->points[count] = state->cursor;
+    ++count;
+  }
+  lv_line_set_points(state->pattern_line, state->points.data(), count);
+}
+
 void RefreshPattern(DecryptState *state) {
   if (state == nullptr) return;
   for (int i = 0; i < state->grid_size * state->grid_size; ++i) {
@@ -101,8 +111,7 @@ void RefreshPattern(DecryptState *state) {
                                   active ? kAccent : kLineBright, 0);
     lv_obj_set_style_transform_scale(state->nodes[i], active ? 116 : 100, 0);
   }
-  lv_line_set_points(state->pattern_line, state->points.data(),
-                     static_cast<uint32_t>(state->sequence_length));
+  RefreshPatternLine(state);
   lv_obj_invalidate(state->pattern_area);
 
   if (state->sequence_length == 0) {
@@ -196,11 +205,19 @@ void PatternTouch(lv_event_t *event) {
     state->tracking = true;
   }
   if ((code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING) &&
-      state->tracking)
+      state->tracking) {
+    lv_area_t area{};
+    lv_obj_get_coords(state->pattern_area, &area);
+    state->cursor = {
+        static_cast<lv_value_precise_t>(point.x - area.x1),
+        static_cast<lv_value_precise_t>(point.y - area.y1)};
     AddPatternDot(state, PatternDotAt(state, point));
+    RefreshPatternLine(state);
+  }
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
     if (!state->tracking) return;
     state->tracking = false;
+    RefreshPatternLine(state);
     if (state->sequence_length >= 4) {
       SubmitDecrypt(state);
     } else if (state->sequence_length > 0) {

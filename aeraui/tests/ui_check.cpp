@@ -782,6 +782,73 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--pattern-preview")) {
+    struct Pointer { lv_point_t point{}; bool down = false; } pointer;
+    auto *input = lv_indev_create();
+    lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_display(input, display);
+    lv_indev_set_user_data(input, &pointer);
+    lv_indev_set_read_cb(input, [](lv_indev_t *input, lv_indev_data_t *data) {
+      auto *pointer = static_cast<Pointer *>(lv_indev_get_user_data(input));
+      data->point = pointer->point;
+      data->state = pointer->down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    });
+    auto touch = [&](lv_point_t point, bool down) {
+      pointer = {point, down};
+      lv_indev_read(input);
+    };
+    for (int grid : {3, 4, 5, 6}) {
+      auto *page = lv_obj_create(nullptr);
+      const auto scene = BuildDecryptScene(page, 2, true, 0, grid, RecordAction, nullptr);
+      lv_screen_load(page); Tick(60);
+      auto *line = FindType(page, &lv_line_class); assert(line);
+      auto *area = lv_obj_get_parent(line);
+      const auto box = Bounds(area);
+      auto center = [&](int index) {
+        const auto node = Bounds(lv_obj_get_child(area, index + 1));
+        return lv_point_t{(node.x1 + node.x2) / 2, (node.y1 + node.y2) / 2};
+      };
+      last_action = Action::kNone;
+      touch({box.x1 + 5, box.y1 + 500}, true);
+      assert(lv_line_get_point_count(line) == 0);
+      touch(pointer.point, false);
+      assert(GetDecryptCredential(scene).empty());
+
+      const auto first = center(0);
+      touch(first, true);
+      assert(GetDecryptCredential(scene) == "1");
+      assert(lv_line_get_point_count(line) == 2);
+      const lv_point_t between{first.x + 30, first.y + 40};
+      touch(between, true);
+      const auto *points = lv_line_get_points(line);
+      assert(points[1].x == between.x - box.x1 && points[1].y == between.y - box.y1);
+      assert(GetDecryptCredential(scene) == "1");
+      touch(center(1), true);
+      assert(lv_line_get_point_count(line) == 3);
+      assert(GetDecryptCredential(scene) == "12");
+      touch(pointer.point, false);
+      assert(lv_line_get_point_count(line) == 2);
+      assert(GetDecryptCredential(scene) == "12" && last_action == Action::kNone);
+
+      std::string credential;
+      for (int row = 0; row < grid; ++row) {
+        for (int column = 0; column < grid; ++column) {
+          const int index = row * grid + (row % 2 ? grid - column - 1 : column);
+          touch(center(index), true);
+          credential.push_back(static_cast<char>('1' + index));
+        }
+      }
+      assert(GetDecryptCredential(scene) == credential);
+      assert(lv_line_get_point_count(line) == static_cast<uint32_t>(grid * grid + 1));
+      touch(pointer.point, false);
+      assert(lv_line_get_point_count(line) == static_cast<uint32_t>(grid * grid));
+      assert(GetDecryptCredential(scene) == credential && last_action == Action::kDecryptSubmit);
+      lv_obj_delete(page);
+    }
+    lv_indev_delete(input);
+    puts("Pattern drag preview and credential submission passed for 3x3 through 6x6 grids");
+    return 0;
+  }
   if (!strcmp(argv[1], "--terminal-layout")) {
     const int resolutions[][2] = {
         {1080, 1920}, {1080, 2312}, {1440, 2560}, {1440, 2880},
