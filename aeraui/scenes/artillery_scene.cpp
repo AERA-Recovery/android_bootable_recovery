@@ -309,7 +309,7 @@ void BuildArtilleryScene(lv_obj_t* screen, ActionCallback callback, void* contex
 
   match->status = Label(screen, "", &lv_font_montserrat_40, kText);
   lv_obj_set_pos(match->status, 80, landscape ? 340 : 434);
-  lv_obj_set_width(match->status, landscape ? w - 1800 : 920);
+  lv_obj_set_width(match->status, landscape ? w - 1800 : w - 520);
   lv_label_set_long_mode(match->status, LV_LABEL_LONG_DOT);
   match->score = Label(screen, "", &lv_font_montserrat_40, kAccent);
   lv_obj_set_pos(match->score, landscape ? w - 1570 : w - 360, landscape ? 340 : 434);

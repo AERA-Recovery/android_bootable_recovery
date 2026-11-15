@@ -1241,10 +1241,11 @@ void BuildGenericPluginScene(lv_obj_t *screen, const std::string &id,
          scene->plugin.description.c_str(), callback, context);
   const bool landscape = Landscape(screen);
   const bool mirror = scene->plugin.id == "mirror";
-  const int card_width = landscape ? lv_obj_get_width(screen) - 128 : 1312;
+  const int card_width = PageWidth(screen);
   const int top = landscape ? 320 : 430;
   if (mirror) {
-    const int left_width = landscape ? (card_width - 20) / 2 : 630;
+    const int left_width =
+        landscape ? (card_width - 20) / 2 : card_width * 630 / 1312;
     MirrorModeCard(scene, 0, 64, top, left_width);
     MirrorModeCard(scene, 1, 64 + left_width + 20, top,
                    card_width - left_width - 20);

@@ -14,7 +14,8 @@ inline void LayoutPartitionReview(lv_obj_t *screen, lv_obj_t *list,
       widgets::NavigationHeight(screen) - dock_gap;
   constexpr int review_height = 150;
   lv_obj_set_pos(review, 80, bottom - review_height);
-  lv_obj_set_size(review, landscape ? 940 : 1280, review_height);
+  lv_obj_set_size(review, landscape ? 940 : widgets::ContentWidth(screen),
+                  review_height);
   if (selected) lv_obj_remove_flag(review, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_add_flag(review, LV_OBJ_FLAG_HIDDEN);
 

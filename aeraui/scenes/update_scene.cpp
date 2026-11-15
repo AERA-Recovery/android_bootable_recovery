@@ -78,8 +78,9 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
   auto *summary = lv_obj_create(screen);
   Panel(summary, 38, kMainSheet);
   lv_obj_set_pos(summary, 64, landscape ? 330 : 460);
-  lv_obj_set_size(summary, landscape ? 1450 : 1312,
-                  landscape ? 850 : 780);
+  const int summary_width = landscape ? 1450 : PageWidth(screen);
+  const int content_width = summary_width - 92;
+  lv_obj_set_size(summary, summary_width, landscape ? 850 : 780);
   lv_obj_set_style_border_width(summary, 1, 0);
   lv_obj_set_style_border_color(summary, kMainLine, 0);
   lv_obj_set_style_border_opa(summary, LV_OPA_30, 0);
@@ -95,12 +96,12 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
   result.status = Label(summary, "Ready to check", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(result.status, 204, 42);
   const int channel_width = landscape ? 440 : 400;
-  const int channel_x = (landscape ? 1450 : 1312) - 46 - channel_width;
+  const int channel_x = summary_width - 46 - channel_width;
   lv_obj_set_width(result.status, channel_x - 224);
   lv_label_set_long_mode(result.status, LV_LABEL_LONG_DOT);
   result.detail = Label(summary, "", &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(result.detail, 204, 132);
-  lv_obj_set_width(result.detail, landscape ? 1160 : 1040);
+  lv_obj_set_width(result.detail, landscape ? 1160 : summary_width - 272);
   lv_label_set_long_mode(result.detail, LV_LABEL_LONG_WRAP);
 
   constexpr int channel_gap = 12;
@@ -134,7 +135,7 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
   auto *line = lv_obj_create(summary);
   Clear(line);
   lv_obj_set_pos(line, 46, 206);
-  lv_obj_set_size(line, landscape ? 1358 : 1220, 1);
+  lv_obj_set_size(line, content_width, 1);
   lv_obj_set_style_bg_color(line, kMainLine, 0);
   lv_obj_set_style_bg_opa(line, LV_OPA_50, 0);
 
@@ -143,19 +144,19 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
   lv_obj_set_pos(installed_title, 46, 250);
   result.installed = Label(summary, "", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(result.installed, 46, 306);
-  lv_obj_set_width(result.installed, landscape ? 1358 : 1220);
+  lv_obj_set_width(result.installed, content_width);
 
   auto *release_title =
       Label(summary, "AVAILABLE RELEASE", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(release_title, 46, 388);
   result.release = Label(summary, "", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(result.release, 46, 444);
-  lv_obj_set_width(result.release, landscape ? 1358 : 1220);
+  lv_obj_set_width(result.release, content_width);
   lv_label_set_long_mode(result.release, LV_LABEL_LONG_WRAP);
 
   result.progress = lv_bar_create(summary);
   lv_obj_set_pos(result.progress, 46, 548);
-  lv_obj_set_size(result.progress, landscape ? 1358 : 1220, 30);
+  lv_obj_set_size(result.progress, content_width, 30);
   lv_bar_set_range(result.progress, 0, 100);
   lv_obj_set_style_radius(result.progress, 12, LV_PART_MAIN);
   lv_obj_set_style_radius(result.progress, 12, LV_PART_INDICATOR);
@@ -168,7 +169,7 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
   result.progress_amount =
       Label(summary, "", &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(result.progress_amount, landscape ? 510 : 350, 594);
-  lv_obj_set_width(result.progress_amount, landscape ? 894 : 916);
+  lv_obj_set_width(result.progress_amount, landscape ? 894 : summary_width - 396);
   lv_obj_set_style_text_align(result.progress_amount, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_add_flag(result.progress_value, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(result.progress_amount, LV_OBJ_FLAG_HIDDEN);
@@ -177,7 +178,7 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
                         [callback, context] {
                           callback(Action::kCheckUpdates, context);
                         });
-  const int actions_width = landscape ? 1358 : 1220;
+  const int actions_width = content_width;
   const int action_gap = 24;
   const int action_width = (actions_width - action_gap) / 2;
   lv_obj_set_pos(result.check, 46, landscape ? 650 : 640);
@@ -214,9 +215,9 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
       static_cast<int>(lv_obj_get_height(screen)) - notes_y - 80);
   auto *notes = lv_obj_create(screen);
   Panel(notes, 38, kMainSheet);
+  const int notes_width = landscape ? 1544 : PageWidth(screen);
   lv_obj_set_pos(notes, landscape ? 1560 : 64, notes_y);
-  lv_obj_set_size(notes, landscape ? 1544 : 1312,
-                  notes_height);
+  lv_obj_set_size(notes, notes_width, notes_height);
   lv_obj_set_style_border_width(notes, 1, 0);
   lv_obj_set_style_border_color(notes, kMainLine, 0);
   lv_obj_set_style_border_opa(notes, LV_OPA_30, 0);
@@ -227,7 +228,7 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
       Label(notes, "Release notes", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(notes_hint, 46, 108);
 
-  const int notes_body_width = landscape ? 1452 : 1220;
+  const int notes_body_width = notes_width - 92;
   auto *notes_body = lv_obj_create(notes);
   Clear(notes_body);
   lv_obj_set_pos(notes_body, 46, 174);
@@ -317,7 +318,8 @@ void RefreshUpdateScene(const UpdateScene &scene) {
   SetChannelSelected(scene.nightly, nightly);
   SetDisabled(scene.stable, busy);
   SetDisabled(scene.nightly, busy);
-  const int actions_width = Landscape(scene.screen) ? 1358 : 1220;
+  const int actions_width =
+      (Landscape(scene.screen) ? 1450 : PageWidth(scene.screen)) - 92;
   constexpr int action_gap = 24;
   if (snapshot.CanDownload()) {
     const int action_width = (actions_width - action_gap) / 2;

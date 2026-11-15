@@ -28,8 +28,8 @@ struct DisplayTransform {
 
   static constexpr DisplayTransform Adaptive(
       int32_t width, int32_t height,
-      int32_t logical_height = kDesignHeight) {
-    return {width, height, kDesignWidth, logical_height};
+      int32_t logical_height = kDesignHeight, int32_t logical_width = kDesignWidth) {
+    return {width, height, logical_width, logical_height};
   }
 
   constexpr bool IsValid() const {

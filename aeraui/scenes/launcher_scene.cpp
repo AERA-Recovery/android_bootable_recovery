@@ -437,21 +437,23 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     Navigation(screen, Action::kBackHome, callback, context);
     return;
   }
+  const int page_width = PageWidth(screen);
+  const int app_card_width = (page_width - 40) / 2;
   auto *apps = Label(screen, "SYSTEM APPS", &lv_font_montserrat_18, kMuted);
   lv_obj_set_style_text_letter_space(apps, 3, 0);
   lv_obj_set_pos(apps, 80, 426);
-  auto *files = AppCard(screen, 64, 484, 636, LV_SYMBOL_DIRECTORY, "Files",
+  auto *files = AppCard(screen, 64, 484, app_card_width, LV_SYMBOL_DIRECTORY, "Files",
                         "Browse storage, preview images and install ZIPs.",
                         kAccent, [=] { callback(Action::kFiles, context); },
                         false, false, false, themed_art::Kind::Files);
   const std::string store_summary = updates.empty()
       ? "Discover signed apps and install them to storage or RAM."
       : i18n::Format("%zu updates available", updates.size());
-  auto *store = AppCard(screen, 740, 484, 636, LV_SYMBOL_DOWNLOAD,
+  auto *store = AppCard(screen, 64 + app_card_width + 40, 484, app_card_width, LV_SYMBOL_DOWNLOAD,
                         "Plugin Manager", store_summary.c_str(),
                         kAccent, [=] { callback(Action::kPlugins, context); },
                         false, false, false, themed_art::Kind::Packages);
-  auto *terminal = AppCard(screen, 64, 884, 1312, LV_SYMBOL_EDIT, "Terminal",
+  auto *terminal = AppCard(screen, 64, 884, page_width, LV_SYMBOL_EDIT, "Terminal",
                            "Run recovery commands in the built-in AERA shell.",
                            kAccent, [=] { callback(Action::kTerminal, context); },
                            false, true);
@@ -468,21 +470,21 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   const int tile_height = grid_columns == 4 ? 250 : grid_columns == 5 ? 240 : 318;
   if (!installed.empty()) {
     BuildHomePluginGrid(screen, installed,
-        {64, 1378, 1312, grid_height, grid_columns, icon_grid ? grid_columns : 3,
+        {64, 1378, page_width, grid_height, grid_columns, icon_grid ? grid_columns : 3,
          tile_height, icon_grid}, factory, launch, callback, context);
   }
   if (installed.empty()) {
     auto *empty = lv_obj_create(screen);
     Panel(empty, 40, kMainSheet);
     lv_obj_set_pos(empty, 64, 1378);
-    lv_obj_set_size(empty, 1312, 310);
+    lv_obj_set_size(empty, page_width, 310);
     auto *title = Label(empty, "Build AERA your way", &lv_font_montserrat_48, kText);
     lv_obj_set_pos(title, 42, 48);
     auto *copy = Label(empty,
         "Install the browser now. Audio and GPU extensions can follow without growing recovery.img.",
         &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(copy, 42, 120);
-    lv_obj_set_width(copy, 1180);
+    lv_obj_set_width(copy, page_width - 132);
     auto *open = Button(empty, "Open Plugin Manager", [=] {
       callback(Action::kPlugins, context);
     }, true);

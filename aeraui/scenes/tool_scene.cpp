@@ -428,7 +428,7 @@ void BackupActions(Tools *state, const std::string &path,
   const bool landscape = Landscape(state->screen);
   const int width = landscape
       ? std::min(1800, static_cast<int>(lv_obj_get_width(state->screen)) - 256)
-      : 1312;
+      : SheetWidth(state->screen);
   const int height = can_upload ? 700 : 530;
   auto *sheet = lv_obj_create(overlay);
   Panel(sheet, 48, kMainSheet);
@@ -678,7 +678,7 @@ void PartitionRows(Tools *state) {
       if (wipe) LayoutWipeRow(row, name, path, check);
       if (wipe && RecoveryUsbFormatTarget(v.path).available) {
         auto *advanced = Button(state->screen, "Advanced", [state, v] { UsbFormatOptions(state, v.path); }, true);
-        lv_obj_set_size(advanced, Landscape(state->screen) ? 940 : 1280, 110);
+        lv_obj_set_size(advanced, Landscape(state->screen) ? 940 : ContentWidth(state->screen), 110);
         lv_obj_add_flag(advanced, LV_OBJ_FLAG_HIDDEN);
         state->usb_advanced.emplace_back(v.path, advanced);
       }
@@ -735,7 +735,7 @@ void PartitionRows(Tools *state) {
     auto *label = Label(state->list,
         "No available partitions. Check storage and encryption state.",
         &lv_font_montserrat_32, kMuted);
-    lv_obj_set_width(label, 1250);
+    lv_obj_set_width(label, PageWidth(state->screen) - 62);
     lv_obj_set_pos(label, 16, 50);
   }
   UpdateSelection(state);
@@ -838,7 +838,7 @@ void RestoreFolders(Tools *state) {
         ("No backups found here.\n\n" + root +
          "\n\nChoose another storage location or create a backup first.").c_str(),
         &lv_font_montserrat_32, kMuted);
-    lv_obj_set_width(empty, 1240);
+    lv_obj_set_width(empty, PageWidth(state->screen) - 72);
     lv_obj_set_pos(empty, 16, 48);
   }
 }
@@ -862,20 +862,33 @@ void StorageChooser(Tools *state) {
     });
   }
   auto *close = Button(overlay, "Back", [overlay] { lv_obj_delete_async(overlay); });
-  lv_obj_set_size(close, 1260, 140);
+  lv_obj_set_size(close, ContentWidth(overlay) - 20, 140);
   lv_obj_align(close, LV_ALIGN_BOTTOM_MID, 0, -180);
+}
+
+// Two side-by-side controls that together fill the page width (630 + 20 + 662
+// px on a 1440 px screen).
+struct PortraitPair {
+  int left_width, right_x, right_width;
+};
+
+PortraitPair PortraitControlPair(lv_obj_t *screen) {
+  const int span = PageWidth(screen) - 20;
+  const int left = span * 630 / 1292;
+  return {left, PageMargin + left + 20, span - left};
 }
 
 void WipeTabs(Tools *state) {
   const bool format = state->tool == Action::kFormatData;
   const bool landscape = Landscape(state->screen);
   const int card_y = landscape ? 310 : 430;
-  WorkflowModeCard(state->screen, 64, card_y, landscape ? 470 : 630,
+  const PortraitPair controls = PortraitControlPair(state->screen);
+  WorkflowModeCard(state->screen, 64, card_y, landscape ? 470 : controls.left_width,
                    LV_SYMBOL_LIST, "Wipe partitions",
                    "Choose individual partitions to erase.", !format,
                    [state] { Open(state, Action::kWipe); });
-  WorkflowModeCard(state->screen, landscape ? 550 : 714, card_y,
-                   landscape ? 470 : 662, LV_SYMBOL_TRASH, "Format Data",
+  WorkflowModeCard(state->screen, landscape ? 550 : controls.right_x, card_y,
+                   landscape ? 470 : controls.right_width, LV_SYMBOL_TRASH, "Format Data",
                    "Erase internal storage and reset encryption.", format,
                    [state] { Open(state, Action::kFormatData); });
 }
@@ -943,20 +956,20 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
       "and backups stored in internal storage.\n\n"
       "This cannot be undone.", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(warning, 80, (landscape ? 560 : 744) + mode_offset);
-  lv_obj_set_width(warning, landscape ? 980 : 1270);
+  lv_obj_set_width(warning, landscape ? 980 : ContentWidth(state->screen) - 10);
   lv_obj_set_style_text_line_space(warning, 12, 0);
   auto *encryption = Label(state->screen,
       "Resets storage encryption; Android may encrypt it again.\n"
       "Adopted storage, if present, may also be erased.", &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(encryption, 80, (landscape ? 770 : 1040) + mode_offset);
-  lv_obj_set_width(encryption, landscape ? 980 : 1270);
+  lv_obj_set_width(encryption, landscape ? 980 : ContentWidth(state->screen) - 10);
   lv_obj_set_style_text_line_space(encryption, 12, 0);
   auto *prompt = Label(state->screen, "Type yes to enable Format Data", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(prompt, 80, (landscape ? 900 : 1228) + mode_offset);
   state->format_input = TextArea(state->screen);
   lv_obj_set_pos(state->format_input, 80,
                  (landscape ? 960 : 1310) + mode_offset);
-  lv_obj_set_size(state->format_input, landscape ? 940 : 1280, 150);
+  lv_obj_set_size(state->format_input, landscape ? 940 : ContentWidth(state->screen), 150);
   lv_textarea_set_one_line(state->format_input, true);
   // Don't truncate to three letters: "yesplease" must not become "yes".
   lv_textarea_set_max_length(state->format_input, 32);
@@ -977,7 +990,7 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
   phone_keyboard::Apply(keyboard);
   lv_obj_set_align(keyboard, LV_ALIGN_TOP_LEFT);
   lv_obj_set_pos(keyboard, landscape ? 1100 : 48, landscape ? 330 : 1540);
-  lv_obj_set_size(keyboard, landscape ? 2004 : 1344,
+  lv_obj_set_size(keyboard, landscape ? 2004 : ScreenWidth(state->screen) - 96,
                   landscape ? 850 : 780);
   lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
   lv_keyboard_set_textarea(keyboard, state->format_input);
@@ -992,7 +1005,7 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
   });
   lv_obj_set_pos(state->format_submit, 80,
                  (landscape ? 1140 : 2600) + (landscape ? mode_offset : 0));
-  lv_obj_set_size(state->format_submit, landscape ? 450 : 1280, 132);
+  lv_obj_set_size(state->format_submit, landscape ? 450 : ContentWidth(state->screen), 132);
   lv_obj_set_style_bg_color(state->format_submit, kRed, 0);
   lv_obj_set_style_bg_color(state->format_submit, kRedSoft, LV_STATE_PRESSED);
   lv_obj_set_style_bg_color(state->format_submit, kMainPanel, LV_STATE_DISABLED);
@@ -1006,7 +1019,7 @@ void BuildFormatData(Tools *state, bool fastboot_mode = false) {
   });
   lv_obj_set_pos(cancel, landscape ? 570 : 80,
                  (landscape ? 1140 : 2770) + (landscape ? mode_offset : 0));
-  lv_obj_set_size(cancel, landscape ? 450 : 1280, landscape ? 132 : 112);
+  lv_obj_set_size(cancel, landscape ? 450 : ContentWidth(state->screen), landscape ? 132 : 112);
 }
 
 lv_obj_t *WorkflowModeCard(lv_obj_t *parent, int x, int y, int width,
@@ -1048,6 +1061,7 @@ void BuildPartitions(Tools *state) {
   const bool landscape = Landscape(state->screen);
   state->summary = Label(state->screen, "", &lv_font_montserrat_32, kAccent);
   lv_obj_set_pos(state->summary, 80, landscape ? 760 : 770);
+  const PortraitPair controls = PortraitControlPair(state->screen);
   state->list = Scroll(state->screen, landscape ? 350 : 870,
                        landscape ? 900 : 1610);
   if (landscape) {
@@ -1057,12 +1071,12 @@ void BuildPartitions(Tools *state) {
 
   if (backup || restore) {
     const int card_y = landscape ? 310 : 430;
-    WorkflowModeCard(state->screen, 64, card_y, landscape ? 470 : 630,
+    WorkflowModeCard(state->screen, 64, card_y, landscape ? 470 : controls.left_width,
                      LV_SYMBOL_UPLOAD, "Create backup",
                      "Save selected partitions to recovery storage.", backup,
                      [state] { Open(state, Action::kBackup); });
-    WorkflowModeCard(state->screen, landscape ? 550 : 714, card_y,
-                     landscape ? 470 : 662, LV_SYMBOL_REFRESH,
+    WorkflowModeCard(state->screen, landscape ? 550 : controls.right_x, card_y,
+                     landscape ? 470 : controls.right_width, LV_SYMBOL_REFRESH,
                      "Restore backup", "Recover partitions from a saved backup.",
                      restore, [state] { Open(state, Action::kRestore); });
 
@@ -1075,7 +1089,7 @@ void BuildPartitions(Tools *state) {
     lv_obj_set_style_text_font(state->summary, UiFont(&lv_font_montserrat_48), 0);
     state->selection_detail = Label(state->screen, "", &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(state->selection_detail, 80, landscape ? 870 : 1002);
-    lv_obj_set_width(state->selection_detail, landscape ? 940 : 1280);
+    lv_obj_set_width(state->selection_detail, landscape ? 940 : ContentWidth(state->screen));
     lv_label_set_long_mode(state->selection_detail, LV_LABEL_LONG_DOT);
     if (!landscape) {
       lv_obj_set_pos(state->list, 64, 1070);
@@ -1086,7 +1100,7 @@ void BuildPartitions(Tools *state) {
     auto *storage = Button(state->screen, storage_action.c_str(),
                             [state] { StorageChooser(state); });
     lv_obj_set_pos(storage, 64, landscape ? 610 : 732);
-    lv_obj_set_size(storage, landscape ? 470 : 630, 104);
+    lv_obj_set_size(storage, landscape ? 470 : controls.left_width, 104);
     std::string storage_text = RecoveryStorage();
     struct statvfs capacity{};
     if (statvfs(storage_text.c_str(), &capacity) == 0)
@@ -1095,13 +1109,13 @@ void BuildPartitions(Tools *state) {
           Size(uint64_t(capacity.f_bavail) * capacity.f_frsize).c_str());
     auto *path = Label(state->screen, storage_text.c_str(), &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(path, 80, landscape ? 735 : 862);
-    lv_obj_set_width(path, landscape ? 940 : 1260);
+    lv_obj_set_width(path, landscape ? 940 : ContentWidth(state->screen) - 20);
     lv_label_set_long_mode(path, LV_LABEL_LONG_DOT);
     if (backup) {
       auto *compression = Button(state->screen, state->compression ? "Compression: on" : "Compression: off", [] {});
-      lv_obj_set_pos(compression, landscape ? 550 : 714,
+      lv_obj_set_pos(compression, landscape ? 550 : controls.right_x,
                      landscape ? 610 : 732);
-      lv_obj_set_size(compression, landscape ? 470 : 662, 104);
+      lv_obj_set_size(compression, landscape ? 470 : controls.right_width, 104);
       auto *label = lv_obj_get_child(compression, 0);
       OnClick(compression, [state, label] {
         state->compression = !state->compression;
@@ -1110,21 +1124,21 @@ void BuildPartitions(Tools *state) {
       });
     } else {
       auto *folders = Button(state->screen, "Refresh backups", [state] { RestoreFolders(state); });
-      lv_obj_set_pos(folders, landscape ? 550 : 714,
+      lv_obj_set_pos(folders, landscape ? 550 : controls.right_x,
                      landscape ? 610 : 732);
-      lv_obj_set_size(folders, landscape ? 470 : 662, 104);
+      lv_obj_set_size(folders, landscape ? 470 : controls.right_width, 104);
     }
   } else {
     WipeTabs(state);
     auto *notice = Label(state->screen,
         "Only selected partitions will be wiped.", &lv_font_montserrat_32, kAmber);
     lv_obj_set_pos(notice, 80, landscape ? 570 : 690);
-    lv_obj_set_width(notice, landscape ? 940 : 1250);
+    lv_obj_set_width(notice, landscape ? 940 : ContentWidth(state->screen) - 30);
     auto *hint = Label(state->screen,
         "To erase all internal data and reset encryption, use Format Data.",
         &lv_font_montserrat_24, kMutedStrong);
     lv_obj_set_pos(hint, 80, landscape ? 650 : 758);
-    lv_obj_set_width(hint, landscape ? 940 : 1270);
+    lv_obj_set_width(hint, landscape ? 940 : ContentWidth(state->screen) - 10);
     lv_obj_set_pos(state->summary, 80, landscape ? 760 : 866);
     if (!landscape) {
       lv_obj_set_pos(state->list, 64, 948);
@@ -1547,7 +1561,7 @@ void OpenAccentPicker(Tools *tools, std::function<void(uint32_t)> selected = {},
   const bool landscape = Landscape(tools->screen);
   const int screen_width = lv_obj_get_width(tools->screen);
   const int screen_height = lv_obj_get_height(tools->screen);
-  const int sheet_width = landscape ? std::min(2100, screen_width - 160) : 1312;
+  const int sheet_width = landscape ? std::min(2100, screen_width - 160) : SheetWidth(tools->screen);
   const int sheet_height = landscape ? std::min(1120, screen_height - 100) : 1450;
   auto *sheet = lv_obj_create(picker->overlay);
   Panel(sheet, 48, kMainSheet);
@@ -1689,9 +1703,12 @@ void EditLockText(const std::shared_ptr<LockEditor> &editor, bool colour) {
     } else editor->theme.owner = text;
     editor->Save(); editor->Refresh(); lv_obj_delete_async(overlay);
   });
-  lv_obj_set_pos(save, 64, 390); lv_obj_set_size(save, 580, 112);
+  const int editor_button =
+      (static_cast<int>(lv_obj_get_width(editor->tools->screen)) - 280) / 2;
+  lv_obj_set_pos(save, 64, 390); lv_obj_set_size(save, editor_button, 112);
   auto *cancel = Button(overlay, "Cancel", [overlay]{lv_obj_delete_async(overlay);});
-  lv_obj_set_pos(cancel, 680, 390); lv_obj_set_size(cancel, 580, 112);
+  lv_obj_set_pos(cancel, 64 + editor_button + 36, 390);
+  lv_obj_set_size(cancel, editor_button, 112);
 }
 
 const char *AppearanceName() {
@@ -3561,13 +3578,13 @@ void BuildLogs(Tools *state) {
   state->list = Scroll(state->screen, landscape ? 490 : 620,
                        landscape ? 760 : 2130);
   auto *text = Label(state->list, ReadLog().c_str(), &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_width(text, 1270);
+  lv_obj_set_width(text, PageWidth(state->screen) - 42);
   auto *refresh = Button(state->screen, "Refresh", [state, text] {
     i18n::BindLabel(text, ReadLog().c_str());
     lv_obj_scroll_to_y(state->list, LV_COORD_MAX, LV_ANIM_OFF);
   });
   lv_obj_set_pos(refresh, 80, landscape ? 340 : 452);
-  lv_obj_set_size(refresh, landscape ? 560 : 1280, 120);
+  lv_obj_set_size(refresh, landscape ? 560 : ContentWidth(state->screen), 120);
 }
 
 void BuildLanguage(Tools *state) {
@@ -3704,6 +3721,7 @@ void BuildMenu(Tools *state) {
     {LV_SYMBOL_USB, "PC connection", "Transfer and install ZIPs and images from your computer", Action::kPcConnection},
     {"A", "About AERA", "Project identity, contributors and build information", Action::kAbout},
     {LV_SYMBOL_POWER, "Reboot", "Android, recovery, bootloader or power off", Action::kOpenReboot}}};
+  const int page_width = PageWidth(state->screen);
   size_t visible_index = 0;
   for (const auto item : items) {
     if (item.action == Action::kRootManager && !root::Enabled()) continue;
@@ -3719,14 +3737,14 @@ void BuildMenu(Tools *state) {
     Interactive(card, kMainSelected);
     // These two deliberate destinations form a full-width stack immediately
     // above the four-button navigation dock.
-    const int card_width = landscape ? 992 : 640;
+    const int card_width = landscape ? 992 : (page_width - 32) / 2;
     const int card_step = landscape ? 284 : 306;
     const int card_height = landscape ? 260 : 280;
     const int pinned_y = about ? (landscape ? 798 : 2398)
                                : (landscape ? 1010 : 2648);
-    lv_obj_set_pos(card, pinned ? 64 : column * (landscape ? 1016 : 672),
+    lv_obj_set_pos(card, pinned ? 64 : column * (landscape ? 1016 : card_width + 32),
                    pinned ? pinned_y : row * card_step);
-    lv_obj_set_size(card, pinned ? (landscape ? 3040 : 1312) : card_width,
+    lv_obj_set_size(card, pinned ? (landscape ? 3040 : page_width) : card_width,
                     pinned ? (landscape ? 190 : about ? 218 : 232)
                            : card_height);
     lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
@@ -3745,10 +3763,10 @@ void BuildMenu(Tools *state) {
     auto *title = Label(card, item.title, &lv_font_montserrat_36, kText);
     lv_obj_set_pos(title, pinned ? 152 : 164,
                    pinned ? (landscape ? 36 : about ? 42 : 40) : 42);
-    lv_obj_set_width(title, pinned ? (landscape ? 2750 : 1040)
+    lv_obj_set_width(title, pinned ? (landscape ? 2750 : page_width - 272)
                                   : card_width - 252);
     FitLabelToLines(title,
-                    pinned ? (landscape ? 2750 : 1040)
+                    pinned ? (landscape ? 2750 : page_width - 272)
                            : card_width - 252,
                     1, {&lv_font_montserrat_36, &lv_font_montserrat_32,
                         &lv_font_montserrat_28, &lv_font_montserrat_24,
@@ -3759,7 +3777,7 @@ void BuildMenu(Tools *state) {
                    pinned ? (landscape ? 112 : about ? 122 : 126)
                           : (landscape ? 150 : 164));
     FitLabelToLines(detail,
-                    pinned ? (landscape ? 2750 : 1040)
+                    pinned ? (landscape ? 2750 : page_width - 272)
                            : card_width - 100,
                     2, {&lv_font_montserrat_32, &lv_font_montserrat_28,
                         &lv_font_montserrat_24, &lv_font_montserrat_20,

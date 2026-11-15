@@ -105,6 +105,7 @@ void BuildRecorderScene(lv_obj_t *screen, ActionCallback callback,
   Header(screen, "AERA Recorder", "Capture recovery without slowing it down.",
          callback, context);
   const bool landscape = Landscape(screen);
+  const int page_width = PageWidth(screen);
   auto *scene = new RecorderScene;
   lv_obj_add_event_cb(screen, [](lv_event_t *event) {
     auto *scene = static_cast<RecorderScene *>(lv_event_get_user_data(event));
@@ -115,7 +116,7 @@ void BuildRecorderScene(lv_obj_t *screen, ActionCallback callback,
   auto *hero = lv_obj_create(screen);
   Panel(hero, 52, kMainSheet);
   lv_obj_set_pos(hero, 64, landscape ? 330 : 470);
-  lv_obj_set_size(hero, landscape ? 1510 : 1312,
+  lv_obj_set_size(hero, landscape ? 1510 : page_width,
                   landscape ? 610 : 720);
   lv_obj_set_style_border_width(hero, 1, 0);
   lv_obj_set_style_border_color(hero, kMainLine, 0);
@@ -134,7 +135,7 @@ void BuildRecorderScene(lv_obj_t *screen, ActionCallback callback,
 
   scene->status = Label(hero, "Ready to record", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(scene->status, 210, 54);
-  lv_obj_set_width(scene->status, landscape ? 1180 : 1000);
+  lv_obj_set_width(scene->status, landscape ? 1180 : page_width - 312);
   scene->detail = Label(hero, "", &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(scene->detail, 212, 126);
   scene->timer = Label(hero, "00:00", &lv_font_montserrat_48, kText);
@@ -147,7 +148,7 @@ void BuildRecorderScene(lv_obj_t *screen, ActionCallback callback,
   Panel(scene->record, 58, kAccent);
   Interactive(scene->record, kAccentPressed);
   lv_obj_set_pos(scene->record, 48, landscape ? 440 : 500);
-  lv_obj_set_size(scene->record, landscape ? 1414 : 1216, 126);
+  lv_obj_set_size(scene->record, landscape ? 1414 : page_width - 96, 126);
   scene->record_label = Label(scene->record, "Start recording",
                               &lv_font_montserrat_32, lv_color_black());
   lv_obj_center(scene->record_label);
@@ -162,7 +163,7 @@ void BuildRecorderScene(lv_obj_t *screen, ActionCallback callback,
   Panel(settings, 46, kMainSheet);
   lv_obj_set_pos(settings, landscape ? 1610 : 64,
                  landscape ? 330 : 1230);
-  lv_obj_set_size(settings, landscape ? 1430 : 1312,
+  lv_obj_set_size(settings, landscape ? 1430 : page_width,
                   landscape ? 610 : 780);
   auto *title = Label(settings, "Recording quality", &lv_font_montserrat_36, kText);
   lv_obj_set_pos(title, 42, 38);
@@ -170,19 +171,20 @@ void BuildRecorderScene(lv_obj_t *screen, ActionCallback callback,
       "720p is smoother. 1080p keeps fine text sharper but uses more CPU and storage.",
       &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(hint, 42, 100);
-  lv_obj_set_width(hint, landscape ? 1320 : 1200);
-  const int choice_width = landscape ? 650 : 584;
+  lv_obj_set_width(hint, landscape ? 1320 : page_width - 112);
+  // Two choices per row with 42 px side margins and a 42 px gap between them.
+  const int choice_width = landscape ? 650 : (page_width - 144) / 2;
   scene->quality720 = Choice(settings, 42, 190, choice_width, "720p", [scene] {
     recorder::SetProfile(720, recorder::ProfileFps()); RefreshRecorder(scene);
   });
-  scene->quality1080 = Choice(settings, landscape ? 738 : 668, 190,
+  scene->quality1080 = Choice(settings, landscape ? 738 : 42 + choice_width + 42, 190,
                               choice_width, "1080p", [scene] {
     recorder::SetProfile(1080, recorder::ProfileFps()); RefreshRecorder(scene);
   });
   scene->fps30 = Choice(settings, 42, 340, choice_width, "30 FPS", [scene] {
     recorder::SetProfile(recorder::ProfileShortEdge(), 30); RefreshRecorder(scene);
   });
-  scene->fps60 = Choice(settings, landscape ? 738 : 668, 340,
+  scene->fps60 = Choice(settings, landscape ? 738 : 42 + choice_width + 42, 340,
                         choice_width, "60 FPS", [scene] {
     recorder::SetProfile(recorder::ProfileShortEdge(), 60); RefreshRecorder(scene);
   });

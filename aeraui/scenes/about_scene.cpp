@@ -372,35 +372,37 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     lv_obj_set_width(foundation, 1920);
     AnimateEnter(identity, 95, 10);
   } else {
-    BrandHero(content, 0, 0, 1312, 716, false, callback, context);
+    const int page_width = PageWidth(screen);
+    const int half = page_width / 2;
+    BrandHero(content, 0, 0, page_width, 716, false, callback, context);
 
     auto *credits = Kicker(content, "THE PEOPLE BEHIND AERA", kAccent);
     lv_obj_set_pos(credits, 18, 782);
-    Contributor(content, 0, 838, 1312, "J", "Jonas Salo · koaaN",
+    Contributor(content, 0, 838, page_width, "J", "Jonas Salo · koaaN",
                 "Founder, lead developer & interface direction", 48);
-    Contributor(content, 0, 1090, 1312, "D", "Daniel Springer · Daniel210191",
+    Contributor(content, 0, 1090, page_width, "D", "Daniel Springer · Daniel210191",
                 "Core developer & recovery engineering", 76);
 
     auto *identity = lv_obj_create(content);
     Panel(identity, 38, kMainPanel);
     lv_obj_set_pos(identity, 0, 1388);
-    lv_obj_set_size(identity, 1312, 550);
+    lv_obj_set_size(identity, page_width, 550);
     lv_obj_set_style_border_width(identity, 1, 0);
     lv_obj_set_style_border_color(identity, kMainLine, 0);
     lv_obj_set_style_border_opa(identity, LV_OPA_30, 0);
     auto *identity_title = Kicker(identity, "THIS BUILD", kAccent);
     lv_obj_set_pos(identity_title, 38, 30);
-    IdentityRow(identity, 38, 98, 1236, "MAINTAINER", maintainer);
-    IdentityRow(identity, 38, 224, 530, "VERSION", version);
-    DeveloperEntrance(IdentityRow(identity, 696, 224, 520, "BUILD", build_identity), callback, context);
-    IdentityRow(identity, 38, 362, slot.empty() ? 1236 : 530, "DEVICE", device);
-    if (!slot.empty()) IdentityRow(identity, 696, 362, 520, "ACTIVE SLOT", slot);
+    IdentityRow(identity, 38, 98, page_width - 76, "MAINTAINER", maintainer);
+    IdentityRow(identity, 38, 224, half - 126, "VERSION", version);
+    DeveloperEntrance(IdentityRow(identity, half + 40, 224, half - 136, "BUILD", build_identity), callback, context);
+    IdentityRow(identity, 38, 362, slot.empty() ? page_width - 76 : half - 126, "DEVICE", device);
+    if (!slot.empty()) IdentityRow(identity, half + 40, 362, half - 136, "ACTIVE SLOT", slot);
     AnimateEnter(identity, 102, 10);
 
     auto *foundation = lv_obj_create(content);
     Panel(foundation, 34, kMainSheet);
     lv_obj_set_pos(foundation, 0, 1972);
-    lv_obj_set_size(foundation, 1312, 318);
+    lv_obj_set_size(foundation, page_width, 318);
     // Match the identity and contributor cards above. The global Outline
     // material is intentionally stronger, but this final card belongs to the
     // same About-page group and should not look independently selected.
@@ -414,7 +416,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
         "TWRP, OrangeFox and LVGL contributors.",
         &lv_font_montserrat_28, kText);
     lv_obj_set_pos(copy, 38, 98);
-    lv_obj_set_width(copy, 1236);
+    lv_obj_set_width(copy, page_width - 76);
     lv_label_set_long_mode(copy, LV_LABEL_LONG_WRAP);
     auto *thank_you = Label(foundation, "Made with care for the Android community.",
                             &lv_font_montserrat_24, kMuted);

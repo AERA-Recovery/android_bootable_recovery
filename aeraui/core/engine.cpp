@@ -251,7 +251,7 @@ public:
   ~Impl() { Shutdown(); }
 
   bool Initialize(bool fastboot_mode, bool adaptive_resolution,
-                  int32_t logical_height, bool resume_recovery) {
+                  int32_t logical_height, bool resume_recovery, int32_t logical_width) {
     if (initialized_)
       return true;
 
@@ -260,7 +260,7 @@ public:
     physical_height_ = gr_fb_height();
     transform_ = adaptive_resolution
         ? DisplayTransform::Adaptive(physical_width_, physical_height_,
-                                     logical_height)
+                                     logical_height, logical_width)
         : DisplayTransform::Native(physical_width_, physical_height_);
     width_ = transform_.logical_width;
     height_ = transform_.logical_height;
@@ -4286,9 +4286,9 @@ Engine::Engine() : impl_(std::make_unique<Impl>()) {}
 Engine::~Engine() = default;
 
 bool Engine::Initialize(bool fastboot_mode, bool adaptive_resolution,
-                        int32_t logical_height, bool resume_recovery) {
+                        int32_t logical_height, bool resume_recovery, int32_t logical_width) {
   return impl_->Initialize(fastboot_mode, adaptive_resolution, logical_height,
-                           resume_recovery);
+                           resume_recovery, logical_width);
 }
 void Engine::Shutdown() { impl_->Shutdown(); }
 void Engine::SetFastbootMode(bool enabled, bool show_recovery_home) {

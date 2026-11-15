@@ -9,6 +9,7 @@
 #include "design.hpp"
 #include "text_edit.hpp"
 #include "scene.hpp"
+#include "aeraui/display_transform.hpp"
 #include "aeraui/status_bar.hpp"
 
 namespace aeraui::widgets {
@@ -34,6 +35,39 @@ inline lv_color_t IconBackground() {
 inline bool Landscape(lv_obj_t *object) {
   lv_obj_t *screen = object == nullptr ? nullptr : lv_obj_get_screen(object);
   return screen != nullptr && lv_obj_get_width(screen) > lv_obj_get_height(screen);
+}
+
+// Width of the screen that object is on. Uses the default 1440 px width if
+// the object isn't attached to a screen yet.
+inline int ScreenWidth(lv_obj_t *object) {
+  lv_obj_t *screen = object == nullptr ? nullptr : lv_obj_get_screen(object);
+  return screen != nullptr ? static_cast<int>(lv_obj_get_width(screen))
+                           : DisplayTransform::kDesignWidth;
+}
+
+// Side margin of full-width page content such as lists and cards.
+inline constexpr int PageMargin = 64;
+// Side margin of content that lines up with the page header.
+inline constexpr int ContentMargin = 80;
+
+// Usable width for full-width page content. It follows the real screen width,
+// so pages also fill wider screens.
+inline int PageWidth(lv_obj_t *object) {
+  return ScreenWidth(object) - 2 * PageMargin;
+}
+
+// Popup sheets stay at their normal size on wider screens instead of
+// stretching across the whole page.
+inline constexpr int kMaxSheetWidth = 1312;
+
+// Width of a popup sheet in portrait.
+inline int SheetWidth(lv_obj_t *object) {
+  return std::min(PageWidth(object), kMaxSheetWidth);
+}
+
+// Usable width for content that lines up with the page header.
+inline int ContentWidth(lv_obj_t *object) {
+  return ScreenWidth(object) - 2 * ContentMargin;
 }
 
 inline bool DismissModal(lv_obj_t *screen) {
@@ -205,7 +239,7 @@ inline void Header(lv_obj_t *screen, const char *title, const char *subtitle,
   lv_obj_set_pos(heading, 80, landscape ? 210 : 252);
   auto *copy = Label(screen, subtitle, &lv_font_montserrat_32, kMuted);
   lv_obj_set_pos(copy, landscape ? 600 : 80, landscape ? 220 : 338);
-  lv_obj_set_width(copy, landscape ? lv_obj_get_width(screen) - 680 : 1280);
+  lv_obj_set_width(copy, landscape ? lv_obj_get_width(screen) - 680 : ContentWidth(screen));
   AnimateEnter(heading, 0, 12);
 }
 
@@ -477,11 +511,8 @@ inline lv_obj_t *SettingsRow(lv_obj_t *parent, int y, const char *title,
 inline lv_obj_t *Scroll(lv_obj_t *parent, int y, int height) {
   auto *list = lv_obj_create(parent);
   Clear(list);
-  const bool landscape = Landscape(parent);
-  lv_obj_set_pos(list, 64, y);
-  lv_obj_set_size(list, landscape ? lv_obj_get_width(lv_obj_get_screen(parent)) - 128
-                                  : 1312,
-                  height);
+  lv_obj_set_pos(list, PageMargin, y);
+  lv_obj_set_size(list, PageWidth(parent), height);
   lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
@@ -712,7 +743,7 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
           : std::min(1220, static_cast<int>(lv_obj_get_width(screen)) - 144))
       : (landscape
           ? std::min(2200, static_cast<int>(lv_obj_get_width(screen)) - 128)
-          : 1312);
+          : SheetWidth(screen));
   const int default_height = compact_glass
       ? (landscape ? 660 : 760)
       : (state->confirm ? 1180 : 1000);
@@ -841,7 +872,7 @@ inline void Sheet(lv_obj_t *screen, const std::string &title,
     if (on_close) on_close();
     else lv_obj_delete_async(overlay);
   });
-  lv_obj_set_size(close, compact_glass ? 280 : 1140,
+  lv_obj_set_size(close, compact_glass ? 280 : (landscape ? 1140 : sheet_width - 172),
                   compact_glass ? 92 : 100);
   lv_obj_align(close,
                compact_glass ? LV_ALIGN_BOTTOM_LEFT : LV_ALIGN_BOTTOM_MID,

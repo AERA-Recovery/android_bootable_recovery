@@ -561,8 +561,12 @@ void BuildMediaScene(lv_obj_t *screen, ActionCallback callback, void *context) {
 
   scene->grid = Scroll(screen, landscape ? 350 : 500,
       lv_obj_get_height(screen) - (landscape ? 350 : 500) - 28);
-  const int columns = landscape ? 4 : 2;
-  const int tile_width = landscape ? 748 : 640;
+  // Two columns on phones (640 px tiles with a 24 px gap), more on wider
+  // screens.
+  const int grid_width = PageWidth(screen);
+  const int columns = landscape ? 4 : std::max(2, (grid_width + 24) / 600);
+  const int tile_width = landscape
+      ? 748 : (grid_width - 8 - 24 * (columns - 1)) / columns;
   const int tile_height = landscape ? 310 : 352;
   const int row_stride = tile_height + 16;
   scene->thumbnail_width = tile_width - 20;
@@ -577,7 +581,7 @@ void BuildMediaScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     auto *tile = lv_button_create(scene->grid);
     Panel(tile, 34, kMainPanel);
     Interactive(tile, kMainSelected);
-    lv_obj_set_pos(tile, column * (landscape ? 764 : 664), row * row_stride);
+    lv_obj_set_pos(tile, column * (landscape ? 764 : tile_width + 24), row * row_stride);
     lv_obj_set_size(tile, tile_width, tile_height);
     lv_obj_set_style_border_width(tile, 1, 0);
     lv_obj_set_style_border_color(tile, kMainLine, 0);

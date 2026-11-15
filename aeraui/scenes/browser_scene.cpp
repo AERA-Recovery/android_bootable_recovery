@@ -129,7 +129,8 @@ void AddEntryRow(BrowserState *state, const Entry &entry, size_t index,
   const bool image = EndsWithInsensitive(entry.name, ".img");
   lv_obj_t *row = lv_button_create(state->list);
   lv_obj_set_pos(row, 0, y);
-  lv_obj_set_size(row, 1312, 190);
+  const int row_width = static_cast<int>(lv_obj_get_width(state->list));
+  lv_obj_set_size(row, row_width, 190);
   NoScroll(row);
   lv_obj_set_style_radius(row, 0, 0);
   lv_obj_set_style_bg_color(row, kPanelStrong, 0);
@@ -148,7 +149,7 @@ void AddEntryRow(BrowserState *state, const Entry &entry, size_t index,
 
   lv_obj_t *name = Label(row, entry.name.c_str(), &lv_font_montserrat_32, kText);
   lv_obj_set_pos(name, 104, 34);
-  lv_obj_set_width(name, 790);
+  lv_obj_set_width(name, row_width - 522);
   lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
 
   const std::string detail = entry.directory ? "Folder" : SizeLabel(entry.size);
@@ -228,7 +229,10 @@ void MakeConfirmation(lv_obj_t *screen, BrowserState *state) {
 
   lv_obj_t *sheet = lv_obj_create(state->overlay);
   Panel(sheet, 38, kPanelStrong);
-  lv_obj_set_size(sheet, 1376, 1366);
+  // Same maximum width as the other sheets (1312 px plus the side margins).
+  const int sheet_width = std::min(static_cast<int>(lv_obj_get_width(screen)) - 64, 1376);
+  const int sheet_inner = sheet_width - 92;
+  lv_obj_set_size(sheet, sheet_width, 1366);
   lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -32);
   lv_obj_set_style_pad_all(sheet, 46, 0);
   lv_obj_t *tag = Kicker(sheet, "READY TO FLASH", kAccent);
@@ -237,17 +241,17 @@ void MakeConfirmation(lv_obj_t *screen, BrowserState *state) {
   lv_obj_set_pos(title, 0, 104);
   state->confirm_name = Label(sheet, "Package", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(state->confirm_name, 0, 230);
-  lv_obj_set_width(state->confirm_name, 1280);
+  lv_obj_set_width(state->confirm_name, sheet_inner - 4);
   lv_label_set_long_mode(state->confirm_name, LV_LABEL_LONG_DOT);
   state->confirm_path = Label(sheet, "/sdcard", &lv_font_montserrat_18, kMuted);
   lv_obj_set_pos(state->confirm_path, 0, 294);
-  lv_obj_set_width(state->confirm_path, 1280);
+  lv_obj_set_width(state->confirm_path, sheet_inner - 4);
   lv_label_set_long_mode(state->confirm_path, LV_LABEL_LONG_DOT);
 
   lv_obj_t *warning = lv_obj_create(sheet);
   Panel(warning, 24, kInset);
   lv_obj_set_pos(warning, 0, 410);
-  lv_obj_set_size(warning, 1284, 290);
+  lv_obj_set_size(warning, sheet_inner, 290);
   lv_obj_set_style_pad_all(warning, 30, 0);
   lv_obj_t *warning_title = Label(warning, "This can modify system partitions",
                                   &lv_font_montserrat_24, kText);
@@ -258,7 +262,7 @@ void MakeConfirmation(lv_obj_t *screen, BrowserState *state) {
   lv_obj_set_pos(warning_copy, 0, 116);
 
   lv_obj_t *cancel = lv_button_create(sheet);
-  lv_obj_set_size(cancel, 604, 190);
+  lv_obj_set_size(cancel, sheet_inner * 604 / 1284, 190);
   lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 0, 0);
   Panel(cancel, 24, kPanel);
   Interactive(cancel);
@@ -267,7 +271,7 @@ void MakeConfirmation(lv_obj_t *screen, BrowserState *state) {
   lv_obj_center(cancel_text);
 
   lv_obj_t *flash = lv_button_create(sheet);
-  lv_obj_set_size(flash, 652, 190);
+  lv_obj_set_size(flash, sheet_inner * 652 / 1284, 190);
   lv_obj_align(flash, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
   AccentButton(flash);
   lv_obj_add_event_cb(flash, ConfirmPackage, LV_EVENT_CLICKED, state);
@@ -293,19 +297,20 @@ void BuildBrowserScene(lv_obj_t *screen, ActionCallback callback, void *context)
 
   lv_obj_t *path = lv_obj_create(screen);
   Panel(path, 0, kInset);
+  const int page_width = static_cast<int>(lv_obj_get_width(screen)) - 128;
   lv_obj_set_pos(path, 64, 400);
-  lv_obj_set_size(path, 1312, 140);
+  lv_obj_set_size(path, page_width, 140);
   lv_obj_set_style_pad_all(path, 26, 0);
   lv_obj_t *path_icon = Label(path, LV_SYMBOL_DIRECTORY, &lv_font_montserrat_24, kAccent);
   lv_obj_align(path_icon, LV_ALIGN_LEFT_MID, 0, 0);
   state->path_label = Label(path, state->path.c_str(), &lv_font_montserrat_24, kMutedStrong);
   lv_obj_align(state->path_label, LV_ALIGN_LEFT_MID, 60, 0);
-  lv_obj_set_width(state->path_label, 1120);
+  lv_obj_set_width(state->path_label, page_width - 192);
   lv_label_set_long_mode(state->path_label, LV_LABEL_LONG_DOT);
 
   state->list = lv_obj_create(screen);
   lv_obj_set_pos(state->list, 64, 584);
-  lv_obj_set_size(state->list, 1312, 2380);
+  lv_obj_set_size(state->list, page_width, 2380);
   lv_obj_set_style_radius(state->list, 0, 0);
   lv_obj_set_style_bg_opa(state->list, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(state->list, 0, 0);
