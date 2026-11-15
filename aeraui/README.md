@@ -27,6 +27,13 @@ canvas renders across the complete native framebuffer without letterbox bars,
 and physical touch coordinates are mapped back to it. Leaving adaptive mode
 unset retains native one-to-one rendering.
 
+`AERA_SCREEN_W` and `AERA_SCREEN_H` give the screen size in the stock
+theme's 1080-wide units, and the UI scales both by 4/3. For example
+`AERA_SCREEN_W := 1485` and `AERA_SCREEN_H := 2376` give a 1980 x 3168 UI.
+Keep the width and height in the same proportion as the panel, otherwise the
+picture is stretched. `AERA_SCREEN_W` is optional: without it the UI is the
+usual 1440 px wide.
+
 For bring-up, create `/tmp/aeraui-capture` over ADB. The runner removes
 the request and writes the current framebuffer to `/tmp/aeraui.png`.
 

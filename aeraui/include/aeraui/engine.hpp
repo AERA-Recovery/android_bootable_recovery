@@ -118,7 +118,8 @@ class Engine final {
     bool Initialize(bool fastboot_mode = false,
                     bool adaptive_resolution = false,
                     int32_t logical_height = 3168,
-                    bool resume_recovery = false);
+                    bool resume_recovery = false,
+                    int32_t logical_width = 1440);
     void Shutdown();
 
     // Terminal actions hand control to init, which will replace this process.

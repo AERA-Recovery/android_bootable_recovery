@@ -458,7 +458,7 @@ RunResult RunLoop(bool fastboot_mode = false,
                        metrics.status_indent_right);
     Engine engine;
     if (!engine.Initialize(fastboot_mode, metrics.adaptive_resolution,
-                           metrics.logical_height, resume_recovery))
+                           metrics.logical_height, resume_recovery, metrics.logical_width))
         return RunResult::kEngineFailure;
 
     struct ModeStateGuard {

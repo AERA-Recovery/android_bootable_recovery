@@ -33,6 +33,9 @@ float gScaleHeight = 1.0f;
 #define AERA_STATUS_INDENT_RIGHT 54
 #endif
 #ifdef AERA_UI_ADAPTIVE_RESOLUTION
+#ifndef AERA_SCREEN_W
+#define AERA_SCREEN_W 1080
+#endif
 #ifndef AERA_SCREEN_H
 #define AERA_SCREEN_H 2376
 #endif
@@ -41,7 +44,7 @@ float gScaleHeight = 1.0f;
 #endif
 constexpr auto kDisplayMetrics = aeraui::DisplayMetrics::FromThemeMetrics(
     true, AERA_SCREEN_H, AERA_STATUS_H, AERA_STATUS_INDENT_LEFT,
-    AERA_STATUS_INDENT_RIGHT);
+    AERA_STATUS_INDENT_RIGHT, AERA_SCREEN_W);
 #else
 constexpr aeraui::DisplayMetrics kDisplayMetrics{
     false, 3168, 165, AERA_STATUS_INDENT_LEFT, AERA_STATUS_INDENT_RIGHT};

@@ -35,21 +35,22 @@ enum class ModeTransitionRequestResult {
     kUnavailable,
 };
 
-// AERA_SCREEN_H uses the stock theme's 1080-wide reference space, while
+// AERA_SCREEN_W/AERA_SCREEN_H use the stock theme's 1080-wide reference space, while
 // the status-bar dimensions use AERA UI's 1440-wide logical coordinate space.
-// Convert only the screen height at the renderer boundary.
+// Convert the screen size at the renderer boundary.
 struct DisplayMetrics {
     bool adaptive_resolution = false;
     int32_t logical_height = 3168;
     int32_t status_bar_height = 165;
     int32_t status_indent_left = 54;
     int32_t status_indent_right = 54;
+    int32_t logical_width = 1440;
 
     static constexpr DisplayMetrics FromThemeMetrics(
             bool adaptive, int32_t screen_height, int32_t status_height,
-            int32_t status_left = 54, int32_t status_right = 54) {
+            int32_t status_left = 54, int32_t status_right = 54, int32_t screen_width = 1080) {
         return {adaptive, screen_height * 4 / 3, status_height,
-                status_left, status_right};
+                status_left, status_right, screen_width * 4 / 3};
     }
 };
 
