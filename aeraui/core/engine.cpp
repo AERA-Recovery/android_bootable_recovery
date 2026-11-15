@@ -335,6 +335,7 @@ public:
                              LV_DISPLAY_RENDER_MODE_FULL);
     }
     lv_display_set_flush_cb(display_, FlushDisplay);
+    SyncAudioRotation();
     // GpuRenderer reshapes its LVGL texture to the rotated logical viewport;
     // the final OpenGL scanout pass applies the one required panel rotation.
 
@@ -2588,17 +2589,17 @@ private:
     if (RecoveryAndroidAdbRescueBusy()) return;
 
     if (action == Action::kPluginDesktopOpen || action == Action::kPluginDesktopClose) {
+      bool target_landscape = self->landscape_;
       if (action == Action::kPluginDesktopOpen) {
         self->desktop_restore_portrait_ = !self->landscape_;
-        self->landscape_ = true;
+        target_landscape = true;
       } else {
-        if (self->desktop_restore_portrait_) self->landscape_ = false;
+        if (self->desktop_restore_portrait_) target_landscape = false;
         self->desktop_restore_portrait_ = false;
       }
       self->pointer_.pressed = false;
       if (self->pointer_device_) lv_indev_reset(self->pointer_device_, nullptr);
-      lv_display_set_rotation(self->display_, self->landscape_ ?
-          LV_DISPLAY_ROTATION_90 : LV_DISPLAY_ROTATION_0);
+      self->ApplyDisplayRotation(target_landscape);
       lv_obj_update_layout(lv_screen_active());
       return;
     }
@@ -2778,13 +2779,10 @@ private:
     if (action == Action::kToggleRotation ||
         action == Action::kToggleVideoRotation) {
       self->DismissRecents();
-      self->landscape_ = !self->landscape_;
       self->pointer_.pressed = false;
       if (self->pointer_device_ != nullptr)
         lv_indev_reset(self->pointer_device_, nullptr);
-      lv_display_set_rotation(
-          self->display_, self->landscape_ ? LV_DISPLAY_ROTATION_90
-                                          : LV_DISPLAY_ROTATION_0);
+      self->ApplyDisplayRotation(!self->landscape_);
       __android_log_print(ANDROID_LOG_INFO, kLogTag,
                           "display orientation changed to %s",
                           self->landscape_ ? "landscape" : "portrait");
@@ -3121,8 +3119,7 @@ private:
     ClosePluginDesktop();
     if (desktop_restore_portrait_) {
       desktop_restore_portrait_ = false;
-      landscape_ = false;
-      lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_0);
+      ApplyDisplayRotation(false);
     }
     if (capture_current && IsRecentAppAction(current_scene_))
       CaptureRecentPreview(current_scene_);
@@ -4094,6 +4091,39 @@ private:
     }
   }
 
+  void SyncAudioRotation() {
+    const int target_deg = !landscape_ ? 0 : (gpu_accelerated_ ? 270 : 90);
+    if (synced_audio_rotation_ == target_deg) return;
+
+    constexpr char kTmpPath[] = "/tmp/.aera-audio-rotation.tmp";
+    constexpr char kFinalPath[] = "/tmp/aera-audio-rotation";
+    const int fd = 
+        open(kTmpPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) return;
+
+    char buf[8];
+    const int len = snprintf(buf, sizeof(buf), "%d\n", target_deg);
+    const bool ok =
+        len > 0 && write(fd, buf, static_cast<size_t>(len)) == static_cast<ssize_t>(len);
+    close(fd);
+
+    if (!ok || rename(kTmpPath, kFinalPath) != 0) {
+      unlink(kTmpPath);
+      return;
+    }
+    synced_audio_rotation_ = target_deg;
+  }
+
+  void ApplyDisplayRotation(bool landscape) {
+    landscape_ = landscape;
+    if (display_ != nullptr) {
+      lv_display_set_rotation(
+          display_, landscape_ ? LV_DISPLAY_ROTATION_90 : LV_DISPLAY_ROTATION_0);
+    }
+    SyncAudioRotation();
+  }
+
+  int synced_audio_rotation_ = -1;
   int32_t physical_width_ = 0;
   int32_t physical_height_ = 0;
   int32_t width_ = 0;
