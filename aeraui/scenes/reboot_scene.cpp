@@ -15,6 +15,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
          callback, context);
   const bool landscape = Landscape(screen);
   const int page_width = PageWidth(screen);
+  const int slot_card_width = landscape ? 1312 : page_width;
 
   std::string active = RecoverySlot();
   std::transform(active.begin(), active.end(), active.begin(),
@@ -26,7 +27,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
   auto *slot_card = lv_obj_create(screen);
   Panel(slot_card, 38, kMainSheet);
   lv_obj_set_pos(slot_card, 64, landscape ? 340 : 450);
-  lv_obj_set_size(slot_card, page_width, 374);
+  lv_obj_set_size(slot_card, slot_card_width, 374);
   lv_obj_set_style_border_width(slot_card, 1, 0);
   lv_obj_set_style_border_color(slot_card, kMainLine, 0);
   lv_obj_set_style_border_opa(slot_card, LV_OPA_30, 0);
@@ -50,11 +51,11 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
       "Switching slots can brick your device.",
       &lv_font_montserrat_24, kRed);
   lv_obj_set_pos(hint, 34, 154);
-  lv_obj_set_width(hint, page_width - 92);
+  lv_obj_set_width(hint, slot_card_width - 92);
 
   auto *feedback = Label(slot_card, "", &lv_font_montserrat_24, kRed);
   lv_obj_set_pos(feedback, 34, 332);
-  lv_obj_set_width(feedback, page_width - 92);
+  lv_obj_set_width(feedback, slot_card_width - 92);
 
   for (int index = 0; index < 2; ++index) {
     const std::string slot(1, static_cast<char>('A' + index));
@@ -145,7 +146,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
       });
     }, selected);
     // Two equal buttons: 34 px on the left, 42 px on the right, 24 px between them.
-    const int slot_button_width = (page_width - 100) / 2;
+    const int slot_button_width = (slot_card_width - 100) / 2;
     lv_obj_set_pos(button, 34 + index * (slot_button_width + 24), 212);
     lv_obj_set_size(button, slot_button_width, 104);
     if (selected) {

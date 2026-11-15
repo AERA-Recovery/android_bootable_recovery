@@ -2,6 +2,8 @@
 #include "aeraui/runner.hpp"
 
 #include <cassert>
+#include <array>
+#include <utility>
 
 using aeraui::DisplayTransform;
 
@@ -56,6 +58,36 @@ int main() {
   assert(tablet.ToLogicalY(2559) == 3167);
   assert(tablet.ToLogicalX(800) >= 989 && tablet.ToLogicalX(800) <= 990);
   assert(tablet.ToLogicalY(1280) >= 1583 && tablet.ToLogicalY(1280) <= 1584);
+
+
+  // Keep old aggregate callers compatible when width is omitted.
+  constexpr aeraui::DisplayMetrics old_metrics{true, 3120, 165, 54, 54};
+  static_assert(old_metrics.logical_width == 1440);
+  // Exercise the complete touch axes in both orientations, including clamping.
+  for (auto panel : std::array<std::pair<int, int>, 4>{{
+           {1272, 2772}, {1440, 3168}, {1600, 2560}, {2560, 3200}}})
+  for (bool rotated : {false, true}) {
+    const int pw = rotated ? panel.second : panel.first;
+    const int ph = rotated ? panel.first : panel.second;
+    const int lw = rotated ? 3168 : 1980, lh = rotated ? 1980 : 3168;
+    const auto transform = DisplayTransform::Adaptive(pw, ph, lh, lw);
+    assert(transform.IsValid());
+    int previous_x = -1, previous_y = -1;
+    for (int x = 0; x < pw; ++x) {
+      const int logical = transform.ToLogicalX(x);
+      assert(logical >= previous_x && logical >= 0 && logical < lw);
+      previous_x = logical;
+    }
+    for (int y = 0; y < ph; ++y) {
+      const int logical = transform.ToLogicalY(y);
+      assert(logical >= previous_y && logical >= 0 && logical < lh);
+      previous_y = logical;
+    }
+    assert(transform.ToLogicalX(-1) == 0 && previous_x == lw - 1);
+    assert(transform.ToLogicalY(-1) == 0 && previous_y == lh - 1);
+    assert(transform.ToLogicalX(pw + 10) == lw - 1);
+    assert(transform.ToLogicalY(ph + 10) == lh - 1);
+  }
 
   const auto native = DisplayTransform::Native(1272, 2772);
   assert(!native.IsScaled());

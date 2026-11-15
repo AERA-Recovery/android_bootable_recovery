@@ -782,6 +782,105 @@ int main(int argc,char **argv) {
     assert(png_image_write_to_file(&image,path,0,frame.data(),0,nullptr));
   };
   auto *screen=lv_screen_active();
+  if (!strcmp(argv[1], "--wide-layout")) {
+    const std::array<std::pair<int, int>, 4> resolutions{{
+        {1440, 3168}, {1980, 3168}, {2160, 3840}, {2560, 3200}}};
+    frame.resize(3840 * 3840 * 4);
+    lv_display_set_buffers(display, frame.data(), nullptr, frame.size(), LV_DISPLAY_RENDER_MODE_DIRECT);
+    int reboot_cases = 0, page_cases = 0;
+    for (auto resolution : resolutions) for (bool landscape : {false, true})
+    for (int size : {0, 1, 2, 3}) {
+      const int width = landscape ? resolution.second : resolution.first;
+      const int height = landscape ? resolution.first : resolution.second;
+      lv_display_set_resolution(display, width, height);
+      design::ApplyInterfaceSize(size);
+      interface_size = static_cast<InterfaceSize>(size);
+      printf("Wide UI: %dx%d size=%d\n", width, height, size); fflush(stdout);
+      for (const char *slot : {"", "A", "B"}) {
+        active_slot = slot;
+        auto *page = lv_obj_create(nullptr);
+        BuildRebootScene(page, RecordAction, nullptr);
+        lv_screen_load(page); Tick(30);
+        auto *slot_card = Find(page, "ACTIVE BOOT SLOT"); assert(slot_card);
+        assert(lv_obj_is_visible(slot_card) == !active_slot.empty());
+        for (const char *name : {"Android", "Recovery", "Bootloader", "Fastbootd", "Power off"}) {
+          auto *button = Find(page, name); assert(button);
+          lv_obj_scroll_to_view(button, LV_ANIM_OFF); Tick(2);
+          AssertInside(button, width, height);
+          if (!active_slot.empty()) assert(!Overlaps(slot_card, button));
+          auto *list = lv_obj_get_parent(button);
+          assert(Bounds(button).x1 >= Bounds(list).x1);
+          assert(Bounds(button).x2 <= Bounds(list).x2);
+        }
+        if (!active_slot.empty()) {
+          AssertInside(slot_card, width, height);
+          lv_obj_t *a = nullptr, *b = nullptr;
+          for (uint32_t i = 0; i < lv_obj_get_child_count(slot_card); ++i) {
+            auto *child = lv_obj_get_child(slot_card, i);
+            if (!lv_obj_check_type(child, &lv_button_class)) continue;
+            if (FindLabel(child, "Slot A")) a = child;
+            if (FindLabel(child, "Slot B")) b = child;
+          }
+          assert(a && b && !Overlaps(a, b));
+          for (auto *button : {a, b}) {
+            assert(Bounds(button).x1 >= Bounds(slot_card).x1);
+            assert(Bounds(button).x2 <= Bounds(slot_card).x2);
+          }
+          callback_count = 0;
+          auto *target = active_slot == "A" ? b : a;
+          lv_obj_send_event(target, LV_EVENT_CLICKED, nullptr); Tick(2);
+          auto *caption = FindLabel(page, "Swipe to change slot"); assert(caption);
+          assert(lv_obj_has_state(lv_obj_get_parent(caption), LV_STATE_DISABLED));
+          auto *cancel = Find(page, "Cancel"); assert(cancel);
+          lv_obj_send_event(cancel, LV_EVENT_CLICKED, nullptr); Tick(2);
+          assert(active_slot == slot && callback_count == 0);
+        }
+        lv_screen_load(screen); lv_obj_delete(page); Tick(1);
+        ++reboot_cases;
+      }
+      active_slot = "A";
+      for (Action action : {Action::kSettings, Action::kBackup, Action::kRestore,
+                            Action::kWipe, Action::kFormatData, Action::kTheme,
+                            Action::kThemeAppearance, Action::kThemeHome}) {
+        auto *page = lv_obj_create(nullptr);
+        BuildToolScene(page, action, RecordAction, nullptr);
+        lv_screen_load(page); Tick(30);
+        for (uint32_t i = 0; i < lv_obj_get_child_count(page); ++i) {
+          auto *child = lv_obj_get_child(page, i);
+          if (!lv_obj_is_visible(child) || lv_obj_check_type(child, &lv_label_class)) continue;
+          const auto area = Bounds(child);
+          assert(area.x1 >= 0 && area.x2 < width);
+        }
+        lv_screen_load(screen); lv_obj_delete(page); Tick(1);
+        ++page_cases;
+      }
+      for (bool files : {false, true}) {
+        auto *page = lv_obj_create(nullptr);
+        if (files) BuildFilesScene(page, RecordAction, nullptr);
+        else BuildUpdateScene(page, RecordAction, nullptr);
+        lv_screen_load(page); Tick(30);
+        for (uint32_t i = 0; i < lv_obj_get_child_count(page); ++i) {
+          auto *child = lv_obj_get_child(page, i);
+          if (!lv_obj_is_visible(child) || lv_obj_check_type(child, &lv_label_class)) continue;
+          const auto area = Bounds(child);
+          assert(area.x1 >= 0 && area.x2 < width);
+        }
+        if (files) {
+          auto *search = Find(page, "Search"); assert(search);
+          lv_obj_send_event(search, LV_EVENT_CLICKED, nullptr); Tick(2);
+          auto *input = FindType(page, &lv_textarea_class); assert(input);
+          auto *keyboard = FindType(page, &lv_keyboard_class); assert(keyboard);
+          AssertInside(input, width, height); AssertInside(keyboard, width, height);
+        }
+        lv_screen_load(screen); lv_obj_delete(page); Tick(1);
+        ++page_cases;
+      }
+    }
+    lv_deinit(); std::filesystem::remove_all(backup_root);
+    printf("Wide UI: %d reboot and %d page cases passed.\n", reboot_cases, page_cases);
+    return 0;
+  }
+
   if (!strcmp(argv[1], "--pattern-preview")) {
     struct Pointer { lv_point_t point{}; bool down = false; } pointer;
     auto *input = lv_indev_create();

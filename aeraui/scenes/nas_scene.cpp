@@ -463,8 +463,11 @@ void Dispatch(NasUi *state, NasOperation operation) {
   state->callback(Action::kRunNasOperation, state->context);
 }
 
-// Width of the scrolling list.
-int ListWidth(const NasUi *state) { return PageWidth(state->scene.list); }
+// Use the actual list viewport: landscape places it in the right column.
+int ListWidth(const NasUi *state) {
+  lv_obj_update_layout(state->scene.list);
+  return lv_obj_get_content_width(state->scene.list);
+}
 
 // Width of one of two columns with a 32 px gap between them, and where the
 // second column starts.

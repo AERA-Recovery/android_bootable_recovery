@@ -61,6 +61,7 @@ target_compile_options(ui_check PRIVATE -UNDEBUG)
 target_link_libraries(ui_check PRIVATE lvgl PNG::PNG JPEG::JPEG Threads::Threads ZLIB::ZLIB)
 enable_testing()
 add_test(NAME terminal_responsive_layout COMMAND ui_check --terminal-layout)
+add_test(NAME wide_screen_pages_and_reboot COMMAND ui_check --wide-layout)
 add_test(NAME pattern_drag_preview COMMAND ui_check --pattern-preview)
 foreach(mode unset disabled enabled)
   add_executable(mobile_data_flag_${mode}_test mobile_data_flag_test.cpp)
@@ -364,6 +365,7 @@ target_compile_definitions(nas_ui_test PRIVATE
 target_compile_options(nas_ui_test PRIVATE -UNDEBUG)
 target_link_libraries(nas_ui_test PRIVATE lvgl Threads::Threads PNG::PNG)
 add_test(NAME nas_picker_navigation_and_layout COMMAND nas_ui_test)
+add_test(NAME nas_wide_screen_layout COMMAND nas_ui_test --wide-layout)
 
 add_executable(phone_keyboard_test phone_keyboard_test.cpp
   ../localization/fonts/aera_fallback.cpp)

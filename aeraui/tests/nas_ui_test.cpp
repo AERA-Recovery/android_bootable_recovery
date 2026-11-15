@@ -3,6 +3,8 @@
 #include "ui_components.hpp"
 #include "nas/smb_browser.hpp"
 
+#include <array>
+#include <utility>
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -140,6 +142,76 @@ int main(int argc, char **argv) {
     lv_display_flush_ready(value);
   });
   auto *home = lv_screen_active();
+  if (argc > 1 && !strcmp(argv[1], "--wide-layout")) {
+    const std::array<std::pair<int, int>, 4> resolutions{{
+        {1440, 3168}, {1980, 3168}, {2160, 3840}, {2560, 3200}}};
+    frame.resize(3840 * 3840 * 4);
+    lv_display_set_buffers(display, frame.data(), nullptr, frame.size(), LV_DISPLAY_RENDER_MODE_DIRECT);
+    int cases = 0;
+    for (const char *language : {"en", "de_DE"})
+    for (auto resolution : resolutions) for (bool landscape : {false, true})
+    for (int size : {0, 1, 2, 3}) for (const char *protocol : {"smb", "sftp"}) {
+      i18n::SetLanguage(language);
+      const int width = landscape ? resolution.second : resolution.first;
+      const int height = landscape ? resolution.first : resolution.second;
+      lv_display_set_resolution(display, width, height);
+      design::ApplyInterfaceSize(size);
+      g_status = {}; g_status.supported = true;
+      g_status.config.type = protocol; g_status.config.host = "test-server";
+      auto *page = lv_obj_create(nullptr);
+      const auto scene = BuildNasScene(page, [](Action, void *) {}, nullptr);
+      lv_screen_load(page); Tick(30);
+      printf("Wide NAS: %s %s %dx%d size=%d\n", language, protocol, width, height, size);
+      fflush(stdout);
+      auto check = [&] {
+        lv_obj_update_layout(page);
+        lv_area_t viewport{}; lv_obj_get_coords(scene.list, &viewport);
+        assert(viewport.x1 >= 0 && viewport.x2 < width);
+        for (uint32_t i = 0; i < lv_obj_get_child_count(scene.list); ++i) {
+          auto *card = lv_obj_get_child(scene.list, i);
+          if (lv_obj_has_flag(card, LV_OBJ_FLAG_HIDDEN)) continue;
+          lv_area_t area{}; lv_obj_get_coords(card, &area);
+          assert(area.x1 >= viewport.x1 && area.x2 <= viewport.x2);
+        }
+        for (const char *text : {"SMB", "SFTP", "Host", "Username", "Write cache"}) {
+          auto *button = Find(page, i18n::Translate(text));
+          if (!button) continue;
+          lv_area_t area{}; lv_obj_get_coords(button, &area);
+          assert(area.x1 >= viewport.x1 && area.x2 <= viewport.x2);
+        }
+      };
+      check();
+      Click(page, "Auto-connect"); check();
+      Click(page, "Home Wi-Fi", false);
+      assert(Find(page, i18n::Translate("Choose Wi-Fi network")));
+      Click(page, "Office", false); check();
+      assert(g_status.config.wifi_ssid == "Office");
+      if (!strcmp(protocol, "smb")) {
+        Click(page, "Advanced"); check();
+        assert(Find(page, i18n::Translate("Remote folder or path")));
+        Click(page, "Browse folders");
+        auto *select = Find(page, i18n::Translate("Use this folder")); assert(select);
+        CheckButton(select);
+        Click(page, "Public", false);
+        Click(page, "Use this folder");
+        assert(g_status.config.share == "Public"); check();
+        Click(page, "SFTP", false); check();
+        Click(page, "SMB", false); check();
+      } else {
+        Click(page, "Private key"); check();
+        assert(Find(page, i18n::Translate("Choose a private key")));
+        Click(page, "Password"); check();
+        Click(page, "SMB", false); check();
+        Click(page, "SFTP", false); check();
+      }
+      lv_screen_load(home); lv_obj_delete(page); Tick(1);
+      ++cases;
+    }
+    lv_deinit();
+    printf("Wide NAS: %d protocol/layout cases passed.\n", cases);
+    return 0;
+  }
+
   if (argc > 1 && !strcmp(argv[1], "--keys")) {
     char folder[] = "/tmp/aera-nas-key-picker-XXXXXX";
     assert(mkdtemp(folder)); g_key_root = folder;
