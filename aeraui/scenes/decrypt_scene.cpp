@@ -644,7 +644,8 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
 
   lv_obj_t *panel = lv_obj_create(screen);
   Clear(panel);
-  lv_obj_set_pos(panel, 128, pin ? 780 : 740);
+  lv_obj_set_pos(panel, (static_cast<int>(lv_obj_get_width(screen)) - 1184) / 2,
+                 pin ? 780 : 740);
   lv_obj_set_size(panel, 1184, 2260);
   lv_obj_set_style_pad_all(panel, 0, 0);
 

@@ -1888,6 +1888,7 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   }, LV_EVENT_DELETE, state);
 
   const bool landscape = Landscape(screen);
+  const int page_width = PageWidth(screen);
   const int actions_height = landscape ? 118 : 132;
   const int actions_y = lv_obj_get_height(screen) - actions_height - 34;
   const int apps_y = landscape ? 320 : 1080;
@@ -1895,18 +1896,18 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   auto *hero = lv_obj_create(screen);
   Panel(hero, 46, kMainSheet);
   lv_obj_set_pos(hero, 64, landscape ? 320 : 450);
-  lv_obj_set_size(hero, landscape ? 900 : 1312, landscape ? 780 : 600);
+  lv_obj_set_size(hero, landscape ? 900 : page_width, landscape ? 780 : 600);
   auto *plate = IconPlate(hero, LV_SYMBOL_SAVE, kCyan, kMainPanel, 116);
   lv_obj_set_pos(plate, 38, 38);
   state->status = Label(hero, "Preparing backup engine…",
                         &lv_font_montserrat_48, kText);
   lv_obj_set_pos(state->status, 184, 44);
-  lv_obj_set_width(state->status, landscape ? 650 : 1040);
+  lv_obj_set_width(state->status, landscape ? 650 : page_width - 272);
   lv_label_set_long_mode(state->status, LV_LABEL_LONG_DOT);
   state->detail = Label(hero, "Loading installed apps.",
                         &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(state->detail, 184, 104);
-  lv_obj_set_width(state->detail, landscape ? 650 : 1040);
+  lv_obj_set_width(state->detail, landscape ? 650 : page_width - 272);
   lv_label_set_long_mode(state->detail, LV_LABEL_LONG_WRAP);
 
   auto *location_title =
@@ -1916,11 +1917,11 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
       Label(hero, state->repository.c_str(), &lv_font_montserrat_32, kText);
   state->storage_label = location;
   lv_obj_set_pos(location, 40, 266);
-  lv_obj_set_width(location, landscape ? 650 : 1030);
+  lv_obj_set_width(location, landscape ? 650 : page_width - 282);
   lv_label_set_long_mode(location, LV_LABEL_LONG_DOT);
   state->storage_button = Button(hero, LV_SYMBOL_DIRECTORY,
                                 [state] { ChooseStorage(state); });
-  lv_obj_set_pos(state->storage_button, landscape ? 720 : 1100, 222);
+  lv_obj_set_pos(state->storage_button, landscape ? 720 : page_width - 212, 222);
   lv_obj_set_size(state->storage_button, 132, 110);
   auto *protection =
       Label(hero, "Encrypted recovery snapshots", &lv_font_montserrat_24, kGreen);
@@ -1928,7 +1929,7 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
 
   state->progress = lv_bar_create(hero);
   lv_obj_set_pos(state->progress, 38, landscape ? 430 : 430);
-  lv_obj_set_size(state->progress, landscape ? 824 : 1236, 12);
+  lv_obj_set_size(state->progress, landscape ? 824 : page_width - 76, 12);
   lv_bar_set_range(state->progress, 0, 100);
   lv_obj_set_style_bg_color(state->progress, kMainPanel, LV_PART_MAIN);
   lv_obj_set_style_bg_color(state->progress, kAccent, LV_PART_INDICATOR);
@@ -1937,7 +1938,7 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   auto *apps_panel = lv_obj_create(screen);
   Panel(apps_panel, 46, kMainSheet);
   lv_obj_set_pos(apps_panel, landscape ? 994 : 64, apps_y);
-  lv_obj_set_size(apps_panel, landscape ? 2110 : 1312,
+  lv_obj_set_size(apps_panel, landscape ? 2110 : page_width,
                   apps_height);
   auto *apps_title = Label(apps_panel, "Apps", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(apps_title, 34, 24);
@@ -1982,7 +1983,7 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   state->list = lv_obj_create(apps_panel);
   Clear(state->list);
   lv_obj_set_pos(state->list, 24, 226);
-  lv_obj_set_size(state->list, landscape ? 2062 : 1264,
+  lv_obj_set_size(state->list, landscape ? 2062 : page_width - 48,
                   apps_height - 266);
   lv_obj_add_flag(state->list, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(state->list, LV_DIR_VER);
@@ -1992,10 +1993,10 @@ void BuildAppVaultScene(lv_obj_t *screen, ActionCallback callback,
   auto *actions = lv_obj_create(screen);
   Clear(actions);
   lv_obj_set_pos(actions, 64, actions_y);
-  lv_obj_set_size(actions, landscape ? 3040 : 1312, actions_height);
+  lv_obj_set_size(actions, landscape ? 3040 : page_width, actions_height);
   const int gap = 20;
   const int columns = 3;
-  const int width = ((landscape ? 3040 : 1312) - gap * (columns - 1)) / columns;
+  const int width = ((landscape ? 3040 : page_width) - gap * (columns - 1)) / columns;
   auto add = [&](lv_obj_t **target, const char *text, int index,
                  Handler action, bool primary = false) {
     *target = Button(actions, text, std::move(action), primary);

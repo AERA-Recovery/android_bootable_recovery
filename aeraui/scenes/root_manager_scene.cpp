@@ -259,12 +259,14 @@ void RenderModules(RootUi *state) {
   if (updates)
     summary = i18n::Format("%s • %zu updates", summary.c_str(), updates);
   i18n::BindLabel(state->module_summary, summary.c_str());
+  // Module cards are 42 px narrower than the list.
+  const int card_width = static_cast<int>(lv_obj_get_width(state->module_list)) - 42;
   int y = 0;
   for (const auto &module : modules) {
     auto *card = lv_obj_create(state->module_list);
     Panel(card, 30, kMainSheet);
     lv_obj_set_pos(card, 0, y);
-    lv_obj_set_size(card, 1270, module.update_available ? 244 : 196);
+    lv_obj_set_size(card, card_width, module.update_available ? 244 : 196);
     lv_obj_set_style_border_width(card, 1, 0);
     lv_obj_set_style_border_color(card, module.update_available ? kAccent : kMainLine, 0);
     lv_obj_set_style_border_opa(card, module.update_available ? LV_OPA_60 : LV_OPA_30, 0);
@@ -278,12 +280,12 @@ void RenderModules(RootUi *state) {
     lv_obj_center(icon);
     auto *name = Label(card, module.name.c_str(), &lv_font_montserrat_32, kText);
     lv_obj_set_pos(name, 120, 22);
-    SingleLineLabel(name, 720, &lv_font_montserrat_32);
+    SingleLineLabel(name, card_width - 550, &lv_font_montserrat_32);
     std::string version = module.version;
     if (!module.author.empty()) version += " • " + module.author;
     auto *meta = Label(card, version.c_str(), &lv_font_montserrat_24, kMuted);
     lv_obj_set_pos(meta, 120, 76);
-    SingleLineLabel(meta, 720, &lv_font_montserrat_24);
+    SingleLineLabel(meta, card_width - 550, &lv_font_montserrat_24);
 
     auto *toggle = Button(card, module.enabled ? "Disable" : "Enable",
         [state, module] {
@@ -291,12 +293,12 @@ void RenderModules(RootUi *state) {
                                                      : root::Job::kEnableModule);
         });
     StyleRootButton(toggle);
-    lv_obj_set_pos(toggle, 860, 24);
+    lv_obj_set_pos(toggle, card_width - 410, 24);
     lv_obj_set_size(toggle, 190, 82);
     auto *remove = Button(card, LV_SYMBOL_TRASH,
         [state, module] { ModuleAction(state, module, root::Job::kRemoveModule); });
     StyleRootButton(remove, true);
-    lv_obj_set_pos(remove, 1070, 24);
+    lv_obj_set_pos(remove, card_width - 200, 24);
     lv_obj_set_size(remove, 150, 82);
     if (module.update_available) {
       const std::string update_text = std::string(LV_SYMBOL_DOWNLOAD) + "  " +
@@ -305,13 +307,13 @@ void RenderModules(RootUi *state) {
           [state, module] { ModuleAction(state, module, root::Job::kUpdateModule); });
       StyleRootButton(update);
       lv_obj_set_pos(update, 24, 126);
-      lv_obj_set_size(update, 1196, 90);
+      lv_obj_set_size(update, card_width - 74, 90);
     } else {
       auto *description = Label(card,
           module.description.empty() ? module.id.c_str() : module.description.c_str(),
           &lv_font_montserrat_24, kMutedStrong);
       lv_obj_set_pos(description, 24, 126);
-      SingleLineLabel(description, 1196, &lv_font_montserrat_24);
+      SingleLineLabel(description, card_width - 74, &lv_font_montserrat_24);
     }
     y += module.update_available ? 262 : 214;
   }
@@ -461,11 +463,13 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
          callback, context);
   const bool landscape = Landscape(screen);
   state->list = Scroll(screen, landscape ? 340 : 452, landscape ? 1040 : 2320);
+  // Width of the cards below. Landscape keeps its fixed width.
+  const int list_width = landscape ? 1312 : PageWidth(screen);
 
   auto *hero = lv_obj_create(state->list);
   Panel(hero, 38, kMainSheet);
   lv_obj_set_pos(hero, 0, 0);
-  lv_obj_set_size(hero, 1312, 236);
+  lv_obj_set_size(hero, list_width, 236);
   lv_obj_set_style_border_width(hero, 1, 0);
   lv_obj_set_style_border_color(hero, kAccent, 0);
   lv_obj_set_style_border_opa(hero, LV_OPA_40, 0);
@@ -480,7 +484,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   state->hero_detail = Label(hero, "Reading KMI and init_boot safely.",
                              &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(state->hero_detail, 168, 96);
-  lv_obj_set_width(state->hero_detail, 1080);
+  lv_obj_set_width(state->hero_detail, list_width - 232);
 
   auto *provider_title = Label(state->list, "ROOT PROVIDER", &lv_font_montserrat_20, kMuted);
   lv_obj_set_pos(provider_title, 18, 278);
@@ -494,8 +498,10 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
           root::BundledRelease(provider, state->device.kmi);
           RefreshUi(state);
         });
-    lv_obj_set_pos(state->provider_buttons[i], static_cast<int>(i) * 432, 320);
-    lv_obj_set_size(state->provider_buttons[i], 412, 104);
+    const int provider_width = (list_width - 76) / 3;
+    lv_obj_set_pos(state->provider_buttons[i],
+                   static_cast<int>(i) * (provider_width + 20), 320);
+    lv_obj_set_size(state->provider_buttons[i], provider_width, 104);
     StyleRootButton(state->provider_buttons[i]);
   }
 
@@ -510,24 +516,26 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
           state->patch = root::InspectSlot(slot);
           RefreshUi(state);
         });
-    lv_obj_set_pos(state->slot_buttons[i], static_cast<int>(i) * 652, 504);
-    lv_obj_set_size(state->slot_buttons[i], 632, 104);
+    const int slot_width = (list_width - 48) / 2;
+    lv_obj_set_pos(state->slot_buttons[i],
+                   static_cast<int>(i) * (slot_width + 20), 504);
+    lv_obj_set_size(state->slot_buttons[i], slot_width, 104);
     StyleRootButton(state->slot_buttons[i]);
   }
 
   auto *patch_card = lv_obj_create(state->list);
   Panel(patch_card, 34, kMainSheet);
   lv_obj_set_pos(patch_card, 0, 646);
-  lv_obj_set_size(patch_card, 1312, 358);
+  lv_obj_set_size(patch_card, list_width, 358);
   state->patch_status = Label(patch_card, "Inspecting init_boot…", &lv_font_montserrat_36, kText);
   lv_obj_set_pos(state->patch_status, 32, 28);
   state->patch_detail = Label(patch_card, "Checking for an existing root patch.",
                               &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(state->patch_detail, 32, 88);
-  lv_obj_set_width(state->patch_detail, 1240);
+  lv_obj_set_width(state->patch_detail, list_width - 72);
   state->progress = lv_bar_create(patch_card);
   lv_obj_set_pos(state->progress, 32, 176);
-  lv_obj_set_size(state->progress, 1248, 14);
+  lv_obj_set_size(state->progress, list_width - 64, 14);
   lv_bar_set_range(state->progress, 0, 100);
   lv_obj_set_style_bg_color(state->progress, kMainPanel, LV_PART_MAIN);
   lv_obj_set_style_bg_color(state->progress, kAccent, LV_PART_INDICATOR);
@@ -537,8 +545,14 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
     ConfirmPatch(state);
   });
   StyleRootButton(state->patch_button);
+  // Three buttons share the card width (32 px margins, 20 px gaps) in the
+  // ratio 570 : 300 : 338.
+  const int patch_buttons = list_width - 104;
+  const int patch_width = patch_buttons * 570 / 1208;
+  const int release_width = patch_buttons * 300 / 1208;
+  const int rollback_width = patch_buttons - patch_width - release_width;
   lv_obj_set_pos(state->patch_button, 32, 220);
-  lv_obj_set_size(state->patch_button, 570, 106);
+  lv_obj_set_size(state->patch_button, patch_width, 106);
   state->refresh_release_button = Button(patch_card, "Check online", [state] {
     root::Request request;
     request.job = root::Job::kRefreshRelease;
@@ -546,19 +560,20 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
     Start(state, request);
   });
   StyleRootButton(state->refresh_release_button);
-  lv_obj_set_pos(state->refresh_release_button, 622, 220);
-  lv_obj_set_size(state->refresh_release_button, 300, 106);
+  lv_obj_set_pos(state->refresh_release_button, 32 + patch_width + 20, 220);
+  lv_obj_set_size(state->refresh_release_button, release_width, 106);
   state->rollback_button = Button(patch_card, "Restore backup", [state] {
     ConfirmRollback(state);
   });
   StyleRootButton(state->rollback_button);
-  lv_obj_set_pos(state->rollback_button, 942, 220);
-  lv_obj_set_size(state->rollback_button, 338, 106);
+  lv_obj_set_pos(state->rollback_button,
+                 32 + patch_width + 20 + release_width + 20, 220);
+  lv_obj_set_size(state->rollback_button, rollback_width, 106);
 
   auto *manager_card = lv_obj_create(state->list);
   Panel(manager_card, 34, kMainSheet);
   lv_obj_set_pos(manager_card, 0, 1040);
-  lv_obj_set_size(manager_card, 1312, 258);
+  lv_obj_set_size(manager_card, list_width, 258);
   auto *manager_plate = lv_obj_create(manager_card);
   Panel(manager_plate, 22, IconBackground());
   lv_obj_set_pos(manager_plate, 28, 30);
@@ -573,10 +588,10 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
       "Checking Android's installed packages.", &lv_font_montserrat_24,
       kMutedStrong);
   lv_obj_set_pos(state->manager_detail, 136, 80);
-  lv_obj_set_width(state->manager_detail, 688);
+  lv_obj_set_width(state->manager_detail, list_width - 624);
   state->manager_progress = lv_bar_create(manager_card);
   lv_obj_set_pos(state->manager_progress, 28, 142);
-  lv_obj_set_size(state->manager_progress, 1256, 12);
+  lv_obj_set_size(state->manager_progress, list_width - 56, 12);
   lv_bar_set_range(state->manager_progress, 0, 100);
   lv_obj_set_style_bg_color(state->manager_progress, kMainPanel, LV_PART_MAIN);
   lv_obj_set_style_bg_color(state->manager_progress, kAccent, LV_PART_INDICATOR);
@@ -586,7 +601,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   state->manager_button = Button(manager_card, "Download & install",
       [state] { ConfirmManagerAction(state); });
   StyleRootButton(state->manager_button);
-  lv_obj_set_pos(state->manager_button, 864, 52);
+  lv_obj_set_pos(state->manager_button, list_width - 448, 52);
   lv_obj_set_size(state->manager_button, 420, 106);
 
   auto *modules_title = Label(state->list, "MODULES", &lv_font_montserrat_20, kMuted);
@@ -599,12 +614,12 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
     Start(state, request);
   });
   StyleRootButton(refresh);
-  lv_obj_set_pos(refresh, 962, 1330);
+  lv_obj_set_pos(refresh, list_width - 350, 1330);
   lv_obj_set_size(refresh, 350, 96);
   state->module_list = lv_obj_create(state->list);
   Clear(state->module_list);
   lv_obj_set_pos(state->module_list, 0, 1450);
-  lv_obj_set_size(state->module_list, 1312, 1200);
+  lv_obj_set_size(state->module_list, list_width, 1200);
   lv_obj_remove_flag(state->module_list, LV_OBJ_FLAG_SCROLLABLE);
 
   Navigation(screen, Action::kSettings, callback, context);

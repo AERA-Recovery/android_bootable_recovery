@@ -463,9 +463,18 @@ void Dispatch(NasUi *state, NasOperation operation) {
   state->callback(Action::kRunNasOperation, state->context);
 }
 
+// Width of the scrolling list.
+int ListWidth(const NasUi *state) { return PageWidth(state->scene.list); }
+
+// Width of one of two columns with a 32 px gap between them, and where the
+// second column starts.
+int ColumnWidth(const NasUi *state) { return (ListWidth(state) - 32) / 2; }
+int SecondColumnX(const NasUi *state) { return ColumnWidth(state) + 32; }
+
 void AddField(NasUi *state, int x, int y, Field field,
-              lv_obj_t *parent = nullptr, int width = 640) {
+              lv_obj_t *parent = nullptr, int width = 0) {
   if (parent == nullptr) parent = state->scene.list;
+  if (width == 0) width = ColumnWidth(state);
   std::string value = FieldValue(state->snapshot.config, field);
   if (field == Field::kPassword)
     value = value.empty() ? "Not set" : "Password saved";
@@ -557,7 +566,7 @@ int AddAutoConnectCard(NasUi *state, int y) {
   auto *card = lv_obj_create(state->scene.list);
   Panel(card, 32, kMainSheet);
   lv_obj_set_pos(card, 0, y);
-  lv_obj_set_size(card, 1312, height);
+  lv_obj_set_size(card, ListWidth(state), height);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
@@ -566,7 +575,7 @@ int AddAutoConnectCard(NasUi *state, int y) {
   Clear(header);
   Interactive(header, kMainSelected);
   lv_obj_set_pos(header, 0, 0);
-  lv_obj_set_size(header, 1312, 168);
+  lv_obj_set_size(header, ListWidth(state), 168);
   lv_obj_set_style_transform_scale(header, 256, LV_STATE_PRESSED);
   auto *title = Label(header, "Auto-connect", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(title, 32, 34);
@@ -593,7 +602,7 @@ int AddAutoConnectCard(NasUi *state, int y) {
     Panel(network, 26, kMainPanel);
     Interactive(network, kMainSelected);
     lv_obj_set_pos(network, 28, 184);
-    lv_obj_set_size(network, 1256, 128);
+    lv_obj_set_size(network, ListWidth(state) - 56, 128);
     lv_obj_set_style_transform_scale(network, 256, LV_STATE_PRESSED);
     lv_obj_set_style_border_width(network, 1, 0);
     lv_obj_set_style_border_color(network, kMainLine, 0);
@@ -613,7 +622,7 @@ int AddAutoConnectCard(NasUi *state, int y) {
             : state->snapshot.config.wifi_ssid.c_str(),
         &lv_font_montserrat_20, kMuted);
     lv_obj_set_pos(ssid, 136, 72);
-    lv_obj_set_width(ssid, 980);
+    lv_obj_set_width(ssid, ListWidth(state) - 332);
     lv_label_set_long_mode(ssid, LV_LABEL_LONG_DOT);
     auto *arrow = Label(network, LV_SYMBOL_RIGHT, &lv_font_montserrat_28,
                         kMutedStrong);
@@ -629,7 +638,7 @@ int AddAuthenticationCard(NasUi *state, int y) {
   auto *card = lv_obj_create(state->scene.list);
   Panel(card, 32, kMainSheet);
   lv_obj_set_pos(card, 0, y);
-  lv_obj_set_size(card, 1312, height);
+  lv_obj_set_size(card, ListWidth(state), height);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
@@ -638,14 +647,14 @@ int AddAuthenticationCard(NasUi *state, int y) {
   auto *copy = Label(card, "Choose how AERA signs in to your SFTP server",
                      &lv_font_montserrat_20, kMuted);
   lv_obj_set_pos(copy, 32, 94);
-  AuthenticationButton(state, card, 696, "password", "Password");
-  AuthenticationButton(state, card, 994, "key", "Private key");
+  AuthenticationButton(state, card, ListWidth(state) - 616, "password", "Password");
+  AuthenticationButton(state, card, ListWidth(state) - 318, "key", "Private key");
   if (expanded) {
     auto *key = lv_button_create(card);
     Panel(key, 26, kMainPanel);
     Interactive(key, kMainSelected);
     lv_obj_set_pos(key, 28, 184);
-    lv_obj_set_size(key, 1256, 128);
+    lv_obj_set_size(key, ListWidth(state) - 56, 128);
     lv_obj_set_style_transform_scale(key, 256, LV_STATE_PRESSED);
     lv_obj_set_style_border_width(key, 1, 0);
     lv_obj_set_style_border_color(key, kMainLine, 0);
@@ -665,7 +674,7 @@ int AddAuthenticationCard(NasUi *state, int y) {
         : "Choose a private key";
     auto *selected = Label(key, value.c_str(), &lv_font_montserrat_20, kMuted);
     lv_obj_set_pos(selected, 136, 72);
-    lv_obj_set_width(selected, 980);
+    lv_obj_set_width(selected, ListWidth(state) - 332);
     lv_label_set_long_mode(selected, LV_LABEL_LONG_DOT);
     auto *arrow = Label(key, LV_SYMBOL_RIGHT, &lv_font_montserrat_28,
                         kMutedStrong);
@@ -683,7 +692,7 @@ void AddBrowseFoldersCard(NasUi *state, int y) {
   Panel(card, 30, kMainPanel);
   Interactive(card, kMainSelected);
   lv_obj_set_pos(card, 0, y);
-  lv_obj_set_size(card, 1312, 160);
+  lv_obj_set_size(card, ListWidth(state), 160);
   lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
@@ -700,7 +709,7 @@ void AddBrowseFoldersCard(NasUi *state, int y) {
   lv_obj_set_pos(name, 158, 28);
   auto *copy = Label(card, target.c_str(), &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(copy, 158, 90);
-  lv_obj_set_width(copy, 1020);
+  lv_obj_set_width(copy, ListWidth(state) - 292);
   lv_label_set_long_mode(copy, LV_LABEL_LONG_DOT);
   auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_28,
                       kMutedStrong);
@@ -713,7 +722,7 @@ int AddAdvancedSmbCard(NasUi *state, int y) {
   auto *card = lv_obj_create(state->scene.list);
   Panel(card, 32, kMainSheet);
   lv_obj_set_pos(card, 0, y);
-  lv_obj_set_size(card, 1312, height);
+  lv_obj_set_size(card, ListWidth(state), height);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
   lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
@@ -722,7 +731,7 @@ int AddAdvancedSmbCard(NasUi *state, int y) {
   Clear(header);
   Interactive(header, kMainSelected);
   lv_obj_set_pos(header, 0, 0);
-  lv_obj_set_size(header, 1312, 168);
+  lv_obj_set_size(header, ListWidth(state), 168);
   lv_obj_set_style_transform_scale(header, 256, LV_STATE_PRESSED);
   auto *title = Label(header, "Advanced", &lv_font_montserrat_32, kText);
   lv_obj_set_pos(title, 32, 34);
@@ -739,9 +748,11 @@ int AddAdvancedSmbCard(NasUi *state, int y) {
   });
 
   if (state->advanced) {
-    AddField(state, 28, 184, Field::kShare, card, 618);
-    AddField(state, 666, 184, Field::kPath, card, 618);
-    AddField(state, 28, 364, Field::kDomain, card, 1256);
+    const int advanced_inner = ListWidth(state) - 56;
+    const int advanced_column = (advanced_inner - 20) / 2;
+    AddField(state, 28, 184, Field::kShare, card, advanced_column);
+    AddField(state, 28 + advanced_column + 20, 184, Field::kPath, card, advanced_column);
+    AddField(state, 28, 364, Field::kDomain, card, advanced_inner);
   }
   AnimateEnter(card, 20 + static_cast<uint32_t>(y / 10), 9);
   return height;
@@ -774,7 +785,7 @@ void AddCacheCard(NasUi *state, int x, int y) {
   Panel(card, 30, kMainPanel);
   Interactive(card, kMainSelected);
   lv_obj_set_pos(card, x, y);
-  lv_obj_set_size(card, 640, 160);
+  lv_obj_set_size(card, ColumnWidth(state), 160);
   lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
@@ -986,7 +997,7 @@ void Populate(NasUi *state) {
   auto *protocol = lv_obj_create(state->scene.list);
   Panel(protocol, 32, kMainSheet);
   lv_obj_set_pos(protocol, 0, 0);
-  lv_obj_set_size(protocol, 1312, 168);
+  lv_obj_set_size(protocol, ListWidth(state), 168);
   lv_obj_set_style_border_width(protocol, 1, 0);
   lv_obj_set_style_border_color(protocol, kMainLine, 0);
   lv_obj_set_style_border_opa(protocol, LV_OPA_30, 0);
@@ -996,8 +1007,8 @@ void Populate(NasUi *state) {
   auto *protocol_copy = Label(protocol, "Choose how AERA reaches your server",
                               &lv_font_montserrat_20, kMuted);
   lv_obj_set_pos(protocol_copy, 32, 94);
-  ProtocolButton(state, protocol, 696, "sftp", "SFTP");
-  ProtocolButton(state, protocol, 994, "smb", "SMB");
+  ProtocolButton(state, protocol, ListWidth(state) - 616, "sftp", "SFTP");
+  ProtocolButton(state, protocol, ListWidth(state) - 318, "smb", "SMB");
   AnimateEnter(protocol, 10, 9);
 
   int y = 190;
@@ -1006,13 +1017,13 @@ void Populate(NasUi *state) {
     y += AddAuthenticationCard(state, y) + 22;
   }
   AddField(state, 0, y, Field::kHost);
-  AddField(state, 672, y, Field::kUser);
+  AddField(state, SecondColumnX(state), y, Field::kUser);
   y += 180;
   AddField(state, 0, y, Field::kPassword);
   if (state->snapshot.config.type == "sftp") {
-    AddField(state, 672, y, Field::kPort);
+    AddField(state, SecondColumnX(state), y, Field::kPort);
   } else {
-    AddCacheCard(state, 672, y);
+    AddCacheCard(state, SecondColumnX(state), y);
   }
   y += 180;
   if (state->snapshot.config.type == "smb") {
@@ -1021,7 +1032,7 @@ void Populate(NasUi *state) {
     y += AddAdvancedSmbCard(state, y) + 22;
   } else {
     AddField(state, 0, y, Field::kPath);
-    AddCacheCard(state, 672, y);
+    AddCacheCard(state, SecondColumnX(state), y);
   }
 }
 
@@ -1093,8 +1104,8 @@ NasScene BuildNasScene(lv_obj_t *screen, ActionCallback callback,
   Panel(panel, 36, kMainSheet);
   state->hero = panel;
   lv_obj_set_pos(panel, 64, landscape ? 350 : 420);
-  lv_obj_set_size(panel, landscape ? 1450 : 1312,
-                  landscape ? 520 : 352);
+  const int panel_width = landscape ? 1450 : PageWidth(screen);
+  lv_obj_set_size(panel, panel_width, landscape ? 520 : 352);
   lv_obj_set_style_border_width(panel, 1, 0);
   lv_obj_set_style_border_color(panel, kMainLine, 0);
   lv_obj_set_style_border_opa(panel, LV_OPA_30, 0);
@@ -1114,28 +1125,32 @@ NasScene BuildNasScene(lv_obj_t *screen, ActionCallback callback,
 
   state->scene.status = Label(panel, "", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(state->scene.status, 198, 34);
-  lv_obj_set_width(state->scene.status, 1000);
+  lv_obj_set_width(state->scene.status, landscape ? 1000 : panel_width - 312);
   lv_label_set_long_mode(state->scene.status, LV_LABEL_LONG_DOT);
   state->scene.detail = Label(panel, "", &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(state->scene.detail, 198, 108);
-  lv_obj_set_width(state->scene.detail, 960);
+  lv_obj_set_width(state->scene.detail, landscape ? 960 : panel_width - 352);
   lv_label_set_long_mode(state->scene.detail, LV_LABEL_LONG_DOT);
   state->activity = Label(panel, LV_SYMBOL_REFRESH,
                           &lv_font_montserrat_32, kAccent);
-  lv_obj_set_pos(state->activity, 1190, 62);
+  lv_obj_set_pos(state->activity, landscape ? 1190 : panel_width - 122, 62);
   lv_obj_add_flag(state->activity, LV_OBJ_FLAG_HIDDEN);
   state->scene.primary = Button(panel, "Mount & Use", [state] {
     Dispatch(state, state->snapshot.mounted ? NasOperation::kUse
                                             : NasOperation::kMountAndUse);
   });
+  // The two buttons share the card width: 40 px on the left, 74 px on the
+  // right, 24 px between them.
+  const int secondary_width = 414;
+  const int primary_width = landscape ? 760 : panel_width - 552;
   lv_obj_set_pos(state->scene.primary, 40, 210);
-  lv_obj_set_size(state->scene.primary, 760, 104);
+  lv_obj_set_size(state->scene.primary, primary_width, 104);
   lv_obj_set_style_radius(state->scene.primary, 30, 0);
   state->scene.secondary = Button(panel, "Unmount", [state] {
     Dispatch(state, NasOperation::kUnmount);
   });
-  lv_obj_set_pos(state->scene.secondary, 824, 210);
-  lv_obj_set_size(state->scene.secondary, 414, 104);
+  lv_obj_set_pos(state->scene.secondary, 40 + primary_width + 24, 210);
+  lv_obj_set_size(state->scene.secondary, secondary_width, 104);
   lv_obj_set_style_radius(state->scene.secondary, 30, 0);
   lv_obj_set_style_opa(state->scene.primary, LV_OPA_40, LV_STATE_DISABLED);
   lv_obj_set_style_opa(state->scene.secondary, LV_OPA_40, LV_STATE_DISABLED);

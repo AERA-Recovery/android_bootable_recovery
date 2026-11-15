@@ -373,8 +373,8 @@ void ShowTechnicalLog(lv_obj_t *screen) {
   auto *sheet = lv_obj_create(overlay);
   Panel(sheet, 44, kMainSheet);
   const bool landscape = Landscape(screen);
-  lv_obj_set_size(sheet, landscape ? 2200 : 1312,
-                  landscape ? 1250 : 2550);
+  const int sheet_width = landscape ? 2200 : SheetWidth(screen);
+  lv_obj_set_size(sheet, sheet_width, landscape ? 1250 : 2550);
   lv_obj_align(sheet, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_border_width(sheet, 1, 0);
   lv_obj_set_style_border_color(sheet, kMainLine, 0);
@@ -388,7 +388,7 @@ void ShowTechnicalLog(lv_obj_t *screen) {
   auto *area = lv_obj_create(sheet);
   Clear(area);
   lv_obj_set_pos(area, 48, 190);
-  lv_obj_set_size(area, landscape ? 2104 : 1216,
+  lv_obj_set_size(area, landscape ? 2104 : sheet_width - 96,
                   landscape ? 820 : 2110);
   lv_obj_add_flag(area, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(area, LV_DIR_VER);
@@ -400,13 +400,13 @@ void ShowTechnicalLog(lv_obj_t *screen) {
   lv_obj_set_style_bg_color(area, kAccent, LV_PART_SCROLLBAR);
   lv_obj_set_style_width(area, 5, LV_PART_SCROLLBAR);
   auto *log = Label(area, ReadLog().c_str(), &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_width(log, landscape ? 2010 : 1120);
+  lv_obj_set_width(log, landscape ? 2010 : sheet_width - 192);
   lv_obj_set_style_text_line_space(log, 8, 0);
 
   auto *close = Button(sheet, "Back to operation",
                        [overlay] { lv_obj_delete_async(overlay); }, true);
   lv_obj_set_pos(close, 48, landscape ? 1060 : 2342);
-  lv_obj_set_size(close, landscape ? 2104 : 1216, 136);
+  lv_obj_set_size(close, landscape ? 2104 : sheet_width - 96, 136);
   AnimateEnter(sheet, 0, 36);
 }
 
@@ -423,8 +423,10 @@ void BuildInstallerPrompt(OperationScene *scene, lv_obj_t *screen,
 
   auto *sheet = lv_obj_create(scene->installer_prompt);
   Panel(sheet, 44, kMainSheet);
-  lv_obj_set_size(sheet, landscape ? 1800 : 1248,
-                  landscape ? 850 : 1040);
+  const int prompt_width = landscape ? 1800 : SheetWidth(screen) - 64;
+  const int prompt_inner = landscape ? 1704 : prompt_width - 96;
+  const int prompt_button_width = landscape ? 820 : (prompt_inner - 48) / 2;
+  lv_obj_set_size(sheet, prompt_width, landscape ? 850 : 1040);
   lv_obj_align(sheet, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_border_width(sheet, 2, 0);
   lv_obj_set_style_border_color(sheet, kAccent, 0);
@@ -451,13 +453,13 @@ void BuildInstallerPrompt(OperationScene *scene, lv_obj_t *screen,
       Label(sheet, "Ready to install?", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(scene->installer_prompt_title, 198, 88);
   lv_obj_set_width(scene->installer_prompt_title,
-                   landscape ? 1510 : 980);
+                   landscape ? 1510 : prompt_width - 268);
   lv_label_set_long_mode(scene->installer_prompt_title, LV_LABEL_LONG_DOT);
 
   auto *line = lv_obj_create(sheet);
   Clear(line);
   lv_obj_set_pos(line, 48, 202);
-  lv_obj_set_size(line, landscape ? 1704 : 1152, 2);
+  lv_obj_set_size(line, prompt_inner, 2);
   lv_obj_set_style_bg_color(line, kMainLine, 0);
   lv_obj_set_style_bg_opa(line, LV_OPA_30, 0);
 
@@ -467,8 +469,7 @@ void BuildInstallerPrompt(OperationScene *scene, lv_obj_t *screen,
       &lv_font_montserrat_32, kMutedStrong);
   lv_obj_set_pos(scene->installer_prompt_message, 48, 260);
   lv_obj_set_size(scene->installer_prompt_message,
-                  landscape ? 1704 : 1152,
-                  landscape ? 270 : 430);
+                  prompt_inner, landscape ? 270 : 430);
   lv_label_set_long_mode(scene->installer_prompt_message,
                          LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_line_space(scene->installer_prompt_message, 12, 0);
@@ -478,7 +479,7 @@ void BuildInstallerPrompt(OperationScene *scene, lv_obj_t *screen,
       LV_SYMBOL_WARNING "  The installer can modify boot and system partitions.",
       &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(warning, 48, landscape ? 555 : 720);
-  lv_obj_set_width(warning, landscape ? 1704 : 1152);
+  lv_obj_set_width(warning, prompt_inner);
 
   scene->installer_prompt_decline = Button(
       sheet, "Cancel",
@@ -488,8 +489,7 @@ void BuildInstallerPrompt(OperationScene *scene, lv_obj_t *screen,
       });
   lv_obj_set_pos(scene->installer_prompt_decline, 48,
                  landscape ? 650 : 830);
-  lv_obj_set_size(scene->installer_prompt_decline,
-                  landscape ? 820 : 552, 142);
+  lv_obj_set_size(scene->installer_prompt_decline, prompt_button_width, 142);
 
   scene->installer_prompt_accept = Button(
       sheet, "Install now",
@@ -498,10 +498,9 @@ void BuildInstallerPrompt(OperationScene *scene, lv_obj_t *screen,
           lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
       }, true);
   lv_obj_set_pos(scene->installer_prompt_accept,
-                 landscape ? 932 : 648,
+                 landscape ? 932 : 48 + prompt_button_width + 48,
                  landscape ? 650 : 830);
-  lv_obj_set_size(scene->installer_prompt_accept,
-                  landscape ? 820 : 552, 142);
+  lv_obj_set_size(scene->installer_prompt_accept, prompt_button_width, 142);
 }
 
 void ReflowOperationHeader(const OperationScene &scene) {
@@ -563,7 +562,11 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   auto *card = lv_obj_create(screen);
   Panel(card, 40, kMainSheet);
   lv_obj_set_pos(card, 64, landscape ? 340 : 430);
-  lv_obj_set_size(card, landscape ? 1450 : 1312,
+  // Content width inside the cards (page width minus 96).
+  const int page_width = PageWidth(screen);
+  const int card_inner = landscape ? 1216 : page_width - 96;
+  const int activity_inner = landscape ? 1448 : page_width - 96;
+  lv_obj_set_size(card, landscape ? 1450 : page_width,
                   landscape ? 850 : 756);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
@@ -604,13 +607,13 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   result.status = Label(card, request.job == Job::kPcBackupOperation && result.pc_restore
       ? "Preparing to restore" : InitialTitle(request.job), &lv_font_montserrat_48, kText);
   lv_obj_set_pos(result.status, installer ? 176 : 208, 42);
-  lv_obj_set_width(result.status, installer ? 1042 : 1010);
+  lv_obj_set_width(result.status, installer ? card_inner - 174 : card_inner - 206);
   lv_label_set_long_mode(result.status, LV_LABEL_LONG_DOT);
   lv_obj_set_style_max_height(result.status,
       2 * lv_font_get_line_height(lv_obj_get_style_text_font(result.status, LV_PART_MAIN)), 0);
   result.detail = Label(card, "Waiting for the recovery backend to begin.", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(result.detail, installer ? 176 : 208, 112);
-  lv_obj_set_width(result.detail, installer ? 1042 : 1010);
+  lv_obj_set_width(result.detail, installer ? card_inner - 174 : card_inner - 206);
   lv_label_set_long_mode(result.detail, LV_LABEL_LONG_DOT);
   lv_obj_set_style_max_height(result.detail,
       2 * lv_font_get_line_height(lv_obj_get_style_text_font(result.detail, LV_PART_MAIN)), 0);
@@ -622,7 +625,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
 
   result.progress = lv_bar_create(card);
   lv_obj_set_pos(result.progress, 48, 310);
-  lv_obj_set_size(result.progress, 1216, 32);
+  lv_obj_set_size(result.progress, card_inner, 32);
   lv_bar_set_range(result.progress, 0, 100);
   lv_obj_set_style_anim_duration(result.progress, 450, 0);
   lv_bar_set_value(result.progress, 0, LV_ANIM_OFF);
@@ -657,7 +660,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   result.metrics_panel = stats;
   Panel(stats, 26, kMainPanel);
   lv_obj_set_pos(stats, 48, 390);
-  lv_obj_set_size(stats, 1216, 180);
+  lv_obj_set_size(stats, card_inner, 180);
   auto *stats_title = Label(stats, "PROGRESS", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(stats_title, 30, 24);
   lv_obj_set_style_text_letter_space(stats_title, 3, 0);
@@ -677,7 +680,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
       (request.backup_action == "backup" || request.backup_action == "restore"))) {
     result.transfer_speed = Label(card, "0.0 MB/s", &lv_font_montserrat_32, kAccent);
     lv_obj_set_pos(result.transfer_speed, 48, 600);
-    lv_obj_set_width(result.transfer_speed, 1216);
+    lv_obj_set_width(result.transfer_speed, card_inner);
   }
   const std::string destination = request.job == Job::kClearSnapshotCow
       ? "Target  /  Super metadata"
@@ -687,7 +690,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
       request.path.empty() ? "Destination  /  Recovery storage" : "Destination  /  " + request.path;
   result.destination = Label(card, destination.c_str(), &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(result.destination, 48, 650);
-  lv_obj_set_width(result.destination, 1216);
+  lv_obj_set_width(result.destination, card_inner);
   lv_label_set_long_mode(result.destination, LV_LABEL_LONG_DOT);
 
   const int activity_y = landscape ? 340 : 1230;
@@ -698,7 +701,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   result.activity_panel = activity_card;
   Panel(activity_card, 40, kMainSheet);
   lv_obj_set_pos(activity_card, landscape ? 1560 : 64, activity_y);
-  lv_obj_set_size(activity_card, landscape ? 1544 : 1312,
+  lv_obj_set_size(activity_card, landscape ? 1544 : page_width,
                   activity_height);
   lv_obj_set_style_border_width(activity_card, 1, 0);
   lv_obj_set_style_border_color(activity_card, kMainLine, 0);
@@ -719,7 +722,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
           "AERA is preparing the operation. Progress will appear here in plain language.",
       activity_font, kText);
   lv_obj_set_pos(result.activity_summary, 48, installer ? 100 : 112);
-  lv_obj_set_size(result.activity_summary, landscape ? 1448 : 1216,
+  lv_obj_set_size(result.activity_summary, activity_inner,
                   activity_text_height);
   if (result.pc_app_backup) {
     lv_obj_set_height(result.activity_summary, activity_height - 160);
@@ -737,7 +740,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
     const int row_height = landscape ? 118 : 184;
     const int row_gap = landscape ? 12 : 18;
     const int row_top = landscape ? 90 : 106;
-    const int row_width = landscape ? 1448 : 1216;
+    const int row_width = activity_inner;
     for (int i = 0; i < 4; ++i) {
       result.steps[i] = lv_obj_create(activity_card);
       Panel(result.steps[i], 26, kMainPanel);
@@ -757,12 +760,12 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
       result.step_titles[i] = Label(result.steps[i], kRomInstallerStepTitles[i],
           &lv_font_montserrat_32, kMutedStrong);
       lv_obj_set_pos(result.step_titles[i], 126, landscape ? 14 : 34);
-      lv_obj_set_width(result.step_titles[i], landscape ? 850 : 720);
+      lv_obj_set_width(result.step_titles[i], landscape ? 850 : activity_inner - 496);
 
       result.step_details[i] = Label(result.steps[i], kRomInstallerStepDetails[i],
           &lv_font_montserrat_20, kMuted);
       lv_obj_set_pos(result.step_details[i], 126, landscape ? 66 : 94);
-      lv_obj_set_width(result.step_details[i], landscape ? 930 : 800);
+      lv_obj_set_width(result.step_details[i], landscape ? 930 : activity_inner - 416);
       lv_label_set_long_mode(result.step_details[i], LV_LABEL_LONG_DOT);
 
       result.step_states[i] = Label(result.steps[i], "UP NEXT",
@@ -778,7 +781,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
         LV_SYMBOL_WARNING "  Keep the device powered on until the operation completes.",
         &lv_font_montserrat_24, kMutedStrong);
     lv_obj_set_pos(result.notice, 48, 280);
-    lv_obj_set_width(result.notice, landscape ? 1448 : 1216);
+    lv_obj_set_width(result.notice, activity_inner);
   }
   if (result.payload_parallel) {
     i18n::BindLabel(result.activity_title, "PARTITION PROGRESS");
@@ -788,7 +791,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
     result.payload_list = lv_obj_create(activity_card);
     Clear(result.payload_list);
     lv_obj_set_pos(result.payload_list, 48, landscape ? 150 : 190);
-    lv_obj_set_size(result.payload_list, landscape ? 1448 : 1216,
+    lv_obj_set_size(result.payload_list, activity_inner,
                     activity_height - 240 - (landscape ? 150 : 190));
     lv_obj_add_flag(result.payload_list, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(result.payload_list, LV_DIR_VER);
@@ -802,7 +805,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
       Clear(row);
       lv_obj_set_pos(row, landscape ? (i % 2) * 748 : 0,
                      landscape ? (i / 2) * 115 : i * 86);
-      lv_obj_set_size(row, landscape ? 700 : 1216, landscape ? 100 : 76);
+      lv_obj_set_size(row, landscape ? 700 : activity_inner, landscape ? 100 : 76);
       lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
       result.payload_cards[i] = row;
       result.payload_names[i] = Label(row, "Waiting", &lv_font_montserrat_32, kText);
@@ -833,7 +836,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
   lv_obj_set_pos(result.details, 48,
                  installer || result.payload_parallel ? activity_height - 200 :
                      (landscape ? 650 : 400));
-  lv_obj_set_size(result.details, landscape ? 1448 : 1216, 132);
+  lv_obj_set_size(result.details, activity_inner, 132);
 
   const bool backup = request.job == Job::kBackup ||
       request.job == Job::kUploadBackup || request.job == Job::kRestore;
@@ -848,7 +851,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
                  wipe ? Action::kWipe : mount ? Action::kMounts :
                  Action::kBackHome, context);
       }, true);
-  lv_obj_set_size(result.done, landscape ? 1100 : 1280,
+  lv_obj_set_size(result.done, landscape ? 1100 : page_width - 32,
                   landscape ? 116 : 150);
   lv_obj_align(result.done, LV_ALIGN_BOTTOM_MID, 0,
                landscape ? -70 : -130);
@@ -864,7 +867,7 @@ OperationScene BuildJobScene(lv_obj_t *screen, const JobRequest &request,
         [callback, context, job = request.job] {
           callback(job == Job::kSideload ? Action::kCancelSideload : Action::kCancelPcBackup, context);
         });
-    lv_obj_set_size(result.cancel, landscape ? 1100 : 1280,
+    lv_obj_set_size(result.cancel, landscape ? 1100 : page_width - 32,
                     landscape ? 116 : 150);
     lv_obj_align(result.cancel, LV_ALIGN_BOTTOM_MID, 0,
                  landscape ? -70 : -130);

@@ -438,7 +438,7 @@ void BuildToolbar(Grid *state) {
   state->toolbar = lv_obj_create(state->screen);
   Panel(state->toolbar, 32, kMainSheet);
   const bool landscape = Landscape(state->screen);
-  const int width = landscape ? state->geometry.width : std::min(state->geometry.width, 1312);
+  const int width = state->geometry.width;
   const int content_width = width - 40;
   lv_obj_set_size(state->toolbar, width, 292);
   lv_obj_align(state->toolbar, LV_ALIGN_BOTTOM_MID, 0, -18);

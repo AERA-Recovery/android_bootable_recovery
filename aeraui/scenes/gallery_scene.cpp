@@ -215,8 +215,12 @@ void BuildGalleryScene(lv_obj_t *screen, ActionCallback callback, void *context)
   state->grid = Scroll(screen, landscape ? 350 : 500,
       lv_obj_get_height(screen) - (landscape ? 350 : 500) - 28);
   state->row_stride = landscape ? 356 : 386;
-  const int columns = landscape ? 4 : 2;
-  const int tile_width = landscape ? 748 : 640;
+  // Two columns on phones (640 px tiles with a 24 px gap), more on wider
+  // screens.
+  const int grid_width = PageWidth(screen);
+  const int columns = landscape ? 4 : std::max(2, (grid_width + 24) / 600);
+  const int tile_width = landscape
+      ? 748 : (grid_width - 8 - 24 * (columns - 1)) / columns;
   const int tile_height = landscape ? 340 : 370;
   state->preview_width = tile_width - 20;
   state->preview_height = tile_height - 20;
@@ -229,7 +233,7 @@ void BuildGalleryScene(lv_obj_t *screen, ActionCallback callback, void *context)
     auto *tile = lv_button_create(state->grid);
     Panel(tile, 34, kMainPanel);
     Interactive(tile, kMainSelected);
-    lv_obj_set_pos(tile, column * (landscape ? 764 : 664),
+    lv_obj_set_pos(tile, column * (landscape ? 764 : tile_width + 24),
                    row * state->row_stride);
     lv_obj_set_size(tile, tile_width, tile_height);
     lv_obj_set_style_border_width(tile, 1, 0);

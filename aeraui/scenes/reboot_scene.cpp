@@ -14,6 +14,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
                                     : "Choose a reboot destination.",
          callback, context);
   const bool landscape = Landscape(screen);
+  const int page_width = PageWidth(screen);
 
   std::string active = RecoverySlot();
   std::transform(active.begin(), active.end(), active.begin(),
@@ -25,7 +26,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
   auto *slot_card = lv_obj_create(screen);
   Panel(slot_card, 38, kMainSheet);
   lv_obj_set_pos(slot_card, 64, landscape ? 340 : 450);
-  lv_obj_set_size(slot_card, 1312, 374);
+  lv_obj_set_size(slot_card, page_width, 374);
   lv_obj_set_style_border_width(slot_card, 1, 0);
   lv_obj_set_style_border_color(slot_card, kMainLine, 0);
   lv_obj_set_style_border_opa(slot_card, LV_OPA_30, 0);
@@ -49,11 +50,11 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
       "Switching slots can brick your device.",
       &lv_font_montserrat_24, kRed);
   lv_obj_set_pos(hint, 34, 154);
-  lv_obj_set_width(hint, 1220);
+  lv_obj_set_width(hint, page_width - 92);
 
   auto *feedback = Label(slot_card, "", &lv_font_montserrat_24, kRed);
   lv_obj_set_pos(feedback, 34, 332);
-  lv_obj_set_width(feedback, 1220);
+  lv_obj_set_width(feedback, page_width - 92);
 
   for (int index = 0; index < 2; ++index) {
     const std::string slot(1, static_cast<char>('A' + index));
@@ -143,8 +144,10 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
         lv_obj_set_style_border_color(slider, kRed, 0);
       });
     }, selected);
-    lv_obj_set_pos(button, 34 + index * 630, 212);
-    lv_obj_set_size(button, 606, 104);
+    // Two equal buttons: 34 px on the left, 42 px on the right, 24 px between them.
+    const int slot_button_width = (page_width - 100) / 2;
+    lv_obj_set_pos(button, 34 + index * (slot_button_width + 24), 212);
+    lv_obj_set_size(button, slot_button_width, 104);
     if (selected) {
       auto *check = Label(button, LV_SYMBOL_OK, &lv_font_montserrat_24,
                           kOnAccent);
@@ -174,7 +177,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
     lv_obj_set_width(list, has_slots ? 1668 : 3040);
   }
   const int columns = landscape && !has_slots ? 3 : 2;
-  const int card_width = landscape ? (has_slots ? 818 : 996) : 640;
+  const int card_width = landscape ? (has_slots ? 818 : 996) : (page_width - 32) / 2;
   for (size_t i = 0; i < destinations.size(); ++i) {
     const auto d = destinations[i];
     const int column = static_cast<int>(i % columns);

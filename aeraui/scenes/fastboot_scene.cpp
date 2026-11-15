@@ -505,7 +505,8 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   auto *hero = lv_obj_create(screen);
   Panel(hero, 52, kMainSheet);
   lv_obj_set_pos(hero, 64, landscape ? 330 : 430);
-  lv_obj_set_size(hero, landscape ? 1400 : 1312,
+  const int page_width = PageWidth(screen);
+  lv_obj_set_size(hero, landscape ? 1400 : page_width,
                   landscape ? 760 : 1160);
   lv_obj_set_style_border_width(hero, 1, 0);
   lv_obj_set_style_border_color(hero, kMainLine, 0);
@@ -519,13 +520,13 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   auto *detail = Label(
       hero, ReadyDetail().c_str(),
       &lv_font_montserrat_24, kMuted);
-  lv_obj_set_width(detail, landscape ? 1120 : 1160);
+  lv_obj_set_width(detail, landscape ? 1120 : page_width - 152);
   lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, landscape ? 514 : 862);
   g_transport_pill.detail = detail;
 
   auto *progress = lv_bar_create(hero);
-  lv_obj_set_size(progress, landscape ? 1080 : 1120, 24);
+  lv_obj_set_size(progress, landscape ? 1080 : page_width - 192, 24);
   lv_obj_align(progress, LV_ALIGN_TOP_MID, 0, landscape ? 640 : 1010);
   lv_bar_set_range(progress, 0, 100);
   lv_obj_set_style_radius(progress, LV_RADIUS_CIRCLE, 0);
@@ -557,7 +558,7 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
   Clear(actions);
   lv_obj_set_pos(actions, landscape ? 1510 : 64,
                  landscape ? 330 : 1640);
-  lv_obj_set_size(actions, landscape ? 1594 : 1312,
+  lv_obj_set_size(actions, landscape ? 1594 : page_width,
                   landscape ? 1050 : 1384);
 
   {
@@ -572,7 +573,7 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
     auto *guide = lv_obj_create(actions);
     Panel(guide, 34, kMainPanel);
     lv_obj_set_pos(guide, 0, landscape ? 518 : 610);
-    lv_obj_set_size(guide, landscape ? 1594 : 1312,
+    lv_obj_set_size(guide, landscape ? 1594 : page_width,
                     landscape ? 252 : 450);
     lv_obj_set_style_border_width(guide, 1, 0);
     lv_obj_set_style_border_color(guide, kMainLine, 0);
@@ -601,7 +602,7 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
                             kText);
       lv_obj_set_pos(command, 86, (landscape ? 102 : 132) +
                                   static_cast<int>(index) * (landscape ? 48 : 82));
-      lv_obj_set_width(command, (landscape ? 1594 : 1312) - 130);
+      lv_obj_set_width(command, (landscape ? 1594 : page_width) - 130);
       lv_label_set_long_mode(command, LV_LABEL_LONG_DOT);
     }
   }
@@ -630,8 +631,8 @@ void BuildFastbootScene(lv_obj_t *screen, ActionCallback callback,
     const int column = static_cast<int>(index % 2);
     const int row = static_cast<int>(index / 2);
     const int gap = landscape ? 26 : 24;
-    const int card_width = format ? (landscape ? 1594 : 1312)
-                                  : (landscape ? 784 : 644);
+    const int card_width = format ? (landscape ? 1594 : page_width)
+                                  : (landscape ? 784 : (page_width - gap) / 2);
     const int card_height = format ? (landscape ? 220 : 250)
                                    : (landscape ? 232 : 270);
     auto *card = lv_button_create(actions);

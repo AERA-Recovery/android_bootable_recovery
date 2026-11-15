@@ -264,9 +264,13 @@ void BuildTerminalScene(lv_obj_t *screen, ActionCallback callback,
       SetKeyboardVisible(state, false);
   }, LV_EVENT_ALL, state);
 
-  RecoveryTerminalStart(state->landscape ? 112 : 78,
+  // Width available for text inside the padding: 1224 px (78 columns) on a
+  // 1440 px screen, more columns on wider screens.
+  lv_obj_update_layout(state->viewport);
+  const int output_width = static_cast<int>(lv_obj_get_width(state->viewport)) - 88;
+  RecoveryTerminalStart(state->landscape ? 112 : 78 * output_width / 1224,
                         state->landscape ? 38 : 42,
-                        state->landscape ? 2024 : 1224,
+                        state->landscape ? 2024 : output_width,
                         state->landscape ? 820 : 1860);
   RefreshOutput(state, true);
   state->timer = lv_timer_create(TerminalTick, 32, state);

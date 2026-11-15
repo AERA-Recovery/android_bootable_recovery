@@ -367,7 +367,8 @@ void ActionSheet(Files* state, const std::string& title, const std::string& deta
 
   const bool landscape = Landscape(state->screen);
   const int width =
-      landscape ? std::min(1900, static_cast<int>(lv_obj_get_width(state->screen)) - 128) : 1312;
+      landscape ? std::min(1900, static_cast<int>(lv_obj_get_width(state->screen)) - 128)
+                : SheetWidth(state->screen);
   const int rows = static_cast<int>((actions.size() + 1) / 2);
   const int height = std::min(landscape ? 1160 : 1280, 360 + rows * 150);
   auto* sheet = lv_obj_create(overlay);
@@ -432,7 +433,7 @@ void NameDialog(Files* state, const char* title, const char* placeholder,
   const bool landscape = Landscape(state->screen);
   const int screen_width = lv_obj_get_width(state->screen);
   const int width = landscape ? std::min(1900, screen_width - 128)
-                              : std::min(1312, screen_width - 80);
+                              : std::min(SheetWidth(state->screen), screen_width - 80);
   const int height = landscape ? 1250 : 1450;
   const int margin = 48;
   const int button_height = 126;
@@ -659,7 +660,7 @@ void OpenImageTargetPicker(Files *state, const Entry &entry) {
   const bool landscape = Landscape(state->screen);
   const int sheet_width = landscape
       ? std::min(2200, static_cast<int>(lv_obj_get_width(state->screen)) - 128)
-      : 1312;
+      : SheetWidth(state->screen);
   const int sheet_height = landscape
       ? std::min(1280, static_cast<int>(lv_obj_get_height(state->screen)) - 80)
       : 2200;
@@ -2411,7 +2412,7 @@ void UpdateActionBar(Files* state) {
       ? &lv_font_montserrat_36
       : interface_size == InterfaceSize::kNormal ? &lv_font_montserrat_32
                                                   : &lv_font_montserrat_24;
-  const int width = landscape ? lv_obj_get_width(state->screen) - 128 : 1312;
+  const int width = PageWidth(state->screen);
   lv_obj_set_size(state->action_bar, width, bar_height);
   lv_obj_align(state->action_bar, LV_ALIGN_BOTTOM_MID, 0, -NavigationHeight(state->screen) - 16);
   lv_obj_set_style_pad_all(state->action_bar, 12, 0);
@@ -2551,7 +2552,7 @@ void OpenSortMenu(Files* state) {
   const bool landscape = Landscape(state->screen);
   const int width = landscape
       ? std::min(1900, static_cast<int>(lv_obj_get_width(state->screen)) - 128)
-      : 1312;
+      : SheetWidth(state->screen);
   const int height = 500;
   auto* sheet = lv_obj_create(overlay);
   Panel(sheet, 44, kMainSheet);
@@ -2964,6 +2965,17 @@ static void BuildFilesSurface(lv_obj_t *screen, ActionCallback callback, void *c
                                      : &lv_font_montserrat_32;
   const lv_font_t* summary_font = large ? &lv_font_montserrat_32
                                         : &lv_font_montserrat_24;
+  // The toolbar was laid out for a 1244 px wide row. Scale it with the page
+  // width; on a 1440 px screen and in landscape nothing changes.
+  constexpr int kToolbarBaseWidth = 1244;
+  const int screen_w = ScreenWidth(screen);
+  const int toolbar_span = PageWidth(screen) - 68;
+  auto tx = [&](int x) {
+    return landscape ? x : 64 + (x - 64) * toolbar_span / kToolbarBaseWidth;
+  };
+  auto tw = [&](int w) {
+    return landscape ? w : w * toolbar_span / kToolbarBaseWidth;
+  };
   state->storage_label = Label(screen, "", storage_font, kAccent);
   lv_obj_set_pos(state->storage_label, 80, landscape ? 306 : 420);
 
@@ -2979,19 +2991,19 @@ static void BuildFilesSurface(lv_obj_t *screen, ActionCallback callback, void *c
     state->directory = volumes[next].path;
     Populate(state);
   });
-  lv_obj_set_pos(storage, 64, landscape ? 350 : 496);
+  lv_obj_set_pos(storage, tx(64), landscape ? 350 : 496);
   const int toolbar_height = large ? 140 : 120;
-  lv_obj_set_size(storage, 260, toolbar_height);
+  lv_obj_set_size(storage, tw(260), toolbar_height);
   auto *root = Button(screen, "Root", [state] { state->directory = "/"; Populate(state); });
-  lv_obj_set_pos(root, 348, landscape ? 350 : 496);
-  lv_obj_set_size(root, 140, toolbar_height);
+  lv_obj_set_pos(root, tx(348), landscape ? 350 : 496);
+  lv_obj_set_size(root, tw(140), toolbar_height);
   auto* sort = Button(screen, LV_SYMBOL_LIST, [state] { OpenSortMenu(state); });
-  lv_obj_set_pos(sort, 512, landscape ? 350 : 496);
-  lv_obj_set_size(sort, 140, toolbar_height);
+  lv_obj_set_pos(sort, tx(512), landscape ? 350 : 496);
+  lv_obj_set_size(sort, tw(140), toolbar_height);
   CenterButtonContent(sort);
   auto* create = Button(screen, LV_SYMBOL_PLUS, [state] { OpenCreateMenu(state); });
-  lv_obj_set_pos(create, 676, landscape ? 350 : 496);
-  lv_obj_set_size(create, 140, toolbar_height);
+  lv_obj_set_pos(create, tx(676), landscape ? 350 : 496);
+  lv_obj_set_size(create, tw(140), toolbar_height);
   CenterButtonContent(create);
   auto* select = Button(screen, LV_SYMBOL_OK, [state] {
     if (state->picking) return;
@@ -3000,16 +3012,16 @@ static void BuildFilesSurface(lv_obj_t *screen, ActionCallback callback, void *c
     RenderEntries(state);
     UpdateActionBar(state);
   });
-  lv_obj_set_pos(select, 840, landscape ? 350 : 496);
-  lv_obj_set_size(select, 140, toolbar_height);
+  lv_obj_set_pos(select, tx(840), landscape ? 350 : 496);
+  lv_obj_set_size(select, tw(140), toolbar_height);
   CenterButtonContent(select);
   if (state->picking) {
     lv_obj_add_flag(create, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(select, LV_OBJ_FLAG_HIDDEN);
   }
   state->search_button = Button(screen, "Search", [state] { OpenFileSearch(state); });
-  lv_obj_set_pos(state->search_button, 1004, landscape ? 350 : 496);
-  lv_obj_set_size(state->search_button, 140, toolbar_height);
+  lv_obj_set_pos(state->search_button, tx(1004), landscape ? 350 : 496);
+  lv_obj_set_size(state->search_button, tw(140), toolbar_height);
   lv_obj_set_style_bg_color(state->search_button, kAccentSoft, LV_STATE_CHECKED);
   lv_obj_add_flag(lv_obj_get_child(state->search_button, 0), LV_OBJ_FLAG_HIDDEN);
   auto* search_icon = lv_obj_create(state->search_button);
@@ -3034,8 +3046,8 @@ static void BuildFilesSurface(lv_obj_t *screen, ActionCallback callback, void *c
     if (state->search_mode) StartFileSearch(state);
     else Populate(state);
   });
-  lv_obj_set_pos(refresh, 1168, landscape ? 350 : 496);
-  lv_obj_set_size(refresh, 140, toolbar_height);
+  lv_obj_set_pos(refresh, tx(1168), landscape ? 350 : 496);
+  lv_obj_set_size(refresh, tw(140), toolbar_height);
   CenterButtonContent(refresh);
 
   if (large) {
@@ -3050,13 +3062,13 @@ static void BuildFilesSurface(lv_obj_t *screen, ActionCallback callback, void *c
   state->path_label = Label(screen, "", path_font, kText);
   lv_obj_set_pos(state->path_label, landscape ? 1460 : 80,
                  landscape ? 358 : 684);
-  SingleLineLabel(state->path_label, landscape ? 1620 : 1270, path_font);
+  SingleLineLabel(state->path_label, landscape ? 1620 : screen_w - 170, path_font);
   state->summary = Label(screen, "", summary_font, kMuted);
   lv_obj_set_pos(state->summary, landscape ? 1460 : 80,
                  landscape ? 424 : 750);
-  SingleLineLabel(state->summary, landscape ? 1480 : 1130, summary_font);
+  SingleLineLabel(state->summary, landscape ? 1480 : screen_w - 310, summary_font);
   state->search_clear = Button(screen, LV_SYMBOL_CLOSE, [state] { Populate(state); });
-  lv_obj_set_pos(state->search_clear, landscape ? 3008 : 1240, landscape ? 410 : 730);
+  lv_obj_set_pos(state->search_clear, landscape ? 3008 : screen_w - 200, landscape ? 410 : 730);
   lv_obj_set_size(state->search_clear, 88, 80);
   CenterButtonContent(state->search_clear);
   lv_obj_add_flag(state->search_clear, LV_OBJ_FLAG_HIDDEN);

@@ -11,8 +11,8 @@ namespace {
 using namespace design;
 using namespace widgets;
 
-void Step(lv_obj_t *parent, int y, const char *number, const char *title,
-          const char *detail) {
+void Step(lv_obj_t *parent, int y, int text_width, const char *number,
+          const char *title, const char *detail) {
   auto *badge = lv_obj_create(parent);
   Panel(badge, LV_RADIUS_CIRCLE, IconBackground());
   lv_obj_set_pos(badge, 36, y);
@@ -22,10 +22,10 @@ void Step(lv_obj_t *parent, int y, const char *number, const char *title,
 
   auto *heading = Label(parent, title, &lv_font_montserrat_32, kText);
   lv_obj_set_pos(heading, 136, y - 2);
-  lv_obj_set_width(heading, 1040);
+  lv_obj_set_width(heading, text_width);
   auto *copy = Label(parent, detail, &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(copy, 136, y + 46);
-  lv_obj_set_width(copy, 1040);
+  lv_obj_set_width(copy, text_width);
   lv_label_set_long_mode(copy, LV_LABEL_LONG_WRAP);
 }
 }  // namespace
@@ -40,8 +40,8 @@ void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
   auto *summary = lv_obj_create(screen);
   Panel(summary, 40, kMainSheet);
   lv_obj_set_pos(summary, 64, landscape ? 340 : 460);
-  lv_obj_set_size(summary, landscape ? 1450 : 1312,
-                  landscape ? 820 : 570);
+  const int summary_width = landscape ? 1450 : PageWidth(screen);
+  lv_obj_set_size(summary, summary_width, landscape ? 820 : 570);
   lv_obj_set_style_border_width(summary, 1, 0);
   lv_obj_set_style_border_color(summary, kMainLine, 0);
   lv_obj_set_style_border_opa(summary, LV_OPA_30, 0);
@@ -56,14 +56,14 @@ void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
   auto *ready =
       Label(summary, "Start ADB sideload", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(ready, 204, 42);
-  lv_obj_set_width(ready, landscape ? 1160 : 1040);
+  lv_obj_set_width(ready, landscape ? 1160 : summary_width - 272);
   auto *detail = Label(
       summary,
       "AERA will temporarily replace the normal ADB connection with the "
       "dedicated sideload service.",
       &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(detail, 204, 112);
-  lv_obj_set_width(detail, landscape ? 1160 : 1030);
+  lv_obj_set_width(detail, landscape ? 1160 : summary_width - 282);
   lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
 
   auto *notice = Label(
@@ -73,7 +73,7 @@ void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
       "automatically when it finishes.",
       &lv_font_montserrat_28, kAmber);
   lv_obj_set_pos(notice, 46, 230);
-  lv_obj_set_width(notice, landscape ? 1358 : 1220);
+  lv_obj_set_width(notice, summary_width - 92);
   lv_label_set_long_mode(notice, LV_LABEL_LONG_WRAP);
 
   auto *safe = Label(
@@ -82,15 +82,15 @@ void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
       "Its own installer controls which partitions are changed.",
       &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(safe, 46, landscape ? 400 : 390);
-  lv_obj_set_width(safe, landscape ? 1358 : 1220);
+  lv_obj_set_width(safe, summary_width - 92);
   lv_label_set_long_mode(safe, LV_LABEL_LONG_WRAP);
 
   auto *guide = lv_obj_create(screen);
   Panel(guide, 40, kMainSheet);
   lv_obj_set_pos(guide, landscape ? 1560 : 64,
                  landscape ? 340 : 1080);
-  lv_obj_set_size(guide, landscape ? 1544 : 1312,
-                  landscape ? 820 : 1330);
+  const int guide_width = landscape ? 1544 : PageWidth(screen);
+  lv_obj_set_size(guide, guide_width, landscape ? 820 : 1330);
   lv_obj_set_style_border_width(guide, 1, 0);
   lv_obj_set_style_border_color(guide, kMainLine, 0);
   lv_obj_set_style_border_opa(guide, LV_OPA_30, 0);
@@ -98,15 +98,17 @@ void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
   auto *guide_title =
       Label(guide, "Start a sideload session", &lv_font_montserrat_40, kText);
   lv_obj_set_pos(guide_title, 40, 34);
-  Step(guide, 126, "1", "Connect the USB cable",
+  const int step_text_width = landscape ? 1040 : guide_width - 272;
+  Step(guide, 126, step_text_width, "1", "Connect the USB cable",
        "Use a direct, reliable USB connection to your computer.");
-  Step(guide, 300, "2", "Start sideload in AERA",
+  Step(guide, 300, step_text_width, "2", "Start sideload in AERA",
        "Normal ADB will disconnect and the device will wait for a package.");
 
   auto *command = lv_obj_create(guide);
   Panel(command, 24, kInset);
   lv_obj_set_pos(command, 36, 472);
-  lv_obj_set_size(command, landscape ? 1472 : 1240, 150);
+  const int command_width = guide_width - 72;
+  lv_obj_set_size(command, command_width, 150);
   auto *command_title =
       Label(command, "THEN RUN ON YOUR COMPUTER", &lv_font_montserrat_20,
             kMuted);
@@ -116,7 +118,7 @@ void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
       Label(command, "adb sideload package.zip", &lv_font_montserrat_32,
             kAccent);
   lv_obj_set_pos(command_text, 28, 70);
-  lv_obj_set_width(command_text, landscape ? 1390 : 1160);
+  lv_obj_set_width(command_text, landscape ? 1390 : command_width - 80);
   lv_label_set_long_mode(command_text, LV_LABEL_LONG_DOT);
 
   auto *start = Button(
@@ -124,7 +126,7 @@ void BuildSideloadScene(lv_obj_t *screen, ActionCallback callback,
       [callback, context] { callback(Action::kStartSideload, context); },
       true);
   lv_obj_set_pos(start, 36, landscape ? 658 : 1120);
-  lv_obj_set_size(start, landscape ? 1472 : 1240, 132);
+  lv_obj_set_size(start, command_width, 132);
 
   AnimateEnter(summary, 30, 20);
   AnimateEnter(guide, 65, 20);

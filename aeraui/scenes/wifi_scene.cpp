@@ -1295,8 +1295,8 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
   state->hero = panel;
   const int content_top = NetworkContentTop(screen);
   lv_obj_set_pos(panel, 64, content_top);
-  lv_obj_set_size(panel, landscape ? 1450 : 1312,
-                  landscape ? 520 : 352);
+  const int panel_width = landscape ? 1450 : PageWidth(screen);
+  lv_obj_set_size(panel, panel_width, landscape ? 520 : 352);
   lv_obj_set_style_border_width(panel, 0, 0);
   lv_obj_set_style_border_color(panel, kMainLine, 0);
   lv_obj_set_style_border_opa(panel, LV_OPA_TRANSP, 0);
@@ -1315,16 +1315,16 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
 
   state->scene.status = Label(panel, "Checking...", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(state->scene.status, 198, 34);
-  lv_obj_set_width(state->scene.status, 690);
+  lv_obj_set_width(state->scene.status, landscape ? 690 : panel_width - 622);
   lv_label_set_long_mode(state->scene.status, LV_LABEL_LONG_DOT);
   state->scene.detail = Label(panel, "Reading wireless state", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(state->scene.detail, 198, 108);
-  lv_obj_set_width(state->scene.detail, 690);
+  lv_obj_set_width(state->scene.detail, landscape ? 690 : panel_width - 622);
   lv_label_set_long_mode(state->scene.detail, LV_LABEL_LONG_DOT);
   state->scene.toggle = lv_button_create(panel);
   Panel(state->scene.toggle, 38, kMainSheet);
   Interactive(state->scene.toggle, kMainSelected);
-  lv_obj_set_pos(state->scene.toggle, 930, 50);
+  lv_obj_set_pos(state->scene.toggle, landscape ? 930 : panel_width - 382, 50);
   lv_obj_set_size(state->scene.toggle, 294, 96);
   lv_obj_set_style_border_width(state->scene.toggle, 1, 0);
   lv_obj_set_style_border_color(state->scene.toggle, kMainLine, 0);
@@ -1346,8 +1346,10 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
     request.operation = WifiOperation::kScan;
     Dispatch(state, std::move(request));
   });
+  // Two equal buttons: 40 px on the left, 74 px on the right, 24 px between them.
+  const int scan_button_width = landscape ? 587 : (panel_width - 138) / 2;
   lv_obj_set_pos(state->scene.refresh, 40, 210);
-  lv_obj_set_size(state->scene.refresh, 587, 104);
+  lv_obj_set_size(state->scene.refresh, scan_button_width, 104);
   Panel(state->scene.refresh, 30, kMainSheet);
   Interactive(state->scene.refresh, kMainSelected);
   lv_obj_set_style_border_width(state->scene.refresh, 1, 0);
@@ -1359,8 +1361,8 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
     request.operation = WifiOperation::kTest;
     Dispatch(state, std::move(request));
   });
-  lv_obj_set_pos(state->scene.test, 651, 210);
-  lv_obj_set_size(state->scene.test, 587, 104);
+  lv_obj_set_pos(state->scene.test, 40 + scan_button_width + 24, 210);
+  lv_obj_set_size(state->scene.test, scan_button_width, 104);
   Panel(state->scene.test, 30, kMainSheet);
   Interactive(state->scene.test, kMainSelected);
   lv_obj_set_style_border_width(state->scene.test, 1, 0);
@@ -1381,8 +1383,8 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
     state->list_width = 1544;
   } else {
     lv_obj_set_x(state->scene.list, 64);
-    lv_obj_set_width(state->scene.list, 1312);
-    state->list_width = 1312;
+    lv_obj_set_width(state->scene.list, PageWidth(screen));
+    state->list_width = PageWidth(screen);
   }
   Navigation(screen, Action::kSettings, callback, context);
   AnimateEnter(panel, 10, 14);
